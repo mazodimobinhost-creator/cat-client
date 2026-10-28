@@ -27,6 +27,8 @@ internal class AetherProxyCarrier(
     private val innerEndpoint: String? = null,
     /** `auto` = carrier only (Psiphon/Tor decides the exit); `foreign` = two-hop WARP so the carrier itself exits abroad. */
     private val exitLocation: String = "auto",
+    /** beta206: the profile's own TLS / fragment / SNI / scan options, so a chained carrier dials like the link says. */
+    private val linkOptions: AetherSelection? = null,
 ) : Closeable {
     private val active = AtomicBoolean(false)
     private var job: Job? = null
@@ -50,7 +52,21 @@ internal class AetherProxyCarrier(
             ipScan = ipScan,
             masqueTransport = masqueTransport,
             exitLocation = exitLocation,
-        )
+        ).let { base ->
+            val o = linkOptions ?: return@let base
+            base.copy(
+                scanMode = o.scanMode.takeIf { it in AetherRuntimeConfig.VALID_SCAN_MODES } ?: base.scanMode,
+                noizePreset = o.noizePreset.takeIf { it in AetherRuntimeConfig.VALID_NOIZE_PRESETS } ?: base.noizePreset,
+                fingerprint = o.fingerprint.ifBlank { "chrome" },
+                fragmentEnabled = o.fragmentEnabled,
+                fragmentSize = o.fragmentSize,
+                fragmentDelay = o.fragmentDelay,
+                masqueSni = o.masqueSni,
+                echEnabled = o.echEnabled,
+                echDns = o.echDns,
+                echDomain = o.echDomain,
+            )
+        }
         val primaryJson = config.toNativeJson()
         val validation = NativeAetherBridge.validate(primaryJson)
         check(validation.ok) { validation.error ?: "Invalid Aether proxy configuration" }

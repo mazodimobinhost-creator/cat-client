@@ -782,7 +782,7 @@ internal object PaqetEngine {
                 protectOutboundSocket(s)
                 s.tcpNoDelay = cfg.kcpMode.nodelay == 1
                 s.soTimeout = 20_000
-                s.connect(InetSocketAddress(serverClean, hoppedPort), 7_000)
+                s.connect(InetSocketAddress(resolveForProtectedSocket(serverClean), hoppedPort), 7_000)
                 if (!cfg.upstreamEntrySocks) {
                     // A raw TCP stream carries no destination; without the SOCKS entry handshake
                     // the server cannot know where to forward, so treat it as unusable.

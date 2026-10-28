@@ -1865,7 +1865,7 @@ internal object FirefoxVpnEngine {
             Socket().use { sock ->
                 protectOutboundSocket(sock)
                 sock.tcpNoDelay = true
-                sock.connect(InetSocketAddress(host, port), timeoutMs)
+                sock.connect(InetSocketAddress(resolveForProtectedSocket(host), port), timeoutMs)
             }
             ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
         }.getOrNull()
@@ -2282,7 +2282,7 @@ internal object FirefoxVpnEngine {
         raw.tcpNoDelay = true
         raw.soTimeout = timeoutMs
         try {
-            raw.connect(InetSocketAddress(connectHost, connectPort), timeoutMs)
+            raw.connect(InetSocketAddress(resolveForProtectedSocket(connectHost), connectPort), timeoutMs)
         } catch (e: Exception) {
             runCatching { raw.close() } // beta205: no fd leak when a probe target is down
             throw e

@@ -230,6 +230,43 @@ internal fun protectOutboundSocket(socket: java.net.Socket): Boolean =
         service.protect(socket)
     }.getOrDefault(false)
 
+/** True for mihomo's fake-ip range (198.18.0.0/15), which only means something inside the tunnel. */
+internal fun isMihomoFakeIp(addr: java.net.InetAddress): Boolean {
+    val b = addr.address
+    return b.size == 4 && (b[0].toInt() and 0xFF) == 198 && ((b[1].toInt() and 0xFF) == 18 || (b[1].toInt() and 0xFF) == 19)
+}
+
+/**
+ * beta206: resolve the destination of a PROTECTED socket (one that deliberately bypasses the tunnel).
+ *
+ * While Cat is connected the app's own DNS lookups go to mihomo, which answers in fake-ip mode with 198.18.x.x.
+ * A protected socket then dials that fake address on the real network and never connects — this is why the
+ * local Firefox VPN / paqet bridges "pinged" (tested before connect) but failed once the VPN was up. Lookups are
+ * made on the underlying (non-VPN) network instead, and a fake-ip answer is never returned.
+ */
+internal fun resolveForProtectedSocket(host: String): java.net.InetAddress {
+    val clean = host.trim().removePrefix("[").removeSuffix("]")
+    val literal = Regex("""^[0-9.]+$""").matches(clean) ||
+        (clean.count { it == ':' } >= 2 && Regex("""^[0-9A-Fa-f:.]+(%[0-9A-Za-z_.-]+)?$""").matches(clean))
+    if (literal) return java.net.InetAddress.getByName(clean)
+    currentVpnService?.let { service ->
+        runCatching {
+            val cm = service.getSystemService(android.net.ConnectivityManager::class.java)
+            @Suppress("DEPRECATION")
+            val physical = cm.allNetworks.firstOrNull { n ->
+                cm.getNetworkCapabilities(n)?.let {
+                    !it.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) &&
+                        it.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                } == true
+            }
+            physical?.getAllByName(clean)?.firstOrNull { !isMihomoFakeIp(it) }
+        }.getOrNull()?.let { return it }
+    }
+    val all = java.net.InetAddress.getAllByName(clean)
+    return all.firstOrNull { !isMihomoFakeIp(it) }
+        ?: throw java.net.UnknownHostException("$clean resolved only to the tunnel's fake-ip ${all.firstOrNull()?.hostAddress}")
+}
+
 internal fun protectOutboundDatagramSocket(socket: java.net.DatagramSocket): Boolean =
     runCatching { currentVpnService?.protect(socket) ?: true }.getOrDefault(false)
 
@@ -1357,10 +1394,12 @@ class CatClientVpnService : VpnService() {
         val rawShare = profile.shareLink?.trim().orEmpty()
         val scheme = rawShare.substringBefore("://", "").lowercase()
         if (scheme == "aether" || scheme == "masque") {
-            val aetherRtt = withContext(Dispatchers.IO) {
-                AetherOperations.probeAetherUriLatencyMs(rawShare, timeoutMs)
-            }
-            if (aetherRtt != null) return aetherRtt
+            // beta206: a real tunnel handshake through the Aether core, never a socket-connect «ping».
+            return withContext(Dispatchers.IO) { realAetherDelayMs(profile, rawShare, timeoutMs) }
+        }
+        if (scheme == "fenix" || scheme == "firefoxvpn") {
+            // beta206: a real HTTP request through the local Firefox VPN bridge and Mozilla's proxy.
+            return withContext(Dispatchers.IO) { realFenixDelayMs(profile, rawShare, timeoutMs) }
         }
         connectionDelayMs(
             controller = controller,
@@ -1380,22 +1419,6 @@ class CatClientVpnService : VpnService() {
                             timeoutMs = timeoutMs,
                         )?.toInt()
                     } else null
-                }
-                scheme == "fenix" || scheme == "firefoxvpn" -> {
-                    // Real node of the config's country (fenix://…?country=DE), not a generic Fastly IP.
-                    val code = rawShare.substringAfter('?', "").split('&')
-                        .firstOrNull { it.startsWith("country=", ignoreCase = true) }
-                        ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US).orEmpty()
-                    val node = FirefoxVpnEngine.getAvailableCountries(applicationContext)
-                        .let { list -> list.firstOrNull { it.code == code } ?: list.firstOrNull() }
-                    if (node == null) null else runCatching {
-                        val t0 = System.nanoTime()
-                        java.net.Socket().use { s ->
-                            protectOutboundSocket(s)
-                            s.connect(java.net.InetSocketAddress(node.proxyHost, node.proxyPort), timeoutMs)
-                        }
-                        ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
-                    }.getOrNull()
                 }
                 scheme in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> {
                     val afterScheme = rawShare.substringAfter("://", "")
@@ -1418,6 +1441,67 @@ class CatClientVpnService : VpnService() {
             "profile=${profile.tag}",
         )
         return null
+    }
+
+    private val fenixTestLock = Any()
+
+    private fun realAetherDelayMs(profile: ConnectionProfile, rawShare: String, timeoutMs: Int): Int? {
+        val running = aetherSession != null && state == VpnState.Started
+        if (running) {
+            // The core is carrying the live tunnel and cannot test another one. The profile that is connected right
+            // now is measured over that tunnel (a real request); the others keep their last result.
+            val active = aetherPreferenceStore.read()
+            val sel = AetherSelection.fromAetherUri(rawShare)
+            if (sel == null || active.profileName != sel.profileName) return null
+            val t0 = System.nanoTime()
+            return if (AetherOperations.probeExitTrace(timeoutMs.coerceIn(2_000, 15_000)).isSuccess) {
+                ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
+            } else null
+        }
+        val probe = AetherOperations.realAetherHandshake(
+            rawShare,
+            File(filesDir, "aether.toml"),
+            timeoutMs.toLong().coerceIn(5_000L, 30_000L),
+        )
+        if (probe.rttMs == null) {
+            DiagnosticLogger.warn(this, "connection.delay.aether", "profile=${profile.tag} peer=${probe.peer} error=${probe.error}")
+            return null
+        }
+        return probe.rttMs.toInt().coerceAtLeast(1)
+    }
+
+    private fun realFenixDelayMs(profile: ConnectionProfile, rawShare: String, timeoutMs: Int): Int? {
+        val ctx = applicationContext
+        if (FirefoxVpnEngine.selectBestActiveAccount(FirefoxVpnEngine.loadAccounts(ctx)) == null) {
+            DiagnosticLogger.warn(this, "connection.delay.fenix", "profile=${profile.tag} error=no signed-in Firefox account")
+            return null
+        }
+        val code = rawShare.substringAfter('?', "").substringBefore('#').split('&')
+            .firstOrNull { it.startsWith("country=", ignoreCase = true) }
+            ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US)
+        // One bridge, one upstream country: tests run one at a time, and a live Firefox VPN tunnel is never
+        // switched to another country just to measure a row.
+        return synchronized(fenixTestLock) {
+            val live = state == VpnState.Started && FirefoxVpnEngine.isLocalProxyRunning()
+            val port = if (live) FirefoxVpnEngine.activeProxyPort() else FirefoxVpnEngine.startLocalBridge(ctx, code)
+            if (port !in 1..65535) return@synchronized null
+            runCatching {
+                val t0 = System.nanoTime()
+                java.net.Socket(java.net.Proxy(java.net.Proxy.Type.SOCKS, java.net.InetSocketAddress("127.0.0.1", port))).use { s ->
+                    s.soTimeout = timeoutMs
+                    s.connect(java.net.InetSocketAddress.createUnresolved("www.gstatic.com", 80), timeoutMs)
+                    s.getOutputStream().apply {
+                        write("GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n".toByteArray())
+                        flush()
+                    }
+                    val status = s.getInputStream().bufferedReader(Charsets.US_ASCII).readLine().orEmpty()
+                    check(status.startsWith("HTTP/1.") && (" 204" in status || " 200" in status)) { "status=$status" }
+                }
+                ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
+            }.onFailure {
+                DiagnosticLogger.warn(this, "connection.delay.fenix", "profile=${profile.tag} error=${it.message}")
+            }.getOrNull()
+        }
     }
 
     private suspend fun connectionDelayMs(
@@ -4114,6 +4198,20 @@ class CatClientVpnService : VpnService() {
                 val fenixCountry = fenixMatches.first().groupValues[1].substringAfter('?', "")
                     .split('&').firstOrNull { it.startsWith("country=", ignoreCase = true) }
                     ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US)
+                if (FirefoxVpnEngine.selectBestActiveAccount(FirefoxVpnEngine.loadAccounts(applicationContext)) == null) {
+                    // beta206: without a signed-in Firefox Account Mozilla gives no ProxyPass, so every request
+                    // through this profile fails. Say so instead of a bare «خطای اتصال».
+                    DiagnosticLogger.warn(this, "fenix.account.missing", "fenix profiles=${fenixMatches.size}")
+                    val farsi = runCatching { AppLanguagePreferenceStore(applicationContext).read() == AppLanguage.Persian }.getOrDefault(true)
+                    val msg = if (farsi) {
+                        "🦊 Firefox VPN حساب Firefox وارد‌شده ندارد؛ از «MLM VPN ← Firefox VPN» وارد حساب شوید، بعد وصل کنید."
+                    } else {
+                        "🦊 Firefox VPN has no signed-in Firefox account. Sign in under “MLM VPN → Firefox VPN”, then connect."
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        runCatching { android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_LONG).show() }
+                    }
+                }
                 val activePort = FirefoxVpnEngine.startLocalBridge(applicationContext, fenixCountry)
                 if (activePort in 1..65535) {
                     val updated = yaml.replace(
@@ -4438,6 +4536,7 @@ class CatClientVpnService : VpnService() {
             ipScan = selection.ipScan,
             masqueTransport = selection.masqueTransport,
             innerEndpoint = selection.innerEndpoint,
+            linkOptions = selection,
         ).also { aetherPsiphonChain = it }
         DiagnosticLogger.info(
             this,
@@ -4532,6 +4631,7 @@ class CatClientVpnService : VpnService() {
             masqueTransport = selection.masqueTransport,
             innerEndpoint = selection.innerEndpoint,
             exitLocation = if (torReachable) "auto" else "foreign",
+            linkOptions = selection,
         ).also { aetherTorCarrier = it }
         DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName} torReachable=$torReachable")
         if (!torReachable) {

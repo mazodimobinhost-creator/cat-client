@@ -43,6 +43,7 @@ internal class AetherPsiphonChain(
     private val ipScan: String = "both",
     private val masqueTransport: String = "h2",
     private val innerEndpoint: String? = null,
+    private val linkOptions: AetherSelection? = null,
 ) : Closeable {
     private val active = AtomicBoolean(false)
     private var aether = newCarrier(exitLocation = "auto")
@@ -59,6 +60,7 @@ internal class AetherPsiphonChain(
         masqueTransport = masqueTransport,
         innerEndpoint = innerEndpoint,
         exitLocation = exitLocation,
+        linkOptions = linkOptions,
     )
 
     suspend fun start(region: String = "", onStep: (String) -> Unit = {}): AetherChainOutcome {

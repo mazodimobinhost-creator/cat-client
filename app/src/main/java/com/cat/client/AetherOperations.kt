@@ -528,15 +528,91 @@ internal object AetherOperations {
                     sock.connect(sockAddr, timeoutMs)
                 }
             } else {
+                // beta206: sending a UDP datagram "succeeds" in ~1 ms whether or not anything answers, which is
+                // where the fake «1 ms» results came from. UDP is only measured when a reply proves the path:
+                // a real DNS query on port 53; anything else (WireGuard/QUIC) has no handshake to time here.
+                if (port != 53) return null
                 java.net.DatagramSocket().use { dgram ->
                     dgram.soTimeout = timeoutMs
                     dgram.connect(sockAddr)
-                    val pkt = ByteArray(32)
-                    dgram.send(java.net.DatagramPacket(pkt, pkt.size))
+                    val query = dnsProbeQuery()
+                    dgram.send(java.net.DatagramPacket(query, query.size))
+                    val buf = ByteArray(512)
+                    val reply = java.net.DatagramPacket(buf, buf.size)
+                    dgram.receive(reply)
+                    check(reply.length >= 12 && buf[0] == query[0] && buf[1] == query[1]) { "not a DNS reply" }
                 }
             }
             ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
         }.getOrNull()
+    }
+
+    /** A minimal DNS A query for www.google.com with a random id (RFC 1035 §4.1). */
+    private fun dnsProbeQuery(): ByteArray {
+        val id = java.util.Random().nextInt(0xFFFF)
+        val out = java.io.ByteArrayOutputStream()
+        out.write(byteArrayOf((id shr 8).toByte(), id.toByte(), 0x01, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+        "www.google.com".split('.').forEach { label ->
+            out.write(label.length)
+            out.write(label.toByteArray(Charsets.US_ASCII))
+        }
+        out.write(byteArrayOf(0, 0, 1, 0, 1))
+        return out.toByteArray()
+    }
+
+    /** Result of [realAetherHandshake]: a measured tunnel RTT, or the native core's reason it failed. */
+    data class AetherRealProbe(val rttMs: Long?, val peer: String?, val error: String?)
+
+    private val realProbeLock = Any()
+
+    /**
+     * beta206: the connection-test value for an `aether://` profile. Earlier builds showed the time of a bare TCP
+     * connect (MASQUE/H2) or of *sending one UDP datagram* (WireGuard/H3 → always «1 ms») to the Cloudflare
+     * endpoint, so a profile that could never carry traffic looked healthy. This asks the native core to build the
+     * profile's real tunnel (its mode, transport, fingerprint, fragment, SNI) to the endpoint and confirm traffic,
+     * exactly like the connect does; no fallback number is invented when it fails.
+     */
+    fun realAetherHandshake(rawUri: String, identityFile: File, budgetMillis: Long): AetherRealProbe {
+        if (!NativeAetherBridge.isLoaded) return AetherRealProbe(null, null, "Aether native core is unavailable")
+        val sel = AetherSelection.fromAetherUri(rawUri) ?: return AetherRealProbe(null, null, "not an Aether link")
+        val mode = if (sel.mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else sel.mode
+        val udp = mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) ||
+            (sel.masqueTransport == "h3" && mode != AetherMode.WireGuardOverMasque)
+        val peer = sel.endpoint ?: when {
+            sel.ipScan == "v6" && mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) -> "[2606:4700:d0::a29f:c001]:2408"
+            sel.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+            udp && mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) -> "162.159.192.1:2408"
+            else -> "162.159.198.1:443"
+        }
+        return runCatching {
+            val cfg = AetherRuntimeConfig(
+                mode = mode,
+                identityFile = identityFile,
+                endpoint = peer,
+                innerEndpoint = sel.innerEndpoint,
+                ipScan = sel.ipScan,
+                // A Psiphon/Tor chain is tested on its WARP leg only (what the chain rides on).
+                exitLocation = if (sel.chainTarget != "none" || sel.mode == AetherMode.MasquePsiphon) "auto" else sel.effectiveExitLocation(),
+                masqueTransport = sel.masqueTransport.takeIf { it == "h3" } ?: "h2",
+                scanMode = sel.scanMode.takeIf { it in AetherRuntimeConfig.VALID_SCAN_MODES } ?: "balanced",
+                noizePreset = sel.noizePreset.takeIf { it in AetherRuntimeConfig.VALID_NOIZE_PRESETS } ?: "auto",
+                fingerprint = sel.fingerprint.ifBlank { "chrome" },
+                fragmentEnabled = sel.fragmentEnabled,
+                fragmentSize = sel.fragmentSize,
+                fragmentDelay = sel.fragmentDelay,
+                masqueSni = sel.masqueSni,
+                echEnabled = sel.echEnabled,
+                echDns = sel.echDns,
+                echDomain = sel.echDomain,
+            )
+            val json = org.json.JSONObject(cfg.toNativeJson())
+                .put("scanBudgetMillis", budgetMillis.coerceIn(1_000L, 30_000L))
+                .put("peerFallback", false)
+                .toString()
+            // The native core runs one scan/test at a time; parallel test workers queue here.
+            val tested = synchronized(realProbeLock) { NativeAetherBridge.testEndpoint(json).getOrThrow() }
+            AetherRealProbe(tested.rttMillis.coerceAtLeast(1L), tested.peer, null)
+        }.getOrElse { AetherRealProbe(null, peer, it.message ?: it.javaClass.simpleName) }
     }
 
     /**
