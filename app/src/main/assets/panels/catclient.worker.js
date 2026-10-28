@@ -1088,6 +1088,7 @@ function normalizeSettings(raw) {
     name: String((p && p.name) || '').replace(/[<>"']/g, '').trim().slice(0, 40),
     ips: uniq((Array.isArray(p && p.ips) ? p.ips : []).map((a) => cleanAddrEntry(a)).filter(Boolean)).slice(0, 100),
   })).filter((p) => p.name && p.ips.length).slice(0, 20);
+  s.locPool = normalizeLocPool(s.locPool);
   if (s.uiCleanV !== 1) { if (s.uiTheme === 'aurora') s.uiTheme = 'clean'; s.uiCleanV = 1; }
   s.ips = uniq(Array.isArray(s.ips) ? s.ips : splitCsv(s.ips)).slice(0, 400);
   // Default ON for fresh panels; an owner's saved false remains an explicit opt-out.
@@ -1248,6 +1249,9 @@ function normalizeUser(raw) {
     fw: Object.prototype.hasOwnProperty.call(FIREWALL_BYPASS_PRESETS, String(u.fw || '')) ? String(u.fw) : '',
     // Per-user clean addresses, kept exactly as tested (IP or IP:port, never re-ported).
     ips: uniq((Array.isArray(u.ips) ? u.ips : []).map((a) => cleanAddrEntry(a)).filter(Boolean)).slice(0, 20),
+    // 🌍 Exit location (6.74.0): this user's ProxyIP / SOCKS exits (each on its own port) + the country label.
+    exits: uniq((Array.isArray(u.exits) ? u.exits : []).map((a) => cleanExitEntry(a)).filter(Boolean)).slice(0, 6),
+    exitCc: normalizeCountry(u.exitCc),
     protocols: {[PROTO_VLESS]: !(u.protocols && u.protocols[PROTO_VLESS] === false),[TROJAN_KEY]: !(u.protocols && u.protocols[TROJAN_KEY] === false) },
   };
 }
@@ -2318,7 +2322,7 @@ function resolveRelayToken(settings, token) {
   const m = /^relay:([0-9a-f]{16})$/i.exec(t);
   if (!m) return t; // not a relay reference (a plain ProxyIP) — pass through
   const want = m[1].toLowerCase();
-  const list = (settings && settings[PXIPS_KEY]) || [];
+  const list = ((settings && settings[PXIPS_KEY]) || []).concat(((settings && settings.locPool) || []).filter((p) => p && p.kind === 'socks').map((p) => p.addr));
   for (const e of list) {
     const u = String(e || '');
     if (!/^socks5h?:\/\//i.test(u)) continue;
@@ -2803,18 +2807,188 @@ async function chainProbe(sockets, chain) {
   }
 }
 
+/* 🌍 Locations (6.74.0, DevCop-style «لوکیشن خروجی»): a small library of exits per country that the panel
+ * gets BY ITSELF — ProxyIPs from the repo feeds (exit country proven by Cloudflare's own /cdn-cgi/trace
+ * «loc=» seen THROUGH that ProxyIP) and public SOCKS5 (exit proven by an ip-api echo through the proxy).
+ * Every entry keeps its own listed port. A user can be pinned to one country: their subscription then
+ * carries only that country's 🎯/🧦 configs. Owner clicks only — nothing runs in the background. */
+const LOC_MAX = 80;
+const LOC_CHOICES = ['DE', 'NL', 'GB', 'FR', 'FI', 'SE', 'PL', 'AT', 'CH', 'IT', 'ES', 'RO', 'CZ', 'TR', 'AE', 'AM', 'GE', 'RU', 'US', 'CA', 'SG', 'JP', 'HK', 'KR', 'IN'];
+function cleanExitEntry(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^socks5h?:\/\//i.test(s)) return parseChain(s) ? s : '';
+  const a = cleanAddrEntry(splitAddrTag(s).addr);
+  return a && pinnedPortOf(a) ? a : ''; // a ProxyIP without its own port is never guessed onto one
+}
+function normalizeLocPool(list) {
+  const out = [];
+  const seen = new Set();
+  for (const e of Array.isArray(list) ? list : []) {
+    if (!e || typeof e !== 'object') continue;
+    const addr = cleanExitEntry(e.addr);
+    const cc = normalizeCountry(e.cc);
+    if (!addr || !cc || seen.has(addr)) continue;
+    seen.add(addr);
+    out.push({
+      kind: /^socks5h?:\/\//i.test(addr) ? 'socks' : 'px',
+      addr, cc,
+      ms: Math.max(0, Math.min(60000, Math.round(Number(e.ms) || 0))),
+      ok: e.ok !== false,
+      fails: Math.max(0, Math.min(9, Math.floor(Number(e.fails) || 0))),
+      at: Number(e.at) || 0,
+      exitIp: String(e.exitIp || '').replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45),
+      colo: String(e.colo || '').replace(/[^A-Z]/g, '').slice(0, 4),
+    });
+    if (out.length >= LOC_MAX) break;
+  }
+  return out;
+}
+/** A user pinned to a country: their configs carry ONLY those exits (no repo auto-append, no VIP, no country re-order). */
+function withUserExits(settings, user) {
+  if (!user || !Array.isArray(user.exits) || !user.exits.length) return settings;
+  const tags = Object.assign({}, settings.proxyCountries || {});
+  const pool = settings.locPool || [];
+  for (const a of user.exits) {
+    const hit = pool.find((p) => p.addr === a);
+    const cc = (hit && hit.cc) || user.exitCc;
+    if (cc) tags[a] = cc;
+  }
+  return Object.assign({}, settings, { [PXIPS_KEY]: user.exits.slice(), proxyCountries: tags, proxyRepoAuto: false, proxyVip: '', country: '' });
+}
+/** ProxyIP check that PROVES the exit country: TCP → TLS(speed.cloudflare.com) → GET /cdn-cgi/trace through the
+ * ProxyIP. Cloudflare answers with «loc=XX» = the country it sees the connection coming from, i.e. the exit. */
+async function pxTraceProbe(sockets, addr) {
+  const hp = splitHostPort(String(addr), 443);
+  const port = hp.port || 443;
+  const t0 = Date.now();
+  let raw = null;
+  try {
+    let dial = String(hp.hostname || '').replace(/^\[|\]$/g, '');
+    if (!isIpv4(dial) && !isIpv6(dial)) { const ip = await resolveHost(dial); if (ip) dial = ip; }
+    raw = sockets.connect({ hostname: dial, port }, { allowHalfOpen: false, secureTransport: 'starttls' });
+    await withTimeout(raw.opened, 5000, 'connect-timeout');
+    const up = raw.startTls({ expectedServerHostname: PX_PROBE_HOST });
+    const sock = up && up.writable ? up : raw;
+    const w = sock.writable.getWriter();
+    await w.write(new TextEncoder().encode('GET /cdn-cgi/trace HTTP/1.1\r\nHost: ' + PX_PROBE_HOST + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n'));
+    try { w.releaseLock(); } catch (e) { /* ignore */ }
+    const reader = sock.readable.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && buf.length < 8192 && !/\nloc=[A-Z]{2}[\s\S]*\ncolo=|\ncolo=[A-Z]+[\s\S]*\nloc=[A-Z]{2}/.test(buf)) {
+      const chunk = await withTimeout(reader.read(), Math.max(1, deadline - Date.now()), 'read-timeout');
+      if (chunk.done) break;
+      buf += dec.decode(chunk.value, { stream: true });
+    }
+    const ms = Date.now() - t0;
+    const st = Number((buf.match(/^HTTP\/[^\s]+ (\d{3})/) || [])[1] || 0);
+    const loc = normalizeCountry((buf.match(/(?:^|\n)loc=([A-Z]{2})/) || [])[1]);
+    if (st !== 200 || !loc) return { ok: false, ms, error: st ? 'http ' + st : 'no-trace' };
+    return { ok: true, ms, loc, exitIp: (buf.match(/(?:^|\n)ip=([0-9a-fA-F:.]+)/) || [])[1] || '', colo: (buf.match(/(?:^|\n)colo=([A-Z]{3})/) || [])[1] || '' };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 60) };
+  } finally {
+    try { if (raw) raw.close(); } catch (e) { /* ignore */ }
+  }
+}
+function locShuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const x = a[i]; a[i] = a[j]; a[j] = x; } return a; }
+async function locFetch(env, settings, cc, want, kinds) {
+  const sockets = await loadSockets();
+  if (!sockets) return { ok: false, error: 'cloudflare:sockets unavailable' };
+  const pool = settings.locPool || [];
+  const have = new Set(pool.map((p) => p.addr));
+  const added = [];
+  const other = [];
+  const rep = { testedPx: 0, listedPx: 0, testedSx: 0, listedSx: 0 };
+  if (kinds.px) {
+    let cand = await proxyRepoHealthyPool(env, 400);
+    if (!cand.length && kvBinding(env)) { await refreshProxyRepos(env).catch(() => null); cand = await proxyRepoHealthyPool(env, 400); }
+    const tagged = locShuffle(cand.filter((c) => c.cc === cc && !have.has(cleanExitEntry(c.ip))));
+    const untagged = locShuffle(cand.filter((c) => !c.cc && !have.has(cleanExitEntry(c.ip))));
+    rep.listedPx = tagged.length;
+    const list = tagged.slice(0, 10).concat(tagged.length < 4 ? untagged.slice(0, 4) : []);
+    let matched = 0;
+    await mapBounded(list, 4, async (c) => {
+      if (matched >= want) return;
+      const addr = cleanExitEntry(c.ip);
+      if (!addr) return;
+      rep.testedPx++;
+      const r = await pxTraceProbe(sockets, addr);
+      if (!r.ok) return;
+      const e = { kind: 'px', addr, cc: r.loc, ms: r.ms, ok: true, fails: 0, at: Date.now(), exitIp: r.exitIp, colo: r.colo };
+      if (r.loc === cc) { if (matched < want) { matched++; added.push(e); } }
+      else other.push(e); // a working exit in ANOTHER country is kept under its REAL country
+    });
+  }
+  if (kinds.socks) {
+    const h = await huntSocks(env, settings, cc, want, sockets, have);
+    rep.testedSx = h.tried; rep.listedSx = h.listed;
+    for (const f of h.found) added.push({ kind: 'socks', addr: f.url, cc, ms: f.ms, ok: true, fails: 0, at: Date.now(), exitIp: f.exitIp || '' });
+  }
+  if (!added.length && !other.length) return Object.assign({ ok: true, cc, added, other, pool }, rep);
+  const saved = await writeSettings(env, { locPool: normalizeLocPool(added.concat(other, pool)) });
+  return Object.assign({ ok: true, cc, added, other, persisted: saved.persisted, pool: saved.settings.locPool }, rep);
+}
+/** «📡 پینگ همه»: re-test library entries for real (≤16 per click) and update ms / ok / the PROVEN country. */
+async function locPing(env, settings, cc) {
+  const sockets = await loadSockets();
+  if (!sockets) return { ok: false, error: 'cloudflare:sockets unavailable' };
+  const pool = (settings.locPool || []).map((p) => Object.assign({}, p));
+  const todo = pool.filter((p) => !cc || p.cc === cc).sort((a, b) => (a.at || 0) - (b.at || 0)).slice(0, 16);
+  await mapBounded(todo, 4, async (p) => {
+    if (p.kind === 'socks') {
+      const c = parseChain(p.addr);
+      const t0 = Date.now();
+      let r = null;
+      try { r = c ? await withTimeout(chainProbe(sockets, c), 7000, 'timeout') : null; } catch (e) { r = null; }
+      const rcc = r && normalizeCountry(r.cc);
+      if (r && r.ok && rcc) { p.ok = true; p.fails = 0; p.ms = Date.now() - t0; p.cc = rcc; p.exitIp = r.exitIp || p.exitIp; }
+      else { p.ok = false; p.fails = (p.fails || 0) + 1; }
+    } else {
+      const r = await pxTraceProbe(sockets, p.addr);
+      if (r.ok) { p.ok = true; p.fails = 0; p.ms = r.ms; p.cc = r.loc; p.exitIp = r.exitIp || p.exitIp; p.colo = r.colo || p.colo; }
+      else { p.ok = false; p.fails = (p.fails || 0) + 1; }
+    }
+    p.at = Date.now();
+  });
+  const saved = await writeSettings(env, { locPool: normalizeLocPool(pool) });
+  return { ok: true, tested: todo.length, persisted: saved.persisted, pool: saved.settings.locPool };
+}
+function locSummary(settings, users) {
+  const by = {};
+  for (const p of settings.locPool || []) {
+    const b = by[p.cc] = by[p.cc] || { cc: p.cc, px: 0, socks: 0, ok: 0, best: 0, users: 0 };
+    b[p.kind === 'socks' ? 'socks' : 'px']++;
+    if (p.ok) { b.ok++; if (!b.best || (p.ms && p.ms < b.best)) b.best = p.ms; }
+  }
+  for (const u of users || []) if (u.exitCc && by[u.exitCc]) by[u.exitCc].users++;
+  return Object.values(by).map((b) => Object.assign(b, { flag: flagOf(b.cc), fa: PX_FA_NAMES[b.cc] || COUNTRY_NAMES[b.cc] || b.cc, en: COUNTRY_NAMES[b.cc] || b.cc }))
+    .sort((a, b) => (b.ok - a.ok) || a.cc.localeCompare(b.cc));
+}
 /* 📍 Exit hunt (6.72.0): one country's public SOCKS5 list (proxifly, by URL) → a real handshake + ip-api echo
  * through each candidate → keep only proxies whose REAL exit is in that country, on their own listed port.
  * Owner click only; nothing runs in the background and nothing is guessed. */
 async function exitHunt(env, settings, cc, want) {
   const sockets = await loadSockets();
   if (!sockets) return { ok: false, error: 'cloudflare:sockets unavailable' };
+  const h = await huntSocks(env, settings, cc, want, sockets, null);
+  const found = h.found, tried = h.tried;
+  if (!found.length) return { ok: true, found, tried, listed: h.listed };
+  const added = await addProxyRelayEntries(env, settings, found.map((f) => f.url + '#' + cc));
+  return { ok: true, found, tried, listed: h.listed, persisted: added.persisted, capped: added.capped || [] };
+}
+/** The SOCKS half shared by 📍 exit hunt and 🌍 locations: real handshake + ip-api echo, exact listed port. */
+async function huntSocks(env, settings, cc, want, sockets, exclude) {
   let txt = '';
   for (const u of ['https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/' + cc + '/data.txt', 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/' + cc + '/data.txt']) {
     try { const r = await fetch(u, { cf: { cacheTtl: 900 } }); if (r.ok) txt = await r.text(); } catch (e) { /* next mirror */ }
     if (txt) break;
   }
   const have = new Set(socksRelayList(env, settings).map((r) => 'socks5://' + r.host + ':' + r.port));
+  for (const p of settings.locPool || []) if (p.kind === 'socks') have.add(p.addr);
+  if (exclude) for (const x of exclude) have.add(x);
   const pool = uniq(txt.match(/socks5:\/\/\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}/g) || []).filter((u) => !have.has(u));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const x = pool[i]; pool[i] = pool[j]; pool[j] = x; }
   const found = [];
@@ -2830,9 +3004,7 @@ async function exitHunt(env, settings, cc, want) {
       if (r && r.ok && normalizeCountry(r.cc) === cc && found.length < want) found.push({ url: u, cc, ms: Date.now() - t0, exitIp: r.exitIp || '' });
     } catch (e) { /* dead or slow — skipped */ }
   });
-  if (!found.length) return { ok: true, found, tried, listed: pool.length };
-  const added = await addProxyRelayEntries(env, settings, found.map((f) => f.url + '#' + cc));
-  return { ok: true, found, tried, listed: pool.length, persisted: added.persisted, capped: added.capped || [] };
+  return { found, tried, listed: pool.length };
 }
 
 async function dialViaChain(sockets, chain, host, port) {
@@ -4593,7 +4765,8 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       const ssni = pxTls ? sniFor(pxi + sxi - 1) : ctx.sni;
             // The relay address is deliberately NOT in the name: the name travels into
       // clients and logs, and the relay host was the last place it leaked.
-      const ssname = '🧦 ' + sxi + '. Relay' + (pxTls ? sniSuffix(ssni) : '');
+      const sxcc = normalizeCountry((settings.proxyCountries || {})[sr.url]);
+      const ssname = '🧦 ' + sxi + '. ' + (sxcc ? flagOf(sxcc) + ' ' + (faUi ? (PX_FA_NAMES[sxcc] || sxcc) : (COUNTRY_NAMES[sxcc] || sxcc)) + ' · ' : '') + 'Relay' + (pxTls ? sniSuffix(ssni) : '');
       const sctx = ssni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: ssni });
       const svless = withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(relayTokenFor(sr.url)));
       const strojan = withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(relayTokenFor(sr.url)));
@@ -6546,6 +6719,8 @@ async function handleApi(request, url, env, ctx) {
         firstUseDays: body.firstUseDays,
         fw: body.fw,
         ips: body.ips,
+        exits: body.exits,
+        exitCc: body.exitCc,
       });
       if (findUser(users, user.id)) return json({ ok: false, error: 'exists' }, 409);
       if ((isVercelPlatform(env) || isNodePlatform(env)) && !kvBinding(env)) return json({ ok: false, error: noStoreError(env) }, 409);
@@ -6587,6 +6762,8 @@ async function handleApi(request, url, env, ctx) {
         if (body.firstUseDays !== undefined) next.firstUseDays = body.firstUseDays;
         if (body.fw !== undefined) next.fw = body.fw;
         if (Array.isArray(body.ips)) next.ips = body.ips;
+        if (Array.isArray(body.exits)) next.exits = body.exits;
+        if (body.exitCc !== undefined) next.exitCc = body.exitCc;
         if (body.days !== undefined) next.expiresAt = Number(body.days) ? Date.now() + Number(body.days) * 86400000 : 0;
         else if (body.expiresAt !== undefined) next.expiresAt = Number(body.expiresAt) || 0;
       }
@@ -6841,6 +7018,37 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, custom: vercelCustomDomain(env, settings), front, results });
   }
 
+  /* 🌍 Locations (6.74.0) */
+  if (path === '/api/locations' && method === 'GET') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const avail = {};
+    for (const p of await proxyRepoHealthyPool(env, 400)) if (p.cc) avail[p.cc] = (avail[p.cc] || 0) + 1;
+    return json({ ok: true, pool: settings.locPool || [], countries: locSummary(settings, await readUsers(env)), avail,
+      choices: LOC_CHOICES.map((cc) => ({ cc, flag: flagOf(cc), fa: PX_FA_NAMES[cc] || cc, en: COUNTRY_NAMES[cc] || cc })), vercel: isVercelPlatform(env) || nodeDirect(env) });
+  }
+  if (path === '/api/locations/fetch' && method === 'POST') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const body = (await readJsonBody(request)) || {};
+    const cc = normalizeCountry(body.cc);
+    if (!cc) return json({ ok: false, error: 'country code (DE, NL, …) required' }, 400);
+    const kinds = { px: body.kind !== 'socks', socks: body.kind === 'socks' || body.kind === 'both' };
+    return json(await locFetch(env, settings, cc, Math.min(4, Math.max(1, Number(body.want) || 3)), kinds));
+  }
+  if (path === '/api/locations/ping' && method === 'POST') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const body = (await readJsonBody(request)) || {};
+    return json(await locPing(env, settings, normalizeCountry(body.cc)));
+  }
+  if (path === '/api/locations/remove' && method === 'POST') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const body = (await readJsonBody(request)) || {};
+    const drop = new Set((Array.isArray(body.addrs) ? body.addrs : []).map((a) => String(a)));
+    const cc = normalizeCountry(body.cc);
+    const deadOnly = body.dead === true;
+    const next = (settings.locPool || []).filter((p) => !(drop.has(p.addr) || (cc && p.cc === cc && (!deadOnly || !p.ok)) || (!cc && deadOnly && !p.ok)));
+    const saved = await writeSettings(env, { locPool: next });
+    return json({ ok: true, persisted: saved.persisted, removed: (settings.locPool || []).length - next.length, pool: saved.settings.locPool });
+  }
   if (path === '/api/exit-hunt' && method === 'POST') {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
     const body = (await readJsonBody(request)) || {};
@@ -7115,7 +7323,7 @@ async function handleRequest(request, env, ctx) {
     const blocked = userBlockedReason(user);
     if (blocked) return blockedSubResponse(blocked);
     if (wantPortal) return html(userInfoPage(url.origin, host, env, settings, user.id, user, request));
-    return subResponse(kind, host, env, await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), user.id, user, url, request);
+    return subResponse(kind, host, env, withUserExits(await withProxyRepoPool(env, await withRepoPool(env, settings, url), url), user), user.id, user, url, request);
   }
 
   /* per-user landing page */
@@ -7571,16 +7779,29 @@ function uiIcon(n) {
 }
 
 const CLEAN_CSS = `
+.chip:empty{display:none}
+.locbox{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel2,rgba(148,163,184,.06))}
+.locgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.locc{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card,#fff);color:var(--text);cursor:pointer;text-align:start;font:inherit}
+.locc .fl{font-size:20px;line-height:1}.locc b{font-size:13px}.locc small{font-size:12px;color:var(--muted)}
+.locc.on{border-color:var(--accent,#3b82f6);box-shadow:0 0 0 2px rgba(59,130,246,.25);background:rgba(59,130,246,.07)}
+.locc.dead{opacity:.6}
+.loclib{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:12px}
+.lcc{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--panel2,rgba(148,163,184,.06))}
+.lcc .lhd{display:flex;align-items:center;gap:8px;margin-bottom:8px}.lcc .lhd .fl{font-size:22px}
+.lrow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:var(--card,#fff);margin-top:6px;font-size:12px;min-width:0}
+.lrow .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.lrow.dead{opacity:.55}.lrow .ib.sm{width:44px;height:44px;flex:none}
 .bulkbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin-bottom:10px;border-radius:14px;border:1px solid var(--accent,#3b82f6);background:rgba(59,130,246,.08);position:sticky;top:76px;z-index:5}
 .tbl tr.selr td{background:rgba(59,130,246,.06)}
 .uc .hd input[type=checkbox]{margin-inline-end:4px}
-#v-settings .sec.acc>h2{cursor:pointer;user-select:none;margin-bottom:0;padding-block:2px}
-#v-settings .sec.acc>h2::after{content:'';margin-inline-start:auto;width:9px;height:9px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s;flex:none}
-#v-settings .sec.acc.shut>h2::after{transform:rotate(-45deg)}
-html[dir=rtl] #v-settings .sec.acc.shut>h2::after{transform:rotate(135deg)}
-#v-settings .sec.acc:not(.shut)>h2{margin-bottom:12px}
-#v-settings .sec.acc.shut>*:not(h2){display:none!important}
-#v-settings .sec.acc.shut{padding-block:14px}
+.acc-on.acc>h2{cursor:pointer;user-select:none;margin-bottom:0;padding-block:2px}
+.acc-on.acc>h2::after{content:'';margin-inline-start:auto;width:9px;height:9px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s;flex:none}
+.acc-on.acc.shut>h2::after{transform:rotate(-45deg)}
+html[dir=rtl] .acc-on.acc.shut>h2::after{transform:rotate(135deg)}
+.acc-on.acc:not(.shut)>h2{margin-bottom:12px}
+.acc-on.acc.shut>*:not(h2){display:none!important}
+.acc-on.acc.shut{padding-block:14px}
 .accbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 #setSaveBar>h2{display:none}#setSaveBar{padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}#setSaveBar>.row{margin:0!important}
 @media(max-width:900px){#setSaveBar{bottom:96px!important}}
@@ -8241,6 +8462,14 @@ ${(() => {
 
 <section class="view" id="v-loc" data-sec="loc" data-in="loc">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">📍</span><div><h1>${tr2('لوکیشن و خروجی', 'Locations & exits')}</h1><p>${tr2('کشورِ خروجی، رله‌های SOCKS، پراکسی‌های VIP و پل‌های اضطراری — همه در یک صفحه', 'Exit country, SOCKS relays, VIP proxies and emergency bridges in one page')}</p></div></div>
+ <div class="card sec" id="locLib">
+  <h2><span class="ic">🌍</span><span>${tr2('لوکیشن‌های خروجی — پنل خودش پیدا می‌کند', 'Exit locations — found by the panel itself')}</span><span class="chip" id="locState"></span></h2>
+  <p class="tsub">${tr2('کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن.', 'Pick a country and press «Find». The panel takes that country’s ProxyIP and SOCKS from public feeds, really connects to each from inside the worker and keeps only those whose exit is <b>really</b> in that country — each on its own port. Then tap the country in a user’s form («IPs & location» tab).')}</p>
+  <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><select id="locCc" style="flex:1;min-width:170px" aria-label="${tr2('کشور', 'Country')}" title="${tr2('کشور', 'Country')}"></select><select id="locKind" style="width:auto" aria-label="${tr2('نوع خروجی', 'Exit type')}" title="${tr2('نوع خروجی', 'Exit type')}"><option value="px">🎯 ProxyIP</option><option value="both">🎯 ProxyIP + 🧦 SOCKS</option><option value="socks">🧦 SOCKS</option></select><button class="btn p" type="button" id="locFetch">🔎 ${tr2('پیدا کن', 'Find')}</button><button class="btn" type="button" id="locPingAll">📡 ${tr2('پینگ همه', 'Ping all')}</button><button class="btn" type="button" id="locDropDead">🧹 ${tr2('حذف خراب‌ها', 'Remove dead')}</button></div>
+  <div class="small" id="locMsg" style="margin-top:8px"></div>
+  <div class="loclib" id="locGrid"></div>
+  <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('<b>🎯 ProxyIP</b> خروجیِ سایت‌هایی است که پشت کلودفلرند (خیلی از سایت‌ها)؛ بقیهٔ سایت‌ها از خود کلودفلر بیرون می‌روند. <b>🧦 SOCKS</b> خروجیِ <b>همهٔ</b> سایت‌هاست (برای Gemini/ChatGPT و سایت‌هایی که ایران را می‌بندند) ولی پروکسی عمومی است: کندتر و کم‌عمرتر. «پیدا کن» = گرفتن و تست واقعی؛ «پینگ همه» = تست دوبارهٔ همه (هر بار تا ۱۶ تا)؛ عدد ms زمان رفت‌وبرگشت از سرور تا آن خروجی است، نه پینگ گوشی تو. اگر خروجی‌ای در کشور دیگری درآمد، با کشور واقعی‌اش ذخیره می‌شود. روی Vercel این خروجی‌ها کاربرد ندارند (Vercel خودش مستقیم وصل می‌شود).', '<b>🎯 ProxyIP</b> is the exit for Cloudflare-hosted sites (many sites); other sites leave from Cloudflare itself. <b>🧦 SOCKS</b> is the exit for <b>every</b> site (Gemini/ChatGPT and sites that block Iran) but it is a public proxy: slower and short-lived. «Find» = fetch + real test; «Ping all» = re-test everything (up to 16 per click); ms is the round trip from the server to that exit, not your phone’s ping. An exit that turns out to be in another country is saved under its real country. On Vercel these exits are not used (Vercel dials directly).')}</div></details>
+ </div>
  <div class="ncard">
   <h2><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span data-i="loc_path_title"></span></h2>
   <p class="nsub" data-i="loc_path_hint"></p>
@@ -9198,6 +9427,14 @@ ${vDoctor}
   <textarea name="uips" rows="4" dir="ltr" class="mono" placeholder="104.16.1.2:443"></textarea>
   <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="btnUserIpsFast" data-i="u_ips_fast"></button><select id="uPoolPick" style="width:auto;flex:1;min-width:160px"></select><button class="btn sm" type="button" id="uPoolUse">📥 ${tr2('از استخر', 'From pool')}</button></div>
   <div class="note i small" style="margin-top:10px;line-height:1.9">${tr2('خالی بماند = همان آی‌پی‌های پنل. اگر چیزی بنویسی، برای این کاربر <b>به‌جای</b> فهرست آی‌پی پنل می‌نشیند؛ اگر پورت نوشتی (مثل 1.2.3.4:2053) کانفیگ <b>فقط با همان پورت</b> ساخته می‌شود، بدون پورت = پورت‌های TLS تنظیمات. خروجی کشوری (SOCKS/ProxyIP) از صفحهٔ «لوکیشن و خروجی» برای همه اعمال می‌شود.', 'Empty = the panel’s own IPs. If you fill it, it <b>replaces</b> the panel IP list for this user; with a port (e.g. 1.2.3.4:2053) the config uses <b>only that port</b>, without one = the TLS ports from Settings. Exit countries (SOCKS/ProxyIP) are set for everyone in «Locations & exits».')}</div>
+  <div class="locbox" id="uLocBox">
+   <div class="row" style="justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🌍 ${tr2('لوکیشن خروجی این کاربر', 'This user’s exit location')}</b><button class="btn sm" type="button" id="uLocPing" title="${tr2('همهٔ خروجی‌های کتابخانه را از داخل ورکر دوباره واقعاً تست کن', 'Re-test every library exit from inside the worker')}">📡 ${tr2('پینگ همه', 'Ping all')}</button></div>
+   <p class="small mute" style="margin:6px 0 10px;line-height:1.9">${tr2('کشوری که سایت‌ها برای این کاربر می‌بینند. روی کشور بزن تا کانفیگ‌های همین کاربر فقط از خروجی‌های همان کشور بروند. «پیش‌فرض پنل» یعنی همان خروجی‌های عمومی پنل. کشور جدید لازم داری؟ پایین انتخابش کن و «پیدا کن» را بزن — پنل خودش ProxyIP/SOCKS آن کشور را پیدا و واقعاً تست می‌کند.', 'The country websites see for this user. Tap a country and this user’s configs exit only through that country. «Panel default» = the panel’s shared exits. Need another country? Pick it below and press «Find» — the panel finds that country’s ProxyIP/SOCKS by itself and really tests them.')}</p>
+   <div class="locgrid" id="uLocGrid"></div>
+   <div class="small" id="uLocNow" style="margin-top:8px"></div>
+   <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><select id="uLocCc" style="flex:1;min-width:150px" aria-label="${tr2('کشور', 'Country')}" title="${tr2('کشور', 'Country')}"></select><select id="uLocKind" style="width:auto" aria-label="${tr2('نوع خروجی', 'Exit type')}" title="${tr2('نوع خروجی', 'Exit type')}"><option value="px">🎯 ProxyIP</option><option value="both">🎯 + 🧦</option><option value="socks">🧦 SOCKS</option></select><button class="btn sm p" type="button" id="uLocFetch">🔎 ${tr2('پیدا کن', 'Find')}</button></div>
+   <div class="small" id="uLocMsg" style="margin-top:8px"></div>
+  </div>
   </div>
   <div class="ufoot"><button class="btn p" type="submit" data-i="save"></button><button class="btn" type="button" data-close data-i="cancel"></button></div>
  </form>
@@ -9311,7 +9548,7 @@ function show(v){if(!document.getElementById('v-'+v))v='dash';
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='clients')renderSubLinks();else if(v==='loc'){renderLocPath();renderSocks()}}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='loc')locLoad();else if(v==='clients')renderSubLinks();else if(v==='loc'){renderLocPath();renderSocks()}}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -9912,7 +10149,7 @@ function actBtns(u){return '<div class="act"><button class="ib" data-c="cyan" da
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
- $('#rows').innerHTML=list.map(function(u){return '<tr'+(SEL[u.id]?' class="selr"':'')+'><td><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"></td><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
+ $('#rows').innerHTML=list.map(function(u){return '<tr'+(SEL[u.id]?' class="selr"':'')+'><td><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"></td><td><div class="b">'+esc(u.name)+(u.exitCc?' <span title="'+esc(tx('لوکیشن خروجی','Exit location'))+'">'+locFlag(u.exitCc)+'</span>':'')+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
  $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('');bulkSync()}
 var SEL={};
 function bulkSync(){Object.keys(SEL).forEach(function(id){if(!USERS.some(function(u){return u.id===id}))delete SEL[id]});var n=Object.keys(SEL).length,vis=filtered();$('#bulkBar').style.display=n?'flex':'none';$('#bulkN').textContent=String(n);var sa=$('#selAll');if(sa){sa.checked=!!vis.length&&vis.every(function(u){return SEL[u.id]});sa.indeterminate=n>0&&!sa.checked}}
@@ -9950,6 +10187,7 @@ function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textConten
  var pk=$('#pickDays');pk.innerHTML='';[0,7,30,60,90,180,365].forEach(function(n){var b=document.createElement('button');b.type='button';b.textContent=n?n+' '+t('days'):t('unlimited');b.onclick=function(){f.elements.days.value=n};pk.appendChild(b)});
  var dl=$('#dLinks');dl.__u=u||null;dl.__loaded=0;dl.innerHTML=u?richLinks(u.links,u.name,u):'';
  var pn=$('#drawer .pn');pn.classList.toggle('nolinks',!u);setUTab('base');poolsRender();connSummary();
+ UL={cc:(u&&u.exitCc)||'',exits:((u&&u.exits)||[]).slice()};uLocRender();if(!LOC)locLoad();
  $('#drawer').classList.add('show')}
 function closeDrawer(){$('#drawer').classList.remove('show');editing=null}
 function setUTab(k){var pn=$('#drawer .pn');if(!pn)return;pn.setAttribute('data-tab',k);$$('#uTabs button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-ut')===k)});if(k==='links'){var L=$('#dLinks');if(L&&L.__u&&!L.__loaded)loadUserConfigs(L.__u)}}
@@ -9984,7 +10222,7 @@ $('#btnInstall').addEventListener('click',function(){if(!PWA)return;PWA.prompt()
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
  var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0,quotaGB:Math.max(0,Number(f.elements.quota.value)||0),maxIps:Math.max(0,Math.min(50,Math.floor(Number(f.elements.maxips.value)||0)))};
  if($('#swFirst').classList.contains('on')){body.firstUseDays=body.days;body.days=0}else body.firstUseDays=0;
- body.fw=f.elements.fw.value;body.ips=f.elements.uips.value.split(/[\\s,]+/).filter(Boolean).slice(0,20);
+ body.fw=f.elements.fw.value;body.ips=f.elements.uips.value.split(/[\\s,]+/).filter(Boolean).slice(0,20);body.exits=UL.exits.slice(0,6);body.exitCc=UL.cc||'';
  var p=editing?api('/api/users/'+editing.id,{method:'PUT',body:body}):api('/api/users',{method:'POST',body:body});
  p.then(function(j){if(!j||!j.ok){var why=j&&(j.error||j.message)||'request rejected';if(j&&j.error&&j.message)why=j.error+': '+j.message;if(j&&j._httpStatus)why='HTTP '+j._httpStatus+' · '+why;if(j&&j._contentType)why+=' · '+j._contentType;if(j&&j._cfRay)why+=' · CF-Ray '+j._cfRay;toast(t('b_user_save_error').replace('%1',safeDiag(why)),true);return}toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);closeDrawer();return load().catch(function(e){toast(t('b_user_saved_refresh_error').replace('%1',safeDiag(e&&e.message||e)),true)})}).catch(function(e){toast(t('b_user_save_error').replace('%1',safeDiag(e&&e.message||e)),true)})});
 
@@ -10744,21 +10982,61 @@ function poolsList(){var box=$('#poolList');if(!box||!CFG||!CFG.settings)return;
 document.addEventListener('click',async function(e){var b=e.target.closest('[data-pooldel]');if(!b)return;var P=(CFG.settings.ipPools||[]).slice(),i=+b.getAttribute('data-pooldel'),p=P[i];if(!p)return;if(!(await ask(tx('استخر «'+p.name+'» حذف شود؟','Delete pool «'+p.name+'»?'),{ok:tx('حذف','Delete')})))return;P.splice(i,1);poolsSave(P,'✓')});
 /* ---- beta199 settings accordions + sticky save/restore bar ---- */
 (function(){var V=$('#v-settings');if(!V)return;var cards=$$('#v-settings .card.sec').filter(function(c){return c.id!=='setSaveBar'&&c.querySelector(':scope>h2')}),st={};try{st=JSON.parse(localStorage.getItem('catAcc')||'{}')}catch(e){}
- cards.forEach(function(c,i){var h=c.querySelector(':scope>h2'),key=(h.textContent||'').trim().slice(0,40)||String(i);c.classList.add('acc');if(st[key]!==undefined?st[key]:i>0)c.classList.add('shut');h.setAttribute('role','button');h.setAttribute('tabindex','0');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));
+ cards.forEach(function(c,i){var h=c.querySelector(':scope>h2'),key=(h.textContent||'').trim().slice(0,40)||String(i);c.classList.add('acc','acc-on');if(st[key]!==undefined?st[key]:i>0)c.classList.add('shut');h.setAttribute('role','button');h.setAttribute('tabindex','0');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));
   function tog(){c.classList.toggle('shut');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));st[key]=c.classList.contains('shut');try{localStorage.setItem('catAcc',JSON.stringify(st))}catch(e){}}
   h.addEventListener('click',function(e){if(e.target.closest('button,a,input,select,label,.hq'))return;tog()});h.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tog()}})});
  var bar=document.createElement('div');bar.className='accbar';bar.innerHTML='<button class="btn sm" type="button" id="accOpen">⊞ '+esc(tx('باز کردن همه','Expand all'))+'</button><button class="btn sm" type="button" id="accShut">⊟ '+esc(tx('بستن همه','Collapse all'))+'</button><span class="small mute">'+esc(tx('روی عنوان هر بخش بزن تا باز/بسته شود.','Tap a section title to open/close it.'))+'</span>';
  var first=cards[0];if(first){var anc=first;while(anc.parentNode&&anc.parentNode!==V)anc=anc.parentNode;V.insertBefore(bar,anc)}
  function all(shut){cards.forEach(function(c){c.classList.toggle('shut',shut);var h=c.querySelector(':scope>h2');h.setAttribute('aria-expanded',String(!shut))})}
  $('#accOpen').addEventListener('click',function(){all(false)});$('#accShut').addEventListener('click',function(){all(true)});
- V.addEventListener('invalid',function(e){var c=e.target.closest&&e.target.closest('.sec.acc');if(c)c.classList.remove('shut')},true);
+ V.addEventListener('invalid',function(e){var c=e.target.closest&&e.target.closest('.acc-on.acc');if(c)c.classList.remove('shut')},true);
  /* open the section of anything other code scrolls to / focuses */
- V.addEventListener('focusin',function(e){var c=e.target.closest&&e.target.closest('.sec.acc.shut');if(c&&!e.target.matches('h2'))c.classList.remove('shut')});
- var _siv=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(){var c=this.closest&&this.closest('.sec.acc.shut');if(c)c.classList.remove('shut');return _siv.apply(this,arguments)};
- window.openSetSection=function(el){var c=el&&el.closest&&el.closest('.sec.acc');if(c)c.classList.remove('shut')};
+ V.addEventListener('focusin',function(e){var c=e.target.closest&&e.target.closest('.acc-on.acc.shut');if(c&&!e.target.matches('h2'))c.classList.remove('shut')});
+ var _siv=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(){var c=this.closest&&this.closest('.acc-on.acc.shut');if(c)c.classList.remove('shut');return _siv.apply(this,arguments)};
+ window.openSetSection=function(el){var c=el&&el.closest&&el.closest('.acc-on.acc');if(c)c.classList.remove('shut')};
  var f=$('#fSettings'),sb=$('#setSaveBar');function dirty(on){sb.classList.toggle('dirty',on);if(on)$('#saveState').textContent=tx('تغییرات ذخیره‌نشده','Unsaved changes')}
  f.addEventListener('input',function(){dirty(true)});f.addEventListener('change',function(){dirty(true)});f.addEventListener('submit',function(){setTimeout(function(){dirty(false)},0)});
  $('#btnSetRestore').addEventListener('click',function(){if(!CFG)return;renderCfg();dirty(false);$('#saveState').textContent='';toast(tx('مقدارهای فعلی پنل برگشت','Panel values restored'))});
+})();
+/* ---- 6.74.0 🌍 exit locations (library + per-user pick) ---- */
+var LOC=null,UL={cc:'',exits:[]};
+function locFlag(cc){return cc&&/^[A-Z]{2}$/.test(cc)?String.fromCodePoint(127462+cc.charCodeAt(0)-65,127462+cc.charCodeAt(1)-65):'🌐'}
+function locName(cc){if(!cc)return tx('پیش‌فرض پنل','Panel default');var L=LOC||{},c=(L.countries||[]).concat(L.choices||[]).filter(function(x){return x.cc===cc})[0];return c?(lang==='fa'?c.fa:c.en):cc}
+function locLoad(){return api('/api/locations').then(function(j){if(j&&j.ok){LOC=j;locRenderAll()}return j}).catch(function(){})}
+function locBest(cc){var P=((LOC&&LOC.pool)||[]).filter(function(p){return p.cc===cc&&p.ok}).sort(function(a,b){return (a.ms||9e9)-(b.ms||9e9)});return P.filter(function(p){return p.kind==='px'}).slice(0,4).concat(P.filter(function(p){return p.kind==='socks'}).slice(0,2)).map(function(p){return p.addr})}
+function locFill(id){var sel=$(id);if(!sel||!LOC)return;var cur=sel.value,av=LOC.avail||{},have={};(LOC.countries||[]).forEach(function(c){have[c.cc]=c});
+ sel.innerHTML=(LOC.choices||[]).map(function(c){var h=have[c.cc],bits=[];if(h&&h.ok)bits.push(h.ok+' ✓');if(av[c.cc])bits.push(av[c.cc]+' '+tx('در فید','in feeds'));return '<option value="'+c.cc+'">'+c.flag+' '+esc(lang==='fa'?c.fa:c.en)+(bits.length?' — '+esc(bits.join(' · ')):'')+'</option>'}).join('');if(cur)sel.value=cur}
+function uLocRender(){var g=$('#uLocGrid');if(!g)return;var C=(LOC&&LOC.countries)||[];
+ g.innerHTML='<button type="button" class="locc'+(!UL.cc?' on':'')+'" data-uloc=""><span class="fl">🌐</span><b>'+esc(tx('پیش‌فرض پنل','Panel default'))+'</b><small>'+esc(tx('خروجی‌های عمومی','shared exits'))+'</small></button>'+
+  C.map(function(c){return '<button type="button" class="locc'+(UL.cc===c.cc?' on':'')+(c.ok?'':' dead')+'" data-uloc="'+c.cc+'"><span class="fl">'+c.flag+'</span><b>'+esc(lang==='fa'?c.fa:c.en)+'</b><small>'+(c.ok?c.ok+' ✓'+(c.best?' · '+c.best+'ms':''):esc(tx('خراب — پینگ کن','dead — ping'))) +'</small></button>'}).join('')+
+  (C.length?'':'<div class="small dim" style="grid-column:1/-1">'+esc(tx('هنوز کشوری در کتابخانه نیست. پایین یک کشور انتخاب کن و «پیدا کن» را بزن.','No country in the library yet. Pick one below and press «Find».'))+'</div>');
+ var now=$('#uLocNow');if(now){var px=UL.exits.filter(function(a){return !/^socks/i.test(a)}).length,sx=UL.exits.length-px;now.innerHTML=UL.cc?'✅ '+esc(tx('این کاربر از','This user exits via'))+' '+locFlag(UL.cc)+' <b>'+esc(locName(UL.cc))+'</b> — '+px+' ProxyIP'+(sx?' · '+sx+' SOCKS':'')+(UL.exits.length?'':' <span style="color:var(--red)">'+esc(tx('(خروجی سالمی ندارد؛ «پینگ همه» یا «پیدا کن»)','(no healthy exit; «Ping all» or «Find»)'))+'</span>'):'<span class="mute">'+esc(tx('این کاربر از خروجی‌های عمومی پنل استفاده می‌کند.','This user uses the panel’s shared exits.'))+'</span>'}
+ if(LOC&&LOC.vercel&&now)now.innerHTML+='<div class="small" style="color:var(--amber)">'+esc(tx('این پنل روی Vercel/نود است و خودش مستقیم وصل می‌شود؛ ProxyIP/SOCKS اینجا کاربرد ندارد.','This panel runs on Vercel/a node and dials directly; ProxyIP/SOCKS are not used here.'))+'</div>'}
+function locLibRender(){var g=$('#locGrid');if(!g||!LOC)return;var C=LOC.countries||[],P=LOC.pool||[];$('#locState').textContent=P.length?(P.filter(function(p){return p.ok}).length+' / '+P.length+' ✓'):'';
+ g.innerHTML=C.length?C.map(function(c){var rows=P.filter(function(p){return p.cc===c.cc});return '<div class="lcc"><div class="lhd"><span class="fl">'+c.flag+'</span><b>'+esc(lang==='fa'?c.fa:c.en)+'</b><span class="chip">'+c.ok+' / '+rows.length+' ✓</span>'+(c.users?'<span class="chip v">👤 '+c.users+'</span>':'')+'<button class="btn sm" type="button" data-locping="'+c.cc+'" style="margin-inline-start:auto">📡</button></div>'+
+  rows.map(function(p){var shown=p.kind==='socks'?p.addr.replace(/^socks5h?:\\/\\/([^@]*@)?/i,''):p.addr;return '<div class="lrow'+(p.ok?'':' dead')+'"><span>'+(p.kind==='socks'?'🧦':'🎯')+'</span><span class="mono" dir="ltr">'+esc(shown)+'</span>'+(p.colo?'<span class="chip">'+esc(p.colo)+'</span>':'')+'<span class="'+(p.ok?msCls(p.ms||0):'')+'" style="margin-inline-start:auto">'+(p.ok?(p.ms||0)+' ms':'✗')+'</span><button class="ib sm" type="button" data-locdel="'+esc(p.addr)+'" aria-label="'+esc(tx('حذف','Delete'))+'" title="'+esc(tx('حذف','Delete'))+'">✕</button></div>'}).join('')+'</div>'}).join(''):'<div class="small dim">'+esc(tx('کتابخانه خالی است. یک کشور انتخاب کن و «پیدا کن» را بزن.','The library is empty. Pick a country and press «Find».'))+'</div>'}
+function locRenderAll(){locFill('#uLocCc');locFill('#locCc');uLocRender();locLibRender()}
+function locSay(j,cc){if(!j||!j.ok)return '✗ '+safeDiag((j&&j.error)||'?');var a=(j.added||[]).length,o=(j.other||[]).length,tt=(j.testedPx||0)+(j.testedSx||0),l=(j.listedPx||0)+(j.listedSx||0);
+ return (a?'✅ '+a+' '+tx('خروجی واقعی در','real exits in')+' '+locFlag(cc)+' '+locName(cc):'⚠️ '+tx('خروجی سالمی در این کشور پیدا نشد','No healthy exit found in this country'))+' · '+tt+' '+tx('تست شد از','tested of')+' '+l+(o?' · '+o+' '+tx('خروجی سالم در کشورهای دیگر هم با کشور واقعی‌شان ذخیره شد','healthy exits in other countries were saved under their real country'):'')+(j.persisted===false?' · '+t('saved_nokv'):'')}
+function locFetchRun(cc,kind,btn,msg){if(!cc)return Promise.resolve();btn.disabled=true;msg.textContent='⏳ '+tx('در حال گرفتن و تست واقعی… (تا ۳۰ ثانیه)','Fetching and really testing… (up to 30 s)');
+ return api('/api/locations/fetch',{method:'POST',body:{cc:cc,kind:kind,want:3}}).then(function(j){msg.textContent=locSay(j,cc);return locLoad().then(function(){return j})}).catch(function(e){msg.textContent='✗ '+safeDiag(e&&e.message||e)}).then(function(j){btn.disabled=false;return j})}
+function locPingRun(cc,btn,msg){btn.disabled=true;if(msg)msg.textContent='⏳ '+tx('تست دوباره…','Re-testing…');return api('/api/locations/ping',{method:'POST',body:{cc:cc||''}}).then(function(j){if(msg)msg.textContent=j&&j.ok?'✓ '+j.tested+' '+tx('خروجی تست شد','exits tested'):'✗ '+safeDiag((j&&j.error)||'?');return locLoad()}).catch(function(e){if(msg)msg.textContent='✗ '+safeDiag(e&&e.message||e)}).then(function(){btn.disabled=false})}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-uloc]');if(!b)return;var cc=b.getAttribute('data-uloc');UL.cc=cc;UL.exits=cc?locBest(cc):[];if(cc&&!UL.exits.length)toast(tx('این کشور فعلاً خروجی سالمی ندارد؛ «پینگ همه» یا «پیدا کن» را بزن.','This country has no healthy exit right now; press «Ping all» or «Find».'),true);uLocRender()});
+if($('#uLocFetch'))$('#uLocFetch').addEventListener('click',function(){var cc=$('#uLocCc').value;locFetchRun(cc,$('#uLocKind').value,this,$('#uLocMsg')).then(function(j){if(j&&j.ok&&(j.added||[]).length){UL.cc=cc;UL.exits=locBest(cc);uLocRender()}})});
+if($('#uLocPing'))$('#uLocPing').addEventListener('click',function(){locPingRun('',this,$('#uLocMsg')).then(function(){if(UL.cc){var keep=locBest(UL.cc);if(keep.length)UL.exits=keep}uLocRender()})});
+if($('#locFetch'))$('#locFetch').addEventListener('click',function(){locFetchRun($('#locCc').value,$('#locKind').value,this,$('#locMsg'))});
+if($('#locPingAll'))$('#locPingAll').addEventListener('click',function(){locPingRun('',this,$('#locMsg'))});
+document.addEventListener('click',function(e){var b=e.target.closest('[data-locping]');if(!b)return;locPingRun(b.getAttribute('data-locping'),b,$('#locMsg'))});
+document.addEventListener('click',async function(e){var b=e.target.closest('[data-locdel]');if(!b)return;var a=b.getAttribute('data-locdel');if(!(await ask(tx('این خروجی از کتابخانه حذف شود؟ (کاربرانی که آن را دارند تا انتخاب دوباره نگهش می‌دارند)','Remove this exit from the library? (users that have it keep it until re-picked)'),{ok:tx('حذف','Delete')})))return;api('/api/locations/remove',{method:'POST',body:{addrs:[a]}}).then(function(){return locLoad()})});
+if($('#locDropDead'))$('#locDropDead').addEventListener('click',async function(){if(!(await ask(tx('همهٔ خروجی‌های خراب (✗) حذف شوند؟','Remove every dead (✗) exit?'),{ok:tx('حذف','Delete')})))return;api('/api/locations/remove',{method:'POST',body:{dead:true}}).then(function(j){$('#locMsg').textContent='✓ '+((j&&j.removed)||0);return locLoad()})});
+/* ---- 6.74.0 declutter: the busy pages get the same collapsible sections (first one open, state remembered) ---- */
+(function(){var st={};try{st=JSON.parse(localStorage.getItem('catAcc')||'{}')}catch(e){}
+ function mk(cards,keep){cards.forEach(function(c,i){var h=c.querySelector(':scope>h2');if(!h||c.classList.contains('acc-on'))return;var key=(h.textContent||'').trim().slice(0,40)||c.id||String(i);c.classList.add('acc','acc-on');var def=keep.indexOf(c.id)<0&&i>0;if(st[key]!==undefined?st[key]:def)c.classList.add('shut');h.setAttribute('role','button');h.setAttribute('tabindex','0');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));
+  function tog(){c.classList.toggle('shut');h.setAttribute('aria-expanded',String(!c.classList.contains('shut')));st[key]=c.classList.contains('shut');try{localStorage.setItem('catAcc',JSON.stringify(st))}catch(e){}}
+  h.addEventListener('click',function(e){if(e.target.closest('button,a,input,select,label,.hq'))return;tog()});h.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();tog()}})})}
+ mk($$('[data-in="loc"] .card.sec,[data-in="loc"] .ncard'),['locLib']);mk($$('#v-spoof .card.sec'),['fSpoof']);mk($$('#v-nodes .card.sec'),[]);
+ document.addEventListener('focusin',function(e){var c=e.target.closest&&e.target.closest('.acc-on.acc.shut');if(c&&!e.target.matches('h2'))c.classList.remove('shut')});
+ document.addEventListener('invalid',function(e){var c=e.target.closest&&e.target.closest('.acc-on.acc.shut');if(c)c.classList.remove('shut')},true);
 })();
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
