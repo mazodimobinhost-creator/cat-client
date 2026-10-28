@@ -7571,6 +7571,9 @@ function uiIcon(n) {
 }
 
 const CLEAN_CSS = `
+.bulkbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin-bottom:10px;border-radius:14px;border:1px solid var(--accent,#3b82f6);background:rgba(59,130,246,.08);position:sticky;top:76px;z-index:5}
+.tbl tr.selr td{background:rgba(59,130,246,.06)}
+.uc .hd input[type=checkbox]{margin-inline-end:4px}
 #v-settings .sec.acc>h2{cursor:pointer;user-select:none;margin-bottom:0;padding-block:2px}
 #v-settings .sec.acc>h2::after{content:'';margin-inline-start:auto;width:9px;height:9px;border:solid var(--muted);border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .2s;flex:none}
 #v-settings .sec.acc.shut>h2::after{transform:rotate(-45deg)}
@@ -8414,8 +8417,9 @@ ${(() => {
    <select id="flt"><option value="all" data-i="f_all"></option><option value="active" data-i="f_active"></option><option value="expired" data-i="f_expired"></option><option value="disabled" data-i="f_disabled"></option></select>
    <select id="srt"><option value="new" data-i="s_new"></option><option value="exp" data-i="s_exp"></option><option value="name" data-i="s_name"></option></select>
   </div>
+  <div class="bulkbar" id="bulkBar" style="display:none"><b id="bulkN">0</b><span>${tr2('کاربر انتخاب شد', 'selected')}</span><button class="btn sm" type="button" data-bulk="on">✅ ${tr2('فعال', 'Enable')}</button><button class="btn sm" type="button" data-bulk="off">⏸ ${tr2('غیرفعال', 'Disable')}</button><button class="btn sm" type="button" data-bulk="renew">➕ ${tr2('۳۰ روز تمدید', '+30 days')}</button><button class="btn sm" type="button" data-bulk="copy">📋 ${tr2('کپی لینک‌ها', 'Copy links')}</button><button class="btn sm danger" type="button" data-bulk="del">🗑 ${tr2('حذف', 'Delete')}</button><button class="btn sm" type="button" data-bulk="none">✕ ${tr2('لغو انتخاب', 'Clear')}</button></div>
   <table class="tbl"><thead><tr>
-   <th data-i="h_user"></th><th data-i="h_proto"></th><th data-i="h_links"></th><th data-i="h_time"></th><th data-i="h_seen"></th><th data-i="h_status"></th><th data-i="h_act"></th>
+   <th style="width:34px"><input type="checkbox" id="selAll" aria-label="${tr2('انتخاب همه', 'Select all')}" title="${tr2('انتخاب همه', 'Select all')}" style="width:auto"></th><th data-i="h_user"></th><th data-i="h_proto"></th><th data-i="h_links"></th><th data-i="h_time"></th><th data-i="h_seen"></th><th data-i="h_status"></th><th data-i="h_act"></th>
   </tr></thead><tbody id="rows"></tbody></table>
   <div class="ucard" id="cards"></div>
   <div class="empty" id="empty" style="display:none"><div>🐾</div><div data-i="no_users"></div></div>
@@ -9908,8 +9912,16 @@ function actBtns(u){return '<div class="act"><button class="ib" data-c="cyan" da
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
- $('#rows').innerHTML=list.map(function(u){return '<tr><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
- $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('')}
+ $('#rows').innerHTML=list.map(function(u){return '<tr'+(SEL[u.id]?' class="selr"':'')+'><td><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"></td><td><div class="b">'+esc(u.name)+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
+ $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('');bulkSync()}
+var SEL={};
+function bulkSync(){Object.keys(SEL).forEach(function(id){if(!USERS.some(function(u){return u.id===id}))delete SEL[id]});var n=Object.keys(SEL).length,vis=filtered();$('#bulkBar').style.display=n?'flex':'none';$('#bulkN').textContent=String(n);var sa=$('#selAll');if(sa){sa.checked=!!vis.length&&vis.every(function(u){return SEL[u.id]});sa.indeterminate=n>0&&!sa.checked}}
+document.addEventListener('change',function(e){var c=e.target;if(c.id==='selAll'){filtered().forEach(function(u){if(c.checked)SEL[u.id]=1;else delete SEL[u.id]});renderUsers();return}var id=c.getAttribute&&c.getAttribute('data-sel');if(id==null)return;if(c.checked)SEL[id]=1;else delete SEL[id];renderUsers()});
+document.addEventListener('click',async function(e){var b=e.target.closest('[data-bulk]');if(!b)return;var k=b.getAttribute('data-bulk'),ids=Object.keys(SEL),us=USERS.filter(function(u){return SEL[u.id]});if(k==='none'){SEL={};renderUsers();return}if(!ids.length)return;
+ if(k==='copy'){copy(us.map(function(u){return u.name+': '+((u.links&&u.links.sub)||(location.origin+'/sub/'+u.id))}).join(String.fromCharCode(10)));return}
+ if(k==='del'&&!(await ask(tx(ids.length+' کاربر برای همیشه حذف شود؟',''+ids.length+' users will be deleted permanently. Continue?'),{ok:t('del')})))return;
+ b.disabled=true;var ok=0,bad=0;for(var i=0;i<ids.length;i++){var id=encodeURIComponent(ids[i]),r;try{r=k==='del'?await api('/api/users/'+id,{method:'DELETE'}):k==='renew'?await api('/api/users/'+id+'/renew',{method:'POST',body:{days:30}}):await api('/api/users/'+id,{method:'PUT',body:{enabled:k==='on'}});if(r&&r.ok!==false)ok++;else bad++}catch(_){bad++}}
+ b.disabled=false;if(k==='del')SEL={};toast('✓ '+ok+(bad?' · ✗ '+bad:''),!!bad);load()});
 ['input','change'].forEach(function(e){$('#q').addEventListener(e,renderUsers);$('#flt').addEventListener(e,renderUsers);$('#srt').addEventListener(e,renderUsers)});
 
 document.addEventListener('click',async function(e){var b;
@@ -9962,9 +9974,11 @@ $('#btnRandName').addEventListener('click',function(){$('#fUser').elements.uname
 /* fastest addresses of the last in-browser test, exactly as listed (IP or IP:port) */
 function fastIps(n){var BS=window.__browserScan||{};return Object.keys(BS).filter(function(k){return BS[k].ok&&BS[k].ms>0}).sort(function(a,b){return BS[a].ms-BS[b].ms}).slice(0,n||5)}
 $('#btnUserIpsFast').addEventListener('click',function(){var best=fastIps(5);if(!best.length){toast(t('u_ips_none'),true);return}$('#fUser').elements.uips.value=best.join('\\n')});
-$('#btnQuick').addEventListener('click',function(){var b=this;b.disabled=true;
- api('/api/users',{method:'POST',body:{name:randName(),days:0,firstUseDays:30,ips:fastIps(5),protocols:{vless:true,trojan:true}}}).then(function(j){if(!j||!j.ok){toast(t('b_user_save_error').replace('%1',safeDiag(j&&(j.error||j.message)||'?')),true);return}
-  toast(t('u_quick_ok'));return load().then(function(){openDrawer(USERS.filter(function(x){return x.id===j.user.id})[0]||null)})}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+$('#btnQuick').addEventListener('click',function(){var b=this;b.disabled=true;var qips=fastIps(5);
+ api('/api/users',{method:'POST',body:{name:randName(),days:0,firstUseDays:30,ips:qips,protocols:{vless:true,trojan:true}}}).then(function(j){if(!j||!j.ok){toast(t('b_user_save_error').replace('%1',safeDiag(j&&(j.error||j.message)||'?')),true);return}
+  toast(t('u_quick_ok'));return load().then(function(){openDrawer(USERS.filter(function(x){return x.id===j.user.id})[0]||null);
+  /* DevCop-style red notice: a user with no clean IP (own or panel) gets only the default addresses, which are often filtered */
+  if(!qips.length&&!((CFG.settings&&CFG.settings.ips)||[]).length){setUTab('ip');toast(tx('توجه: آیپی تمیز قرار دهید — این کاربر فعلاً فقط آدرس‌های پیش‌فرض را دارد. از «اسکنر IP» چند آیپی سالم بگیر و اینجا بگذار.','Note: add clean IPs — this user only has the default addresses. Get a few healthy IPs from «IP scanner» and put them here.'),true)}})}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
 var PWA=null;window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();PWA=e;$('#btnInstall').style.display=''});
 $('#btnInstall').addEventListener('click',function(){if(!PWA)return;PWA.prompt();PWA=null;this.style.display='none'});
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
