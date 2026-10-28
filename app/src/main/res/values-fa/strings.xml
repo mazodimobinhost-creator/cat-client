@@ -524,6 +524,7 @@
     <string name="tab_free">رایگان</string>
     <string name="tab_scanner">اسکنر IP</string>
     <string name="tab_cloud">کلود</string>
+    <string name="free_delta_kronecker">🔺 Delta-Kronecker: اشتراک تست‌شده · وارپ · تونل DNS · پل Tor</string>
     <string name="free_fetch">دریافت کانفیگ‌ها</string>
     <string name="free_test_ping">تست پینگ</string>
     <string name="free_import_all">افزودن همه</string>

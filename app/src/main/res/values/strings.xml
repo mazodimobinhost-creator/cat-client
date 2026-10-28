@@ -525,6 +525,7 @@
     <string name="tab_free">Free</string>
     <string name="tab_scanner">Scanner</string>
     <string name="tab_cloud">Cloud</string>
+    <string name="free_delta_kronecker">🔺 Delta-Kronecker: tested subscriptions · WARP · DNS tunnel · Tor bridges</string>
     <string name="free_fetch">Fetch configs</string>
     <string name="free_test_ping">Ping test</string>
     <string name="free_import_all">Import all</string>

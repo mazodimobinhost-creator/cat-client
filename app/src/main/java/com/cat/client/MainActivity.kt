@@ -1388,6 +1388,10 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) },
         )
         column.addView(buttons, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        column.addView(
+            freeButton(R.string.free_delta_kronecker, false) { showDeltaKroneckerHubDialog() },
+            LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(8) },
+        )
 
         freeConfigsProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = false
@@ -17227,6 +17231,139 @@ class MainActivity : Activity() {
      * - Supports pasting custom `ss://` or dynamic `ssconf://` Outline keys,
      * - Connects in 1 tap to the fastest verified server.
      */
+    /** 🔺 Delta-Kronecker public feeds: one tap adds a subscription, fills Aether → Tor bridges, or opens the downloader. */
+    private fun showDeltaKroneckerHubDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val pad = dp(16)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp(8), pad, dp(8))
+        }
+        fun note(text: String, size: Float, color: Int, top: Int) {
+            box.addView(
+                TextView(this).apply {
+                    this.text = text
+                    textSize = size
+                    setTextColor(color)
+                    typeface = CatClientBodyTypeface
+                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) },
+            )
+        }
+        var dialog: AlertDialog? = null
+        note(
+            if (isFarsi) "فهرست‌های عمومی Delta-Kronecker که مرتب دوباره تست می‌شوند. برنامه فقط لینکشان را روی گوشی شما می‌خواند (چیزی کپی نمی‌شود). هر دکمه را بزنید همان کار را می‌کند؛ اگر github روی اینترنت شما باز نیست اول یک کانفیگ را وصل کنید."
+            else "Delta-Kronecker's public lists, re-tested regularly. The app only reads their links on your phone (nothing is copied). Each button does exactly what it says; if github is closed on your line, connect a config first.",
+            13f, TEXT_PRIMARY, 0,
+        )
+        val sections = listOf(
+            DeltaKroneckerFeeds.Kind.SUBSCRIPTION to if (isFarsi) "📥 اشتراک کانفیگ (اضافه می‌شود به فهرست سرورها)" else "📥 Config subscriptions (added to the server list)",
+            DeltaKroneckerFeeds.Kind.AETHER to if (isFarsi) "🛡 Aether" else "🛡 Aether",
+            DeltaKroneckerFeeds.Kind.DNS_TUNNEL to if (isFarsi) "🧵 تونل DNS (وقتی تقریباً همه‌چیز بسته است)" else "🧵 DNS tunnels (when almost everything is blocked)",
+            DeltaKroneckerFeeds.Kind.TOR_BRIDGES to if (isFarsi) "🧅 پل‌های Tor" else "🧅 Tor bridges",
+            DeltaKroneckerFeeds.Kind.LINK to if (isFarsi) "🧰 ابزار" else "🧰 Tools",
+        )
+        for ((kind, header) in sections) {
+            note(header, 14f, TEXT_PRIMARY, 14)
+            for (feed in DeltaKroneckerFeeds.byKind(kind)) {
+                box.addView(
+                    MaterialButton(this).apply {
+                        text = if (isFarsi) feed.titleFa else feed.titleEn
+                        isAllCaps = false
+                        setOnClickListener {
+                            dialog?.dismiss()
+                            openDeltaKroneckerFeed(feed)
+                        }
+                    },
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+                )
+                note(if (isFarsi) feed.whatFa else feed.whatEn, 12f, TEXT_SECONDARY, 0)
+            }
+        }
+        val built = MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "🔺 منابع Delta-Kronecker" else "🔺 Delta-Kronecker sources")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setNeutralButton("GitHub") { _, _ -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DeltaKroneckerFeeds.GITHUB))) } }
+            .setPositiveButton(if (isFarsi) "بستن" else "Close", null)
+            .create()
+        dialog = built
+        built.showCatClientDialog()
+    }
+
+    private fun openDeltaKroneckerFeed(feed: DeltaKroneckerFeeds.Feed) {
+        when (feed.kind) {
+            DeltaKroneckerFeeds.Kind.SUBSCRIPTION, DeltaKroneckerFeeds.Kind.AETHER, DeltaKroneckerFeeds.Kind.DNS_TUNNEL -> {
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(feed.url, feed.subName)
+            }
+            DeltaKroneckerFeeds.Kind.TOR_BRIDGES -> fetchDeltaKroneckerTorBridges(feed)
+            DeltaKroneckerFeeds.Kind.LINK -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(feed.url))) }
+        }
+    }
+
+    /** Hourly-tested bridges → Aether's Tor «own bridges» (mode own); also copyable for Orbot / Tor Browser. */
+    private fun fetchDeltaKroneckerTorBridges(feed: DeltaKroneckerFeeds.Feed) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(this, if (isFarsi) "⏳ گرفتن پل‌های تست‌شده…" else "⏳ Fetching tested bridges…", Toast.LENGTH_SHORT).show()
+        activityScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    val conn = (java.net.URL(feed.url).openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 8_000
+                        readTimeout = 8_000
+                        setRequestProperty("User-Agent", "Cat Client/${BuildConfig.VERSION_NAME}")
+                    }
+                    try {
+                        if (conn.responseCode in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else ""
+                    } finally {
+                        conn.disconnect()
+                    }
+                }.getOrNull().orEmpty().ifBlank {
+                    LocalSniSpoofProxy.fetchGitHubRawOverSniSplit(feed.url, timeoutMs = 4_000).orEmpty()
+                }
+            }
+            val lines = DeltaKroneckerFeeds.parseBridgeLines(text, 10)
+            if (lines.isEmpty()) {
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(if (isFarsi) "❌ پلی گرفته نشد" else "❌ No bridges received")
+                    .setMessage(
+                        if (isFarsi) "فهرست از GitHub نیامد (احتمالاً raw.githubusercontent.com روی خط شما بسته است). یک کانفیگ را وصل کنید و دوباره بزنید، یا «🧅 پل از Moat» را در بخش Aether امتحان کنید."
+                        else "The list did not arrive from GitHub (raw.githubusercontent.com is probably blocked on your line). Connect a config and try again, or try «🧅 Moat bridges» in the Aether section.",
+                    )
+                    .setPositiveButton(android.R.string.ok, null)
+                    .create()
+                    .showCatClientDialog()
+                return@launch
+            }
+            val joined = lines.joinToString("\n")
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle((if (isFarsi) "🧅 " + lines.size + " پل سالم" else "🧅 " + lines.size + " working bridges"))
+                .setMessage(
+                    (if (isFarsi) "«✅ استفاده در Aether» این پل‌ها را در Aether ← Tor به‌عنوان «پل‌های خودم» می‌گذارد؛ دفعهٔ بعد که Tor (یا زنجیرهٔ warp → tor) را وصل کنید با همین‌ها وصل می‌شود.\n\n"
+                    else "«✅ Use in Aether» puts these bridges in Aether → Tor as «my own bridges»; the next time you connect Tor (or the warp → tor chain) it uses them.\n\n") + joined,
+                )
+                .setPositiveButton(if (isFarsi) "✅ استفاده در Aether" else "✅ Use in Aether") { _, _ ->
+                    val cur = aetherPreferenceStore.read()
+                    aetherPreferenceStore.save(cur.copy(torBridgesMode = "own", torCustomBridges = joined))
+                    renderAdvancedControls()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "✅ در Aether ← Tor ذخیره شد (پل‌های خودم)" else "✅ Saved in Aether → Tor (own bridges)",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                .setNeutralButton(if (isFarsi) "📋 کپی (Orbot / Tor Browser)" else "📋 Copy (Orbot / Tor Browser)") { _, _ ->
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("tor-bridges", joined))
+                    Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
     private fun showOutlineFreeHubDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         val options = if (isFarsi) {
@@ -17470,10 +17607,14 @@ class MainActivity : Activity() {
             "پنل یا واسطه روی حساب Vercel شما، با اسکنر پینگ.",
             "Panel or relay on your Vercel account, with a ping scanner.",
             "ورسل vercel relay") { vercelRelay.showPanel() },
-        FinderEntry("🖥 سرور Node (KataBump / Lucity / Shiprr)", "🖥 Node server (KataBump / Lucity / Shiprr)",
-            "پنل روی هاست‌های رایگان Node با راهنمای قدم‌به‌قدم.",
-            "Panel on free Node hosts with a step-by-step guide.",
-            "کاتابامپ نود هاست katabump lucity shiprr node host") { openScreen(SCREEN_CLOUD) },
+        FinderEntry("🖥 سرور Node (Bot-Hosting / Railway / KataBump / Lucity / Shiprr)", "🖥 Node server (Bot-Hosting / Railway / KataBump / Lucity / Shiprr)",
+            "پنل روی هاست‌های Node. Bot-Hosting.net رایگان و کاملاً خودکار است: یک کلید بچسبانید، بقیه را برنامه انجام می‌دهد.",
+            "Panel on Node hosts. Bot-Hosting.net is free and fully automatic: paste one key, the app does the rest.",
+            "کاتابامپ نود هاست بات هاستینگ ریلوی katabump lucity shiprr node host bot-hosting bothosting railway") { openScreen(SCREEN_CLOUD) },
+        FinderEntry("🔺 منابع Delta-Kronecker", "🔺 Delta-Kronecker sources",
+            "کانفیگ‌های تست‌شده (VLESS/Trojan/SS/VMess/وارپ)، وارپ برای Aether، تونل DNS، پل‌های Tor ساعتی و دانلود فایل از راه GitHub.",
+            "Tested configs (VLESS/Trojan/SS/VMess/WARP), WARP for Aether, DNS tunnels, hourly Tor bridges and file download through GitHub.",
+            "دلتا کرونکر delta kronecker رایگان free tor bridge پل تور وارپ warp slipnet دانلود downloader") { showDeltaKroneckerHubDialog() },
         FinderEntry("⚡ تست سرعت", "⚡ Speed test", "سرعت دانلود و آپلود را از داخل تونل اندازه می‌گیرد.",
             "Measures download/upload speed through the tunnel.", "سرعت اسپید speed test") { showSpeedTestPage() },
         FinderEntry("⏱ پینگ و جیتر دقیق", "⏱ Precise ping & jitter", "پینگ و جیتر یک آی‌پی:پورت را روی خط خودت و از راه ورکر کنار هم نشان می‌دهد.",
@@ -22693,7 +22834,22 @@ class MainActivity : Activity() {
                     else "🧅 Tor Bridges Copied (${fetched.size} bridges)",
                 )
                 .setMessage(text)
-                .setPositiveButton(android.R.string.ok, null)
+                .apply {
+                    val usable = DeltaKroneckerFeeds.parseBridgeLines(text, 10)
+                    if (usable.isNotEmpty()) {
+                        setPositiveButton(if (isFarsi) "✅ استفاده در Aether" else "✅ Use in Aether") { _, _ ->
+                            aetherPreferenceStore.save(
+                                aetherPreferenceStore.read().copy(torBridgesMode = "own", torCustomBridges = usable.joinToString("\n")),
+                            )
+                            renderAdvancedControls()
+                        }
+                    } else {
+                        setPositiveButton(android.R.string.ok, null)
+                    }
+                }
+                .setNeutralButton(if (isFarsi) "🔺 پل‌های ساعتی Delta-Kronecker" else "🔺 Hourly Delta-Kronecker bridges") { _, _ ->
+                    DeltaKroneckerFeeds.byKind(DeltaKroneckerFeeds.Kind.TOR_BRIDGES).firstOrNull()?.let { fetchDeltaKroneckerTorBridges(it) }
+                }
                 .create()
                 .showCatClientDialog()
         }
