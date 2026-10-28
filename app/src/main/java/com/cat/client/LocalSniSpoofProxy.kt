@@ -69,6 +69,24 @@ internal object LocalSniSpoofProxy {
             descriptionFa = "قرار دادن دامنه وایت‌لیست در SNI و تایید امن گواهی سرور اصلی با verifyPeerCertByName=fromMitm و pinnedPeerCertSha256 بدون نیاز به allowInsecure.",
             descriptionEn = "Uses a whitelisted SNI on the wire while verifying the real server certificate via fromMitm / pinned SHA-256.",
         ),
+        // beta203 — two more splitters in the spirit of DeltaSpoof's «tls_record_frag» / «sni_boundary_frag» (own code).
+        // Both leave the handshake BYTES untouched (only record framing / TCP segmentation changes), so the TLS
+        // transcript stays valid and the server always accepts it. SNI rewriting / padding / CCS-before-hello variants
+        // were deliberately NOT added: they change the bytes the server hashes and break the handshake through a proxy.
+        TLS_RECORD_TINY_FRAG(
+            id = "tls-record-tiny",
+            titleFa = "۶) خرد کردن کل ClientHello به رکوردهای ریز TLS (۱۶ تا ۴۸ بایت)",
+            titleEn = "6) Whole ClientHello as tiny TLS records (16–48 bytes)",
+            descriptionFa = "اینو بزنی: کل سلام اول TLS به ده‌ها رکورد کوچک و معتبر تقسیم می‌شود (نه فقط اطراف SNI). برای فایروال‌هایی که چند تکه را کنار هم می‌گذارند ولی حوصلهٔ سرهم کردن ده‌ها رکورد را ندارند.",
+            descriptionEn = "Press it: the whole first TLS hello is cut into dozens of small valid records (not only around the SNI). For firewalls that glue a few pieces back together but not dozens.",
+        ),
+        SNI_TCP_BOUNDARY_SPLIT(
+            id = "sni-tcp-boundary",
+            titleFa = "۷) برش TCP دقیقاً روی نام دامنه (بایت‌ها دست نمی‌خورند)",
+            titleEn = "7) TCP cut exactly on the domain name (bytes untouched)",
+            descriptionFa = "اینو بزنی: همان یک رکورد TLS بدون هیچ تغییری فرستاده می‌شود، فقط بسته‌های TCP درست سر نام دامنه و هر ۲ حرف بریده می‌شوند. امن‌ترین روش — اگر بقیه کار نکرد این را امتحان کن.",
+            descriptionEn = "Press it: the same single TLS record is sent unchanged, only the TCP packets are cut right at the domain name and every 2 letters. The safest method — try it when the others fail.",
+        ),
     }
 
     enum class NonCfCdnProvider(
@@ -553,6 +571,81 @@ internal object LocalSniSpoofProxy {
             16.coerceAtMost((record.size - 7).coerceAtLeast(1))
         }
         return WhiteDnsSmartScanner.splitTlsClientHelloRecord(record, payloadSplitBytes)
+    }
+
+    /**
+     * beta203 «tls_record_frag»: the whole first TLS record is re-cut into many small, valid Handshake records
+     * ([minLen]–[maxLen] payload bytes each). Only the record layer changes — the handshake bytes (and so the TLS
+     * transcript) stay identical. A record that is not complete in this read is passed through unchanged: re-cutting
+     * half a record would corrupt the stream when its tail arrives in the next read.
+     */
+    fun splitClientHelloTinyRecords(
+        buf: ByteArray,
+        minLen: Int = 16,
+        maxLen: Int = 48,
+        rnd: java.util.Random = java.util.Random(),
+    ): List<ByteArray> {
+        if (buf.size < 6 || (buf[0].toInt() and 0xFF) != 0x16) return listOf(buf)
+        val declared = ((buf[3].toInt() and 0xFF) shl 8) or (buf[4].toInt() and 0xFF)
+        if (declared <= 0 || 5 + declared > buf.size) return listOf(buf)
+        val lo = minLen.coerceAtLeast(1)
+        val hi = maxLen.coerceAtLeast(lo)
+        val out = mutableListOf<ByteArray>()
+        val end = 5 + declared
+        var pos = 5
+        while (pos < end) {
+            val len = minOf(end - pos, lo + rnd.nextInt(hi - lo + 1))
+            val rec = ByteArray(5 + len)
+            rec[0] = 0x16
+            rec[1] = buf[1]
+            rec[2] = buf[2]
+            rec[3] = ((len ushr 8) and 0xFF).toByte()
+            rec[4] = (len and 0xFF).toByte()
+            System.arraycopy(buf, pos, rec, 5, len)
+            out += rec
+            pos += len
+        }
+        if (end < buf.size) out += buf.copyOfRange(end, buf.size)
+        return out
+    }
+
+    /**
+     * beta203 «sni_boundary_frag»: ONE unchanged TLS record written as several TCP segments, cut exactly where the
+     * SNI hostname starts and then every [step] bytes through the hostname. The byte stream is identical — only the
+     * segmentation differs (the sockets run with TCP_NODELAY) — so it can never break the handshake.
+     */
+    fun splitAtSniBoundariesTcp(buf: ByteArray, step: Int = 2): List<ByteArray> {
+        val host = findSniHostnameOffset(buf)
+        if (host < 2 || host >= buf.size) return listOf(buf)
+        val hostLen = ((buf[host - 2].toInt() and 0xFF) shl 8) or (buf[host - 1].toInt() and 0xFF)
+        val hostEnd = (host + hostLen).coerceAtMost(buf.size)
+        val stride = step.coerceAtLeast(1)
+        val cuts = mutableListOf(host)
+        var c = host + stride
+        while (c < hostEnd) {
+            cuts += c
+            c += stride
+        }
+        if (hostEnd < buf.size) cuts += hostEnd
+        val out = mutableListOf<ByteArray>()
+        var prev = 0
+        for (cut in cuts) {
+            if (cut > prev && cut < buf.size) {
+                out += buf.copyOfRange(prev, cut)
+                prev = cut
+            }
+        }
+        out += buf.copyOfRange(prev, buf.size)
+        return out
+    }
+
+    /** Writes [chunks] one by one with a 1 ms pause after each of the first few (shared by the two beta203 splitters). */
+    private fun writeChunksPaced(upOut: java.io.OutputStream, chunks: List<ByteArray>) {
+        for ((idx, chunk) in chunks.withIndex()) {
+            upOut.write(chunk)
+            upOut.flush()
+            if (idx < 12 && idx < chunks.size - 1) Thread.sleep(1)
+        }
     }
 
     /**
@@ -1323,6 +1416,10 @@ internal object LocalSniSpoofProxy {
                                                 if (idx > 0) Thread.sleep(1)
                                             }
                                         }
+                                        SpoofStrategy.TLS_RECORD_TINY_FRAG ->
+                                            writeChunksPaced(upOut, splitClientHelloTinyRecords(rawRecord))
+                                        SpoofStrategy.SNI_TCP_BOUNDARY_SPLIT ->
+                                            writeChunksPaced(upOut, splitAtSniBoundariesTcp(rawRecord))
                                     }
                                 } else {
                                     firstPacket = false
@@ -2995,6 +3092,10 @@ RESOLVERS = [$resolversList]
                                                 if (idx > 0) Thread.sleep(1)
                                             }
                                         }
+                                        SpoofStrategy.TLS_RECORD_TINY_FRAG ->
+                                            writeChunksPaced(upOut, splitClientHelloTinyRecords(rawRecord))
+                                        SpoofStrategy.SNI_TCP_BOUNDARY_SPLIT ->
+                                            writeChunksPaced(upOut, splitAtSniBoundariesTcp(rawRecord))
                                     }
                                 } else {
                                     firstPacket = false

@@ -21,6 +21,14 @@ class DeltaKroneckerFeedsTest {
     }
 
     @Test
+    fun protonWireGuardFeedIsASubscription() {
+        val f = DeltaKroneckerFeeds.FEEDS.first { it.id == "proton-wg" }
+        assertEquals(DeltaKroneckerFeeds.Kind.SUBSCRIPTION, f.kind)
+        assertTrue(f.url.endsWith("ProtonVPN-WireGuard-configuration/refs/heads/main/proton_wireguard_links.txt"))
+        assertTrue(f.whatFa.contains("WireGuard"))
+    }
+
+    @Test
     fun bridgeParsing() {
         val fp = "FBA329BA4F5FE648456C3A28BBAA3C7EBD118E08"
         val text = """
