@@ -309,6 +309,18 @@ for (const platform of [{ label: 'cf', env: {} }, { label: 'vercel', env: { CAT_
   check('settings page port buttons get numbers (no duplicate «443» buttons)', st.tlsPorts.every((p) => typeof p === 'number') && st.plainPorts.every((p) => typeof p === 'number'), JSON.stringify(st.tlsPorts));
 }
 
+// beta205: every JSON API must answer a malformed body with a 4xx/ok:false, never a 500 «panel_crash».
+{
+  const P = await makePanel({});
+  const src = (await import('node:fs')).readFileSync(path.join(here, '../../app/src/main/assets/panels/catclient.worker.js'), 'utf8'); // route list from the source (minified builds re-quote strings)
+  const routes = [...new Set([...src.matchAll(/'(\/api\/[a-zA-Z0-9_\/-]+)'/g)].map((m) => m[1]))].filter((r) => !/update-(check|download)|svc-test|ip-test/.test(r));
+  check('fuzz: found the API routes', routes.length > 40, String(routes.length));
+  for (const rt of routes) for (const method of ['POST', 'PUT']) for (const raw of ['"x"', '7', 'true', '[]', 'null', 'not json', '{"ips":"x","name":{},"id":null,"port":"abc"}']) {
+    const r = await worker.fetch(new Request('https://audit.workers.dev' + rt, { method, headers: Object.assign({ 'content-type': 'application/json' }, P.auth), body: raw }), P.ENV, { waitUntil() {} });
+    const t = await r.text();
+    check('fuzz: ' + method + ' ' + rt + ' body ' + raw + ' does not crash', r.status !== 500 && !/panel_crash|TypeError|is not a function|Cannot read/.test(t), r.status + ' ' + t.slice(0, 120));
+  }
+}
 console.log(passes + ' checks passed, ' + failures + ' failed');
 if (failures) process.exit(1);
 console.log('sub-audit: all checks passed');

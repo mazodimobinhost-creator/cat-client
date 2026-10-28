@@ -4,6 +4,26 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta205] — 2026-10-28 (Panel 6.77.2)
+
+Second audit pass over app + panel. Panel: every JSON API was fuzzed with malformed bodies (now part of `sub-audit.test.mjs`) and the whole panel UI was clicked through (≈420 buttons/tabs/selects, Cloudflare / Vercel / Node host, fa + en) with zero JS errors.
+
+### Fixed — panel 6.77.2
+- **«Countries» save could crash the panel** (`500 panel_crash`) when the request body was a bare JSON string; any non-object JSON body is now treated as empty on every API.
+
+### Fixed — app
+- **Crash in the scanner's «use this IP»** once five fronting IPs were already saved (the 5-address limit threw). Several other «apply IP» buttons silently dropped the new IP in the same situation. New IPs now go first and the oldest fall off; invalid entries are skipped.
+- **«Inject scanned IPs into my configs»:**
+  - a scanned plain port (80, 8080, …) is no longer glued onto a TLS config, nor a TLS port onto a plain config — those pairs were dead on arrival;
+  - an endpoint without a port keeps the config's own port instead of a guessed 443;
+  - rows whose TLS check FAILED are no longer used as a fallback;
+  - without a real config of yours it no longer invents one with a placeholder UUID — it tells you to add your config / panel first (Trojan templates stay Trojan; ws links use ALPN http/1.1).
+- **No more placeholder configs:** the ProxyIP row «⚙️ config» and the iPhone hub (VLESS / deep links / WireGuard / .mobileconfig) now ask for your own panel instead of handing out links with a dummy UUID / host.
+- **Domain-fronting «apply clean IP»** used an untested fallback IP; now only the IP whose :443 really answered is applied (IPv6 bracketed).
+- **More tests ran through the VPN instead of your line:** ISP protocol matrix, open-proxy scanner, Cloudflare zero-byte / MASQUE diagnosis, WhiteDNS smart-scanner probes, the Vercel edge scanner and the unpoisoned-DNS resolver are now protected like the other scanners.
+- **Socket leaks:** SNI scanner, spoof probes, Firefox VPN probe, GitHub-over-SNI fetch and node-host checks left the socket open when the target was down (hundreds of descriptors in a long scan).
+- **Local SNI-spoof proxy, HTTP-CONNECT path:** like the direct and SOCKS paths, it now splits only a complete first TLS record.
+
 ## [1.10.0-beta204] — 2026-10-28 (Panel 6.77.1)
 
 Full audit of spoof, panel, subscriptions, Vercel, IP import, IP / SNI / ProxyIP / SOCKS5 scanners and the HTTP ping. New test `scripts/panels/sub-audit.test.mjs` renders every output (VLESS/Trojan lines, /u/ user subs, /64, Clash, sing-box, Xray JSON) for Cloudflare **and** Vercel panels across mixed settings (pinned `IP:port`, IPv6, `ip#CC`, hostnames, plain ports, ProxyIPs with their own ports, SOCKS5, per-user firewall profile + IPs) × 23 link variants (`?survive ?proto ?port ?addr ?sni ?ech ?fam ?rotate ?limit ?strict ?health ?type ?nofm ?fw=…`) and checks ~165 000 properties of the result.
