@@ -67,7 +67,10 @@ const source = readFileSync(sourcePath, 'utf8');
 
   // Upper bound raised 600 000 → 640 000 for 6.69.37 (per-user quota/IP limit, TOTP 2FA,
   // login lockout + audit — measured 600 754 B raw).
-  ok('raw size is in the paste range (300–640 KB)', asset.length >= 300_000 && asset.length <= 640_000, asset.length);
+  // Raised 640 000 → 660 000 for 6.70.0: validity from the first connection, per-user operator
+  // profile + per-user exact-port clean IPs, ⚡ quick user, scanner → «save fastest to a user»,
+  // the installable-app manifest/icon routes and their bilingual strings — measured 642 301 B.
+  ok('raw size is in the paste range (300–660 KB)', asset.length >= 300_000 && asset.length <= 660_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is

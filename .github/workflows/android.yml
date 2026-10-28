@@ -245,6 +245,9 @@ jobs:
           # beta110: the Tor/Orbot engine (loopback-only hop, idempotent injection, the switch
           # is never believed without a probe) + the multi-path watchdog's anti-flap rules
           node scripts/panels/orbot-engine.test.mjs
+          # beta196: first-connection clock, per-user operator profile + exact-port clean IPs,
+          # ⚡ quick user, scanner → user, installable panel (driven through the real UI)
+          node scripts/panels/devcop-parity.test.mjs
 
       # Ship the obfuscated worker inside the APK (readable source never leaves
       # the repo). The full panel suite then re-runs against the obfuscated
