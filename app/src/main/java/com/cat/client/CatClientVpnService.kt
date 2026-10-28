@@ -1462,6 +1462,7 @@ class CatClientVpnService : VpnService() {
             rawShare,
             File(filesDir, "aether.toml"),
             timeoutMs.toLong().coerceIn(5_000L, 30_000L),
+            protectSocket = if (state == VpnState.Started) { fd -> protect(fd) } else null,
         )
         if (probe.rttMs == null) {
             DiagnosticLogger.warn(this, "connection.delay.aether", "profile=${profile.tag} peer=${probe.peer} error=${probe.error}")
@@ -1487,14 +1488,30 @@ class CatClientVpnService : VpnService() {
             if (port !in 1..65535) return@synchronized null
             runCatching {
                 val t0 = System.nanoTime()
-                java.net.Socket(java.net.Proxy(java.net.Proxy.Type.SOCKS, java.net.InetSocketAddress("127.0.0.1", port))).use { s ->
+                java.net.Socket().use { s ->
                     s.soTimeout = timeoutMs
-                    s.connect(java.net.InetSocketAddress.createUnresolved("www.gstatic.com", 80), timeoutMs)
-                    s.getOutputStream().apply {
-                        write("GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n".toByteArray())
-                        flush()
-                    }
-                    val status = s.getInputStream().bufferedReader(Charsets.US_ASCII).readLine().orEmpty()
+                    s.connect(java.net.InetSocketAddress("127.0.0.1", port), timeoutMs)
+                    val out = s.getOutputStream()
+                    val inp = java.io.DataInputStream(s.getInputStream())
+                    // SOCKS5 by hand (RFC 1928): no auth, CONNECT www.gstatic.com:443 by name (Mozilla's proxy is a
+                    // CONNECT proxy meant for HTTPS), then a real TLS request inside it.
+                    out.write(byteArrayOf(5, 1, 0)); out.flush()
+                    val greet = ByteArray(2).also { inp.readFully(it) }
+                    check(greet[0].toInt() == 5 && greet[1].toInt() == 0) { "socks greeting refused" }
+                    val host = "www.gstatic.com".toByteArray(Charsets.US_ASCII)
+                    out.write(byteArrayOf(5, 1, 0, 3, host.size.toByte()) + host + byteArrayOf(1, 0xBB.toByte())); out.flush()
+                    val head = ByteArray(4).also { inp.readFully(it) }
+                    check(head[1].toInt() == 0) { "socks connect failed (${head[1].toInt() and 0xFF})" }
+                    val addrLen = when (head[3].toInt()) { 1 -> 4; 4 -> 16; 3 -> inp.readUnsignedByte(); else -> 0 }
+                    val skip = addrLen + 2
+                    inp.readFully(ByteArray(skip))
+                    val tls = (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory)
+                        .createSocket(s, "www.gstatic.com", 443, false) as javax.net.ssl.SSLSocket
+                    tls.soTimeout = timeoutMs
+                    tls.startHandshake()
+                    tls.outputStream.write("GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n".toByteArray())
+                    tls.outputStream.flush()
+                    val status = tls.inputStream.bufferedReader(Charsets.US_ASCII).readLine().orEmpty()
                     check(status.startsWith("HTTP/1.") && (" 204" in status || " 200" in status)) { "status=$status" }
                 }
                 ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)

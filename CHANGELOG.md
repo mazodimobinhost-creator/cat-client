@@ -4,6 +4,28 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta206] — 2026-10-28 (Panel 6.77.2)
+
+Aether (PattNG links) and Firefox VPN profiles that "pinged but never connected".
+
+### Fixed — Aether / PattNG
+- **Aether core updated to 2.4.0** (WhiteAestherMobile `2409297`): new WARP registration hosts and edge addresses, 297 gateways, BoringSSL 5.3, working MASQUE SNI.
+- **TLS fingerprint now matches a real browser.** Cat sent its own ClientHello (key shares for every group, wrong group order) that a firewall could tell apart from Chrome. The Chrome / Chrome-120 / Firefox / semi-python / Go presets now carry the same browser-captured values PattNG uses; a blank fingerprint means Chrome everywhere.
+- **PattNG links are dialled exactly as written.** An `aether://` link is now stored byte-for-byte (it used to be re-exported in Cat's format), and a link without `fragment=1` no longer turns TLS fragmentation on. ⚠️ Subscriptions imported before this build keep the old re-exported links: refresh (or remove and re-add) the subscription once.
+- **Values Aether 2.4 rejects are filtered** (an IP or URL as SNI / API host, fragment sizes or delays out of range) instead of failing the whole connection.
+- **Psiphon / Tor chains** now use the profile's own fingerprint, fragment and SNI on the WARP leg.
+- **Amnezia configs:** «Syntax error in regexp pattern near index 52» (unescaped brace rejected by Android's regex engine) is fixed.
+
+### Fixed — Firefox VPN (FENIX) and other in-app engines
+- **Connected but no traffic:** while Cat is connected, the app's own DNS lookups get mihomo's fake 198.18.x.x answers; the Firefox VPN and paqet bridges then dialled that fake address outside the tunnel. They now resolve on the real network and never use a fake-ip answer.
+- **Clear message without a Firefox account:** connecting a Firefox VPN profile with no signed-in account now says to sign in under «MLM VPN → Firefox VPN» instead of a bare connection error.
+
+### Changed — connection test
+- **Aether rows are tested with a real tunnel handshake** through the Aether core (the profile's mode, transport, fingerprint, fragment). The old test timed a bare TCP connect, or just *sending* one UDP packet (always ≈1 ms), so dead profiles looked healthy.
+- **Firefox VPN rows are tested with a real request** through the local bridge and Mozilla's proxy; without a signed-in account they show as failed.
+- **DNS-tunnel fallback ping** over UDP now waits for a real DNS answer.
+- **Row names:** in-app engine rows show their own name and engine («PattNG-MIM-H2-DE», «Germany · Aether», «🦊 Firefox VPN (DE)») instead of «Cloudflare edge · Socks5 · 1819».
+
 ## [1.10.0-beta205] — 2026-10-28 (Panel 6.77.2)
 
 Second audit pass over app + panel. Panel: every JSON API was fuzzed with malformed bodies (now part of `sub-audit.test.mjs`) and the whole panel UI was clicked through (≈420 buttons/tabs/selects, Cloudflare / Vercel / Node host, fa + en) with zero JS errors.

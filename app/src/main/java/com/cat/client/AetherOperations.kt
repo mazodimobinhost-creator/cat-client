@@ -2,6 +2,7 @@ package com.cat.client
 
 import com.whitedns.whiteaesther.core.EndpointScanResult
 import com.whitedns.whiteaesther.core.NativeAetherBridge
+import com.whitedns.whiteaesther.core.NativeSocketProtector
 import java.io.File
 import java.net.InetAddress
 
@@ -572,13 +573,18 @@ internal object AetherOperations {
      * profile's real tunnel (its mode, transport, fingerprint, fragment, SNI) to the endpoint and confirm traffic,
      * exactly like the connect does; no fallback number is invented when it fails.
      */
-    fun realAetherHandshake(rawUri: String, identityFile: File, budgetMillis: Long): AetherRealProbe {
+    fun realAetherHandshake(
+        rawUri: String,
+        identityFile: File,
+        budgetMillis: Long,
+        protectSocket: ((Int) -> Boolean)? = null,
+    ): AetherRealProbe {
         if (!NativeAetherBridge.isLoaded) return AetherRealProbe(null, null, "Aether native core is unavailable")
         val sel = AetherSelection.fromAetherUri(rawUri) ?: return AetherRealProbe(null, null, "not an Aether link")
         val mode = if (sel.mode == AetherMode.MasquePsiphon) AetherMode.MasqueHttp2 else sel.mode
         val udp = mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) ||
             (sel.masqueTransport == "h3" && mode != AetherMode.WireGuardOverMasque)
-        val peer = sel.endpoint ?: when {
+        val peer = sel.endpoint?.takeIf { isSafePublicPeer(it) } ?: when {
             sel.ipScan == "v6" && mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) -> "[2606:4700:d0::a29f:c001]:2408"
             sel.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
             udp && mode in setOf(AetherMode.WireGuard, AetherMode.WarpInWarp) -> "162.159.192.1:2408"
@@ -589,8 +595,8 @@ internal object AetherOperations {
                 mode = mode,
                 identityFile = identityFile,
                 endpoint = peer,
-                innerEndpoint = sel.innerEndpoint,
-                ipScan = sel.ipScan,
+                innerEndpoint = sel.innerEndpoint?.takeIf { isSafePublicPeer(it) },
+                ipScan = sel.ipScan.takeIf { it in setOf("both", "v4", "v6") } ?: "both",
                 // A Psiphon/Tor chain is tested on its WARP leg only (what the chain rides on).
                 exitLocation = if (sel.chainTarget != "none" || sel.mode == AetherMode.MasquePsiphon) "auto" else sel.effectiveExitLocation(),
                 masqueTransport = sel.masqueTransport.takeIf { it == "h3" } ?: "h2",
@@ -610,7 +616,15 @@ internal object AetherOperations {
                 .put("peerFallback", false)
                 .toString()
             // The native core runs one scan/test at a time; parallel test workers queue here.
-            val tested = synchronized(realProbeLock) { NativeAetherBridge.testEndpoint(json).getOrThrow() }
+            val tested = synchronized(realProbeLock) {
+                // While another engine owns the VPN, the probe must leave on the real network, not through it.
+                protectSocket?.let { p -> NativeAetherBridge.setSocketProtector(NativeSocketProtector { fd -> p(fd) }) }
+                try {
+                    NativeAetherBridge.testEndpoint(json).getOrThrow()
+                } finally {
+                    if (protectSocket != null) runCatching { NativeAetherBridge.setSocketProtector(null) }
+                }
+            }
             AetherRealProbe(tested.rttMillis.coerceAtLeast(1L), tested.peer, null)
         }.getOrElse { AetherRealProbe(null, peer, it.message ?: it.javaClass.simpleName) }
     }
