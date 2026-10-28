@@ -1343,6 +1343,7 @@ function normalizeSettings(raw) {
   if (!sniHostnameOk(s.fallbackHost)) s.fallbackHost = '';
   s.installedAt = Number(s.installedAt) || 0;
   s.updatedAt = Number(s.updatedAt) || 0;
+  s.linkExit = normalizeLinkExit(s.linkExit);
   return s;
 }
 
@@ -3354,6 +3355,19 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
       if (settings && settings.chainStrict) throw e;
     }
   }
+  // 🔗 exit through a linked panel: «cf» = only for Cloudflare-hosted destinations (instead of ProxyIP),
+  // «all» = every destination. A failure falls back to the normal route below.
+  const lchain = !useChain ? linkExitChain(settings) : null;
+  if (lchain && (settings.linkExit.mode === 'all' || targetIsCf)) {
+    try {
+      const dialed = await dialViaChain(sockets, lchain, host, port);
+      if (log) log('dial ok link:' + lchain.host + ' → ' + host + ':' + port);
+      return { socket: dialed.socket, via: 'link', leftover: dialed.leftover };
+    } catch (e) {
+      lastError = e;
+      if (log) log('link exit failed: ' + (e && e.message ? e.message : e));
+    }
+  }
   const allAttempts = relayAttempts(targetIsCf, proxyOverride, proxyIpList(env, settings), socksRelayList(env, settings), host, port);
   const fresh = allAttempts.filter((a) => !relayCool(a.via));
   const attempts = (fresh.length ? fresh : allAttempts);
@@ -3483,11 +3497,230 @@ async function tunnelAuth(env, uuid, masterUuid) {
   const id = String(uuid || '').toLowerCase();
   if (id === masterUuid) return { ok: true, master: true };
   const users = await readUsers(env);
-  const user = findUser(users, id);
-  if (!user) return { ok: false, error: 'unknown' };
+  let user = findUser(users, id);
+  if (!user) {
+    // 🔗 a linked panel (its link credential) or a user it mirrored here for its combined subscription
+    const pseudo = findUser(linkPseudoUsers(await readLinks(env)), id);
+    if (!pseudo) return { ok: false, error: 'unknown' };
+    user = pseudo;
+  }
   const blocked = userBlockedReason(user);
   if (blocked) return { ok: false, error: blocked, user };
-  return { ok: true, user };
+  return { ok: true, user, link: !!user.link };
+}
+
+/* ------------------------------------------------------------------ */
+/* 🔗 Panel link (6.76.0): pair two Cat panels — Cloudflare ↔ Vercel ↔   */
+/* Railway / any Node host — with a one-time code. Each side gets its own */
+/* link credential on the other, so a panel can (1) send traffic OUT      */
+/* through the other one (a real VLESS-WS chain, e.g. a Cloudflare panel  */
+/* exiting from Vercel to reach Cloudflare-hosted sites without ProxyIP), */
+/* (2) append the other panel’s configs to its users’ subscriptions (the  */
+/* user’s UUID is mirrored there with its expiry), (3) import the other   */
+/* panel’s tested clean IPs / ProxyIPs with their exact ports. SOCKS      */
+/* credentials never leave a panel.                                       */
+/* ------------------------------------------------------------------ */
+const LINKS_KEY = 'cat:v6:links';
+const LINK_CODE_PREFIX = 'CATLINK1-';
+const LINK_CODE_TTL_MS = 30 * 60 * 1000;
+const LINK_LEASE_MS = 45 * 86400000;
+const LINK_MAX_PEERS = 8;
+const LINK_EXIT_MODES = ['', 'cf', 'all'];
+
+function panelPlatform(env) { return isVercelPlatform(env) ? 'vercel' : (isNodePlatform(env) ? 'node' : 'cf'); }
+
+function linkToken(n) { return b64urlEncodeBytes(crypto.getRandomValues(new Uint8Array(n || 24))); }
+
+function linkUrlOk(u) {
+  const m = String(u || '').trim().match(/^(https?):\/\/(\[[0-9a-f:]+\]|[a-z0-9.-]{1,253})(?::(\d{1,5}))?\/?$/i);
+  if (!m) return null;
+  const port = m[3] ? Number(m[3]) : (m[1].toLowerCase() === 'https' ? 443 : 80);
+  if (!(port > 0 && port < 65536)) return null;
+  const host = m[2].toLowerCase();
+  return { url: m[1].toLowerCase() + '://' + host + (m[3] ? ':' + port : ''), host, port, tls: m[1].toLowerCase() === 'https' };
+}
+
+function normalizeLinkInfo(raw) {
+  const i = raw && typeof raw === 'object' ? raw : {};
+  const host = String(i.host || '').toLowerCase().replace(/[^a-z0-9.:\[\]-]/g, '').slice(0, 253);
+  const port = Number(i.port);
+  const path = String(i.path || '').trim();
+  return {
+    v: String(i.v || '').replace(/[^0-9a-z.\-]/gi, '').slice(0, 20),
+    platform: ['cf', 'vercel', 'node'].includes(i.platform) ? i.platform : 'cf',
+    edge: ['cf', 'vercel', 'tls', 'plain'].includes(i.edge) ? i.edge : 'cf',
+    host,
+    tls: i.tls !== false,
+    port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 443,
+    path: /^\/[A-Za-z0-9_\-\/.?=&%]{1,120}$/.test(path) ? path : '',
+    data: i.data !== false,
+    name: String(i.name || '').replace(/[<>"']/g, '').trim().slice(0, 40),
+  };
+}
+
+function normalizePeer(raw) {
+  const p = raw && typeof raw === 'object' ? raw : {};
+  const u = linkUrlOk(p.url);
+  if (!u || !/^[A-Za-z0-9_-]{20,80}$/.test(String(p.secret || '')) || !isUuid(p.dialUuid) || !isUuid(p.acceptUuid)) return null;
+  const now = Date.now();
+  return {
+    id: /^[a-z0-9]{6,16}$/.test(String(p.id || '')) ? String(p.id) : linkToken(6).toLowerCase().replace(/[^a-z0-9]/g, 'x').slice(0, 8),
+    url: u.url,
+    host: u.host,
+    name: String(p.name || '').replace(/[<>"']/g, '').trim().slice(0, 40) || u.host,
+    secret: String(p.secret),
+    dialUuid: String(p.dialUuid).toLowerCase(),
+    acceptUuid: String(p.acceptUuid).toLowerCase(),
+    info: normalizeLinkInfo(p.info),
+    exit: LINK_EXIT_MODES.includes(p.exit) ? p.exit : '',
+    sub: p.sub === true,
+    created: Number(p.created) || now,
+    lastOk: Number(p.lastOk) || 0,
+    lastMs: Math.max(0, Math.min(60000, Number(p.lastMs) || 0)),
+    lastErr: String(p.lastErr || '').slice(0, 120),
+    mirror: (Array.isArray(p.mirror) ? p.mirror : []).filter((m) => m && isUuid(m.id) && Number(m.lease) > now)
+      .map((m) => ({ id: String(m.id).toLowerCase(), en: m.en !== false, exp: Number(m.exp) || 0, lease: Number(m.lease) })).slice(0, 500),
+  };
+}
+
+function normalizeLinks(raw) {
+  const l = raw && typeof raw === 'object' ? raw : {};
+  const now = Date.now();
+  const seen = new Set();
+  const peers = (Array.isArray(l.peers) ? l.peers : []).map(normalizePeer).filter((p) => p && !seen.has(p.id) && seen.add(p.id)).slice(0, LINK_MAX_PEERS);
+  const pending = (Array.isArray(l.pending) ? l.pending : []).filter((x) => x && /^[A-Za-z0-9_-]{20,80}$/.test(String(x.t || '')) && Number(x.exp) > now)
+    .map((x) => ({ t: String(x.t), exp: Number(x.exp) })).slice(-5);
+  return { peers, pending };
+}
+
+async function readLinks(env) { return normalizeLinks(await kvGetJson(env, LINKS_KEY, null)); }
+async function writeLinks(env, links) { return kvPutJson(env, LINKS_KEY, normalizeLinks(links)); }
+
+/** What THIS panel tells a linked panel about itself: where its VLESS-WS answers. */
+function linkSelfInfo(url, env, settings) {
+  const plat = panelPlatform(env);
+  const node = plat === 'node';
+  const tls = node ? nodeEdge(env) !== 'plain' : url.protocol === 'https:';
+  const port = node ? (nodeEdge(env) === 'cf' ? 443 : nodePort(env)) : (Number(url.port) || (tls ? 443 : 80));
+  return normalizeLinkInfo({
+    v: CAT_PANEL_VERSION, platform: plat, edge: node ? nodeEdge(env) : (plat === 'vercel' ? 'vercel' : 'cf'),
+    host: url.hostname, tls, port, path: tunnelPaths(env)[PROTO_VLESS + 'Path'], data: dataPlaneEnabled(env), name: panelTitle(env, settings),
+  });
+}
+
+/** A Cloudflare Worker cannot open a socket to a Cloudflare address — so a CF panel can never exit through
+ * another CF panel (or a Node host behind an orange cloud). Every other direction works. */
+function linkExitCapable(env, info) {
+  if (panelPlatform(env) !== 'cf') return true;
+  return !(info.platform === 'cf' || info.edge === 'cf');
+}
+
+function linkExitSetting(peer, mode) {
+  if (!peer || !mode || !peer.info.path) return null;
+  return { id: peer.id, name: peer.name, host: peer.info.host || peer.host, port: peer.info.port, tls: peer.info.tls, path: peer.info.path, uuid: peer.dialUuid, mode };
+}
+
+function normalizeLinkExit(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const port = Number(raw.port);
+  const host = String(raw.host || '').toLowerCase();
+  if (!isUuid(raw.uuid) || !/^[a-z0-9.-]{3,253}$/.test(host) || !(port > 0 && port < 65536) || !/^\/\S{1,120}$/.test(String(raw.path || ''))) return null;
+  if (!['cf', 'all'].includes(raw.mode)) return null;
+  return { id: String(raw.id || '').slice(0, 16), name: String(raw.name || '').replace(/[<>"']/g, '').slice(0, 40), host, port, tls: raw.tls !== false, path: String(raw.path), uuid: String(raw.uuid).toLowerCase(), mode: raw.mode };
+}
+
+/** settings.linkExit → the chain object dialViaChain already speaks (VLESS over WS, TLS when the peer has it). */
+function linkExitChain(settings) {
+  const x = settings && settings.linkExit;
+  if (!x || !x.uuid) return null;
+  return { type: 'vless', user: x.uuid, pass: '', host: x.host, port: x.port, tls: !!x.tls, sni: x.host, wsHost: x.host, path: x.path, transport: 'ws', link: x.id };
+}
+
+/** Users the linked panels may connect with: each peer’s link credential + the mirrored users of peers that
+ * share their subscription with us (enabled, not expired, lease not lapsed). */
+function linkPseudoUsers(links) {
+  const now = Date.now();
+  const out = [];
+  for (const p of (links && links.peers) || []) {
+    out.push(Object.assign(normalizeUser({ id: p.acceptUuid, name: '🔗 ' + p.name }), { link: p.id }));
+    for (const m of p.mirror) if (m.lease > now) out.push(Object.assign(normalizeUser({ id: m.id, name: '🔗 ' + p.name, enabled: m.en, expiresAt: m.exp }), { mirror: p.id }));
+  }
+  return out;
+}
+
+function linkPeerFromRequest(request, links) {
+  const tok = String(request.headers.get('x-cat-link') || '').trim();
+  if (!/^[A-Za-z0-9_-]{20,80}$/.test(tok)) return null;
+  return links.peers.find((p) => p.secret === tok) || null;
+}
+
+async function linkCall(peer, path, body, timeoutMs) {
+  const t0 = Date.now();
+  const res = await fetchTimed(peer.url + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: Object.assign({ 'x-cat-link': peer.secret, 'cache-control': 'no-store' }, body === undefined ? {} : { 'content-type': 'application/json' }),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }, timeoutMs || 8000);
+  let j = null;
+  try { j = await readResponseJsonBounded(res, 512 * 1024); } catch (e) { j = null; }
+  if (!j || typeof j !== 'object') throw new Error('HTTP ' + res.status + ' (not a Cat panel answer)');
+  if (!j.ok) throw new Error(String(j.error || ('HTTP ' + res.status)).slice(0, 120));
+  return Object.assign(j, { _ms: Date.now() - t0 });
+}
+
+function linkCode(origin, t) { return LINK_CODE_PREFIX + b64urlEncodeBytes(new TextEncoder().encode(JSON.stringify({ u: origin, t }))); }
+function parseLinkCode(code) {
+  const raw = String(code || '').trim().replace(/\s+/g, '');
+  if (!raw.startsWith(LINK_CODE_PREFIX)) return null;
+  try {
+    const j = JSON.parse(b64decode(raw.slice(LINK_CODE_PREFIX.length)));
+    const u = linkUrlOk(j && j.u);
+    if (!u || !/^[A-Za-z0-9_-]{20,80}$/.test(String(j.t || ''))) return null;
+    return { u, t: String(j.t) };
+  } catch (e) { return null; }
+}
+
+function linkPeerPublic(env, p) {
+  return { id: p.id, url: p.url, host: p.host, name: p.name, info: p.info, exit: p.exit, sub: p.sub, created: p.created, lastOk: p.lastOk, lastMs: p.lastMs, lastErr: p.lastErr,
+    mirrored: p.mirror.length, exitCapable: linkExitCapable(env, p.info) };
+}
+
+/** 🔗 Linked panels’ configs for one subscription render (≤40 lines per peer, 5-min memory cache per user). */
+const linkSubCache = new Map();
+async function linkPeerLines(env, uuid, user) {
+  const links = await readLinks(env);
+  const peers = links.peers.filter((p) => p.sub);
+  if (!peers.length) return [];
+  const results = await Promise.allSettled(peers.map(async (p) => {
+    const key = p.id + '|' + uuid + '|' + (user ? [user.enabled, user.expiresAt].join(':') : 'o');
+    const hit = linkSubCache.get(key);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.lines;
+    const body = user ? { uuid: user.id, en: user.enabled !== false, exp: Number(user.expiresAt) || 0, limit: 40 } : { uuid: p.dialUuid, limit: 40 };
+    const j = await linkCall(p, '/api/link/sub', body, 6000);
+    const tag = encodeURIComponent('🔗 ' + p.name + ' · ');
+    const lines = parseExtUris((Array.isArray(j.lines) ? j.lines : []).join('\n')).slice(0, 40)
+      .map((l) => (l.includes('#') ? l.replace('#', '#' + tag) : l + '#' + tag.replace(/%20%C2%B7%20$/, '')));
+    linkSubCache.set(key, { at: Date.now(), lines });
+    if (linkSubCache.size > 300) linkSubCache.delete(linkSubCache.keys().next().value);
+    return lines;
+  }));
+  const out = [];
+  for (const r of results) if (r.status === 'fulfilled') out.push(...r.value);
+  return out;
+}
+
+/** Push this panel’s users (id + enabled + expiry only) to every peer that shares our subscription. */
+async function linkSyncUsers(env, onlyId) {
+  const links = await readLinks(env);
+  const peers = links.peers.filter((p) => (onlyId ? p.id === onlyId : p.sub));
+  if (!peers.length) return [];
+  const users = (await readUsers(env)).map((u) => ({ id: u.id, en: !userBlockedReason(u), exp: u.expiresAt || 0 }));
+  const out = [];
+  for (const p of peers) {
+    try { const j = await linkCall(p, '/api/link/users', { users }, 8000); out.push({ id: p.id, ok: true, n: j.n }); }
+    catch (e) { out.push({ id: p.id, ok: false, error: String((e && e.message) || e).slice(0, 120) }); }
+  }
+  return out;
 }
 
 /** Last Online: remember that identity <id> just connected (KV, throttled to one write / 5 min). */
@@ -3551,11 +3784,13 @@ async function handleTunnelConnection(ws, env, options = {}) {
   let responseHeader = null;
   let isDns = false;
   let meteredUser = null;
+  let viaLink = false;
 
   const vless = parseVlessHeader(bytes);
   if (vless) {
     const auth = await tunnelAuth(env, vless.uuid, masterUuid);
     if (!auth.ok) { log('vless rejected (' + auth.error + ')'); safeCloseWs(ws, 1008, 'unauthorized'); return; }
+    viaLink = !!auth.link;
     if (auth.user && !(await admitLimitedUser(env, auth.user, options.clientIp, ws, log))) return;
     meteredUser = auth.user && auth.user.quotaBytes > 0 ? auth.user : null;
     markSeen(env, auth.user ? auth.user.id : masterUuid);
@@ -3570,7 +3805,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
   } else {
     const trojan = trojanPassword(bytes);
     if (!trojan) { safeCloseWs(ws, 1002, 'unrecognised handshake'); return; }
-    const users = await readUsers(env);
+    const users = (await readUsers(env)).concat(linkPseudoUsers(await readLinks(env)).filter((u) => u.mirror));
     const candidates = await trojanCandidates(env, masterUuid, users);
     const match = candidates.get(trojan.password);
     const blocked = match && match.user ? userBlockedReason(match.user) : null;
@@ -3621,7 +3856,8 @@ async function handleTunnelConnection(ws, env, options = {}) {
 
   let dialed;
   try {
-    dialed = await dialTarget(target.host, target.port, env, settings, log, pxRelay || null);
+    // 🔗 traffic that ARRIVED through a linked panel never leaves through a linked panel again (no A→B→A loop).
+    dialed = await dialTarget(target.host, target.port, env, viaLink && settings.linkExit ? Object.assign({}, settings, { linkExit: null }) : settings, log, pxRelay || null);
   } catch (e) {
     log('no route to ' + target.host + ':' + target.port);
     safeCloseWs(ws, 1011, 'dial failed');
@@ -5923,6 +6159,10 @@ async function subResponse(kind, host, env, settings, uuid, user, url, request) 
     }
     if (lines.length) body += lines.join('\n') + '\n';
   }
+  // 🔗 linked panels that share their configs: same user, same expiry, their own addresses/ports.
+  if (!q.noext && !(q.addr && q.addr.length) && !q.limit && !(url && url.searchParams && url.searchParams.get('nolink'))) {
+    try { const ll = await linkPeerLines(env, uuid, user); if (ll.length) body += ll.join('\n') + '\n'; } catch (e) { /* a peer that is down never breaks this sub */ }
+  }
   const wantB64 = kind === 'sub64' || (url && url.searchParams.get('b64') === '1');
   const finalPayload = wantB64 ? b64encode(body) : body;
   const etag = '"cat-' + fnv1a64Hex(finalPayload) + '"';
@@ -6450,6 +6690,85 @@ async function handleApi(request, url, env, ctx) {
   }
   if (path === '/api/logout') {
     return json({ ok: true }, 200, { 'set-cookie': SESSION_COOKIE + '=; Path=/; Max-Age=0; ' + cookieFlags(url) });
+  }
+
+
+  /* 🔗 Panel link — peer-to-peer surface. Authenticated by the shared link secret (x-cat-link), never by the
+   * owner session; a wrong / missing secret gets the same bare 401 as any other private route. */
+  if (path === '/api/link/hello' && method === 'POST') {
+    const body = (await readJsonBody(request, 32 * 1024)) || {};
+    const links = await readLinks(env);
+    const t = String(body.t || '');
+    const pend = links.pending.find((x) => x.t === t && x.exp > Date.now());
+    if (!pend) return json({ ok: false, error: 'link code expired or already used — make a new one' }, 403);
+    const u = linkUrlOk(body.url);
+    if (!u || !isUuid(body.uuid)) return json({ ok: false, error: 'bad hello' }, 400);
+    if (u.host === host) return json({ ok: false, error: 'a panel cannot link to itself' }, 400);
+    if (links.peers.length >= LINK_MAX_PEERS) return json({ ok: false, error: 'too many linked panels (max ' + LINK_MAX_PEERS + ')' }, 400);
+    const peer = normalizePeer({ url: u.url, name: body.info && body.info.name, secret: t, dialUuid: body.uuid, acceptUuid: newUuid(), info: body.info, lastOk: Date.now() });
+    if (!peer) return json({ ok: false, error: 'bad hello' }, 400);
+    links.pending = links.pending.filter((x) => x.t !== t);
+    links.peers = links.peers.filter((p) => p.host !== peer.host).concat([peer]);
+    await writeLinks(env, links);
+    await pushEvent(env, 'link-add', peer.host).catch(() => {});
+    return json({ ok: true, uuid: peer.acceptUuid, info: linkSelfInfo(url, env, settings) });
+  }
+  if (path.startsWith('/api/link/')) {
+    const links = await readLinks(env);
+    const peer = linkPeerFromRequest(request, links);
+    if (!peer) return json({ ok: false, error: 'unauthorized' }, 401);
+    if (path === '/api/link/info') {
+      const users = await readUsers(env);
+      return json({ ok: true, info: linkSelfInfo(url, env, settings), stats: { ips: (settings.ips || []).length, px: proxyIpList(env, settings, { explicitOnly: true }).length, users: users.length, peers: links.peers.length } });
+    }
+    if (path === '/api/link/ips') {
+      // Tested addresses exactly as stored (IP or IP:port + the country tag) — SOCKS entries are filtered out.
+      const ips = (settings.ips || []).slice(0, 200);
+      const cc = {};
+      for (const a of ips) if (settings.ipCountries && settings.ipCountries[a]) cc[a] = settings.ipCountries[a];
+      return json({ ok: true, platform: panelPlatform(env), ips, cc, px: proxyIpList(env, settings, { explicitOnly: true }).slice(0, 60) });
+    }
+    if (path === '/api/link/users' && method === 'POST') {
+      const body = (await readJsonBody(request, 256 * 1024)) || {};
+      const lease = Date.now() + LINK_LEASE_MS;
+      const list = (Array.isArray(body.users) ? body.users : []).filter((m) => m && isUuid(m.id)).slice(0, 500)
+        .map((m) => ({ id: String(m.id).toLowerCase(), en: m.en !== false, exp: Number(m.exp) || 0, lease }));
+      peer.mirror = list;
+      await writeLinks(env, links);
+      return json({ ok: true, n: list.length });
+    }
+    if (path === '/api/link/sub' && method === 'POST') {
+      const body = (await readJsonBody(request, 16 * 1024)) || {};
+      const id = String(body.uuid || '').toLowerCase();
+      if (!isUuid(id)) return json({ ok: false, error: 'uuid' }, 400);
+      let pseudo;
+      if (id === peer.acceptUuid) pseudo = normalizeUser({ id, name: '🔗 ' + peer.name });
+      else {
+        // Mirror the peer’s user here (lease refreshed at most once a day — one KV write, not one per fetch).
+        const now = Date.now();
+        const cur = peer.mirror.find((m) => m.id === id);
+        const en = body.en !== false, exp = Number(body.exp) || 0;
+        if (!cur || cur.en !== en || cur.exp !== exp || cur.lease - now < LINK_LEASE_MS - 86400000) {
+          peer.mirror = peer.mirror.filter((m) => m.id !== id).concat([{ id, en, exp, lease: now + LINK_LEASE_MS }]).slice(-500);
+          await writeLinks(env, links);
+        }
+        pseudo = normalizeUser({ id, name: '🔗 ' + peer.name, enabled: en, expiresAt: exp });
+        if (userBlockedReason(pseudo)) return json({ ok: false, error: userBlockedReason(pseudo) }, 403);
+      }
+      const fake = new URL(url.origin + '/sub/' + id + '?noext=1&nolink=1');
+      const s2 = await withProxyRepoPool(env, await withRepoPool(env, settings, fake), fake);
+      const res = await subResponse('sub', host, env, s2, id, pseudo, fake, null);
+      const lines = parseExtUris(await res.text()).slice(0, Math.min(60, Math.max(1, Number(body.limit) || 40)));
+      return json({ ok: true, lines, info: linkSelfInfo(url, env, settings) });
+    }
+    if (path === '/api/link/bye' && method === 'POST') {
+      links.peers = links.peers.filter((p) => p.id !== peer.id);
+      await writeLinks(env, links);
+      if (settings.linkExit && settings.linkExit.id === peer.id) await writeSettings(env, { linkExit: null });
+      await pushEvent(env, 'link-remove', peer.host).catch(() => {});
+      return json({ ok: true });
+    }
+    return json({ ok: false, error: 'not found' }, 404);
   }
 
   /* ---- everything below is owner-only ---- */
@@ -7254,6 +7573,124 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, custom: vercelCustomDomain(env, settings), front, results });
   }
 
+  /* 🔗 Panel link (6.76.0) — owner side */
+  if (path === '/api/links' && method === 'GET') {
+    const links = await readLinks(env);
+    return json({ ok: true, self: linkSelfInfo(url, env, settings), exit: settings.linkExit || null, pending: links.pending.length, peers: links.peers.map((p) => linkPeerPublic(env, p)) });
+  }
+  if (path === '/api/links/code' && method === 'POST') {
+    const links = await readLinks(env);
+    if (links.peers.length >= LINK_MAX_PEERS) return json({ ok: false, error: 'max ' + LINK_MAX_PEERS + ' linked panels' }, 400);
+    const t = linkToken(24);
+    const exp = Date.now() + LINK_CODE_TTL_MS;
+    links.pending.push({ t, exp });
+    const persisted = await writeLinks(env, links);
+    return json({ ok: true, code: linkCode(origin, t), exp, persisted });
+  }
+  if (path === '/api/links/join' && method === 'POST') {
+    const body = (await readJsonBody(request, 16 * 1024)) || {};
+    const c = parseLinkCode(body.code);
+    if (!c) return json({ ok: false, error: 'this is not a link code (it starts with ' + LINK_CODE_PREFIX + ')' }, 400);
+    if (c.u.host === host) return json({ ok: false, error: 'this code was made on THIS panel — paste it in the other panel' }, 400);
+    const links = await readLinks(env);
+    if (links.peers.length >= LINK_MAX_PEERS) return json({ ok: false, error: 'max ' + LINK_MAX_PEERS + ' linked panels' }, 400);
+    const acceptUuid = newUuid();
+    const self = linkSelfInfo(url, env, settings);
+    let j;
+    try {
+      j = await linkCall({ url: c.u.url, secret: c.t }, '/api/link/hello', { t: c.t, url: origin, uuid: acceptUuid, info: self }, 12000);
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      return json({ ok: false, error: 'the other panel did not answer: ' + msg + (/1042|522|530/.test(msg) ? ' — two Workers on the same Cloudflare account cannot call each other' : '') }, 502);
+    }
+    const peer = normalizePeer({ url: c.u.url, name: j.info && j.info.name, secret: c.t, dialUuid: j.uuid, acceptUuid, info: j.info, lastOk: Date.now(), lastMs: j._ms });
+    if (!peer) return json({ ok: false, error: 'the other panel answered with an unusable link (update it to ' + CAT_PANEL_VERSION + ')' }, 502);
+    links.peers = links.peers.filter((p) => p.host !== peer.host).concat([peer]);
+    const persisted = await writeLinks(env, links);
+    await pushEvent(env, 'link-add', peer.host).catch(() => {});
+    return json({ ok: true, persisted, peer: linkPeerPublic(env, peer) });
+  }
+  if (path.startsWith('/api/links/') && method === 'POST') {
+    const body = (await readJsonBody(request, 16 * 1024)) || {};
+    const links = await readLinks(env);
+    const peer = links.peers.find((p) => p.id === String(body.id || ''));
+    if (!peer) return json({ ok: false, error: 'linked panel not found' }, 404);
+    if (path === '/api/links/check') {
+      // Real checks only: (1) the peer’s API answers with our shared secret, (2) a VLESS tunnel THROUGH it
+      // reaches ip-api.com and reports the exit IP/country. Nothing is assumed.
+      const r = { id: peer.id, api: false, ms: 0, tunnel: null };
+      try {
+        const j = await linkCall(peer, '/api/link/info', undefined, 8000);
+        r.api = true; r.ms = j._ms; r.stats = j.stats || {};
+        peer.info = normalizeLinkInfo(j.info); peer.lastOk = Date.now(); peer.lastMs = j._ms; peer.lastErr = '';
+      } catch (e) { r.error = String((e && e.message) || e).slice(0, 120); peer.lastErr = r.error; }
+      if (r.api && linkExitCapable(env, peer.info)) {
+        const chain = linkExitChain({ linkExit: linkExitSetting(peer, 'all') });
+        if (chain) {
+          try { const sockets = await loadSockets(); r.tunnel = await withTimeout(chainProbe(sockets, chain), 12000, 'tunnel timeout'); }
+          catch (e) { r.tunnel = { ok: false, error: String((e && e.message) || e).slice(0, 120) }; }
+        }
+      } else if (r.api) r.tunnel = { ok: false, skipped: true, error: 'cf-to-cf' };
+      await writeLinks(env, links);
+      return json(Object.assign({ ok: true, peer: linkPeerPublic(env, peer) }, r));
+    }
+    if (path === '/api/links/set') {
+      if (typeof body.sub === 'boolean') peer.sub = body.sub;
+      if (typeof body.name === 'string' && body.name.trim()) peer.name = body.name.replace(/[<>"']/g, '').trim().slice(0, 40);
+      let exitPatch;
+      if (typeof body.exit === 'string') {
+        const mode = LINK_EXIT_MODES.includes(body.exit) ? body.exit : '';
+        if (mode && !linkExitCapable(env, peer.info)) return json({ ok: false, error: 'cf-to-cf' }, 400);
+        if (mode && !peer.info.path) return json({ ok: false, error: 'press «Check» first — the other panel’s tunnel path is not known yet' }, 400);
+        for (const p of links.peers) p.exit = '';
+        peer.exit = mode;
+        exitPatch = { linkExit: mode ? linkExitSetting(peer, mode) : null };
+      } else if (settings.linkExit && settings.linkExit.id === peer.id) exitPatch = { linkExit: linkExitSetting(peer, peer.exit) };
+      const persisted = await writeLinks(env, links);
+      if (exitPatch) await writeSettings(env, exitPatch);
+      let sync = null;
+      if (body.sub === true) sync = await linkSyncUsers(env, peer.id);
+      return json({ ok: true, persisted, sync, peer: linkPeerPublic(env, peer) });
+    }
+    if (path === '/api/links/sync') return json({ ok: true, sync: await linkSyncUsers(env, peer.id) });
+    if (path === '/api/links/import') {
+      let j;
+      try { j = await linkCall(peer, '/api/link/ips', undefined, 8000); }
+      catch (e) { return json({ ok: false, error: String((e && e.message) || e).slice(0, 120) }, 502); }
+      const patch = {};
+      let ips = 0, px = 0;
+      // Clean IPs are only meaningful between panels behind the same edge (CF ↔ CF-fronted); ports stay exactly as tested.
+      const sameEdge = (j.platform === 'cf') === (panelPlatform(env) === 'cf' || nodeEdge(env) === 'cf');
+      if (body.what !== 'px' && sameEdge) {
+        const add = (Array.isArray(j.ips) ? j.ips : []).map((a) => cleanAddrEntry(a)).filter((a) => a && !(settings.ips || []).includes(a));
+        ips = add.length;
+        if (add.length) {
+          patch.ips = (settings.ips || []).concat(add);
+          const cc = {};
+          for (const a of add) { const v = normalizeCountry(j.cc && j.cc[a]); if (v) cc[a] = v; }
+          if (Object.keys(cc).length) patch.ipCountries = Object.assign({}, settings.ipCountries || {}, cc);
+        }
+      }
+      if (body.what !== 'ips') {
+        const mine = settings[PXIPS_KEY] || [];
+        const add = normalizeProxyList(Array.isArray(j.px) ? j.px : []).list.filter((e) => !/^socks5h?:\/\//i.test(e) && !mine.includes(e));
+        px = add.length;
+        if (add.length) patch[PXIPS_KEY] = mine.concat(add);
+      }
+      const persisted = Object.keys(patch).length ? (await writeSettings(env, patch)).persisted : true;
+      return json({ ok: true, persisted, ips, px, sameEdge, platform: j.platform });
+    }
+    if (path === '/api/links/remove') {
+      try { await linkCall(peer, '/api/link/bye', {}, 6000); } catch (e) { /* the other side may already be gone */ }
+      links.peers = links.peers.filter((p) => p.id !== peer.id);
+      const persisted = await writeLinks(env, links);
+      if (settings.linkExit && settings.linkExit.id === peer.id) await writeSettings(env, { linkExit: null });
+      await pushEvent(env, 'link-remove', peer.host).catch(() => {});
+      return json({ ok: true, persisted });
+    }
+    return json({ ok: false, error: 'not found' }, 404);
+  }
+
   /* 🌍 Locations (6.74.0) */
   if (path === '/api/inbounds' && method === 'GET') {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
@@ -7449,7 +7886,12 @@ async function handleRequest(request, env, ctx) {
   }
   if (path === '/app-icon.svg') return new Response(catLogo('a'), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
   if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
-  if (path === '/health' || path.startsWith('/api/')) return handleApi(request, url, env, ctx);
+  if (path === '/health' || path.startsWith('/api/')) {
+    const res = await handleApi(request, url, env, ctx);
+    // 🔗 a user was added / edited / removed → linked panels that carry our subscription learn it now (best effort).
+    if (path.startsWith('/api/users') && request.method !== 'GET' && res.status === 200 && ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(linkSyncUsers(env).catch(() => {}));
+    return res;
+  }
 
   if (path === '/qr.svg' || path === '/qr') {
     const payload = url.searchParams.get('text') || url.searchParams.get('data') || '';
