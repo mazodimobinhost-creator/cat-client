@@ -6126,7 +6126,9 @@ function subLinks(origin, uuid, user) {
 async function readJsonBody(request, maxBytes = 256 * 1024) {
   try {
     const raw = await readBoundedBody(request, maxBytes);
-    return JSON.parse(new TextDecoder().decode(raw));
+    const parsed = JSON.parse(new TextDecoder().decode(raw));
+    // beta205: a bare JSON string/number («"x"») is never a valid request body — `'key' in "x"` threw → panel_crash
+    return parsed && typeof parsed === 'object' ? parsed : null;
   } catch (e) { return null; }
 }
 
@@ -7489,7 +7491,8 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/countries' && (method === 'PUT' || method === 'POST')) {
     // { country, countryFallback, ipCountries?, proxyCountries? } — ONE KV write.
-    const body = (await readJsonBody(request)) || {};
+    const rawBody = await readJsonBody(request);
+    const body = rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody) ? rawBody : {};
     const patch = {};
     if ('country' in body) patch.country = normalizeCountry(body.country) || '';
     if ('countryFallback' in body) patch.countryFallback = body.countryFallback === 'none' ? 'none' : 'auto';

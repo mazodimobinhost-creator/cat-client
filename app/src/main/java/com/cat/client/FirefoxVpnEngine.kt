@@ -2281,7 +2281,12 @@ internal object FirefoxVpnEngine {
         protectOutboundSocket(raw)
         raw.tcpNoDelay = true
         raw.soTimeout = timeoutMs
-        raw.connect(InetSocketAddress(connectHost, connectPort), timeoutMs)
+        try {
+            raw.connect(InetSocketAddress(connectHost, connectPort), timeoutMs)
+        } catch (e: Exception) {
+            runCatching { raw.close() } // beta205: no fd leak when a probe target is down
+            throw e
+        }
         if (!fragmentTls) return raw
 
         return object : Socket() {

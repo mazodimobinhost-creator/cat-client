@@ -602,7 +602,12 @@ internal object NodeHostApi {
         val (host, port) = NodeHostPanel.hostPort(base)
         val tls = base.startsWith("https://")
         val raw = Socket()
-        raw.connect(InetSocketAddress(host, port), timeoutMs)
+        try {
+            raw.connect(InetSocketAddress(host, port), timeoutMs)
+        } catch (e: Exception) {
+            runCatching { raw.close() } // beta205: no fd leak when the host is down
+            throw e
+        }
         raw.soTimeout = timeoutMs
         val socket: Socket = if (tls) {
             val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket

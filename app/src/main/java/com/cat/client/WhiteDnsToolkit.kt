@@ -281,8 +281,10 @@ object WhiteDnsToolkit {
 
     fun probeSni(ip: String, port: Int, sni: String, timeoutMs: Int = 4_000): SniResult {
         val started = System.nanoTime()
+        var rawRef: Socket? = null
         return runCatching {
             val raw = Socket()
+            rawRef = raw
             protectOutboundSocket(raw) // test from THIS network even while a tunnel is up
             raw.connect(InetSocketAddress(ip, port), timeoutMs)
             raw.soTimeout = timeoutMs
@@ -297,6 +299,9 @@ object WhiteDnsToolkit {
                 SniResult(sni, true, matches, ms, socket.session.protocol ?: "TLS")
             }
         }.getOrElse { error ->
+            // beta205: a failed connect/handshake left the raw socket (and its fd) open — a 12-SNI × many-IP scan
+            // leaked hundreds of descriptors. Closing an already-closed socket is a no-op.
+            runCatching { rawRef?.close() }
             SniResult(sni, false, false, (System.nanoTime() - started) / 1_000_000, error.javaClass.simpleName)
         }
     }

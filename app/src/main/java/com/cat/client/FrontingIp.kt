@@ -30,6 +30,20 @@ object FrontingIpPolicy {
         return ips
     }
 
+    /**
+     * beta205: newest-first merge that can never throw. Before, «existing (up to 5) + new» went through
+     * [normalizeIps], whose 5-address limit threw — the scanner's «use this IP» crashed the app once five IPs
+     * were saved, and other buttons silently dropped the new IP. Invalid tokens are skipped, duplicates removed,
+     * and the oldest entries fall off the end.
+     */
+    fun mergeNewestFirst(newFirst: List<String>, existing: List<String>): List<String> =
+        (newFirst + existing)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { runCatching { parseEndpoint(it).encoded() }.getOrNull() }
+            .distinct()
+            .take(MAX_FRONTING_IPS)
+
     fun parseEndpoint(value: String): FrontingEndpoint {
         val endpoint = value.trim()
         require(endpoint.isNotBlank() && endpoint.none(Char::isWhitespace)) {

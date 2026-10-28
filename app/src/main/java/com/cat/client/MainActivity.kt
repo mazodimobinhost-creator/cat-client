@@ -637,9 +637,7 @@ class MainActivity : Activity() {
                     val tokens = ips.split(',', ';', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
                     if (tokens.isNotEmpty()) {
                         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-                        frontingIps = runCatching {
-                            FrontingIpPolicy.normalizeIps((frontingIps + tokens).joinToString(","))
-                        }.getOrDefault(frontingIps)
+                        frontingIps = FrontingIpPolicy.mergeNewestFirst(tokens, frontingIps)
                         renderFrontingIpChips()
                         saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
                         Toast.makeText(
@@ -10773,7 +10771,7 @@ class MainActivity : Activity() {
         } else {
             emptyList()
         }
-        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + entryAuthority + companions).joinToString(","))
+        frontingIps = FrontingIpPolicy.mergeNewestFirst(listOf(entryAuthority) + companions, frontingIps)
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         Toast.makeText(
@@ -15227,12 +15225,21 @@ class MainActivity : Activity() {
                             Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
                         }
                         .setPositiveButton(if (isFarsi) "⚡ اعمال آی‌پی و SNI فرانتینگ" else "⚡ Apply Clean IP & Front SNI") { _, _ ->
-                            val bestIp = res.workingCleanIp ?: res.cleanIps.firstOrNull() ?: "188.114.98.0"
-                            val endpoint = "$bestIp:443"
+                            // beta205: only the IP whose :443 actually answered on this line (no untested
+                            // fallback IP), IPv6 bracketed so the saved endpoint stays parseable.
+                            val bestIp = res.workingCleanIp
+                            if (bestIp == null) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    if (isFarsi) "⚠️ هیچ‌کدام از آی‌پی‌های واقعی روی پورت ۴۴۳ خط شما جواب نداد؛ چیزی اعمال نشد."
+                                    else "⚠️ None of the real IPs answered on port 443 on your line — nothing was applied.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                return@setPositiveButton
+                            }
+                            val endpoint = if (bestIp.contains(':')) "[${bestIp.trim('[', ']')}]:443" else "$bestIp:443"
                             val prev = frontingIpPreferenceStore.readFrontingIp()
-                            frontingIps = runCatching {
-                                FrontingIpPolicy.normalizeIps((listOf(endpoint) + frontingIps).joinToString(","))
-                            }.getOrDefault(listOf(endpoint))
+                            frontingIps = FrontingIpPolicy.mergeNewestFirst(listOf(endpoint), frontingIps)
                             renderFrontingIpChips()
                             saveFrontingIps(reconnectIfChanged = true, previousValue = prev)
                             applySniOverride(res.recommendedFrontHost)
@@ -19912,8 +19919,10 @@ class MainActivity : Activity() {
      */
     private fun injectScannedIpsIntoActiveSubscription(results: List<IpScanner.ScanResult>) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        // beta205: never fall back to rows whose TLS check was attempted and FAILED — those IP:port pairs are
+        // reachable but unusable on this network and only produced dead configs.
         val verified = results.filter { it.tlsOk }.sortedBy { it.pingMs }.ifEmpty {
-            results.sortedBy { it.pingMs }
+            results.filter { !it.verifyTls }.sortedBy { it.pingMs }
         }
         if (verified.isEmpty()) {
             Toast.makeText(
@@ -19953,19 +19962,37 @@ class MainActivity : Activity() {
             val finalLinks = if (injected.isNotEmpty()) {
                 injected
             } else {
+                // beta205: no made-up UUID / host any more — a config with a placeholder UUID can never connect.
+                // Without a real VLESS/Trojan config of the user there is nothing to inject into: say so plainly.
                 val tpl = resolveUserRealConfigTemplate()
-                val uuid = tpl?.uuidOrPass ?: "11111111-2222-4333-8444-555555555555"
-                val host = tpl?.hostHeader?.ifBlank { tpl.remoteHost } ?: scannerSniPreference().ifBlank { "speed.cloudflare.com" }
-                val path = tpl?.path ?: "/ws?ed=2048"
-                topAuthorities.mapIndexed { idx, ep ->
-                    val encPath = runCatching { java.net.URLEncoder.encode(path, "UTF-8") }.getOrDefault("%2Fws")
-                    val sni = verified.getOrNull(idx)?.sni?.ifBlank { host } ?: host
+                if (tpl == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "⚠️ اول یک کانفیگ VLESS/Trojan واقعی (یا لینک اشتراک پنل خودتان) اضافه کنید؛ بعد این دکمه آی‌پی‌های اسکن‌شده را داخل همان کانفیگ می‌گذارد."
+                        else "⚠️ Add a real VLESS/Trojan config (or your panel's subscription link) first — this button puts the scanned IPs into it.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+                val host = tpl.hostHeader.ifBlank { tpl.remoteHost }
+                val path = tpl.path.ifBlank { "/" }
+                val scheme = if (tpl.scheme.equals("trojan", ignoreCase = true)) "trojan" else "vless"
+                topAuthorities.mapIndexedNotNull { idx, ep ->
+                    val row = verified.firstOrNull { it.authority == ep } ?: return@mapIndexedNotNull null
+                    val port = row.port
+                    // a plain Cloudflare port (80, 8080, …) speaks no TLS — a tls link there is dead on arrival
+                    val plain = port in setOf(80, 8080, 8880, 2052, 2082, 2086, 2095)
+                    val encPath = runCatching { java.net.URLEncoder.encode(path, "UTF-8") }.getOrDefault("%2F")
+                    val sni = tpl.sni.ifBlank { host }
                     val encRem = runCatching {
-                        java.net.URLEncoder.encode("⚡ CleanIP-$ep (${verified.getOrNull(idx)?.pingMs ?: 0}ms)", "UTF-8")
+                        java.net.URLEncoder.encode("⚡ CleanIP-$ep (${row.pingMs}ms)", "UTF-8")
                     }.getOrDefault("CleanIP-$idx")
-                    "vless://$uuid@$ep?encryption=none&security=tls&type=ws&host=$host&sni=$sni&path=$encPath&fp=chrome&alpn=h2%2Chttp%2F1.1#$encRem"
+                    val enc = if (scheme == "vless") "encryption=none&" else ""
+                    val sec = if (plain) "security=none" else "security=tls&sni=$sni&fp=chrome&alpn=http%2F1.1"
+                    "$scheme://${tpl.uuidOrPass}@$ep?${enc}$sec&type=ws&host=$host&path=$encPath#$encRem"
                 }
             }
+            if (finalLinks.isEmpty()) return@launch
             val subTitle = if (isFarsi) {
                 "💉 کانفیگ‌های احیاشده با آی‌پی سفید/تمیز (${topAuthorities.first()})"
             } else {
@@ -19979,7 +20006,7 @@ class MainActivity : Activity() {
             }
             userSubscriptionManager.select(saved.id)
             val bestEp = topAuthorities.first()
-            frontingIps = FrontingIpPolicy.normalizeIps(topAuthorities.take(5).joinToString(","))
+            frontingIps = FrontingIpPolicy.mergeNewestFirst(topAuthorities, emptyList())
             saveFrontingIps(reconnectIfChanged = false, previousValue = frontingIpPreferenceStore.readFrontingIp())
             renderSubscriptions()
             onSubscriptionSelected()
@@ -22710,9 +22737,7 @@ class MainActivity : Activity() {
                 }
                 .setPositiveButton(if (isFarsi) "✅ اعمال روی کانفیگ‌های ساب" else "✅ Apply to Subscription") { _, _ ->
                     val prev = frontingIpPreferenceStore.readFrontingIp()
-                    frontingIps = runCatching {
-                        FrontingIpPolicy.normalizeIps(( listOf(best.endpoint) + frontingIps ).joinToString(","))
-                    }.getOrDefault(listOf(best.endpoint))
+                    frontingIps = FrontingIpPolicy.mergeNewestFirst(listOf(best.endpoint), frontingIps)
                     renderFrontingIpChips()
                     saveFrontingIps(reconnectIfChanged = true, previousValue = prev)
                     Toast.makeText(
@@ -24588,7 +24613,7 @@ class MainActivity : Activity() {
         store.preferredCountry = countryCode
         store.pinned = false
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = FrontingIpPolicy.normalizeIps(ranked.map { it.authority }.take(5).joinToString(","))
+        frontingIps = FrontingIpPolicy.mergeNewestFirst(ranked.map { it.authority }, emptyList())
         renderFrontingIpChips()
         if (saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) {
             Toast.makeText(this, getString(R.string.multi_location_applied, countryCode.toFlagEmoji(), ranked.size), Toast.LENGTH_SHORT).show()
@@ -24822,9 +24847,7 @@ class MainActivity : Activity() {
             return
         }
         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = runCatching {
-            FrontingIpPolicy.normalizeIps((frontingIps + ip).joinToString(","))
-        }.getOrDefault(frontingIps)
+        frontingIps = FrontingIpPolicy.mergeNewestFirst(listOf(ip), frontingIps)
         renderFrontingIpChips()
         if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
         Toast.makeText(this, getString(R.string.scanner_applied, ip, 0L), Toast.LENGTH_LONG).show()

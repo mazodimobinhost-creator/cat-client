@@ -781,7 +781,12 @@ internal object LocalSniSpoofProxy {
             protectOutboundSocket(raw)
             raw.tcpNoDelay = true
             raw.soTimeout = timeoutMs
-            raw.connect(InetSocketAddress(cleanIp, port), timeoutMs)
+            try {
+                raw.connect(InetSocketAddress(cleanIp, port), timeoutMs)
+            } catch (e: Exception) {
+                runCatching { raw.close() } // beta205: no fd leak when a probe target is down
+                throw e
+            }
 
             val wrapped = object : Socket() {
                 private val firstOut = java.util.concurrent.atomic.AtomicBoolean(true)
@@ -971,6 +976,9 @@ internal object LocalSniSpoofProxy {
      * (preserving the exact scanned port and preserving the config's original `host` and `sni`)
      * so users can revive blocked CDN/Worker configs with 1 tap using scanned clean/whitelist IPs.
      */
+    private val CF_PLAIN_PORTS = setOf(80, 8080, 8880, 2052, 2082, 2086, 2095)
+    private val CF_TLS_PORTS = setOf(443, 2053, 2083, 2087, 2096, 8443)
+
     fun injectVerifiedCleanIpsIntoConfigs(
         rawConfigsText: String,
         verifiedEndpoints: List<String>,
@@ -1003,13 +1011,25 @@ internal object LocalSniSpoofProxy {
             } else {
                 originalHostPort.substringBeforeLast(':')
             }
+            val origPort = if (originalHostPort.startsWith("[")) {
+                originalHostPort.substringAfter("]:", "").toIntOrNull()
+            } else {
+                originalHostPort.substringAfterLast(':', "").toIntOrNull()
+            }
+            val tlsLink = Regex("""(?:^|&)security=(tls|reality)(?:&|$)""", RegexOption.IGNORE_CASE).containsMatchIn(queryPart) ||
+                (scheme == "trojan" && !Regex("""(?:^|&)security=none(?:&|$)""", RegexOption.IGNORE_CASE).containsMatchIn(queryPart))
             val hasHostParam = Regex("""(?:^|&)host=([^&]+)""", RegexOption.IGNORE_CASE).containsMatchIn(queryPart)
             val hasSniParam = Regex("""(?:^|&)sni=([^&]+)""", RegexOption.IGNORE_CASE).containsMatchIn(queryPart)
 
             for (ep in cleanEndpoints) {
                 val parsed = IpScanner.parseManualTarget(ep)
                 val targetHost = parsed.first.ifBlank { continue }
-                val targetPort = parsed.second ?: 443
+                // beta205: an endpoint without a port keeps the config's own port (never a guessed 443), and a
+                // scanned plain Cloudflare port is never glued onto a TLS link (or a TLS port onto a plain one):
+                // that pair would be dead on arrival.
+                val targetPort = parsed.second ?: origPort ?: if (tlsLink) 443 else 80
+                if (tlsLink && targetPort in CF_PLAIN_PORTS) continue
+                if (!tlsLink && targetPort in CF_TLS_PORTS) continue
                 val formattedAuthority = if (targetHost.contains(':')) "[$targetHost]:$targetPort" else "$targetHost:$targetPort"
                 val extraQuery = buildString {
                     if (queryPart.isNotBlank()) append(queryPart)
@@ -2204,7 +2224,8 @@ internal object LocalSniSpoofProxy {
                     if (n <= 0) break
                     if (firstPacket && n > 5 && (buf[0].toInt() and 0xFF) == 0x16) {
                         firstPacket = false
-                        val rawRecord = buf.copyOfRange(0, n)
+                        // beta205: same as the direct/SOCKS loops — split only a COMPLETE first record
+                        val rawRecord = completeFirstTlsRecord(clientIn, buf.copyOfRange(0, n))
                         if (strategy == SpoofStrategy.LOW_TTL_DECOY) {
                             sendDecoyClientHelloPulse(cleanHost, port, decoySni)
                         }
@@ -2492,7 +2513,12 @@ internal object LocalSniSpoofProxy {
             protectOutboundSocket(raw)
             applyGamingSocketTuning(raw)
             raw.soTimeout = timeoutMs
-            raw.connect(InetSocketAddress(addr, port), timeoutMs)
+            try {
+                raw.connect(InetSocketAddress(addr, port), timeoutMs)
+            } catch (e: Exception) {
+                runCatching { raw.close() } // beta205: no fd leak when a probe target is down
+                throw e
+            }
             val firstOut = java.util.concurrent.atomic.AtomicBoolean(true)
             val wrapped = object : Socket() {
                 override fun getInputStream() = raw.getInputStream()
@@ -2828,7 +2854,12 @@ internal object LocalSniSpoofProxy {
                 val raw = Socket()
                 protectOutboundSocket(raw)
                 raw.soTimeout = timeoutMs
-                raw.connect(InetSocketAddress(edgeIp, 443), timeoutMs)
+                try {
+                    raw.connect(InetSocketAddress(edgeIp, 443), timeoutMs)
+                } catch (e: Exception) {
+                    runCatching { raw.close() } // beta205: no fd leak when an edge is down
+                    throw e
+                }
                 val firstOut = java.util.concurrent.atomic.AtomicBoolean(true)
                 val wrapped = object : Socket() {
                     override fun getInputStream() = raw.getInputStream()
