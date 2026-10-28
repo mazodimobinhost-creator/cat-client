@@ -1100,6 +1100,7 @@
     <string name="pscan_filter_empty">This filter has no results</string>
     <string name="pscan_copy">Copy</string>
     <string name="pscan_add">+ Add</string>
+    <string name="pscan_need_panel">Connect your own panel first (Panels tab): the config for this ProxyIP is built with your panel’s address and UUID.</string>
     <string name="pscan_copied">Copied</string>
     <string name="pscan_no_candidates">Nothing to scan — select a source or paste IPs</string>
     <string name="scanner_proxy_entry">Public proxy scanner</string>

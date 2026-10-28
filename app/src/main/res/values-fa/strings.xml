@@ -1099,6 +1099,7 @@
     <string name="pscan_filter_empty">این فیلتر نتیجه‌ای ندارد</string>
     <string name="pscan_copy">کپی</string>
     <string name="pscan_add">+ افزودن</string>
+    <string name="pscan_need_panel">اول پنل خودتان را وصل کنید (بخش پنل‌ها)؛ کانفیگ این ProxyIP با آدرس و UUID پنل شما ساخته می‌شود.</string>
     <string name="pscan_copied">کپی شد</string>
     <string name="pscan_no_candidates">چیزی برای اسکن نیست — منبع انتخاب کن یا IP بچسبان</string>
     <string name="scanner_proxy_entry">اسکنر پروکسی عمومی</string>

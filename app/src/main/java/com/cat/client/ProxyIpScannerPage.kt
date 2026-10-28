@@ -664,11 +664,13 @@ class ProxyIpScannerPage(
 
     private fun showRowConfigDialog(proxyIpRow: RelayCatalogEntry) {
         val base = panelUrl?.trimEnd('/').orEmpty()
-        val workerDomain = runCatching { java.net.URI(base).host }.getOrNull().orEmpty().ifBlank { "worker.example.com" }
-        val uuid = if (base.isNotBlank()) {
-            runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty().ifBlank { "11111111-2222-4333-8444-555555555555" }
-        } else {
-            "11111111-2222-4333-8444-555555555555"
+        // beta205: no placeholder worker / UUID — a config built from them can never connect. Without a panel of
+        // the user the row has nothing real to build on, so say what to do instead of showing a dead link.
+        val workerDomain = runCatching { java.net.URI(base).host }.getOrNull().orEmpty()
+        val uuid = if (base.isNotBlank()) runCatching { PanelDeploymentStore(activity).uuidFor(base) }.getOrNull().orEmpty() else ""
+        if (workerDomain.isBlank() || uuid.isBlank()) {
+            Toast.makeText(ctx, R.string.pscan_need_panel, Toast.LENGTH_LONG).show()
+            return
         }
         val ingressEndpoint = VerifiedEndpoint(
             host = workerDomain,

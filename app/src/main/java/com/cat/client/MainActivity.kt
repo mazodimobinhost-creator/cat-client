@@ -15570,6 +15570,8 @@ class MainActivity : Activity() {
             ?.takeIf { it.isNotEmpty() }
             ?: "panel.example.workers.dev"
         val userUuid = dep?.uuid?.takeIf { it.isNotBlank() } ?: "00000000-0000-4000-8000-000000000001"
+        // beta205: without a deployed panel the bundle would carry a placeholder host + UUID — never hand those out.
+        val hasRealPanel = dep != null && dep.uuid.isNotBlank() && workerHost != "panel.example.workers.dev"
         val bundle = WhiteDnsSmartScanner.buildIosConnectionBundle(
             workerHost = workerHost,
             uuid = userUuid,
@@ -15606,6 +15608,15 @@ class MainActivity : Activity() {
                 else "🍎 iPhone & iPad (iOS) Connection Hub (WhiteDNS & iOS Suite)",
             )
             .setItems(options) { _, which ->
+                if (which in 1..4 && !hasRealPanel) {
+                    Toast.makeText(
+                        this,
+                        if (isFarsi) "⚠️ اول پنل خودتان را بسازید یا وصل کنید (بخش پنل‌ها)؛ کانفیگ آیفون با آدرس و UUID همان پنل ساخته می‌شود."
+                        else "⚠️ Deploy or connect your own panel first (Panels tab) — the iPhone config is built from its address and UUID.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@setItems
+                }
                 when (which) {
                     0 -> {
                         val info = if (isFarsi) {
