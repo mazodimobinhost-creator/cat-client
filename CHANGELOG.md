@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta208] — 2026-10-28 (Panel 6.77.3)
+
+Cat Warp «MIM-H2» profiles now really run over HTTP/2.
+
+### Fixed — app
+- **Cat Warp MASQUE-in-MASQUE over HTTP/2 (e.g. «…MIM-H2-DE» links) pinged but never connected.** The upstream Android bridge sets `AETHER_MASQUE_HTTP2=1` only for the `h2`/`wom` transports and *removes* it for `mim`, so these profiles silently went out as MIM over HTTP/3 (QUIC/UDP) — which Iranian networks block. The previous workaround re-set the variable from a helper thread a few milliseconds later, which loses the race when the core reads it first. The core build (`scripts/build-aether-core.sh`) now patches the bridge with an opt-in `masqueHttp2` field (same effect as `aether --protocol mim --h2`), and the app sends `masqueHttp2: true` for MIM over HTTP/2. This covers connect, the Psiphon/Tor carrier, endpoint scans and the real delay test. The patch is idempotent and stops the build if the upstream code moved.
+
 ## [1.10.0-beta207] — 2026-10-28 (Panel 6.77.3)
 
 Only Cat's own names in configs and on screen.

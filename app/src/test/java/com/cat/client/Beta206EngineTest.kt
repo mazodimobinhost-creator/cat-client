@@ -75,4 +75,17 @@ class Beta206EngineTest {
         assertEquals("Cat-MIM-H2-DE", CatBranding.rebrandName("PattNG-MIM-H2-DE"))
         assertEquals("My VLESS", CatBranding.rebrandName("My VLESS"))
     }
+
+    @Test fun mimOverHttp2IsRequestedFromThePatchedBridge() {
+        val id = File("/tmp/aether.toml")
+        val mimH2 = org.json.JSONObject(AetherRuntimeConfig(AetherMode.MasqueInMasque, id, masqueTransport = "h2").toNativeJson())
+        assertEquals("mim", mimH2.getString("transport"))
+        assertTrue(mimH2.getBoolean("masqueHttp2"))
+        val mimH3 = org.json.JSONObject(AetherRuntimeConfig(AetherMode.MasqueInMasque, id, masqueTransport = "h3").toNativeJson())
+        assertFalse(mimH3.getBoolean("masqueHttp2"))
+        val wg = org.json.JSONObject(AetherRuntimeConfig(AetherMode.WireGuard, id).toNativeJson())
+        assertFalse(wg.getBoolean("masqueHttp2"))
+        val script = listOf(File("../scripts/build-aether-core.sh"), File("scripts/build-aether-core.sh")).first { it.isFile }.readText()
+        assertTrue(script.contains("(self.masque_http2 && self.transport == \"mim\")"))
+    }
 }

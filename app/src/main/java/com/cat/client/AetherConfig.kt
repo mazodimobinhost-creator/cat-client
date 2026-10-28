@@ -99,6 +99,9 @@ data class AetherRuntimeConfig(
             .put("autoReprovision", false)
             .put("lanSharing", false)
             .put("listenPort", listenPort)
+            // beta208: MIM over HTTP/2 the way PattNG runs it (`--protocol mim --h2`). Our patched bridge reads this;
+            // upstream dropped AETHER_MASQUE_HTTP2 for "mim", so «MIM-H2» profiles silently went out over QUIC.
+            .put("masqueHttp2", resolvedNativeTransport() == "mim" && usesMasqueHttp2)
             .put("fragmentTls", fragmentEnabled)
             // The core refuses the whole config for an out-of-range fragment value, so bad input falls back.
             .put("fragmentSize", safeRange(fragmentSize, 1, 16_384) ?: "16-32")

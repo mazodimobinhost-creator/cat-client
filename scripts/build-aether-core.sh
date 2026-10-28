@@ -20,6 +20,25 @@ for abi in "${requested[@]}"; do
   esac
 done
 
+# Cat patch (beta208): MASQUE-in-MASQUE over HTTP/2. The upstream bridge only sets AETHER_MASQUE_HTTP2 for the
+# "h2"/"wom" transports and REMOVES it for "mim", so a PattNG «MIM-H2» profile ran as MIM over HTTP/3 (QUIC), which
+# Iranian networks block. The CLI does the same thing with `--protocol mim --h2`; the bridge gets an opt-in
+# `masqueHttp2` field for it. Idempotent; fails loudly if upstream code moved.
+python3 - "$source_dir/native/android-bridge/src/lib.rs" <<'PY'
+import sys
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+if "masque_http2: bool" not in src:
+    field_anchor = "    #[serde(default)]\n    fast_connect: bool,\n}\n"
+    env_anchor = 'if self.transport == "h2" || self.transport == "wom" {'
+    assert src.count(field_anchor) == 1, "bridge field anchor moved"
+    assert src.count(env_anchor) == 1, "bridge env anchor moved"
+    src = src.replace(field_anchor, "    #[serde(default)]\n    fast_connect: bool,\n    /// Cat: run masque-in-masque over HTTP/2 (both hops), like `aether --protocol mim --h2`.\n    #[serde(default)]\n    masque_http2: bool,\n}\n")
+    src = src.replace(env_anchor, 'if self.transport == "h2" || self.transport == "wom" || (self.masque_http2 && self.transport == "mim") {')
+    open(path, "w", encoding="utf-8").write(src)
+    print("patched bridge: masqueHttp2 for mim")
+PY
+
 mkdir -p "$out"
 (
   cd "$source_dir/native/android-bridge"
