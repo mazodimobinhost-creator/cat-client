@@ -4,6 +4,24 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta204] — 2026-10-28 (Panel 6.77.1)
+
+Full audit of spoof, panel, subscriptions, Vercel, IP import, IP / SNI / ProxyIP / SOCKS5 scanners and the HTTP ping. New test `scripts/panels/sub-audit.test.mjs` renders every output (VLESS/Trojan lines, /u/ user subs, /64, Clash, sing-box, Xray JSON) for Cloudflare **and** Vercel panels across mixed settings (pinned `IP:port`, IPv6, `ip#CC`, hostnames, plain ports, ProxyIPs with their own ports, SOCKS5, per-user firewall profile + IPs) × 23 link variants (`?survive ?proto ?port ?addr ?sni ?ech ?fam ?rotate ?limit ?strict ?health ?type ?nofm ?fw=…`) and checks ~165 000 properties of the result.
+
+### Fixed — panel 6.77.1
+- **TLS configs on port 80.** Ports were stored as strings, so `PLAIN_PORTS.includes(port)` was always false: one scan-pinned `ip:80` (or any plain pinned port) opened an extra *TLS* wave on that plain port for **every** address — dead configs like `104.16.1.1:80 security=tls`. Ports are numbers again; a pinned `IP:port` still appears only on its own verified port.
+- **sing-box refused the whole file.** `server_port` was a string (`"443"`), a `null` rule landed in `route.rules` when «block QUIC» was off, and the 🎯 ProxyIP / 🧦 relay / 🧬 SNI twins had the same tag for VLESS and Trojan (sing-box: duplicate tag; mihomo: duplicate proxy name). All three fixed; twins are now named «… · VL» / «… · TR».
+- **Settings page drew every port button twice** (number vs string comparison) — fixed by the same change.
+- **Xray JSON:** IPv6 addresses (e.g. the MCI IPv6 firewall profile) were written with brackets inside `address`; now bare, port always a number.
+- **Scanner → panel:** the app sends `ip:port#CC` lines; pings and countries were stored under the `#CC` key, so the ping badge and the health ordering never found them. They are now stored under the address itself.
+
+### Fixed — app
+- **Scanner, SNI scanner, SOCKS5 / HTTP proxy finder, ProxyIP health and ping/jitter tested through the running VPN.** Their sockets were not protected (and `protect()` on a fresh socket silently failed because it has no descriptor yet), so with the tunnel on, results showed the VPN exit's view, not your network's. All probe sockets are now protected first.
+- **Local SNI-spoof proxy:** the splitters re-cut the whole first read; a ClientHello that arrived in two reads (big post-quantum key share) or together with the next record was re-wrapped with a wrong length → handshake failure. The proxy now reads exactly one complete record before splitting and passes anything after it through raw.
+- **HTTP ping on Home** no longer falls back to a direct (non-tunnel) request when the app itself is outside the VPN — that showed a healthy number for a dead config.
+- **«Make panel main SNI»** now also switches the SNI pool rotation off, so every TLS config carries the SNI you just verified instead of rotating untested names.
+- Firefox VPN delay test no longer crashes on an empty country list.
+
 ## [1.10.0-beta203] — 2026-10-28 (Panel 6.77.0)
 
 ### Added — panel 6.77.0

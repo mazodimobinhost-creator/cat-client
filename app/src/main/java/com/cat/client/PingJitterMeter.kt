@@ -322,6 +322,7 @@ object PingJitterMeter {
             try {
                 socket.tcpNoDelay = true
                 socket.soTimeout = timeoutMs
+                protectOutboundSocket(socket) // ping/jitter of THIS network, not of the running tunnel
                 socket.connect(InetSocketAddress(ip, port), timeoutMs)
                 return Conn(socket, BufferedInputStream(socket.getInputStream()), socket.getOutputStream())
             } catch (e: Exception) {
@@ -333,6 +334,7 @@ object PingJitterMeter {
         try {
             raw.tcpNoDelay = true
             raw.soTimeout = timeoutMs
+            protectOutboundSocket(raw) // ping/jitter of THIS network, not of the running tunnel
             raw.connect(InetSocketAddress(ip, port), timeoutMs)
         } catch (e: Exception) {
             runCatching { raw.close() }
