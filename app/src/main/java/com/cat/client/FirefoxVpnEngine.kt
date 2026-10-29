@@ -1601,6 +1601,26 @@ internal object FirefoxVpnEngine {
     var lastPassError: String = ""
         private set
 
+    @Volatile private var lastPassStatus = -1
+    @Volatile private var lastPassRetryAfter = ""
+
+    /** The last ProxyPass failure in the app's language (empty when the last request worked or none was made). */
+    fun passErrorText(farsi: Boolean): String {
+        val status = lastPassStatus
+        if (status < 0 || status in 200..299) return ""
+        if (!farsi) return guardianTokenError(status, lastPassRetryAfter)
+        val wait = lastPassRetryAfter.trim().takeIf { it.isNotEmpty() }?.let { " (بعد از $it ثانیه دوباره امتحان کن)" }.orEmpty()
+        return when {
+            status == 0 -> "به vpn.mozilla.org نرسید؛ اینترنت رو چک کن و دوباره بزن."
+            status == 401 -> "ورود فایرفاکس منقضی شده (401)؛ دوباره وارد حساب شو."
+            status == 403 -> "این حساب هنوز اجازهٔ VPN رایگان نداره (403)؛ یه حساب دیگه اضافه کن."
+            status == 429 -> "سهمیهٔ رایگان این حساب تموم شده (429)$wait؛ یه حساب فایرفاکس دیگه اضافه کن."
+            status == 451 -> "موزیلا VPN رایگان رو برای منطقه‌ای که می‌بینه ارائه نمی‌ده (451)."
+            status >= 500 -> "سرویس موزیلا الان مشکل داره ($status)؛ چند دقیقه دیگه امتحان کن."
+            else -> "موزیلا درخواست مجوز رو رد کرد ($status)."
+        }
+    }
+
     /** Mozilla Guardian `/api/v1/fpn/token` status → a plain explanation (same meanings Firefox itself uses). */
     internal fun guardianTokenError(status: Int, retryAfter: String?): String = when {
         status in 200..299 -> ""
@@ -1662,6 +1682,9 @@ internal object FirefoxVpnEngine {
         }
 
         if (currentAccess.isBlank()) {
+            lastPassStatus = 401 // no usable sign-in left: the user has to log in again
+            lastPassRetryAfter = ""
+            lastPassError = guardianTokenError(401, null)
             return account
         }
 
@@ -1680,7 +1703,9 @@ internal object FirefoxVpnEngine {
             }.getOrNull()
         }
 
-        lastPassError = guardianTokenError(tokenResp?.statusCode ?: 0, tokenResp?.header("Retry-After"))
+        lastPassStatus = tokenResp?.statusCode ?: 0
+        lastPassRetryAfter = tokenResp?.header("Retry-After").orEmpty()
+        lastPassError = guardianTokenError(lastPassStatus, lastPassRetryAfter)
         if (tokenResp != null && tokenResp.statusCode in 200..299) {
             val j = JSONObject(tokenResp.body)
             val passJwt = j.optString("token")

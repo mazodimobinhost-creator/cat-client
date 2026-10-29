@@ -17461,7 +17461,9 @@ class MainActivity : Activity() {
                             withContext(Dispatchers.IO) { FirefoxVpnEngine.startLocalBridge(this@MainActivity) }
                             val subTitle = "⭐ پیشنهادی · 🦊 Cat Fox VPN"
                             val saved = withContext(Dispatchers.IO) {
-                                val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
+                                val existing = userSubscriptionManager.list().firstOrNull {
+                                    it.name == subTitle || it.name == "⭐ پیشنهادی · 🦊 Firefox VPN (FENIX)"
+                                }
                                 if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
                                 else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
                             }
@@ -22517,10 +22519,12 @@ class MainActivity : Activity() {
                 }
 
                 if (activeAccount == null || activeAccount.proxyPassToken.isBlank()) {
+                    // Say WHY Mozilla gave no pass (expired sign-in, quota, region, server trouble) instead of a guess.
+                    val why = FirefoxVpnEngine.passErrorText(isFarsi)
                     Toast.makeText(
                         this@MainActivity,
-                        if (isFarsi) "⚠️ توکن ۵۰ گیگابایت برای این حساب دریافت نشد؛ لطفاً دوباره وارد حساب فایرفاکس شوید."
-                        else "⚠️ Could not obtain 50 GB ProxyPass token; please sign in to Firefox Account again.",
+                        if (isFarsi) "⚠️ موزیلا مجوز اتصال (۵۰ گیگ) رو نداد: " + why.ifBlank { "دوباره وارد حساب فایرفاکس شوید." }
+                        else "⚠️ Mozilla gave no proxy pass: " + why.ifBlank { "please sign in to the Firefox account again." },
                         Toast.LENGTH_LONG,
                     ).show()
                     showFirefoxAccountManagerDialog(onChanged)
@@ -22536,8 +22540,10 @@ class MainActivity : Activity() {
                 )
 
                 val subTitle = "🦊 Cat Fox VPN (${chosenCountry.flag} ${chosenCountry.code})"
+                // Also reuse the row older builds created («🦊 فایرفاکس VPN …») instead of adding a duplicate.
                 val existing = userSubscriptionManager.list().firstOrNull {
-                    it.name.startsWith("🦊 Cat Fox VPN")
+                    it.name.startsWith("🦊 Cat Fox VPN") || it.name.startsWith("🦊 فایرفاکس VPN") ||
+                        it.name.startsWith("🦊 Firefox VPN")
                 }
                 val saved = withContext(Dispatchers.IO) {
                     if (existing != null) {
