@@ -39,7 +39,7 @@ object SubConvConverter {
         "dnstt://", "dnst://", "slipstream://", "slipnet://", "slipnet-enc://", "slipnet-bundle-enc://",
         "vaydns://", "noizdns://", "cottendns://", "stormdns://", "masterdns://", "soar://",
         "qstunnel://", "qqtunnel://", "spooftunnel://", "s3bypass://", "phantun://", "nm://",
-        "doh://", "aether://", "masque://",
+        "doh://", "aether://", "masque://", "sstp://",
     )
 
     data class UniversalConfigItemSummary(
@@ -92,6 +92,8 @@ object SubConvConverter {
     private fun extractShareUriFromLine(raw: String): String? {
         val trimmed = raw.trim().trimStart('\uFEFF')
         if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("//")) return null
+        // beta212: a bare VPN Gate host from an SSTP server list ("vpn123.opengw.net:1270") is an SSTP server.
+        if ("://" !in trimmed) SstpLink.parse(trimmed)?.let { return it.toUri() }
         normalizeRawBridgeOrProxyLine(trimmed)?.let { return it }
         if ("://" !in trimmed) return null
         val firstSchemeBefore = trimmed.substringBefore("://")
@@ -148,6 +150,7 @@ object SubConvConverter {
                     "aether", "masque" -> parseAether(line, names)
                     "warp", "psiphon", "tor", "gool" -> parseWarpOrPsiphonUri(line, names)
                     "fenix", "firefoxvpn" -> parseFenixVpn(line, names)
+                    SstpLink.SCHEME -> parseSstp(line, names)
                     in PaqetEngine.SUPPORTED_SCHEMES -> parsePaqet(line, names)
                     in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES -> parseWhiteDnsTunnel(line, names)
                     else -> null
@@ -947,6 +950,7 @@ object SubConvConverter {
                 "cottendns", "stormdns", "masterdns", "soar", "qstunnel", "qqtunnel" -> "Multi-DNS ($scheme)"
                 "paqet", "paqetng", "patth", "patthng" -> "Paqet / PaqetNG"
                 "fenix", "firefoxvpn" -> "Cat Fox VPN"
+                SstpLink.SCHEME -> "Cat SSTP"
                 "aether", "masque", "warp", "psiphon", "tor", "gool" -> "Cat Warp / WARP / Psiphon"
                 else -> scheme.uppercase()
             }
@@ -1034,6 +1038,23 @@ object SubConvConverter {
             // (fragment, fingerprint, sni defaults) into ours, so the profile that connects in PattNG was not the
             // one Cat dialled. `masque://` (no PattNG form) is still normalised.
             .put("aether-uri", if (line.trim().startsWith("aether://", ignoreCase = true)) line.trim() else sel.toAetherUri())
+    }
+
+    /**
+     * beta212: `sstp://user:pass@host:port?ip=…#remark`. The Cat core has no SSTP outbound, so the row is a loopback
+     * placeholder (port [SstpLink.PLACEHOLDER_PORT], nothing listens there) and the VPN service runs the SSTP tunnel
+     * itself when the row is picked; the original link is kept in `sstp-uri`.
+     */
+    private fun parseSstp(line: String, names: NameRegistry): JSONObject {
+        val link = SstpLink.parse(line) ?: throw ParseError()
+        val label = link.remark.ifBlank { "Cat SSTP · ${link.host}" }
+        return JSONObject()
+            .put("name", names.register(label))
+            .put("type", "socks5")
+            .put("server", "127.0.0.1")
+            .put("port", SstpLink.PLACEHOLDER_PORT)
+            .put("udp", false)
+            .put("sstp-uri", link.toUri())
     }
 
     private fun parseFenixVpn(line: String, names: NameRegistry): JSONObject {

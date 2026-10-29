@@ -91,7 +91,7 @@ object CatFusionLink {
 
     /** Converts a Mihomo proxy JSON (from SubConvConverter or a YAML subscription) back to a share URI. */
     fun shareUriOf(proxy: JSONObject): String? {
-        listOf("whitedns-uri", "paqet-uri", "fenix-uri", "aether-uri").forEach { key ->
+        listOf("whitedns-uri", "paqet-uri", "fenix-uri", "aether-uri", "sstp-uri").forEach { key ->
             proxy.optString(key).takeIf { it.isNotBlank() && "://" in it }?.let { return it }
         }
         return runCatching { MihomoShareLink.build(jsonToMap(proxy)) }.getOrNull()
@@ -283,7 +283,7 @@ object IspProtocolMatrix {
 
     fun familyOf(proxy: JSONObject): Family {
         if (proxy.has("whitedns-uri")) return Family.DNS_TUNNEL
-        if (proxy.has("paqet-uri") || proxy.has("fenix-uri") || proxy.has("aether-uri")) return Family.OTHER
+        if (proxy.has("paqet-uri") || proxy.has("fenix-uri") || proxy.has("aether-uri") || proxy.has("sstp-uri")) return Family.OTHER
         return when (proxy.optString("type").lowercase()) {
             "vless", "vmess", "trojan", "anytls" -> if (isTls(proxy)) Family.TLS else Family.TCP
             "http" -> if (isTls(proxy)) Family.TLS else Family.TCP

@@ -57,6 +57,8 @@ internal data class SstpLink(
 
     companion object {
         const val SCHEME = "sstp"
+        /** Loopback placeholder port of SSTP rows in the Cat core config (nothing listens there). */
+        const val PLACEHOLDER_PORT = 1453
         private val HOST_ONLY = Regex("""^([A-Za-z0-9-]+\.)*opengw\.net(:\d{1,5})?$""", RegexOption.IGNORE_CASE)
 
         private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
@@ -846,7 +848,10 @@ internal class SstpConnection(
                 while (!closed.get()) {
                     val n = tunIn.read(buf)
                     if (n < 0) break
-                    if (n == 0) continue
+                    if (n == 0) { // non-blocking TUN (Android < 10): nothing queued yet
+                        Thread.sleep(3L)
+                        continue
+                    }
                     if ((buf[0].toInt() ushr 4) != 4) continue // IPv4 only (IPV6CP is refused)
                     if (n > mru) continue
                     sendPpp(PPP_IP, buf, 0, n)

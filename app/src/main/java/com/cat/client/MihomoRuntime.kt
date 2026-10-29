@@ -1664,6 +1664,7 @@ object MihomoFrontingPatcher {
         return Regex("""\bserver\s*:\s*['"]?(127\.0\.0\.1|localhost|::1|0\.0\.0\.0)['"]?\b""", RegexOption.IGNORE_CASE)
             .containsMatchIn(joined) ||
             joined.contains("aether-uri:") ||
+            joined.contains("sstp-uri:") ||
             joined.contains("whitedns-uri:") ||
             joined.contains("fenix-uri:") ||
             joined.contains("paqet-uri:")

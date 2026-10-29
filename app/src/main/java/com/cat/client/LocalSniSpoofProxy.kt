@@ -3358,6 +3358,7 @@ RESOLVERS = [$resolversList]
                     copy.has("paqet-uri") -> "PaqetNG"
                     copy.has("fenix-uri") -> "FirefoxVPN"
                     copy.has("aether-uri") -> "Aether/WARP"
+                    copy.has("sstp-uri") -> "SSTP"
                     else -> copy.optString("type", "proxy").uppercase()
                 }
                 protoCounts[pKind] = (protoCounts[pKind] ?: 0) + 1

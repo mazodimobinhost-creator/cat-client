@@ -388,6 +388,7 @@ object MihomoShareLink {
 
     private fun socks(proxy: Map<String, Any?>, name: String, host: String, port: Int): String {
         proxy.str("aether-uri")?.let { return it }
+        proxy.str("sstp-uri")?.let { return it }
         proxy.str("whitedns-uri")?.let { return it }
         proxy.str("fenix-uri")?.let { return it }
         proxy.str("paqet-uri")?.let { return it }
