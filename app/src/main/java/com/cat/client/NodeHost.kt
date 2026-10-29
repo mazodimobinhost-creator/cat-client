@@ -92,14 +92,16 @@ object NodeHostPanel {
      */
     const val SMARTERASP_ASSETS = "node-panel/smarterasp"
     const val SMARTERASP_WS_ASSETS = "node-panel/smarterasp/ws"
-    /** beta231: the SmarterASP zip carries the panel (cat-bundled/) — the release's catclient.worker.js IS catpanel.min.js. */
+    /** beta232: the SmarterASP zip carries the panel prebuilt (cat-code/) — the release's catclient.worker.js IS catpanel.min.js. */
     const val BUNDLED_WORKER_ASSET = "panels/catpanel.min.js"
     const val BUNDLED_ADAPTER_ASSET = "vercel/panel-adapter.mjs"
+    private val SOCKETS_IMPORT = Regex("""import\((['"])cloudflare:sockets\1\)""")
 
-    /** sha256sum-format list the launcher checks the bundled files against (same as the release's cat-node-panel.sha256). */
-    fun bundledSums(worker: ByteArray, adapter: ByteArray): String {
-        fun hex(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
-        return hex(worker) + "  catclient.worker.js\n" + hex(adapter) + "  cat-panel-adapter.mjs\n"
+    /** Same as the launcher's patchPanel(): the Worker's one `import("cloudflare:sockets")` → the adapter's Node sockets. */
+    fun patchPanel(src: String): String {
+        val n = SOCKETS_IMPORT.findAll(src).count()
+        require(n == 1) { "panel bundle: expected one cloudflare:sockets import, found $n" }
+        return SOCKETS_IMPORT.replace(src, "Promise.resolve(globalThis.__catSockets)")
     }
 
     /** Zip path for one vendored `ws` file (asset path relative to [SMARTERASP_WS_ASSETS]). */

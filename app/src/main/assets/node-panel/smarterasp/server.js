@@ -1,11 +1,12 @@
 // SmarterASP Linux «Node.js App» starts «server.js» by default — this starts the same Cat launcher (index.js).
-// index.js starts by itself when cat-config.json sits next to it; otherwise this does it.
-import { main, autostarted } from './index.js';
+// index.js starts by itself when cat-config.json sits next to it; otherwise this does it. (A namespace import, so
+// an older index.js left over from a previous upload still loads instead of failing on a missing export.)
+import * as cat from './index.js';
 
-if (!autostarted) {
-  main().catch((e) => {
+if (!cat.autostarted) {
+  cat.main().catch((e) => {
     console.error('[cat] could not start: ' + ((e && e.message) || e));
-    console.error('[cat] the host must reach github.com once to fetch the panel (later starts reuse the cached copy).');
+    if (e && e.stack) console.error(String(e.stack).split('\n').slice(1, 6).join('\n'));
     process.exit(1);
   });
 }

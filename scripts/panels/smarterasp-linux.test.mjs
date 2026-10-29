@@ -8,6 +8,7 @@
  * beta230: started through server.js (the runtime's default Startup file); /health = the Health path.
  * beta231: the Linux runtime loads the Startup file from its own runner (argv[1] is not index.js) — the panel must
  *   still start; and a fresh folder with no GitHub access starts from the zip's cat-bundled/ (SHA-256 checked).
+ * beta232: the site folder is READ-ONLY for the runtime → the zip's prebuilt cat-code runs as is; storage in a temp dir.
  * Usage: node scripts/panels/smarterasp-linux.test.mjs
  */
 import http from 'node:http';
@@ -16,8 +17,8 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workerPath = process.env.CAT_PANEL_WORKER || path.join(root, 'app/src/main/assets/panels/catclient.worker.js');
@@ -96,35 +97,53 @@ try {
   child.c.kill('SIGKILL');
 }
 
-// beta231 — a host runner loads the Startup file (CommonJS require of index.js, argv[1] = the runner), the folder
-// has nothing cached and GitHub is unreachable: the panel must start from cat-bundled/ (what the app zips).
-{
-  const app2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-sa-runner-'));
+// beta231/232 — the Linux runtime loads the Startup file from its own runner (CommonJS require, argv[1] = the
+// runner), runs «from website files» that may be READ-ONLY, and GitHub may be unreachable:
+//   A) the zip as the app now writes it: cat-code/ prebuilt (patched like the launcher does) → starts with no write;
+//   B) an older zip with cat-bundled/ and nothing prebuilt → code goes to a temp folder linked to ./node_modules.
+const L = await import(pathToFileURL(path.join(assets, 'index.js')).href);
+const runner = path.join(os.tmpdir(), 'cat-host-runner-' + process.pid + '.cjs');
+fs.writeFileSync(runner, "require(process.argv[2]);\n");
+for (const mode of ['prebuilt', 'bundled']) {
+  const app2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-sa-ro-' + mode + '-'));
   copyTree(app, app2);
-  fs.rmSync(path.join(app2, 'cat-code'), { recursive: true, force: true });
-  fs.rmSync(path.join(app2, 'cat-data'), { recursive: true, force: true });
-  fs.mkdirSync(path.join(app2, 'cat-bundled'));
-  for (const f of ['catclient.worker.js', 'cat-panel-adapter.mjs', 'cat-node-panel.sha256']) fs.copyFileSync(path.join(src, f), path.join(app2, 'cat-bundled', f));
-  fs.writeFileSync(path.join(app2, 'cat-bundled', 'version.txt'), '1.10.0-test\n');
-  const runner = path.join(os.tmpdir(), 'cat-host-runner-' + process.pid + '.cjs');
-  fs.writeFileSync(runner, "require(process.argv[2]);\n");
+  for (const d of ['cat-code', 'cat-data']) fs.rmSync(path.join(app2, d), { recursive: true, force: true });
+  if (mode === 'prebuilt') {
+    // what NodeHostController.files(SMARTERASP) zips: cat-code/{api/index.mjs, lib/catpanel.mjs, version.txt}
+    fs.mkdirSync(path.join(app2, 'cat-code/api'), { recursive: true }); fs.mkdirSync(path.join(app2, 'cat-code/lib'));
+    fs.copyFileSync(path.join(src, 'cat-panel-adapter.mjs'), path.join(app2, 'cat-code/api/index.mjs'));
+    fs.writeFileSync(path.join(app2, 'cat-code/lib/catpanel.mjs'), L.patchPanel(fs.readFileSync(path.join(src, 'catclient.worker.js'), 'utf8')));
+    fs.writeFileSync(path.join(app2, 'cat-code/version.txt'), 'bundled-1.10.0-test\n');
+  } else {
+    fs.mkdirSync(path.join(app2, 'cat-bundled'));
+    for (const f of ['catclient.worker.js', 'cat-panel-adapter.mjs', 'cat-node-panel.sha256']) fs.copyFileSync(path.join(src, f), path.join(app2, 'cat-bundled', f));
+    fs.writeFileSync(path.join(app2, 'cat-bundled', 'version.txt'), '1.10.0-test\n');
+  }
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-sa-tmp-'));
+  spawnSync('chmod', ['-R', 'a-w', app2]);
   const P2 = await freePort();
   let out2 = '';
-  const c2 = spawn(process.execPath, [runner, path.join(app2, 'index.js')], { cwd: app2, env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(P2), NODE_PATH: '', CAT_REPO: 'invalid.invalid/none', HTTPS_PROXY: 'http://127.0.0.1:9' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c2 = spawn(process.execPath, [runner, path.join(app2, 'server.js')], { cwd: app2, env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: tmpHome, PORT: String(P2), NODE_PATH: '', CAT_REPO: 'invalid.invalid/none', CAT_KEEPALIVE: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
   c2.stdout.on('data', (d) => { out2 += d; }); c2.stderr.on('data', (d) => { out2 += d; });
   const up = await new Promise((resolve) => {
-    const t = setTimeout(() => resolve(false), 30000);
+    const t = setTimeout(() => resolve(false), 40000);
     const iv = setInterval(() => { if (/listening on /.test(out2)) { clearTimeout(t); clearInterval(iv); resolve(true); } }, 100);
     c2.on('exit', () => { clearTimeout(t); clearInterval(iv); resolve(false); });
   });
   try {
-    check('loaded by a host runner (argv[1] is not index.js) → the panel still starts', up && /loaded by the host runner/.test(out2), out2);
-    check('fresh folder, no GitHub → first start uses the zip\'s cat-bundled panel (SHA-256 checked)', /first start: using the panel that came in the zip \(bundled-1\.10\.0-test\)/.test(out2) && /ready \(SHA-256 checked\)/.test(out2), out2);
+    const roOk = (() => { try { fs.writeFileSync(path.join(app2, '.probe'), '1'); return false; } catch (_) { return true; } })();
+    check(mode + ': read-only folder, loaded by a host runner, no GitHub → the panel starts', up && roOk && /loaded by the host runner/.test(out2) && !/could not start/.test(out2), out2);
+    if (mode === 'prebuilt') check('prebuilt: runs the zip\'s cat-code as is (update skipped, nothing written)', /running the cached panel bundled-1\.10\.0-test/.test(out2) && !/read-only — panel code goes to/.test(out2), out2);
+    else check('bundled: code goes to a temp folder (node_modules linked) and is SHA-256 checked', /read-only — panel code goes to /.test(out2) && /first start: using the panel that came in the zip/.test(out2) && /ready \(SHA-256 checked\)/.test(out2), out2);
+    check(mode + ': storage falls back to a temp folder, not «none»', /is not writable — storage: /.test(out2), out2);
     if (up) {
       const h2 = await new Promise((resolve) => { http.get({ host: '127.0.0.1', port: P2, path: '/health' }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', () => resolve(0)); });
-      check('the runner-started panel answers /health 200', h2 === 200, h2);
+      check(mode + ': /health 200', h2 === 200, h2);
+      const sub2 = await new Promise((resolve) => { http.get({ host: '127.0.0.1', port: P2, path: '/sub/' + UUID, headers: { host: 'site1.example.test' } }, (res) => { let b = ''; res.on('data', (d) => { b += d; }); res.on('end', () => resolve(b)); }).on('error', () => resolve('')); });
+      check(mode + ': /sub/<uuid> gives configs', sub2.includes('vless://'), sub2.slice(0, 120));
     }
-  } finally { c2.kill('SIGKILL'); fs.rmSync(runner, { force: true }); }
+  } finally { c2.kill('SIGKILL'); spawnSync('chmod', ['-R', 'u+w', app2]); }
 }
+fs.rmSync(runner, { force: true });
 console.log(failures ? 'smarterasp-linux: ' + failures + ' failed' : 'smarterasp-linux: all checks passed');
 process.exit(failures ? 1 : 0);

@@ -25,22 +25,27 @@ class Beta231SmarterAspRunnerTest {
     }
 
     @Test
-    fun smarterAspZipCarriesTheBundledPanel() {
+    fun smarterAspZipCarriesThePrebuiltPanel() {
+        // beta232: the Linux runtime's site files can be read-only → cat-code/ comes prebuilt in the zip
         val c = read("app/src/main/java/com/cat/client/NodeHostController.kt")
-        for (f in listOf("catclient.worker.js", "cat-panel-adapter.mjs", "cat-node-panel.sha256", "version.txt")) {
-            assertTrue(f, c.contains("out[\"cat-bundled/$f\"]"))
+        for (f in listOf("cat-code/api/index.mjs", "cat-code/lib/catpanel.mjs", "cat-code/version.txt")) {
+            assertTrue(f, c.contains("out[\"$f\"]"))
         }
         assertTrue(File(root, "app/src/main/assets/" + NodeHostPanel.BUNDLED_WORKER_ASSET).exists())
         assertTrue(File(root, "app/src/main/assets/" + NodeHostPanel.BUNDLED_ADAPTER_ASSET).exists())
+        val l = read("node-panel/index.js")
+        assertTrue(l.contains("if (!hasCode(codeDir) && !writable(codeDir)) {"))
+        assertTrue(read("app/src/main/assets/node-panel/smarterasp/server.js").contains("import * as cat from './index.js';"))
     }
 
     @Test
-    fun bundledSumsMatchSha256sumFormat() {
-        val s = NodeHostPanel.bundledSums("abc".toByteArray(), ByteArray(0))
-        assertEquals(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  catclient.worker.js\n" +
-                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  cat-panel-adapter.mjs\n",
-            s,
-        )
+    fun patchPanelMatchesTheLauncher() {
+        val src = "a;const s=await import(\"cloudflare:sockets\");b"
+        assertEquals("a;const s=await Promise.resolve(globalThis.__catSockets);b", NodeHostPanel.patchPanel(src))
+        assertEquals("x=Promise.resolve(globalThis.__catSockets)", NodeHostPanel.patchPanel("x=import('cloudflare:sockets')"))
+        val two = runCatching { NodeHostPanel.patchPanel("import('cloudflare:sockets');import('cloudflare:sockets')") }
+        assertTrue(two.isFailure)
+        val bundle = read("app/src/main/assets/" + NodeHostPanel.BUNDLED_WORKER_ASSET)
+        assertTrue(NodeHostPanel.patchPanel(bundle).contains("Promise.resolve(globalThis.__catSockets)"))
     }
 }

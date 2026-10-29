@@ -39,3 +39,4 @@
 - 2026-10-30 beta229: SmarterASP guide from real panel screenshots (Server Location list, form fields, FTP, bots rule).
 - 2026-10-30 beta230: SmarterASP Linux server.js entry + /health guide from NodeJs page screenshot.
 - 2026-10-30 beta231: SmarterASP Linux runner-load fix (autostarted) + cat-bundled first-start panel.
+- 2026-10-30 beta232: SmarterASP Linux read-only site files — prebuilt cat-code in zip, temp code/data fallback.

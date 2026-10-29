@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta232] — 2026-10-30 (Panel 6.79.2)
+
+### Fixed — SmarterASP Linux «Failed», exit code 1 (owner's screenshot)
+- The runtime runs the app «from website files», which can be read-only for the app process; the launcher wrote its panel cache (./cat-code) on the first start, so that write could end the start with exit 1. The SmarterASP zip now carries **cat-code/ prebuilt** (the Worker patched exactly like the launcher does — Kotlin `NodeHostPanel.patchPanel`, byte-identical output checked), so the first start writes nothing and downloads nothing.
+- Read-only folder with nothing prebuilt (older zips): the code goes to a temp folder whose `node_modules` links back to the site's (the adapter imports `ws`); users/settings fall back to a temp folder instead of «no storage».
+- With a panel already cached, the GitHub release check waits 8 s at most (was 20 s) so a dead route cannot hold the start past the health check.
+- `server.js` uses a namespace import, so an `index.js` left over from an earlier upload still loads; a failed start prints the first stack lines for «View Runtime Logs».
+- The guide follows the runtime's own rule: Stop → extract the fresh zip over the old files → Save & Start; if Failed, «View Runtime Logs».
+- `smarterasp-linux.test.mjs`: read-only folder (chmod a-w) + CommonJS runner + unreachable GitHub, both with the prebuilt cat-code and with an older cat-bundled zip → starts, /health 200, /sub gives configs.
+
 ## [1.10.0-beta231] — 2026-10-30 (Panel 6.79.2)
 
 ### Fixed — SmarterASP Linux «Unhealthy», 6 restarts, exit code 0 (owner's screenshot)

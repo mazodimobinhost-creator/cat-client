@@ -21,7 +21,9 @@
 //   CAT_KEEPALIVE=0      SmarterASP/IIS: do not wake the site every 9 minutes (IIS stops an idle site)
 //   CAT_AUTOSTART=0      do not start when a host's runner loads this file (see the end of this file)
 //
-// ./cat-bundled (the app puts it in the SmarterASP zip): the panel files of the app's own version + their SHA-256
+// ./cat-code prebuilt by the app (SmarterASP zip, beta232): the panel of the app's version, ready to run, so a host
+// that runs the app from read-only website files needs no write and no download to start.
+// ./cat-bundled (older SmarterASP zips): the panel files of the app's own version + their SHA-256
 // list. Used only on the very first start when nothing is cached yet, so a host that cannot reach GitHub (or is
 // slow to) still starts at once; later starts update from GitHub as usual and keep the cache if that fails.
 //
@@ -30,6 +32,7 @@
 // variables always win over the file. Keep that file private (it holds your main UUID).
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -235,7 +238,8 @@ export async function prepareCode(codeDir, env = process.env) {
         const base = 'https://github.com/' + REPO + '/releases/download/' + encodeURIComponent(env.CAT_PANEL_TAG) + '/';
         rel = { tag: env.CAT_PANEL_TAG, urls: { [PANEL_ASSET]: base + PANEL_ASSET, [ADAPTER_ASSET]: base + ADAPTER_ASSET, [SUMS_ASSET]: base + SUMS_ASSET } };
       } else {
-        const list = JSON.parse((await fetchBuf('https://api.github.com/repos/' + REPO + '/releases?per_page=15', 20000)).toString('utf8'));
+        // with a panel already here (cached / prebuilt) a dead GitHub route must not hold the start for long
+        const list = JSON.parse((await fetchBuf('https://api.github.com/repos/' + REPO + '/releases?per_page=15', have ? 8000 : 20000)).toString('utf8'));
         rel = pickRelease(list);
         if (!rel) throw new Error('no release with ' + ADAPTER_ASSET + ' yet');
       }
@@ -276,6 +280,20 @@ export function bundledReady(env = process.env) {
   return [PANEL_ASSET, ADAPTER_ASSET, SUMS_ASSET].every((n) => fs.existsSync(path.join(dir, n)));
 }
 
+export function hasCode(dir) { return fs.existsSync(path.join(dir, 'api', 'index.mjs')) && fs.existsSync(path.join(dir, 'lib', 'catpanel.mjs')); }
+
+/**
+ * beta232: the folder is read-only (SmarterASP Linux runs «from website files») and nothing is prebuilt → keep the
+ * code in a temp folder whose node_modules links back to ours (the adapter imports `ws` from there).
+ */
+export function tempCodeDir(here, tmp = os.tmpdir()) {
+  const dir = path.join(tmp, 'cat-code-' + sha256(path.resolve(here)).slice(0, 10));
+  fs.mkdirSync(dir, { recursive: true });
+  const nm = path.join(dir, 'node_modules');
+  if (!fs.existsSync(nm)) fs.symlinkSync(path.join(path.resolve(here), 'node_modules'), nm, 'dir');
+  return dir;
+}
+
 function writable(dir) {
   try { fs.mkdirSync(dir, { recursive: true }); const f = path.join(dir, '.w'); fs.writeFileSync(f, '1'); fs.unlinkSync(f); return true; } catch (_) { return false; }
 }
@@ -288,7 +306,11 @@ export async function main(env = process.env) {
   const port = portOf(env);
   const iis = env.CAT_BEHIND_IIS === '1';
   // The code cache must sit inside this folder: the adapter imports `ws` from ./node_modules.
-  const codeDir = codeDirOf(HERE, env);
+  let codeDir = codeDirOf(HERE, env);
+  if (!hasCode(codeDir) && !writable(codeDir)) {
+    codeDir = tempCodeDir(HERE);
+    log('⚠ this folder is read-only — panel code goes to ' + codeDir);
+  }
   const tag = await prepareCode(codeDir, env);
   env.CAT_PLATFORM = 'node';
   const host = hostOf(env);
@@ -303,7 +325,12 @@ export async function main(env = process.env) {
   if (!hasRedis && env.CAT_NO_DISK !== '1') {
     const dataDir = path.resolve(HERE, env.CAT_DATA_DIR || 'cat-data');
     if (writable(dataDir)) { env.CAT_KV_DIR = dataDir; log('storage: ' + dataDir); }
-    else log('⚠ ' + dataDir + ' is not writable — running without permanent storage');
+    else {
+      // read-only site files: a temp folder still keeps users/settings across restarts of the app process
+      const tmpData = path.join(os.tmpdir(), 'cat-data-' + sha256(HERE).slice(0, 10));
+      if (!env.CAT_DATA_DIR && writable(tmpData)) { env.CAT_KV_DIR = tmpData; log('⚠ ' + dataDir + ' is not writable — storage: ' + tmpData + ' (temporary: the host may clear it; add Upstash KV_REST_API_URL/TOKEN to keep users for good)'); }
+      else log('⚠ ' + dataDir + ' is not writable — running without permanent storage');
+    }
   } else log('storage: ' + (hasRedis ? 'Upstash Redis' : 'none (CAT_NO_DISK=1) — users vanish on restart'));
   const { default: server } = await import(pathToFileURL(path.join(codeDir, 'api', 'index.mjs')).href);
   server.keepAliveTimeout = 65000;
@@ -324,6 +351,7 @@ if (autostarted) {
   log('starting (Node ' + process.versions.node + ', ' + (isMain ? 'node index.js' : 'loaded by the host runner ' + path.basename(process.argv[1] || '?')) + ', PORT=' + (process.env.PORT || process.env.SERVER_PORT || '-') + ')');
   main().catch((e) => {
     console.error('[cat] could not start: ' + ((e && e.message) || e));
+    if (e && e.stack) console.error(String(e.stack).split('\n').slice(1, 6).join('\n'));
     console.error('[cat] the host must reach github.com once to fetch the panel (later starts reuse the cached copy).');
     process.exit(1);
   });
