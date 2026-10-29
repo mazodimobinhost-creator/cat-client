@@ -95,12 +95,13 @@ const report = {
   check('daily cap → 429 without a write', r.status === 429 && kv.puts === 0, r.status + ' puts=' + kv.puts);
 }
 
-/* 4: panel page ships the card in both languages */
+/* 4: panel page ships the card in both languages (rendered page, so it also holds for the minified build) */
 {
-  const fs = await import('node:fs');
-  const src = fs.readFileSync(workerPath, 'utf8');
-  check('panel page has the reports card + loader', src.includes('arStats') && src.includes('/api/app-reports'));
-  check('card text exists in Persian and English', src.includes('گزارش‌های برنامه') && src.includes('App reports (opt-in)'));
+  const { _testing: T } = await import(workerPath);
+  const raw = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', UUID);
+  const html = raw.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  check('panel page has the reports section + loader', html.includes('arStats') && html.includes('/api/app-reports'));
+  check('section text exists in Persian and English', html.includes('گزارش‌های برنامه') && html.includes('App reports (opt-in)'));
 }
 
 if (failures) { console.error(`\napp report: ${failures} FAILED`); process.exit(1); }

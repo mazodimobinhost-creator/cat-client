@@ -30,7 +30,7 @@
 | `MainActivityDashboard.kt` | 1327 | Home tab: dashboard, traffic meter row, world map page. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4043 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1197 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 812 | Plain-language guides, recommended one-click wizard, feature finder. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 826 | Plain-language guides, recommended one-click wizard, feature finder. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 2511 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivitySubscriptions.kt` | 1322 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -276,7 +276,7 @@
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_218 Kotlin files, 102630 lines._
+_218 Kotlin files, 102644 lines._
 
 ## MainActivity screens — function index
 

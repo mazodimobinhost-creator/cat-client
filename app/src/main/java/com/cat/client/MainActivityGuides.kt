@@ -679,6 +679,17 @@ internal fun MainActivity.showFeatureFinderDialog() {
             👋 سلام! اگر با اصطلاحات فنی (مثل SNI، فرگمنت، وارپ، ساکس یا DNS) آشنا نیستی، اصلاً نگران نباش. اینجا به زبان خیلی ساده بهت می‌گیم هر دکمه دقیقاً چکار می‌کنه:
 
             ────────────────────────
+            ✅ کارت «اینترنت واقعاً کار می‌کند؟» (زیر کانفیگ، بعد از وصل شدن)
+            • این چیه؟ «وصل شد» یعنی تونل باز شد، نه اینکه حتماً سایت‌ها باز می‌شوند. ۲ ثانیه بعد از هر اتصال، برنامه خودش از داخل VPN یک صفحهٔ کوچک و یک فایل ۲۰۰ کیلوبایتی باز می‌کند و نتیجه را می‌گوید: ✅ کار می‌کند، 🐢 کند است/گیر می‌کند، ❌ اینترنت نمی‌آید.
+            • در حالت «خودکار» اگر راهی اینترنت نداشت (دو بار تست)، خودش تا ۳ بار راه بعدی را امتحان می‌کند و یادش می‌ماند: روی همین شبکه (مثلاً همراه اول یا ایرانسل جدا، وای‌فای جدا) راه خراب را ۶ ساعت کنار می‌گذارد و راه سالم را دفعهٔ بعد اول امتحان می‌کند.
+            • «⏭️ امتحان راه بعدی» رو بزنی چی میشه؟
+              👈 بدون قطع کردن، می‌رود روی راه بعدی همین اشتراک (اگر نشد، دوباره وصل می‌شود و این راه را کنار می‌گذارد).
+            • «🔁 دوباره» رو بزنی چی میشه؟
+              👈 همین الان دوباره تست می‌کند.
+            • «📨 گزارش» رو بزنی چی میشه؟
+              👈 دقیقاً متنی را که فرستاده می‌شود نشانت می‌دهد (بدون آدرس سرور، UUID یا IP گوشی). فقط اگر «بفرست» را بزنی، به پنل خودت می‌رود تا صاحب پنل ببیند روی کدام اپراتور چه چیزی کار می‌کند. اگر نشد، متن کپی می‌شود.
+
+            ────────────────────────
             🦊 ۱) کارت «Cat Fox VPN (۵۰ گیگ رایگان)»
             • این چیه؟ مرورگر معروف فایرفاکس یک VPN داخلی روی سرورهای شرکت Fastly داره که برخلاف کلادفلر تو ایران فیلتر نیست و به هر ایمیل رایگان ماهی ۵۰ گیگ حجم مجانی میده!
             • «🦊 اتصال فوری با Cat Fox VPN» رو بزنی چی میشه؟
@@ -761,6 +772,9 @@ internal fun MainActivity.showFeatureFinderDialog() {
         } else {
             """
             👋 Welcome! You don't need any technical knowledge to use these tools. Here is what each button does in plain language:
+
+            ✅ «Does the internet really work?» card (under the config, after connecting):
+               «Connected» only means the tunnel is up. Two seconds after every connect the app opens a tiny page and a 200 KB file through the VPN and says ✅ works, 🐢 slow / stalls or ❌ no internet. In Automatic mode a route without internet (checked twice) is replaced by the next one (up to 3 times) and remembered per network (each operator and Wi-Fi separately): bad routes are skipped for 6 h, good ones are tried first next time. «⏭️ Try next route» switches without disconnecting; «🔁 Again» re-tests now; «📨 Report» shows exactly what would be sent (no server address, UUID or phone IP) and sends it to your own panel only if you tap «Send».
 
             1) 🦊 Cat Fox VPN (50 GB/mo Free):
                Uses Mozilla's official Fastly edge servers (which aren't blocked like Cloudflare) to connect your whole phone. You can add multiple free Firefox accounts (50 GB each) with automatic failover.

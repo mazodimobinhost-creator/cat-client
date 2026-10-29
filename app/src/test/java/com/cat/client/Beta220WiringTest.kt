@@ -67,14 +67,16 @@ class Beta220WiringTest {
     }
 
     @Test fun panelEndpointMatchesTheAppPayload() {
+        // CI runs the JVM tests against the minified worker, so only string literals are compared here;
+        // scripts/panels/app-report.test.mjs drives the endpoint itself (owner gate, limits, anonymised storage).
         val worker = listOf(File("src/main/assets/panels/catclient.worker.js"), File("app/src/main/assets/panels/catclient.worker.js"))
             .first { it.isFile }.readText()
-        assertTrue(worker.contains("if (path === '/api/app-report')"))
-        assertTrue(worker.contains("body.app !== 'cat-client'"))
+        assertTrue(worker.contains("/api/app-report"))
+        assertTrue(worker.contains("/api/app-reports"))
+        assertTrue(worker.contains("bad report")) // the minifier may encode the "cat-client" literal itself
         assertTrue(src("AppReport.kt").contains("const val PATH = \"/api/app-report\""))
-        // the public endpoint sits before the owner gate, the owner view after it
-        val gate = worker.indexOf("/* ---- everything below is owner-only ---- */")
-        assertTrue(worker.indexOf("if (path === '/api/app-report')") in 1 until gate)
-        assertTrue(worker.indexOf("if (path === '/api/app-reports')") > gate)
+        assertTrue(AppReport.payload(
+            AppReportFacts("v", 1, "mci", "", "wifi", "cat-core", "vless", null),
+        ).startsWith("{\"app\":\"cat-client\""))
     }
 }
