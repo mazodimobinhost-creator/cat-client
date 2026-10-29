@@ -330,3 +330,39 @@ class Beta212SstpTest {
         ss.close()
     }
 }
+
+class Beta212SstpListTest {
+    private val sample = """
+        {"updated":"2026-10-29T06:40:28.374Z","count":2,"sources":{"vpngate":{"ok":true,"count":79}},"servers":[
+        {"rank":1,"host":"public-vpn-79.opengw.net","cc":"JP","country":"Japan","ip":"219.100.37.27","flag":"🇯🇵","uptime":"4 days","uptime_min":5760,"uptime_days":4,"ping_ms":14,"speed_mbps":227.82,"traffic_gb":682696.29},
+        {"rank":43,"host":"vpn149232523.opengw.net:1270","cc":"KR","country":"Korea \u0052epublic","ip":"125.195.49.116","flag":"🇰🇷","uptime":"0 mins","uptime_min":0,"uptime_days":0,"ping_ms":7,"speed_mbps":839.07,"traffic_gb":12148.09}
+        ]}
+    """.trimIndent()
+
+    @org.junit.Test
+    fun mirrorJsonBecomesSstpLinksWithExactPorts() {
+        val list = SstpServerList.parseJson(sample)
+        org.junit.Assert.assertEquals(2, list.size)
+        org.junit.Assert.assertEquals(443, list[0].port)
+        org.junit.Assert.assertEquals("219.100.37.27", list[0].ip)
+        org.junit.Assert.assertEquals(1270, list[1].port)
+        org.junit.Assert.assertEquals("vpn149232523.opengw.net", list[1].host)
+        org.junit.Assert.assertEquals("Korea Republic", list[1].country)
+        val link = list[1].toLink()
+        org.junit.Assert.assertEquals("Korea Republic 🇰🇷 · 839 Mbps · vpn149232523", link.remark)
+        val text = SstpServerList.subscriptionText(list)
+        val back = text.lines().map { SstpLink.parse(it)!! }
+        org.junit.Assert.assertEquals(listOf(443, 1270), back.map { it.port })
+        org.junit.Assert.assertEquals("125.195.49.116", back[1].ip)
+        org.junit.Assert.assertEquals("vpn", back[1].user)
+        org.junit.Assert.assertTrue(ConnectionLabelPolicy.displayName(link.remark, "socks5", "127.0.0.1", SstpLink.PLACEHOLDER_PORT).contains("SSTP 839 Mbps"))
+    }
+
+    @org.junit.Test
+    fun mirrorTxtAndUrls() {
+        val list = SstpServerList.parseTxt("public-vpn-61.opengw.net\nvpn390088297.opengw.net:995\n\nbad host:x\n")
+        org.junit.Assert.assertEquals(listOf(443, 995), list.map { it.port })
+        org.junit.Assert.assertEquals("https://sstp.wireconf.workers.dev/api?sort=speed&limit=30&format=txt", SstpServerList.apiUrl("speed", 30, txt = true))
+        org.junit.Assert.assertEquals("https://sstp.wireconf.workers.dev/api?sort=site&limit=200&min_speed=50", SstpServerList.apiUrl("x", 999, 50))
+    }
+}

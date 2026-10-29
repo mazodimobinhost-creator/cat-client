@@ -936,3 +936,135 @@ internal object SstpDialer {
         }
     }
 }
+
+/**
+ * Public SSTP server list. The VPN Gate site itself is filtered in Iran, so the list comes from the
+ * `sstp.wireconf.workers.dev` mirror (JSON at `/api`, plain host names at `/api?format=txt`).
+ * Parsed without a JSON library so it stays testable on a plain JVM.
+ */
+internal object SstpServerList {
+    const val MIRROR_API = "https://sstp.wireconf.workers.dev/api"
+    val SORTS = listOf("site", "speed", "uptime", "new")
+
+    data class Server(
+        val host: String,
+        val port: Int,
+        val ip: String = "",
+        val countryCode: String = "",
+        val country: String = "",
+        val flag: String = "",
+        val mbps: Double? = null,
+        val uptimeDays: Int? = null,
+    ) {
+        /** Remark used as the row name: country first (for the Cat label), then the server's own line speed. */
+        fun toLink(): SstpLink {
+            val parts = ArrayList<String>()
+            parts += listOf(country.ifBlank { countryCode.ifBlank { "SSTP" } }, flag).filter { it.isNotBlank() }.joinToString(" ")
+            mbps?.let { parts += "${it.toInt()} Mbps" }
+            parts += host.substringBefore('.')
+            return SstpLink(host = host, port = port, ip = ip, remark = parts.joinToString(" · "))
+        }
+    }
+
+    fun apiUrl(sort: String = "site", limit: Int = 30, minSpeed: Int? = null, txt: Boolean = false): String = buildString {
+        append(MIRROR_API).append("?sort=").append(if (sort in SORTS) sort else "site")
+        append("&limit=").append(limit.coerceIn(1, 200))
+        if (minSpeed != null && minSpeed > 0) append("&min_speed=").append(minSpeed)
+        if (txt) append("&format=txt")
+    }
+
+    private fun splitHost(raw: String): Pair<String, Int>? {
+        val v = raw.trim()
+        if (v.isEmpty()) return null
+        val host = v.substringBefore(':')
+        val port = if (v.contains(':')) v.substringAfter(':').toIntOrNull() ?: return null else 443
+        if (port !in 1..65535 || !host.matches(Regex("""[A-Za-z0-9.-]+"""))) return null
+        return host.lowercase(Locale.US) to port
+    }
+
+    private fun unescape(s: String): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '\\' && i + 1 < s.length) {
+                val n = s[i + 1]
+                if (n == 'u' && i + 5 < s.length) {
+                    s.substring(i + 2, i + 6).toIntOrNull(16)?.let { out.append(it.toChar()) }
+                    i += 6
+                    continue
+                }
+                out.append(
+                    when (n) {
+                        'n' -> '\n'
+                        't' -> '\t'
+                        else -> n
+                    },
+                )
+                i += 2
+                continue
+            }
+            out.append(c)
+            i++
+        }
+        return out.toString()
+    }
+
+    private val objectPattern = Regex("""\{[^{}]*"host"\s*:[^{}]*\}""")
+
+    private fun field(obj: String, key: String): String? {
+        val m = Regex("\"" + Regex.escape(key) + "\"\\s*:\\s*(\"((?:[^\"\\\\]|\\\\.)*)\"|-?[0-9.]+)").find(obj) ?: return null
+        return if (m.groupValues[2].isNotEmpty() || m.groupValues[1].startsWith("\"")) unescape(m.groupValues[2]) else m.groupValues[1]
+    }
+
+    fun parseJson(body: String): List<Server> = objectPattern.findAll(body).mapNotNull { m ->
+        val obj = m.value
+        val (host, port) = splitHost(field(obj, "host").orEmpty()) ?: return@mapNotNull null
+        Server(
+            host = host,
+            port = field(obj, "port")?.toIntOrNull()?.takeIf { it in 1..65535 } ?: port,
+            ip = field(obj, "ip").orEmpty().takeIf { it.matches(Regex("""[0-9A-Fa-f.:]+""")) }.orEmpty(),
+            countryCode = field(obj, "cc").orEmpty().take(3),
+            country = field(obj, "country").orEmpty().take(40),
+            flag = field(obj, "flag").orEmpty().take(8),
+            mbps = field(obj, "speed_mbps")?.toDoubleOrNull(),
+            uptimeDays = field(obj, "uptime_days")?.toDoubleOrNull()?.toInt(),
+        )
+    }.distinctBy { "${it.host}:${it.port}" }.toList()
+
+    fun parseTxt(body: String): List<Server> = body.lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") }
+        .mapNotNull { line -> splitHost(line)?.let { (h, p) -> Server(h, p) } }
+        .distinctBy { "${it.host}:${it.port}" }
+        .toList()
+
+    /** Plain-text subscription body: one `sstp://` link per line. */
+    fun subscriptionText(servers: List<Server>): String = servers.joinToString("\n") { it.toLink().toUri() }
+
+    fun httpGet(url: String, timeoutMs: Int = 12_000): String {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        try {
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.setRequestProperty("Accept", "application/json, text/plain")
+            conn.setRequestProperty("User-Agent", "CatClient-SSTP")
+            val code = conn.responseCode
+            if (code != 200) throw IOException("HTTP $code")
+            return conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** JSON first (country, IP, speed); the plain host list if the JSON cannot be read. */
+    fun fetch(sort: String, limit: Int): List<Server> {
+        val json = runCatching { parseJson(httpGet(apiUrl(sort, limit))) }
+        json.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        val txt = runCatching { parseTxt(httpGet(apiUrl(sort, limit, txt = true))) }
+        txt.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        throw IOException(
+            json.exceptionOrNull()?.message ?: txt.exceptionOrNull()?.message ?: "the server list was empty",
+        )
+    }
+}
