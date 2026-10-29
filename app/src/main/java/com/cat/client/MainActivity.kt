@@ -21546,7 +21546,10 @@ class MainActivity : Activity() {
 
     private fun showFirefoxCountryPickerDialog(onChanged: () -> Unit = {}) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-        val countries = FirefoxVpnEngine.getAvailableCountries(this)
+        // Free (unlocked) locations first; locked ones answer 403 for a free account and fall back to «Recommended».
+        val countries = FirefoxVpnEngine.getAvailableCountries(this).let { all ->
+            all.filter { !it.locked } + all.filter { it.locked }
+        }
         val codes = listOf(FirefoxVpnEngine.COUNTRY_FASTEST) + countries.map { it.code }
         val labels = buildList {
             add(
@@ -21555,7 +21558,12 @@ class MainActivity : Activity() {
             )
             countries.forEach { c ->
                 val name = if (isFarsi) c.nameFa else c.nameEn
-                add("${c.flag} $name (${c.code}) · ${c.exactEndpoint}")
+                val tag = when {
+                    !c.locked -> if (isFarsi) "✅ رایگان" else "✅ free"
+                    isFarsi -> "🔒 قفل برای حساب رایگان (خودکار میره رو پیشنهادی)"
+                    else -> "🔒 locked for free accounts (falls back to Recommended)"
+                }
+                add("${c.flag} $name · $tag · ${c.exactEndpoint}")
             }
         }.toTypedArray()
         val currentCode = FirefoxVpnEngine.readSelectedCountryCode(this)
@@ -21563,8 +21571,8 @@ class MainActivity : Activity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle(
-                if (isFarsi) "🌍 انتخاب کشور خروجی Cat Fox VPN (۳۵ کشور روی شبکه Fastly)"
-                else "🌍 Select Cat Fox VPN Country (35 Fastly Locations)",
+                if (isFarsi) "🌍 انتخاب کشور Cat Fox VPN — ${countries.count { !it.locked }} کشور رایگان از ${countries.size}"
+                else "🌍 Cat Fox VPN country — ${countries.count { !it.locked }} free of ${countries.size}",
             )
             .setSingleChoiceItems(labels, checkedIdx) { dlg, idx ->
                 dlg.dismiss()

@@ -197,9 +197,14 @@ internal object FirefoxVpnEngine {
         val proxyHost: String,
         val proxyPort: Int = 2499,
         val masqueTemplate: String = "",
+        /** Mozilla marks most locations `locked` for free accounts (the node answers 403); REC always works. */
+        val locked: Boolean = false,
     ) {
         val exactEndpoint: String get() = "$proxyHost:$proxyPort"
     }
+
+    /** Locations Mozilla's live `vpn-serverlist` offered unlocked (free) on 2026-10-29; the sync refreshes this. */
+    internal val FREE_COUNTRY_CODES = setOf("REC", "ZA", "AR", "AU", "JP", "DE", "US")
 
     data class CountryPingResult(
         val country: FirefoxVpnCountry,
@@ -227,7 +232,7 @@ internal object FirefoxVpnEngine {
      * [syncRemoteSettingsCountries] refreshes this list live. Earlier builds shipped invented
      * `proxy-xx.fpn.mozilla.net:443` hosts that do not exist, so no FENIX config could ever connect.
      */
-    val BUILTIN_COUNTRIES: List<FirefoxVpnCountry> = listOf(
+    val BUILTIN_COUNTRIES: List<FirefoxVpnCountry> = listOf<FirefoxVpnCountry>(
         FirefoxVpnCountry("REC", "⭐", "پیشنهاد خود موزیلا (Anycast — نزدیک‌ترین سرور)", "Mozilla Recommended (Anycast)", "Anycast", "p.m1.fastly-masque.net", 2499),
         FirefoxVpnCountry("DE", "🇩🇪", "آلمان (مونیخ)", "Germany (Munich)", "Munich", "muc139.m1.fastly-masque.net", 2499),
         FirefoxVpnCountry("NL", "🇳🇱", "هلند (آمستردام — سرعت بالا)", "Netherlands (Amsterdam)", "Amsterdam", "ehrd229.m1.fastly-masque.net", 2499),
@@ -262,7 +267,7 @@ internal object FirefoxVpnEngine {
         FirefoxVpnCountry("MY", "🇲🇾", "مالزی (کوالالامپور)", "Malaysia (Kuala Lumpur)", "Kuala Lumpur", "kul98.m1.fastly-masque.net", 2499),
         FirefoxVpnCountry("PH", "🇵🇭", "فیلیپین (مانیل)", "Philippines (Manila)", "Manila", "mnl215.m1.fastly-masque.net", 2499),
         FirefoxVpnCountry("TH", "🇹🇭", "تایلند (بانکوک)", "Thailand (Bangkok)", "Bangkok", "bkk228.m1.fastly-masque.net", 2499),
-    )
+    ).map { it.copy(locked = it.code !in FREE_COUNTRY_CODES) }
 
     // =========================================================================
     // 1. Input Normalization & PICL v1 Cryptographic Key Derivation
@@ -1569,6 +1574,33 @@ internal object FirefoxVpnEngine {
         )
     }
 
+    /** Why the last ProxyPass request failed (empty when it worked), shown instead of a generic error. */
+    @Volatile
+    var lastPassError: String = ""
+        private set
+
+    /** Mozilla Guardian `/api/v1/fpn/token` status → a plain explanation (same meanings Firefox itself uses). */
+    internal fun guardianTokenError(status: Int, retryAfter: String?): String = when {
+        status in 200..299 -> ""
+        status == 0 -> "Could not reach vpn.mozilla.org to get a proxy pass — check the internet connection and try again"
+        status == 401 -> "Firefox sign-in expired (401) — sign in to the Firefox account again"
+        status == 403 -> "This Firefox account is not allowed to use the free VPN yet (403) — open Firefox's VPN once or use another account"
+        status == 429 -> "Mozilla's free VPN limit for this account is used up (429)" +
+            (retryAfter?.trim()?.takeIf { it.isNotEmpty() }?.let { " — try again after $it" } ?: "") +
+            " or add another Firefox account"
+        status == 451 -> "Mozilla does not offer its free VPN in the region it sees for this request (451)"
+        status >= 500 -> "Mozilla's VPN service is having trouble ($status) — try again in a few minutes"
+        else -> "Mozilla refused the proxy pass request ($status)"
+    }
+
+    /** `X-Quota-Reset` is ISO 8601 in Firefox's client; older builds stored epoch seconds. */
+    internal fun parseQuotaReset(value: String?): Long? {
+        val v = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        v.toLongOrNull()?.let { return if (it > 100_000_000_000L) it / 1000L else it }
+        return runCatching { java.time.OffsetDateTime.parse(v).toEpochSecond() }.getOrNull()
+            ?: runCatching { java.time.Instant.parse(v).epochSecond }.getOrNull()
+    }
+
     /**
      * Refreshes OAuth access token (if needed), activates Guardian 50 GB free entitlement,
      * and fetches a fresh `ProxyPass` JWT (`GET /api/v1/fpn/token`) along with `X-Quota-*` headers.
@@ -1626,6 +1658,7 @@ internal object FirefoxVpnEngine {
             }.getOrNull()
         }
 
+        lastPassError = guardianTokenError(tokenResp?.statusCode ?: 0, tokenResp?.header("Retry-After"))
         if (tokenResp != null && tokenResp.statusCode in 200..299) {
             val j = JSONObject(tokenResp.body)
             val passJwt = j.optString("token")
@@ -1637,7 +1670,7 @@ internal object FirefoxVpnEngine {
                 ?.takeIf { it > 0L } ?: account.quotaLimitBytes
             val quotaRem = tokenResp.header("X-Quota-Remaining")?.toLongOrNull()
                 ?: account.quotaRemainingBytes
-            val quotaReset = tokenResp.header("X-Quota-Reset")?.toLongOrNull()
+            val quotaReset = parseQuotaReset(tokenResp.header("X-Quota-Reset"))
                 ?: account.quotaResetEpochSec
 
             val updated = account.copy(
@@ -1679,6 +1712,7 @@ internal object FirefoxVpnEngine {
                     proxyHost = o.optString("proxyHost"),
                     proxyPort = o.optInt("proxyPort", 2499),
                     masqueTemplate = o.optString("masqueTemplate"),
+                    locked = if (o.has("locked")) o.optBoolean("locked") else o.optString("code").uppercase(Locale.US) !in FREE_COUNTRY_CODES,
                 )
             }
             sanitizeCountries(remoteList)
@@ -1753,6 +1787,7 @@ internal object FirefoxVpnEngine {
                     cityName = cityName.ifBlank { existing?.cityName.orEmpty() },
                     proxyHost = host,
                     proxyPort = port,
+                    locked = rec.optBoolean("locked", false),
                 )
             }
             // Countries missing from the live list are not offered by Mozilla any more: do not re-add them.
@@ -1768,7 +1803,8 @@ internal object FirefoxVpnEngine {
                         .put("cityName", c.cityName)
                         .put("proxyHost", c.proxyHost)
                         .put("proxyPort", c.proxyPort)
-                        .put("masqueTemplate", c.masqueTemplate),
+                        .put("masqueTemplate", c.masqueTemplate)
+                        .put("locked", c.locked),
                 )
             }
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1790,7 +1826,9 @@ internal object FirefoxVpnEngine {
         maxCountries: Int = 12,
         timeoutMs: Int = 900,
     ): List<CountryPingResult> {
-        val countries = getAvailableCountries(context).take(maxCountries.coerceAtLeast(1))
+        // Locked locations answer 403 for free accounts, so "fastest" only races the ones that can carry traffic.
+        val countries = getAvailableCountries(context).filter { !it.locked }.ifEmpty { getAvailableCountries(context) }
+            .take(maxCountries.coerceAtLeast(1))
         val effectiveTimeout = timeoutMs.coerceAtLeast(1_100)
         val pool = java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
             Thread(null, r, "fenix-ping", 128 * 1024L).apply { isDaemon = true }
@@ -1865,7 +1903,7 @@ internal object FirefoxVpnEngine {
             Socket().use { sock ->
                 protectOutboundSocket(sock)
                 sock.tcpNoDelay = true
-                sock.connect(InetSocketAddress(resolveForProtectedSocket(host), port), timeoutMs)
+                sock.connect(InetSocketAddress(resolveEdgeAddress(host), port), timeoutMs)
             }
             ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
         }.getOrNull()
@@ -2135,7 +2173,10 @@ internal object FirefoxVpnEngine {
             // Honest failure: without a signed-in Firefox Account there is no Mozilla proxy pass, so
             // there is no tunnel. Earlier builds silently dialled the target directly here, which
             // looked connected but never changed the IP or opened blocked sites.
-            throw IOException("Cat Fox VPN needs a signed-in Firefox Account (no ProxyPass)")
+            throw IOException(
+                lastPassError.takeIf { it.isNotBlank() }
+                    ?: "Cat Fox VPN needs a signed-in Firefox Account (no ProxyPass)",
+            )
         }
 
         // Candidate Fastly MASQUE nodes, all on the real port (2499): the last node that worked, an optional
@@ -2196,6 +2237,14 @@ internal object FirefoxVpnEngine {
                     val code = statusLine.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
                     throw FenixH2StatusException(code, "Fastly node $connectHost:$connectPort returned $statusLine")
                 } catch (e: FenixH2StatusException) {
+                    if (targetPort != 80 && targetPort != 443 && e.status in setOf(400, 403, 405, 502)) {
+                        // Mozilla's edge only tunnels web ports (80/443); this is about the target, not the node or
+                        // the account, so do not try other nodes or blame the location.
+                        throw IOException(
+                            "Cat Fox VPN (Mozilla) only carries web ports 80/443 — $targetHost:$targetPort was refused (${e.status})",
+                            e,
+                        )
+                    }
                     lastError = IOException(fenixStatusMessage(e.status, "$connectHost:$connectPort"), e)
                     if (statusError == null || e.status != 403) statusError = lastError
                     if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null

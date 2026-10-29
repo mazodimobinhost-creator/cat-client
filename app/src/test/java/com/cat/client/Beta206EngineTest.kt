@@ -41,7 +41,8 @@ class Beta206EngineTest {
         assertFalse(isMihomoFakeIp(InetAddress.getByName("198.20.0.1")))
         assertFalse(isMihomoFakeIp(InetAddress.getByName("151.101.1.1")))
         assertEquals("1.2.3.4", resolveForProtectedSocket("1.2.3.4").hostAddress)
-        assertTrue(src("FirefoxVpnEngine.kt").contains("InetSocketAddress(resolveForProtectedSocket(connectHost), connectPort)"))
+        assertTrue(src("FirefoxVpnEngine.kt").contains("InetSocketAddress(resolveEdgeAddress(connectHost), connectPort)"))
+        assertTrue(src("FirefoxVpnEngine.kt").contains("runCatching { resolveForProtectedSocket(host) }"))
         assertTrue(src("PaqetEngine.kt").contains("resolveForProtectedSocket(serverClean)"))
     }
 
