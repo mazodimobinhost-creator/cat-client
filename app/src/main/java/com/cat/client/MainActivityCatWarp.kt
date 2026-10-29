@@ -103,7 +103,7 @@ import java.util.Locale
 import java.text.DateFormat
 import com.cat.client.MainActivity.AetherNetworkProbeCandidate
 
-// Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build.
+// Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import.
 // Moved out of MainActivity.kt unchanged (beta220 code split); see docs/CODEMAP.md.
 
 internal fun MainActivity.buildAetherScreen(): View {
@@ -2988,4 +2988,351 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
         .setNegativeButton(android.R.string.cancel, null)
         .create()
         .showCatClientDialog()
+}
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+internal fun MainActivity.probeAndShowAetherExitIpDialog(onUpdated: (() -> Unit)? = null) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    Toast.makeText(
+        this,
+        if (isFarsi) "⏳ در حال بررسی آی‌پی و کشور خروجی فعلی…" else "⏳ Checking current exit IP & country…",
+        Toast.LENGTH_SHORT,
+    ).show()
+    activityScope.launch {
+        val result = withContext(Dispatchers.IO) { AetherOperations.probeExitTrace(5_000) }
+        val trace = result.getOrNull()
+        if (trace == null) {
+            Toast.makeText(
+                this@probeAndShowAetherExitIpDialog,
+                if (isFarsi) "⚠️ امکان دریافت وضعیت آی‌پی خروجی نبود: ${result.exceptionOrNull()?.message.orEmpty()}"
+                else "⚠️ Could not probe exit IP: ${result.exceptionOrNull()?.message.orEmpty()}",
+                Toast.LENGTH_LONG,
+            ).show()
+            return@launch
+        }
+        val isIran = trace.isIranIp
+        val flagAndTitle = if (isIran) {
+            if (isFarsi) "🇮🇷 آی‌پی فعلی شما: ایران (IR)" else "🇮🇷 Current Exit IP: Iran (IR)"
+        } else {
+            if (isFarsi) "🌍 آی‌پی فعلی شما: خارج از ایران (${trace.countryCode})"
+            else "🌍 Current Exit IP: Foreign (${trace.countryCode})"
+        }
+        val msg = if (isFarsi) {
+            "• کشور خروجی: ${if (isIran) "🇮🇷 ایران (IR)" else "🌍 خارج (${trace.countryCode})"}\n" +
+                "• آدرس آی‌پی: ${trace.ip}\n" +
+                "• دیتاسنتر کلودفلر: ${trace.colo}\n" +
+                "• وضعیت WARP: ${trace.warpStatus}\n\n" +
+                if (isIran) {
+                    "💡 اگر آی‌پی خارج (غیر ایران) می‌خواهید، دکمه «🌍 تغییر به آی‌پی خارج» را بزنید تا از حالت دو لایه Gool یا چین سایفون استفاده شود."
+                } else {
+                    "💡 آی‌پی شما غیر ایران (${trace.countryCode}) است. اگر برای سایت‌های داخلی یا سرعت بالاتر آی‌پی ایران می‌خواهید، دکمه «🇮🇷 تغییر به آی‌پی ایران» را بزنید."
+                }
+        } else {
+            "• Exit Country: ${if (isIran) "🇮🇷 Iran (IR)" else "🌍 Foreign (${trace.countryCode})"}\n" +
+                "• Exit IP: ${trace.ip}\n" +
+                "• Cloudflare Colo: ${trace.colo}\n" +
+                "• WARP Status: ${trace.warpStatus}\n\n" +
+                if (isIran) {
+                    "💡 Want a non-Iran (Foreign) IP? Tap '🌍 Switch to Foreign IP'."
+                } else {
+                    "💡 Your IP is outside Iran (${trace.countryCode}). Want an Iran IP instead? Tap '🇮🇷 Switch to Iran IP'."
+                }
+        }
+        MaterialAlertDialogBuilder(this@probeAndShowAetherExitIpDialog)
+            .setTitle(flagAndTitle)
+            .setMessage(msg)
+            .setNeutralButton(
+                if (isFarsi) "🧭 تغییر مکان آی‌پی (ایران / خارج)" else "🧭 Change Exit IP (Iran / Foreign)",
+            ) { _, _ ->
+                showAetherExitLocationPickerDialog(onUpdated)
+            }
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+            .showCatClientDialog()
+    }
+}
+
+internal fun MainActivity.subscriptionAetherLines(item: UserSubscription): List<Pair<Int, String>> =
+    item.input.lines().mapIndexedNotNull { index, raw ->
+        val line = raw.trim()
+        if (line.startsWith("aether://", ignoreCase = true) || line.startsWith("masque://", ignoreCase = true)) {
+            index to line
+        } else {
+            null
+        }
+    }
+
+internal fun MainActivity.aetherLineTitle(line: String): String {
+    val name = AetherSelection.fromAetherUri(line)?.profileName?.takeIf(String::isNotBlank)
+        ?: android.net.Uri.decode(line.substringAfter('#', "Cat Warp"))
+    return CatBranding.rebrandName(name)
+}
+
+internal fun MainActivity.editSubscriptionOrAetherConfig(item: UserSubscription) {
+    val lines = subscriptionAetherLines(item)
+    if (lines.isEmpty()) {
+        showEditSubscriptionDialog(item)
+        return
+    }
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val labels = lines.map { (_, line) -> "⚡ " + aetherLineTitle(line) } +
+        (if (isFarsi) "📝 ویرایش متن کامل سابسکریپشن (برای حرفه‌ای‌ها)" else "📝 Edit the whole subscription text (advanced)")
+    MaterialAlertDialogBuilder(this)
+        .setTitle(if (isFarsi) "✏️ کدام کانفیگ را ویرایش کنم؟" else "✏️ Which config do you want to edit?")
+        .setItems(labels.toTypedArray()) { _, which ->
+            if (which >= lines.size) {
+                showEditSubscriptionDialog(item)
+            } else {
+                showAetherConfigEditor(item, lines[which].first, lines[which].second)
+            }
+        }
+        .setNegativeButton(android.R.string.cancel, null)
+        .create()
+        .showCatClientDialog()
+}
+
+/** beta214: opens the per-config Cat Warp editor (with its endpoint scan) for the config in «⚡ Cat Warp Configs». */
+internal fun MainActivity.openCatWarpEditorForCurrentConfig(autoScan: Boolean) {
+    activityScope.launch {
+        val list = withContext(Dispatchers.IO) {
+            userSubscriptionManager.list().firstOrNull { it.name.equals(CatWarpListPolicy.SUBSCRIPTION_NAME, ignoreCase = true) }
+        }
+        val firstLine = list?.let { subscriptionAetherLines(it).firstOrNull()?.second }
+        val link = firstLine ?: aetherPreferenceStore.read().toAetherUri()
+        openCatWarpEditorForLink(list?.id, link, autoScan)
+    }
+}
+
+/**
+ * beta214: long-press «🔍 اسکن اندپوینت» / «✏️ ویرایش» on a Cat Warp row. Finds the subscription line behind the
+ * row and opens the editor on it; a row of a remote (URL) list is first copied into «⚡ Cat Warp Configs».
+ */
+internal fun MainActivity.openCatWarpEditorForLink(subscriptionId: String?, shareLink: String?, autoScan: Boolean) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    activityScope.launch {
+        runCatching {
+            val subs = withContext(Dispatchers.IO) { userSubscriptionManager.list() }
+            val ordered = subs.filter { it.id == subscriptionId } + subs.filter { it.id != subscriptionId }
+            val hit = ordered.firstNotNullOfOrNull { sub ->
+                CatWarpListPolicy.lineIndexFor(sub.input, shareLink).takeIf { it >= 0 }?.let { sub to it }
+            }
+            if (hit != null) {
+                showAetherConfigEditor(hit.first, hit.second, hit.first.input.lines()[hit.second].trim(), autoScan)
+                return@runCatching
+            }
+            val parsed = AetherSelection.fromAetherUri(shareLink.orEmpty())
+            if (parsed == null) {
+                Toast.makeText(
+                    this@openCatWarpEditorForLink,
+                    if (isFarsi) "این ردیف لینک Cat Warp سالم ندارد." else "This row has no valid Cat Warp link.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@runCatching
+            }
+            val uri = parsed.toAetherUri()
+            val existing = subs.firstOrNull { it.name.equals(CatWarpListPolicy.SUBSCRIPTION_NAME, ignoreCase = true) }
+            val saved = withContext(Dispatchers.IO) {
+                if (existing != null) {
+                    userSubscriptionManager.update(
+                        existing.id,
+                        existing.name,
+                        CatWarpListPolicy.mergedInput(existing.input, uri, replaceAll = false),
+                    )
+                } else {
+                    userSubscriptionManager.add(CatWarpListPolicy.SUBSCRIPTION_NAME, uri)
+                }
+            }
+            renderSubscriptions()
+            val idx = CatWarpListPolicy.lineIndexFor(saved.input, uri).coerceAtLeast(0)
+            showAetherConfigEditor(saved, idx, saved.input.lines().getOrElse(idx) { uri }.trim(), autoScan)
+        }.onFailure { error ->
+            Toast.makeText(this@openCatWarpEditorForLink, error.message ?: "Error", Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
+/** beta214: plain-words answer for a «Local 127.0.0.1:port» row that cannot carry traffic. */
+internal fun MainActivity.showDeadLocalRowExplanation(profile: ConnectionProfile) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    activityScope.launch {
+        val listening = withContext(Dispatchers.IO) { LoopbackProfileGuard.isListening(profile.port) }
+        val msg = if (isFarsi) {
+            "این ردیف خودش سرور ندارد؛ فقط می‌گوید «برو به پروکسیِ یک برنامهٔ دیگر روی همین گوشی، 127.0.0.1:${profile.port}».\n\n" +
+                (if (listening) "✅ الان برنامه‌ای روی این پورت گوش می‌دهد، پس تا وقتی آن برنامه باز است کار می‌کند.\n\n"
+                else "❌ الان هیچ برنامه‌ای روی این پورت نیست، پس وصل نمی‌شود (همان خطای «health check at 127.0.0.1:2080»).\n\n") +
+                "اگر Cat Warp می‌خواهید: «⚡ Cat Warp» → «🤖 اسکن و ساخت خودکار» یا «🚀 اتصال مستقیم Cat Warp». این سابسکریپشن را می‌توانید حذف کنید."
+        } else {
+            "This row has no server of its own; it only says «use another app's proxy on this phone at 127.0.0.1:${profile.port}».\n\n" +
+                (if (listening) "✅ Something is listening on that port right now, so it works while that app runs.\n\n"
+                else "❌ Nothing listens on that port now, so it cannot connect (the «health check at 127.0.0.1:2080» error).\n\n") +
+                "For Cat Warp use «⚡ Cat Warp» → «🤖 Auto-Scan & Build» or «🚀 Connect Cat Warp Now». You can delete this subscription."
+        }
+        MaterialAlertDialogBuilder(this@showDeadLocalRowExplanation)
+            .setTitle(if (isFarsi) "ℹ️ چرا این ردیف وصل نمی‌شود؟" else "ℹ️ Why does this row not connect?")
+            .setMessage(msg)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+            .showCatClientDialog()
+    }
+}
+
+internal fun MainActivity.saveEditedAetherLine(
+    item: UserSubscription,
+    lineIndex: Int,
+    originalLine: String,
+    edited: AetherSelection,
+    connect: Boolean,
+) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val before = AetherSelection.fromAetherUri(originalLine)
+    val selection = if (edited.endpoint != null && edited.endpoint != before?.endpoint) {
+        edited.copy(endpointScannedAt = System.currentTimeMillis())
+    } else {
+        edited
+    }
+    val newLine = selection.toAetherUri()
+    activityScope.launch {
+        runCatching {
+            val fresh = withContext(Dispatchers.IO) { userSubscriptionManager.list().firstOrNull { it.id == item.id } } ?: item
+            val lines = fresh.input.lines().toMutableList()
+            val at = if (lineIndex in lines.indices && lines[lineIndex].trim() == originalLine) {
+                lineIndex
+            } else {
+                lines.indexOfFirst { it.trim() == originalLine }
+            }
+            if (at >= 0) lines[at] = newLine else lines.add(0, newLine)
+            // «Save & connect»: Automatic takes the first Cat Warp row, so the edited one goes first.
+            val text = if (connect) {
+                CatWarpListPolicy.moveLineFirst(lines.joinToString("\n"), if (at >= 0) at else 0)
+            } else {
+                lines.joinToString("\n")
+            }
+            val saved = withContext(Dispatchers.IO) {
+                userSubscriptionManager.update(fresh.id, fresh.name, text)
+            }
+            val active = aetherPreferenceStore.read()
+            if (connect || (before != null && active.profileName == before.profileName)) {
+                aetherPreferenceStore.save(selection.copy(enabled = connect || active.enabled))
+            }
+            if (connect) {
+                userSubscriptionManager.select(saved.id)
+                connectionSelectionPreferenceStore.saveSelectedProfile(saved.id, null, userPick = true)
+            }
+            renderSubscriptions()
+            renderConnectionSelection()
+            Toast.makeText(this@saveEditedAetherLine, if (isFarsi) "✅ ذخیره شد" else "✅ Saved", Toast.LENGTH_SHORT).show()
+            // beta214: «ذخیره و اتصال» only saved before — it now really connects.
+            if (connect) connectCatWarpAfterSave()
+        }.onFailure {
+            Toast.makeText(this@saveEditedAetherLine, it.message ?: "Error", Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
+/** «کلید WARP ما کجاست؟» — every key the app holds, in plain words, plus a button that makes one. */
+/**
+ * beta210: fetches our own WARP WireGuard key in the background as soon as the user has any WARP WireGuard rows,
+ * so tapping connect just works (no button to press). Cheap checks first; rate-limited inside WarpRegistration.
+ */
+internal fun MainActivity.prewarmWarpKeyInBackground(force: Boolean = false) {
+    val appContext = applicationContext
+    activityScope.launch(Dispatchers.IO) {
+        runCatching {
+            if (WarpRegistration.hasUsableKey(appContext)) return@runCatching
+            val repository = ConfigRepository(appContext)
+            val hasWarpRows = force || userSubscriptionManager.list().any { sub ->
+                val input = sub.input
+                input.contains("auto@", ignoreCase = true) ||
+                    input.contains(WarpRegistration.WARP_PEER_PUBLIC_KEY) ||
+                    input.contains("bmXOC%2BF1FxEMF9dyiK2H5", ignoreCase = true) ||
+                    repository.readCachedMihomoConfigOrNullNow(sub.id)?.rawConfig
+                        ?.let(WarpRegistration::containsWarpPeer) == true
+            }
+            val outcome = WarpRegistration.prewarmIfUseful(appContext, hasWarpRows) ?: return@runCatching
+            DiagnosticLogger.info(
+                appContext,
+                "warp.prewarm",
+                "ok=${outcome.account != null} source=${outcome.source}",
+            )
+        }.onFailure { DiagnosticLogger.warn(appContext, "warp.prewarm.failed", error = it) }
+    }
+}
+
+internal fun MainActivity.exportAetherIdentityToClipboard() {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    activityScope.launch {
+        val tomlFile = java.io.File(filesDir, "aether.toml")
+        val cur = aetherPreferenceStore.read()
+        val payload = withContext(Dispatchers.IO) {
+            AetherOperations.exportIdentity(tomlFile).recoverCatching {
+                AetherOperations.provision(cur.mode, tomlFile, null, cur.ipScan, cur.exitLocation).getOrThrow()
+                AetherOperations.exportIdentity(tomlFile).getOrThrow()
+            }
+        }
+        payload.fold(
+            onSuccess = { exported ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("aether-identity-backup", exported))
+                Toast.makeText(
+                    this@exportAetherIdentityToClipboard,
+                    if (isFarsi) "✅ پشتیبان کلید کلودفلر در کلیپ‌بورد کپی شد (در جایی امن ذخیره کنید تا در نصب مجدد کلیدتان نسوزد)"
+                    else "✅ Cloudflare identity backup copied to clipboard!",
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+            onFailure = { err ->
+                Toast.makeText(
+                    this@exportAetherIdentityToClipboard,
+                    if (isFarsi) "⚠️ خطا در تهیه پشتیبان کلید: ${err.message}"
+                    else "⚠️ Failed to export identity: ${err.message}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
+    }
+}
+
+internal fun MainActivity.importAetherIdentityFromClipboard() {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val clip = getSystemService(ClipboardManager::class.java)?.primaryClip
+        ?.takeIf { it.itemCount > 0 }
+        ?.getItemAt(0)
+        ?.coerceToText(this)
+        ?.toString()
+        ?.trim()
+        .orEmpty()
+    if (clip.isEmpty()) {
+        Toast.makeText(
+            this,
+            if (isFarsi) "⚠️ کلیپ‌بورد خالی است؛ ابتدا متن پشتیبان کلید را کپی کنید"
+            else "⚠️ Clipboard is empty; copy your identity backup first",
+            Toast.LENGTH_SHORT,
+        ).show()
+        return
+    }
+    activityScope.launch {
+        val tomlFile = java.io.File(filesDir, "aether.toml")
+        val res = withContext(Dispatchers.IO) {
+            AetherOperations.importIdentity(tomlFile, clip)
+        }
+        res.fold(
+            onSuccess = {
+                Toast.makeText(
+                    this@importAetherIdentityFromClipboard,
+                    if (isFarsi) "✅ کلید کلودفلر با موفقیت بازیابی و جایگزین شد!"
+                    else "✅ Cloudflare identity restored successfully!",
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+            onFailure = { err ->
+                Toast.makeText(
+                    this@importAetherIdentityFromClipboard,
+                    if (isFarsi) "⚠️ متن داخل کلیپ‌بورد یک کلید معتبر Cat Warp نیست: ${err.message}"
+                    else "⚠️ Invalid Cat Warp identity backup in clipboard: ${err.message}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
+    }
 }

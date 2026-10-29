@@ -111,8 +111,15 @@ import com.cat.client.MainActivity.Companion.SCANNER_PORTS
 import com.cat.client.MainActivity.Companion.SCANNER_PREFERENCES
 import com.cat.client.MainActivity.Companion.SCANNER_TLS_TIMEOUT_MS
 import com.cat.client.MainActivity.Companion.SCREEN_HOME
+import com.cat.client.MainActivity.Companion.SCANNER_BUILD_LIMIT
+import com.cat.client.MainActivity.Companion.SCANNER_BUILD_PORTS
+import com.cat.client.MainActivity.Companion.SCANNER_PORT_KEY
+import com.cat.client.MainActivity.Companion.SCANNER_RANGES_KEY
+import com.cat.client.MainActivity.Companion.SCANNER_SNI_KEY
+import com.cat.client.MainActivity.Companion.SCANNER_VISIBLE_RESULTS
+import com.cat.client.MainActivity.PanelIdentity
 
-// IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription).
+// IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list.
 // Moved out of MainActivity.kt unchanged (beta220 code split); see docs/CODEMAP.md.
 
 internal fun MainActivity.buildScannerScreen(): View {
@@ -2508,4 +2515,1460 @@ internal fun MainActivity.injectScannedIpsIntoActiveSubscription(results: List<I
             beginConnectFlow(Actions.CONNECT)
         }
     }
+}
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+internal fun MainActivity.scannerInput(hint: String, initial: String): TextInputEditText =
+    TextInputEditText(this).apply {
+        setSingleLine(true)
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        background = null
+        setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
+        setTextColor(TEXT_PRIMARY)
+        setHintTextColor(TEXT_SECONDARY)
+        setHint(hint)
+        setText(initial)
+    }
+
+internal fun MainActivity.scannerFieldLayout(hint: String, input: TextInputEditText): TextInputLayout =
+    TextInputLayout(this).apply {
+        this.hint = hint
+        boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+        boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
+        boxStrokeColor = TEAL
+        defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
+        setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
+        addView(input)
+    }
+
+internal fun MainActivity.recommendedScannerSnis(): List<String> = buildList {
+    addAll(detectPanelSnisFromSubscriptions())
+    addAll(IpScanner.RECOMMENDED_SNIS)
+}.map(String::lowercase).filter { it.isNotBlank() }.distinct().take(8)
+
+internal fun MainActivity.scannerSniPreference(): String {
+    val saved = getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .getString(SCANNER_SNI_KEY, null)
+        ?.trim()
+    if (!saved.isNullOrEmpty() && saved != DEFAULT_SCANNER_SNI) return saved
+    return detectPanelSniFromSubscriptions() ?: saved?.takeIf { it.isNotEmpty() } ?: DEFAULT_SCANNER_SNI
+}
+
+    /**
+     * Cat-compatible panels put the worker host in `servername:` / ws `Host:`; read it
+     * from the selected (or first) user subscription so the scanner tests the
+     * right SNI without the user typing anything.
+     */
+    internal fun MainActivity.detectPanelSniFromSubscriptions(): String? {
+        val store = SubscriptionStore(this)
+        val ids = buildList {
+            add(store.readSelectedSubscriptionId())
+            userSubscriptionManager.list().forEach { add(it.id) }
+        }.filter { it.isNotBlank() }.distinct()
+        val pattern = Regex("""(?:servername|sni|Host):\s*['"]?([a-z0-9.-]+\.[a-z]{2,})['"]?""", RegexOption.IGNORE_CASE)
+        ids.forEach { id ->
+            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
+            pattern.findAll(yaml).map { it.groupValues[1].lowercase(Locale.US) }
+                .firstOrNull { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") }
+                ?.let { return it }
+            pattern.find(yaml)?.groupValues?.get(1)?.lowercase(Locale.US)?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * Every distinct SNI baked into the user's subscriptions — the panel writes
+     * its operator-verified winners (verifiedByOp) into each config, so this is
+     * the operator-verified SNI pool surfaced in scanner suggestions + health
+     * sweeps. Panel-host names (workers.dev/pages.dev) sort first.
+     */
+    internal fun MainActivity.detectPanelSnisFromSubscriptions(): List<String> {
+        val store = SubscriptionStore(this)
+        val ids = buildList {
+            add(store.readSelectedSubscriptionId())
+            userSubscriptionManager.list().forEach { add(it.id) }
+        }.filter { it.isNotBlank() }.distinct()
+        val pattern = Regex("""(?:servername|sni|Host):\s*['"]?([a-z0-9.-]+\.[a-z]{2,})['"]?""", RegexOption.IGNORE_CASE)
+        val out = LinkedHashSet<String>()
+        ids.forEach { id ->
+            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
+            pattern.findAll(yaml).forEach { out.add(it.groupValues[1].lowercase(Locale.US)) }
+        }
+        return out
+            .sortedByDescending { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") }
+            .toList()
+    }
+
+    internal fun MainActivity.detectPanelIdentity(sni: String): PanelIdentity? {
+        val store = SubscriptionStore(this)
+        val ids = (listOf(store.readSelectedSubscriptionId()) + userSubscriptionManager.list().map { it.id })
+            .filter { it.isNotBlank() }.distinct()
+        val uuidRe = Regex("""uuid:\s*['"]?([0-9a-fA-F-]{36})""")
+        val pathRe = Regex("""path:\s*['"]?([^'"\n]+)""")
+        val trojanRe = Regex("""type:\s*trojan[\s\S]{0,400}?path:\s*['"]?([^'"\n]+)""")
+        ids.forEach { id ->
+            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
+            if (!yaml.contains(sni, ignoreCase = true)) return@forEach
+            val uuid = uuidRe.find(yaml)?.groupValues?.get(1) ?: return@forEach
+            val path = pathRe.find(yaml)?.groupValues?.get(1)?.trim() ?: "/ws?ed=2048"
+            val trojanPath = trojanRe.find(yaml)?.groupValues?.get(1)?.trim() ?: path
+            val trojanPassword = Regex(
+                """type:\s*trojan[\s\S]{0,500}?password:\s*['\"]?([^'\"\n]+)""",
+            ).find(yaml)?.groupValues?.get(1)?.trim().orEmpty().ifBlank { uuid }
+            return PanelIdentity(sni, uuid, path, trojanPath, trojanPassword)
+        }
+        return null
+    }
+
+/**
+ * Cat behaviour: take the scanned IPs and build real configs (address = clean IP,
+ * SNI/Host = panel) as a new subscription the core can pick from — no fronting
+ * layer involved, so the app connects to those IPs directly.
+ */
+internal fun MainActivity.buildSubscriptionFromScan(results: List<IpScanner.ScanResult>) {
+    val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
+    val identity = detectPanelIdentity(sni)
+    if (identity == null) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.scanner_build_title)
+            .setMessage(getString(R.string.scanner_build_no_panel, sni))
+            .setPositiveButton(R.string.scanner_build_apply_fronting) { _, _ -> applyScannerResult(results.firstOrNull()) }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .create()
+            .showCatClientDialog()
+        return
+    }
+    val verified = results.filter { it.tlsOk }
+    if (verified.isEmpty()) {
+        Toast.makeText(this, R.string.scanner_no_verified, Toast.LENGTH_LONG).show()
+        return
+    }
+    val top = verified.sortedBy { it.pingMs }.take(SCANNER_BUILD_LIMIT)
+    // Cat layout: plain-HTTP :80 first (no SNI on the wire), then TLS 443/2053.
+    val tlsParams = "security=tls&sni=" + Uri.encode(identity.host) + "&fp=chrome&alpn=" + Uri.encode("http/1.1")
+    val links = buildList {
+        SCANNER_BUILD_PORTS.forEach { port ->
+            top.forEach { r ->
+                val tls = port != 80
+                val location = r.countryName?.takeIf { it.isNotBlank() }
+                    ?: r.colo?.takeIf { it.isNotBlank() }
+                    ?: "Cloudflare edge"
+                val transport = if (tls) tlsParams else "security=none"
+                // IPv6 hosts must be bracketed in URI authority (bare :: breaks the URL)
+                val hostLit = if (r.ip.contains(':')) "[$r.ip]" else r.ip
+                val vlessLabel = "🐱 Cat · " + location + " · VLESS · " + port + " · " + r.flag
+                val vlessCommon = "&type=ws&path=" + Uri.encode(identity.vlessPath) + "&host=" + Uri.encode(identity.host)
+                add(
+                    "vless://" + identity.uuid + "@" + hostLit + ":" + port + "?encryption=none&" +
+                        transport + vlessCommon + "#" + Uri.encode(vlessLabel),
+                )
+                val trojanLabel = "🐱 Cat · " + location + " · Trojan · " + port + " · " + r.flag
+                val trojanCommon = "&type=ws&path=" + Uri.encode(identity.trojanPath) + "&host=" + Uri.encode(identity.host)
+                add(
+                    "trojan://" + Uri.encode(identity.trojanPassword) + "@" + hostLit + ":" + port + "?" +
+                        transport + trojanCommon + "#" + Uri.encode(trojanLabel),
+                )
+            }
+        }
+    }
+    val name = getString(R.string.scanner_build_sub_name, identity.host.substringBefore('.'))
+    activityScope.launch {
+        val added = runCatching {
+            withContext(Dispatchers.IO) { userSubscriptionManager.add(name, links.joinToString("\n")) }
+        }.getOrNull()
+        if (added == null) {
+            Toast.makeText(this@buildSubscriptionFromScan, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
+            return@launch
+        }
+        userSubscriptionManager.select(added.id)
+        renderSubscriptions()
+        onSubscriptionSelected()
+        Toast.makeText(this@buildSubscriptionFromScan, getString(R.string.scanner_build_done, links.size), Toast.LENGTH_LONG).show()
+        beginConnectFlow(Actions.CONNECT)
+    }
+}
+
+internal fun MainActivity.saveScannerSni(value: String) {
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .putString(SCANNER_SNI_KEY, value)
+        .apply()
+}
+
+internal fun MainActivity.scannerPortPreference(): Int {
+    val saved = getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .getInt(SCANNER_PORT_KEY, 443)
+    return saved.takeIf { it in 1..65535 } ?: 443
+}
+
+internal fun MainActivity.saveScannerPort(value: Int) {
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .putInt(SCANNER_PORT_KEY, value)
+        .apply()
+}
+
+/**
+ * The four scan sources the owner can switch on/off — defaults kept exactly as
+ * the historical behaviour (ranges + Cloudflare library + Iran/community
+ * library on, v6 gated by the connectivity probe). Persisted per source so a
+ * scan is reproducible after a restart.
+ */
+internal fun MainActivity.scannerSourcePreference(key: String, fallback: Boolean): Boolean =
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .getBoolean("source_$key", fallback)
+
+internal fun MainActivity.saveScannerSource(key: String, value: Boolean) {
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE).edit().putBoolean("source_$key", value).apply()
+}
+
+/**
+ * One switch, one meaning: the v6 source is either walked or it is not.
+ *
+ * The chip that used to exist only toggled `scannerForceV6` (skip the probe),
+ * so a network with working v6 and the chip OFF still scanned v4-only — the
+ * owner's «ای‌پی‌های v6 نیست» had two causes and the UI owned neither: the chip
+ * was below the buttons, unlabelled as to state, and the probe verdict vanished
+ * once the run started. Now the same switch answers all three.
+ */
+internal fun MainActivity.scannerSourceEnabled(key: String): Boolean = when (key) {
+    "ipv6" -> scannerForceV6 || scannerSourcePreference("ipv6", true)
+    "mine" -> scannerSourcePreference("mine", true)
+    "cloudflare" -> scannerSourcePreference("cloudflare", true)
+    "iran" -> scannerSourcePreference("iran", true)
+    else -> true
+}
+
+internal fun MainActivity.scannerRangesPreference(): String {
+    val saved = getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE).getString(SCANNER_RANGES_KEY, null)
+    return saved ?: IpScanner.defaultRangesText()
+}
+
+internal fun MainActivity.saveScannerRanges(value: String) {
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .putString(SCANNER_RANGES_KEY, value)
+        .apply()
+}
+
+internal fun MainActivity.stopIpScanner() {
+    scannerJob?.cancel()
+    scannerJob = null
+    scannerRunning = false
+    scannerStartButton.isEnabled = true
+    scannerStopButton.isEnabled = false
+    scannerProgressBar.visibility = View.GONE
+    scannerStatusText.setText(R.string.scanner_stopped)
+}
+
+/** XIU2-style download throughput for the top verified rows; sorts by speed after. */
+internal fun MainActivity.runScannerSpeedTest() {
+    if (scannerSpeedTestRunning) return
+    val targets = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+        .filter { it.tlsOk }
+        .distinctBy { it.ip to it.port }
+        .take(8)
+    if (targets.isEmpty()) {
+        Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+        return
+    }
+    scannerSpeedTestRunning = true
+    scannerSpeedTestButton?.isEnabled = false
+    activityScope.launch {
+        val measured = LinkedHashMap<String, Long>()
+        for ((index, target) in targets.withIndex()) {
+            mainHandler.post {
+                scannerStatusText.text = getString(R.string.scanner_speed_running, index + 1, targets.size)
+            }
+            val speed = withContext(Dispatchers.IO) {
+                runCatching { IpScanner.measureDownloadSpeed(target.ip, target.port) }.getOrNull()
+            }
+            // Upload runs after the download probe on the same target: it spends
+            // the user's own mobile data, so it is capped (see MAX_UPLOAD_BYTES)
+            // and never runs on its own — only when a speed test was asked for.
+            val up = withContext(Dispatchers.IO) {
+                runCatching { IpScanner.measureUploadSpeed(target.ip, target.port) }.getOrNull()
+            }
+            if (speed != null) measured["${target.ip}:${target.port}"] = speed
+            mainHandler.post {
+                val updated = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+                    .map {
+                        if (it.ip == target.ip && it.port == target.port) it.copy(speedBps = speed ?: it.speedBps, uploadBps = up ?: it.uploadBps)
+                        else it
+                    }
+                scannerResults = updated
+                renderScannerResults()
+            }
+        }
+        mainHandler.post {
+            scannerResults = scannerResults.sortedWith(
+                compareBy(
+                    { if (it.tlsOk) 0 else 1 },
+                    { it.speedBps?.let { s -> -s } ?: Long.MAX_VALUE },
+                    { it.pingMs },
+                ),
+            )
+            renderScannerResults()
+            scannerSpeedTestRunning = false
+            scannerSpeedTestButton?.isEnabled = scannerResults.any { it.tlsOk }
+            val best = measured.maxByOrNull { it.value }
+            if (best != null) {
+                val mbps = getString(R.string.scanner_speed_mbps, best.value / 1_000_000.0)
+                scannerStatusText.text = getString(R.string.scanner_speed_done, best.key, mbps)
+                Toast.makeText(this@runScannerSpeedTest, getString(R.string.scanner_speed_done, best.key, mbps), Toast.LENGTH_LONG).show()
+            } else {
+                scannerStatusText.setText(R.string.scanner_no_results)
+            }
+        }
+    }
+
+}
+
+/** Pool grouped by location: one chip per country (tap = lock failover/replacements to it), IPs listed under the lock. */
+internal fun MainActivity.renderIpHealthCountries(entries: List<IpHealthEntry>) {
+    val row = ipHealthCountryRow ?: return
+    row.removeAllViews()
+    if (entries.isEmpty()) return
+    val store = IpHealthStore(this)
+    val active = frontingIps.firstOrNull()
+    val groups = entries.groupBy { it.countryCode?.uppercase().orEmpty() }
+        .entries.sortedWith(compareByDescending<Map.Entry<String, List<IpHealthEntry>>> { it.value.size }.thenBy { it.key })
+    val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutDirection = View.LAYOUT_DIRECTION_LOCALE }
+    fun chip(label: String, selected: Boolean, onClick: () -> Unit) = Chip(this@renderIpHealthCountries).apply {
+        text = label
+        isCheckable = true
+        isChecked = selected
+        textSize = 11.5f
+        setTextColor(TEXT_PRIMARY)
+        chipStrokeColor = ColorStateList.valueOf(withAlpha(if (selected) TEAL else OUTLINE, 170))
+        chipStrokeWidth = dp(1).toFloat()
+        chipBackgroundColor = ColorStateList.valueOf(if (selected) withAlpha(TEAL, 40) else withAlpha(SURFACE, if (palette.isDark) 210 else 245))
+        setOnClickListener { onClick() }
+    }
+    chips.addView(chip(getString(R.string.ip_health_country_auto), store.preferredCountry.isBlank()) {
+        store.preferredCountry = ""
+        renderScannerIpHealth()
+    }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+    groups.forEach { (cc, list) ->
+        val flag = if (cc.length == 2) cc.toFlagEmoji() else "🌐"
+        val name = list.firstNotNullOfOrNull { it.countryName } ?: cc.ifBlank { "?" }
+        val hasActive = active != null && list.any { it.ip == active }
+        chips.addView(chip("$flag $name (${list.size})" + if (hasActive) " ●" else "", store.preferredCountry.equals(cc, true) && cc.isNotBlank()) {
+            store.preferredCountry = if (store.preferredCountry.equals(cc, true)) "" else cc
+            renderScannerIpHealth()
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+    }
+    row.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, LinearLayout.LayoutParams(-1, -2))
+    val shown = groups.firstOrNull { it.key.equals(store.preferredCountry, true) && it.key.isNotBlank() }
+        ?: groups.firstOrNull { g -> active != null && g.value.any { it.ip == active } }
+        ?: groups.firstOrNull()
+    if (shown != null && shown.key.isNotBlank()) {
+        row.addView(MaterialButton(this).apply {
+            text = getString(R.string.multi_location_use, shown.key.toFlagEmoji(), shown.value.firstNotNullOfOrNull { it.countryName } ?: shown.key)
+            setAllCaps(false); textSize = 11.5f; minWidth = 0; minimumWidth = 0; minHeight = dp(34); minimumHeight = dp(34)
+            insetTop = 0; insetBottom = 0; cornerRadius = dp(14)
+            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34)); strokeWidth = dp(1); strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130)); setTextColor(TEAL)
+            isEnabled = !staticIpEnabled()
+            setOnClickListener { useCountryIps(shown.key) }
+        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+    }
+    if (shown != null) {
+        row.addView(TextView(this).apply {
+            textSize = 11.5f
+            typeface = CatClientDataTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            setLineSpacing(dp(2).toFloat(), 1f)
+            text = shown.value.sortedBy { it.pingMs.takeIf { p -> p > 0 } ?: Long.MAX_VALUE }.joinToString("\n") { e ->
+                (if (e.authority == active || e.ip == active) "● " else "   ") + e.authority + (e.colo?.let { "  $it" } ?: "") + (if (e.pingMs > 0) "  ${e.pingMs} ms" else "") + (if (e.fails > 0) "  ✗${e.fails}" else "")
+            }
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+    }
+}
+
+internal fun MainActivity.startIpHealthLoop() {
+    ipHealthJob?.cancel()
+    ipHealthJob = null
+    // Static-IP pin: nothing is ever swapped automatically.
+    if (!IpHealthStore(this).autoEnabled || IpHealthStore(this).pinned) return
+    ipHealthJob = activityScope.launch {
+        while (true) {
+            runIpHealthSweep(silent = true)
+            delay(IpHealthStore(this@startIpHealthLoop).intervalMinutes * 60_000L)
+        }
+    }
+}
+
+/**
+ * Self-healing control plane: DETECT (anomaly on the active fronting address from its
+ * own history) → SELECT (best-ranked standby) → WARM/VERIFY (two fresh probes) →
+ * PROMOTE (move to the front of the fronting list, reconnect) → LEARN (stats).
+ */
+internal suspend fun MainActivity.runCognitiveFailover(pool: List<IpHealthEntry>, genomes: NetworkGenomeStore, network: String, sni: String, port: Int) {
+    if (!genomes.autoFailover || IpHealthStore(this).pinned) return
+    if (!currentVpnStateIsStarted()) return
+    val active = frontingIps.firstOrNull() ?: return
+    val plan = withContext(Dispatchers.IO) {
+        val options = IpScanner.ScanOptions(sni = sni, port = port, includeBuiltin = false, includeIranLibrary = false, verifyHttp = true)
+        CognitiveEngine.planMigration(active, pool, genomes.genomes(pool.map { it.ip }), network, country = IpHealthStore(this@runCognitiveFailover).preferredCountry) { candidate ->
+            val r = IpScanner.probe(candidate.ip, options.copy(sni = candidate.sni.ifBlank { sni }, port = candidate.port))
+            val ok = r != null && r.tlsOk && r.pingMs <= IpHealthMonitor.SLOW_MS
+            genomes.record(candidate.ip, Observation(System.currentTimeMillis(), network, r?.pingMs ?: -1L, r?.tlsMs ?: -1L, ok, if (ok) FailureClass.OK else CognitiveEngine.classify(r, IpHealthMonitor.SLOW_MS, genomes.genome(candidate.ip))))
+            ok
+        }
+    } ?: return
+    val started = System.currentTimeMillis()
+    val previousValue = frontingIpPreferenceStore.readFrontingIp()
+    frontingIps = FrontingIpPolicy.normalizeIps(
+        (listOf(plan.to.authority) + frontingIps.filter { it != plan.to.authority && it != plan.to.ip }).take(5).joinToString(","),
+    )
+    renderFrontingIpChips()
+    if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+    genomes.updateStats {
+        it.copy(
+            failovers = it.failovers + 1,
+            predictedDegradations = it.predictedDegradations + if (plan.predicted) 1 else 0,
+            predictionsConfirmed = it.predictionsConfirmed + if (plan.predicted) 1 else 0,
+            lastRecoveryMs = System.currentTimeMillis() - started,
+            lastFailoverAt = started,
+            lastFailoverFrom = plan.from,
+            lastFailoverTo = plan.to.authority,
+            lastFailoverReason = plan.reason,
+        )
+    }
+    renderScannerIpHealth()
+    Toast.makeText(this, getString(if (plan.countryChanged) R.string.engine_failover_country_toast else R.string.engine_failover_toast, plan.from, plan.to.authority, plan.reason), Toast.LENGTH_LONG).show()
+}
+
+internal fun MainActivity.runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {
+    if (ipHealthSweeping) return
+    ipHealthSweeping = true
+    val store = IpHealthStore(this)
+    val sni = scannerSniPreference().ifBlank { IpScanner.RECOMMENDED_SNIS.first() }
+    val port = scannerPortPreference()
+    if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
+    activityScope.launch {
+        try {
+            val genomeStore = NetworkGenomeStore(this@runIpHealthSweep)
+            val network = NetworkContext.key(this@runIpHealthSweep)
+            val result = IpHealthMonitor.sweep(
+                store,
+                sni,
+                port,
+                failFast = failFast,
+                extraSnis = detectPanelSnisFromSubscriptions(),
+                genomes = genomeStore,
+                network = network,
+                baseIntervalMinutes = store.intervalMinutes,
+            )
+            renderScannerIpHealth()
+            runCognitiveFailover(result.kept, genomeStore, network, sni, port)
+            if (!silent) {
+                if (result.removed.isEmpty() && result.added.isEmpty()) {
+                    Toast.makeText(this@runIpHealthSweep, R.string.ip_health_all_ok, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        this@runIpHealthSweep,
+                        getString(R.string.ip_health_rotated, result.removed.size, result.added.size),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        } catch (e: Exception) {
+            if (!silent) {
+                Toast.makeText(
+                    this@runIpHealthSweep,
+                    getString(R.string.ip_health_failed, e.message ?: e::class.java.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        } finally {
+            ipHealthSweeping = false
+        }
+    }
+}
+
+/** 👑 Neighbor scan: best verified hits → walk ±16 addresses around each in
+ * the same /24 (v4) or /64 (v6), verified with the SAME SNI/port; results
+ * join the live list, carry source=neighbor when pushed to the panel. */
+internal fun MainActivity.runNeighborScan() {
+    if (scannerRunning || scannerNeighborRunning) return
+    val seeds = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+        .filter { it.tlsOk }
+        .distinctBy { it.ip to it.port }
+        .take(3)
+    if (seeds.isEmpty()) {
+        Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
+    val candidates = LinkedHashSet<String>()
+    seeds.forEach { seed ->
+        val ip = seed.ip
+        if (IpScanner.isIpv6(ip)) {
+            // Scanner v6 seeds come from InetAddress → full 8-group form; the
+            // /64 prefix is the first four groups. Compressed forms keep
+            // everything before «::». Neighbours: ::0 … ::f in that prefix.
+            val head = if (ip.contains("::")) ip.substringBefore("::") + "::"
+            else ip.split(":").take(4).joinToString(":") + "::"
+            (0..15).forEach { k -> candidates += head + Integer.toHexString(k) }
+        } else {
+            val parts = ip.split(".")
+            val p3 = parts.take(3).joinToString(".")
+            val last = parts[3].toIntOrNull() ?: 0
+            (-16..16).forEach { k ->
+                val o = last + k
+                if (k != 0 && o in 0..255) candidates += "$p3.$o"
+            }
+        }
+    }
+    val clean = candidates.filter { IpScanner.isValidIpv4(it) || IpScanner.isValidIpv6(it) }.toList()
+    if (clean.isEmpty()) return
+    scannerNeighborRunning = true
+    scannerStatusText.setText(R.string.scanner_neighbor_running)
+    val collected = java.util.concurrent.CopyOnWriteArrayList<IpScanner.ScanResult>()
+    scannerJob = activityScope.launch {
+        val found = runCatching {
+            IpScanner.scan(this@runNeighborScan, IpScanner.ScanOptions(
+                sni = sni,
+                port = scannerPort,
+                customSubnets = clean.joinToString(","),
+                includeBuiltin = false,
+                includeIranLibrary = false,
+                // v6 neighbors must survive the candidate build (the default
+                // drops v6 literals when includeIpv6 is off — seeds carry v6
+                // only on dual-stack networks, so always-on here is safe).
+                includeIpv6 = true,
+                perRange = 1,
+                randomSample = false,
+                concurrency = SCANNER_CONCURRENCY,
+                connectTimeoutMs = SCANNER_CONNECT_TIMEOUT_MS,
+                tlsTimeoutMs = SCANNER_TLS_TIMEOUT_MS,
+                verifyHttp = true,
+            )) { done, total, result ->
+                // Called from an IO thread: collect first, render on main.
+                if (result != null && result.tlsOk && collected.none { it.ip == result.ip }) collected += result
+                mainHandler.post {
+                    val percent = (done * 100) / total.coerceAtLeast(1)
+                    scannerProgressBar.progress = percent
+                    scannerStatusText.text = getString(R.string.scanner_progress_empty, done, total, percent)
+                }
+            }
+        }.getOrDefault(emptyList())
+        val added = found.filter { it.tlsOk }.distinctBy { it.ip to it.port }.filter { base -> scannerResults.none { it.ip == base.ip && it.port == base.port } }
+        scannerNeighborIps.addAll(added.map { it.ip })
+        scannerResults = (scannerResults + added).sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
+        scannerFilter = "all"
+        scannerNeighborRunning = false
+        renderScannerResults()
+        scannerStatusText.text = getString(R.string.scanner_neighbor_done, added.size, clean.size)
+        Toast.makeText(this@runNeighborScan, getString(R.string.scanner_neighbor_done, added.size, clean.size), Toast.LENGTH_LONG).show()
+    }
+}
+
+/** ⚡ Scan profile chips: fast / standard / deep — depth of the same engine. */
+internal fun MainActivity.scannerProfileRow(): View {
+    val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    row.addView(
+        TextView(this).apply {
+            setText(R.string.scanner_profile_label)
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        },
+        LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
+    )
+    fun chip(labelText: String, key: String): android.widget.TextView =
+        TextView(this).apply {
+            text = labelText
+            textSize = 12f
+            typeface = CatClientBodyBoldTypeface
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            background = glassSurfaceDrawable(radiusDp = 14)
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setOnClickListener {
+                scannerProfile = key
+                getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE).edit().putString("profile", key).apply()
+                refreshScannerProfileRow(row)
+            }
+        }
+    row.addView(chip(getString(R.string.scanner_profile_fast), "fast"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+    row.addView(chip(getString(R.string.scanner_profile_std), "std"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+    row.addView(chip(getString(R.string.scanner_profile_deep), "deep"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+    row.addView(chip(getString(R.string.scanner_profile_gentle), "gentle"), LinearLayout.LayoutParams(-2, -2))
+    refreshScannerProfileRow(row)
+    return row
+}
+
+internal fun MainActivity.refreshScannerProfileRow(row: LinearLayout) {
+    val keys = listOf("fast", "std", "deep", "gentle")
+    for (i in 1 until row.childCount) {
+        val chip = row.getChildAt(i) as? android.widget.TextView ?: continue
+        val key = keys.getOrNull(i - 1) ?: continue
+        val active = scannerProfile == key
+        chip.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+        chip.background = glassSurfaceDrawable(radiusDp = 14, highlighted = active)
+    }
+}
+
+/** 📋 Port-pinned list grouped by address family. Dropping ports here used to
+ * turn multiple verified rows into ambiguous bare IPs on paste/import. */
+internal fun MainActivity.scannerPlainList(): String {
+    val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+        .filter { it.tlsOk }
+        .distinctBy { it.ip to it.port }
+    val v4 = verified.filter { !it.ip.contains(':') }.map { it.authority }
+    val v6 = verified.filter { it.ip.contains(':') }.map { it.authority }
+    val sb = StringBuilder()
+    if (v4.isNotEmpty()) sb.append("IPv4:\n\n").append(v4.joinToString("\n")).append("\n")
+    if (v6.isNotEmpty()) {
+        if (sb.isNotEmpty()) sb.append("\n")
+        sb.append("IPv6:\n\n").append(v6.joinToString("\n")).append("\n")
+    }
+    return sb.toString()
+}
+
+internal fun MainActivity.copyScannerPlainList() {
+    val text = scannerPlainList()
+    if (text.isBlank()) {
+        Toast.makeText(this, R.string.scanner_share_empty, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val cb = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    cb.setPrimaryClip(android.content.ClipData.newPlainText("cat-scanner-list", text))
+    Toast.makeText(this, R.string.scanner_list_copied, Toast.LENGTH_SHORT).show()
+}
+
+/** 🌍 Probe selected HTTPS endpoints from the current app network. */
+internal fun MainActivity.runScannerForeignTest() {
+    if (scannerForeignRunning) return
+    scannerForeignRunning = true
+    scannerForeignResults.clear()
+    scannerForeignShareButton.visibility = View.GONE
+    scannerForeignList.removeAllViews()
+    val status = TextView(this).apply {
+        setText(R.string.scanner_foreign_running)
+        textSize = 11.5f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(TEXT_SECONDARY)
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    scannerForeignList.addView(status)
+
+    activityScope.launch {
+        val gate = Semaphore(3)
+        try {
+            val results = ForeignServiceCatalog.targets.map { target ->
+                async(Dispatchers.IO) {
+                    gate.withPermit {
+                        val result = probeForeignService(target)
+                        mainHandler.post {
+                            if (isDestroyed) return@post
+                            if (status.parent === scannerForeignList) scannerForeignList.removeView(status)
+                            scannerForeignList.addView(
+                                scannerForeignResultRow(result),
+                                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
+                            )
+                        }
+                        result
+                    }
+                }
+            }.awaitAll()
+            if (!isDestroyed) {
+                results.forEach { result -> scannerForeignResults[result.target.id] = result }
+                scannerForeignShareButton.visibility = if (results.isEmpty()) View.GONE else View.VISIBLE
+            }
+        } finally {
+            scannerForeignRunning = false
+        }
+    }
+}
+
+/** Performs a tiny range GET and always closes the connection without reading page content. */
+internal fun MainActivity.probeForeignService(target: ForeignServiceTarget): ForeignServiceProbeResult {
+    val startedAt = SystemClock.elapsedRealtime()
+    var httpStatus = 0
+    var failure: ForeignServiceFailure? = null
+    try {
+        val connection = (URL(target.url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            instanceFollowRedirects = true
+            connectTimeout = 4_500
+            readTimeout = 4_500
+            useCaches = false
+            setRequestProperty(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            )
+            setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
+            setRequestProperty("Range", "bytes=0-0")
+        }
+        try {
+            httpStatus = connection.responseCode
+        } finally {
+            connection.disconnect()
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        failure = classifyForeignServiceFailure(error)
+    }
+    val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L).toInt()
+    return ForeignServiceProbeResult(target, httpStatus, elapsed, failure)
+}
+
+internal fun MainActivity.foreignServiceVerdict(result: ForeignServiceProbeResult): Pair<Int, Int> {
+    if (result.httpStatus == 0) {
+        return when (result.failure) {
+            ForeignServiceFailure.DNS -> R.string.scanner_foreign_dns to AMBER
+            ForeignServiceFailure.TIMEOUT -> R.string.scanner_foreign_timeout to AMBER
+            ForeignServiceFailure.TLS -> R.string.scanner_foreign_tls to AMBER
+            ForeignServiceFailure.NETWORK, null -> R.string.scanner_foreign_network to ERROR
+        }
+    }
+    return when (result.status) {
+        ForeignServiceStatus.OPEN -> R.string.scanner_foreign_open to TEAL
+        ForeignServiceStatus.HTTP_RESPONSE -> R.string.scanner_foreign_response to AMBER
+        ForeignServiceStatus.RATE_LIMITED -> R.string.scanner_foreign_rate to AMBER
+        ForeignServiceStatus.SERVER_ERROR -> R.string.scanner_foreign_server_error to AMBER
+        ForeignServiceStatus.UNREACHABLE -> R.string.scanner_foreign_network to ERROR
+    }
+}
+
+internal fun MainActivity.scannerForeignResultRow(result: ForeignServiceProbeResult): View {
+    val (verdictRes, color) = foreignServiceVerdict(result)
+    val codeLabel = if (result.httpStatus > 0) result.httpStatus.toString() else "—"
+    return LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        setPadding(dp(10), dp(6), dp(10), dp(6))
+        background = glassSurfaceDrawable(radiusDp = 12)
+        addView(TextView(this@scannerForeignResultRow).apply {
+            text = result.target.label
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(TextView(this@scannerForeignResultRow).apply {
+            text = getString(R.string.scanner_foreign_row, codeLabel, result.latencyMs)
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(color)
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        addView(TextView(this@scannerForeignResultRow).apply {
+            setText(verdictRes)
+            textSize = 11f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(color)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(6).toFloat()
+                setColor(withAlpha(color, 26))
+            }
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+        })
+    }
+}
+
+/** Shares only service, HTTP result, timing and a coarse failure category; never config or account data. */
+internal fun MainActivity.shareScannerForeignReport() {
+    val results = ForeignServiceCatalog.targets.mapNotNull { scannerForeignResults[it.id] }
+    if (results.isEmpty()) return
+    val rows = results.joinToString("\n") { result ->
+        val (verdictRes, _) = foreignServiceVerdict(result)
+        val codeLabel = if (result.httpStatus > 0) result.httpStatus.toString() else "—"
+        getString(
+            R.string.scanner_foreign_report_row,
+            result.target.label,
+            codeLabel,
+            getString(verdictRes),
+            result.latencyMs,
+        )
+    }
+    val report = buildString {
+        appendLine(getString(R.string.scanner_foreign_report_title))
+        appendLine(getString(R.string.scanner_foreign_report_context))
+        appendLine()
+        append(rows)
+    }
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, report)
+    }
+    startActivity(Intent.createChooser(sendIntent, getString(R.string.scanner_foreign_share)))
+}
+
+/** ⤴ Shares the verified hits (ip:port#CC lines) with any app. */
+internal fun MainActivity.shareScannerResults() {
+    val verified = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList())
+        .filter { it.tlsOk }
+        .distinctBy { it.ip to it.port }
+        .take(60)
+    if (verified.isEmpty()) {
+        Toast.makeText(this, R.string.scanner_share_empty, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val text = verified.joinToString("\n") { it.panelLine }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    startActivity(Intent.createChooser(intent, getString(R.string.scanner_share_btn)))
+}
+
+/** 🕘 One scanner run → prefs history (timestamp:best:verified:total). */
+internal fun MainActivity.saveScanHistoryRun(bestMs: Int?, verified: Int, total: Int) {
+    val entry = "${System.currentTimeMillis()}:${bestMs ?: -1}:$verified:$total"
+    val rest = scanHistoryRaw().split("|").filter { it.isNotBlank() }.take(11)
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
+        .edit()
+        .putString("history", (listOf(entry) + rest).joinToString("|"))
+        .apply()
+}
+
+internal fun MainActivity.scanHistoryRaw(): String =
+    getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE).getString("history", "") ?: ""
+
+internal fun MainActivity.renderScanHistory() {
+    val view = scannerHistoryText ?: return
+    // ⚠️ The scanner screen is built AT STARTUP (createAndAttachViews) — a
+    // throw here kills the whole app. A run with zero TLS-verified IPs
+    // stores best = -1; formatting «%2$d» with a String crashed every cold
+    // start (IllegalFormatConversionException). Proper branch string now,
+    // and the whole render is guarded so history can never crash again.
+    runCatching {
+        val rows = scanHistoryRaw().split("|").filter { it.isNotBlank() }
+        if (rows.isEmpty()) {
+            view.setText(R.string.scanner_history_never)
+            return
+        }
+        val parts = rows.first().split(":")
+        val at = parts.getOrNull(0)?.toLongOrNull() ?: 0L
+        val best = parts.getOrNull(1)?.toIntOrNull() ?: -1
+        val ok = parts.getOrNull(2)?.toIntOrNull() ?: 0
+        val bestEver = rows.mapNotNull { it.split(":").getOrNull(1)?.toIntOrNull() }.filter { it > 0 }.minOrNull()
+        val ago = android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+        view.text = if (best > 0) {
+            val line = getString(R.string.scanner_history_last, ago, best, ok)
+            if (bestEver != null && bestEver > 0) "$line · ${getString(R.string.scanner_history_record, bestEver)}" else line
+        } else {
+            getString(R.string.scanner_history_last_nobest, ago, ok)
+        }
+    }.onFailure { view.setText(R.string.scanner_history_never) }
+}
+
+/** 🌐 Country distribution of the visible results (line under the filters). */
+internal fun MainActivity.refreshScannerCountrySummary(list: List<IpScanner.ScanResult>) {
+    val view = scannerCountryText ?: return
+    val groups = list.filter { !it.countryCode.isNullOrBlank() }
+        .groupingBy { it.countryCode!! }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .take(6)
+    // The 🌐 bucket is counted out loud: the flags are the location of the edge
+    // that ANSWERED the trace, so a row whose TLS/trace never completed has no
+    // country at all — showing only the resolved ones made «۶۸ ایران» look like
+    // a filter (the owner asked why the scanner is «mostly Iran»).
+    val unknown = list.count { it.countryCode.isNullOrBlank() }
+    val head = if (unknown > 0) "🌐 $unknown" else ""
+    val body = groups.joinToString("   ") { "${it.key.toFlagEmoji()} ${it.value}" }
+    view.text = listOf(head, body).filter { it.isNotBlank() }.joinToString("   ")
+    view.visibility = if (groups.isEmpty() && unknown == 0) View.GONE else View.VISIBLE
+}
+
+/** Rows rendered in the results list right now (see [scannerVisibleCap]). */
+internal fun MainActivity.scannerVisibleCap(): Int = if (lowMemoryRows) 12 else SCANNER_VISIBLE_RESULTS
+
+internal fun MainActivity.scannerFilterVisible(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> =
+    when (scannerFilter) {
+        "v4" -> list.filter { !IpScanner.isIpv6(it.ip) }
+        "v6" -> list.filter { IpScanner.isIpv6(it.ip) }
+        else -> list
+    }
+
+internal fun MainActivity.scannerFilterRow(): View {
+    val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    fun chip(label: String, key: String): android.widget.TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 12.5f
+            typeface = CatClientBodyBoldTypeface
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            background = glassSurfaceDrawable(radiusDp = 16)
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setOnClickListener {
+                scannerFilter = key
+                refreshScannerFilters()
+                renderScannerResults()
+            }
+        }
+    scannerFilterAll = chip(getString(R.string.scanner_filter_all), "all")
+    scannerFilterV4 = chip(getString(R.string.scanner_filter_v4), "v4")
+    scannerFilterV6 = chip(getString(R.string.scanner_filter_v6), "v6")
+    row.addView(scannerFilterAll, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+    row.addView(scannerFilterV4, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+    row.addView(scannerFilterV6, LinearLayout.LayoutParams(-2, -2))
+    return row
+}
+
+internal fun MainActivity.refreshScannerFilters() {
+    val list = if (scannerRunning) scannerLiveResults.toList() else scannerResults
+    val v6Count = list.count { IpScanner.isIpv6(it.ip) }
+    val v4Count = list.size - v6Count
+    fun style(v: android.widget.TextView?, active: Boolean, enabled: Boolean) {
+        v ?: return
+        v.isEnabled = enabled
+        v.alpha = if (enabled) 1f else 0.45f
+        v.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+        v.background = glassSurfaceDrawable(radiusDp = 16, highlighted = active)
+    }
+    style(scannerFilterAll, scannerFilter == "all", list.isNotEmpty())
+    style(scannerFilterV4, scannerFilter == "v4", v4Count > 0)
+    style(scannerFilterV6, scannerFilter == "v6", v6Count > 0)
+    scannerFilterV4?.text = getString(R.string.scanner_filter_v4) + " " + v4Count
+    scannerFilterV6?.text = getString(R.string.scanner_filter_v6) + " " + v6Count
+}
+
+/** `ip:port` — the stable identity of a row across re-sorts and re-renders. */
+internal fun MainActivity.scannerRowKey(result: IpScanner.ScanResult): String = "${result.ip}:${result.port}"
+
+/** The list the table renders from: live rows while a run is in flight, final rows after it. */
+internal fun MainActivity.scannerSourceList(): List<IpScanner.ScanResult> =
+    if (scannerRunning) scannerLiveResults.toList() else scannerResults
+
+/** Applies the column the owner sorted on; rows with no value for it sink to the bottom. */
+internal fun MainActivity.scannerSortedRows(list: List<IpScanner.ScanResult>): List<IpScanner.ScanResult> {
+    val cmp: Comparator<IpScanner.ScanResult> = when (scannerSortKey) {
+        // ☁️ worker: measured rows first (fastest worker answer), unmeasured/failed sink.
+        "worker" -> compareBy<IpScanner.ScanResult> { it.workerMs ?: Long.MAX_VALUE }
+        "jitter" -> compareBy<IpScanner.ScanResult> { it.workerJitterMs ?: it.jitterMs }
+        "speed" -> compareByDescending<IpScanner.ScanResult> { it.speedBps ?: -1L }
+        "country" -> compareBy<IpScanner.ScanResult>({ it.countryCode ?: "zz" }, { it.pingMs })
+        "ip" -> compareBy<IpScanner.ScanResult> { it.ip }
+        // 🏠 line: the measured median when there is one, the scan ping otherwise.
+        else -> compareBy<IpScanner.ScanResult> { it.lineMs ?: it.pingMs }
+    }
+    val ordered = list.sortedWith(cmp.thenBy { it.pingMs }.thenBy { it.ip })
+    return if (scannerSortAsc) ordered else ordered.reversed()
+}
+
+/** Ticked rows, in the order they are currently displayed (copy/send keep that order). */
+internal fun MainActivity.scannerSelectedResults(): List<IpScanner.ScanResult> {
+    if (scannerSelected.isEmpty()) return emptyList()
+    val visible = scannerSortedRows(scannerFilterVisible(scannerSourceList()))
+    return visible.filter { scannerSelected.contains(scannerRowKey(it)) }
+}
+
+internal fun MainActivity.toggleScannerRow(result: IpScanner.ScanResult) {
+    val key = scannerRowKey(result)
+    if (!scannerSelected.add(key)) scannerSelected.remove(key)
+    renderScannerResults()
+}
+
+internal fun MainActivity.selectAllScannerResults(selected: Boolean) {
+    if (selected) scannerFilterVisible(scannerSourceList()).forEach { scannerSelected += scannerRowKey(it) }
+    else scannerSelected.clear()
+    renderScannerResults()
+}
+
+internal fun MainActivity.selectVerifiedScannerResults() {
+    scannerSelected.clear()
+    scannerFilterVisible(scannerSourceList()).filter { it.tlsOk }.forEach { scannerSelected += scannerRowKey(it) }
+    renderScannerResults()
+}
+
+/** Copies the ticked rows as `ip:port#CC` lines — the shape the panel's import box eats. */
+internal fun MainActivity.copySelectedScannerResults() {
+    val rows = scannerSelectedResults()
+    if (rows.isEmpty()) {
+        Toast.makeText(this, R.string.scanner_none_selected, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-ips", rows.joinToString("\n") { it.panelLine }))
+    Toast.makeText(this, getString(R.string.scanner_copy_selected_done, rows.size), Toast.LENGTH_LONG).show()
+}
+
+/** Sends ONLY the ticked rows — and only the TLS-verified ones among them. */
+internal fun MainActivity.sendSelectedScannerResults() {
+    val rows = scannerSelectedResults()
+    if (rows.isEmpty()) {
+        Toast.makeText(this, R.string.scanner_none_selected, Toast.LENGTH_SHORT).show()
+        return
+    }
+    if (rows.none { it.tlsOk }) {
+        Toast.makeText(this, R.string.scanner_unverified_only, Toast.LENGTH_LONG).show()
+        return
+    }
+    activityScope.launch { sendScanToPanelSuspend(rows) }
+}
+
+internal fun MainActivity.refreshScannerHeader() {
+    scannerHeaderCells.forEach { (view, key, label) ->
+        val active = scannerSortKey == key
+        view.text = if (active) label + (if (scannerSortAsc) " ▲" else " ▼") else label
+        view.setTextColor(if (active) TEAL else TEXT_SECONDARY)
+    }
+}
+
+/** Sortable column headers; the widths mirror [scannerResultRow] so the columns line up. */
+internal fun MainActivity.scannerHeaderRow(): LinearLayout {
+    // The page can be rebuilt (screen re-entry); stale cells would leak and be
+    // repainted by refreshScannerHeader for views nobody shows any more.
+    scannerHeaderCells.clear()
+    val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        // Same horizontal padding as scannerResultRow: the sortable cells must sit
+        // exactly above the cells they sort.
+        setPadding(dp(10), dp(2), dp(10), dp(2))
+    }
+    fun head(label: String, key: String, align: Int): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 10.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_SECONDARY)
+            gravity = align
+            includeFontPadding = false
+            setPadding(dp(3), dp(5), dp(3), dp(5))
+            isClickable = true
+            isFocusable = true
+            setSelectableBackground()
+            setOnClickListener {
+                if (scannerSortKey == key) {
+                    scannerSortAsc = !scannerSortAsc
+                } else {
+                    scannerSortKey = key
+                    // Speed reads best high-to-low; every other column low-to-high.
+                    scannerSortAsc = key != "speed"
+                }
+                renderScannerResults()
+            }
+            scannerHeaderCells += Triple(this, key, label)
+        }
+    row.addView(
+        TextView(this).apply {
+            text = "☑"
+            textSize = 11f
+            setTextColor(TEXT_SECONDARY)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            isClickable = true
+            isFocusable = true
+            setSelectableBackground()
+            setOnClickListener {
+                val visible = scannerFilterVisible(scannerSourceList())
+                val every = visible.isNotEmpty() && visible.all { scannerSelected.contains(scannerRowKey(it)) }
+                selectAllScannerResults(!every)
+            }
+        },
+        LinearLayout.LayoutParams(dp(26), -2),
+    )
+    row.addView(head(getString(R.string.scanner_col_address), "ip", Gravity.START), LinearLayout.LayoutParams(0, -2, 1f))
+    row.addView(head(getString(R.string.scanner_col_country), "country", Gravity.CENTER), LinearLayout.LayoutParams(dp(44), -2))
+    row.addView(head(getString(R.string.scanner_col_line), "ping", Gravity.CENTER), LinearLayout.LayoutParams(dp(46), -2))
+    row.addView(head(getString(R.string.scanner_col_worker), "worker", Gravity.CENTER), LinearLayout.LayoutParams(dp(50), -2))
+    row.addView(head(getString(R.string.scanner_col_jitter), "jitter", Gravity.CENTER), LinearLayout.LayoutParams(dp(40), -2))
+    row.addView(head(getString(R.string.scanner_col_speed), "speed", Gravity.CENTER), LinearLayout.LayoutParams(dp(54), -2))
+    return row
+}
+
+/** Bulk-select chips + the two things the owner actually asked for: copy, send to the panel. */
+internal fun MainActivity.scannerSelectionBar(): LinearLayout {
+    val bar = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    val chipRow = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    fun chip(label: String, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 11.5f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(TEXT_PRIMARY)
+        setPadding(dp(13), dp(6), dp(13), dp(6))
+        includeFontPadding = false
+        background = glassSurfaceDrawable(radiusDp = 14)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { onClick() }
+    }
+    chipRow.addView(chip(getString(R.string.scanner_select_all)) { selectAllScannerResults(true) }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+    chipRow.addView(chip(getString(R.string.scanner_select_verified)) { selectVerifiedScannerResults() }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+    chipRow.addView(chip(getString(R.string.scanner_select_none)) { selectAllScannerResults(false) }, LinearLayout.LayoutParams(-2, -2))
+    scannerSelectionText = TextView(this).apply {
+        textSize = 11.5f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(TEXT_SECONDARY)
+        gravity = Gravity.CENTER_VERTICAL or Gravity.END
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    chipRow.addView(scannerSelectionText, LinearLayout.LayoutParams(0, -2, 1f))
+    bar.addView(chipRow, LinearLayout.LayoutParams(-1, -2))
+    val actionRow = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    scannerCopySelectedButton = MaterialButton(this).apply {
+        setText(R.string.scanner_copy_selected)
+        textSize = 12.5f
+        typeface = CatClientBodyBoldTypeface
+        isAllCaps = false
+        cornerRadius = dp(10)
+        insetTop = 0
+        insetBottom = 0
+        isEnabled = false
+        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 90))
+        setTextColor(palette.onAccent)
+        setOnClickListener { copySelectedScannerResults() }
+    }
+    scannerSendSelectedButton = MaterialButton(this).apply {
+        setText(R.string.scanner_send_selected)
+        textSize = 12.5f
+        typeface = CatClientBodyBoldTypeface
+        isAllCaps = false
+        cornerRadius = dp(10)
+        insetTop = 0
+        insetBottom = 0
+        isEnabled = false
+        backgroundTintList = ColorStateList.valueOf(TEAL)
+        setTextColor(palette.onAccent)
+        setOnClickListener { sendSelectedScannerResults() }
+    }
+    actionRow.addView(scannerCopySelectedButton, LinearLayout.LayoutParams(0, -2, 1f))
+    actionRow.addView(scannerSendSelectedButton, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+    bar.addView(actionRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+    return bar
+}
+
+/** One plain text line per result — no weights, no backgrounds, no clipping. */
+internal fun MainActivity.scannerPlainRowsBlock(rows: List<IpScanner.ScanResult>): TextView =
+    TextView(this).apply {
+        text = rows.joinToString("\n") { r ->
+            buildString {
+                append(r.flag); append(' '); append(r.ip); append(':'); append(r.port)
+                append(" · "); append(getString(R.string.scanner_result_ping, r.pingMs))
+                val cc = r.countryCode
+                if (!cc.isNullOrBlank()) { append(" · "); append(cc) }
+                if (r.tlsOk) append(" · TLS ✓")
+            }
+        }
+        textSize = 11.5f
+        typeface = CatClientDataTypeface
+        setTextColor(TEXT_PRIMARY)
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+        background = glassSurfaceDrawable(radiusDp = 12)
+    }
+
+/**
+ * Last line of defence for the results table. The count header has been rendered
+ * with zero rows under it three times now (1073/1114/1265 reports), and neither a
+ * crash nor a logged exception ever showed up — so instead of guessing again we
+ * MEASURE: after the frame is laid out, if the rows carry no height (or were never
+ * added) the same rows are appended as one plain text block and the numbers are
+ * written to the diagnostics log, so the next report says exactly what happened.
+ */
+internal fun MainActivity.verifyScannerRowsPainted(expected: Int, buildFailure: Throwable?) {
+    val root = scannerResultsList.viewTreeObserver
+    val listener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+        override fun onGlobalLayout() {
+            val vto = runCatching { scannerResultsList.viewTreeObserver }.getOrNull()
+            runCatching { vto?.removeOnGlobalLayoutListener(this) }
+            val children = scannerResultsList.childCount
+            var painted = 0
+            for (i in 1 until children) painted += scannerResultsList.getChildAt(i).height
+            if (children > 1 && painted > 0) return
+            val rows = runCatching {
+                scannerSortedRows(scannerFilterVisible(scannerSourceList()))
+            }.getOrElse { scannerFilterVisible(scannerSourceList()) }.take(scannerVisibleCap()).toList()
+            if (rows.isEmpty()) return
+            scannerResultsList.addView(scannerPlainRowsBlock(rows), LinearLayout.LayoutParams(-1, -2))
+            DiagnosticLogger.warn(
+                this@verifyScannerRowsPainted,
+                "scanner.rows.empty",
+                "expected=$expected children=$children paintedPx=$painted " +
+                    "failure=${buildFailure?.javaClass?.simpleName}:${buildFailure?.message}",
+            )
+        }
+    }
+    runCatching { root.addOnGlobalLayoutListener(listener) }
+}
+
+/** Cannot-throw plain row — the guaranteed-visible last resort. */
+internal fun MainActivity.fallbackScannerRow(result: IpScanner.ScanResult): View =
+    TextView(this).apply {
+        text = "${result.flag} ${result.ip}:${result.port} · ${result.pingMs}ms${if (result.tlsOk) " · TLS ✓" else ""}"
+        textSize = 12.5f
+        typeface = CatClientBodyTypeface
+        setTextColor(TEXT_PRIMARY)
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+    }
+
+/**
+ * «🏠 line 38ms ±4 · ☁️ worker 61ms ±9 FRA (+23)» — ping AND jitter of this exact
+ * ip:port on the phone's own line and through the worker. null = nothing measured yet:
+ * the scan's own sample count tells whether the line numbers are real.
+ */
+internal fun MainActivity.scannerMeasureLine(r: IpScanner.ScanResult): String? {
+    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val lineMs = r.lineMs ?: if (r.sampleCount >= 2) r.pingMs else null
+    if (lineMs == null && r.workerState == null) return null
+    return buildString {
+        append(if (fa) "🏠 خط من " else "🏠 line ")
+        if (lineMs != null) {
+            append(lineMs).append("ms")
+            if (r.sampleCount >= 2) append(" ±").append(r.jitterMs)
+            if (r.lossPct >= 1f) append(" ").append(r.lossPct.toInt()).append("%✗")
+        } else {
+            append("—")
+        }
+        val state = r.workerState ?: return@buildString
+        val edge = state == PingJitterMeter.WorkerState.EDGE.name
+        append(if (edge) { if (fa) "  ·  ☁️ لبه " else "  ·  ☁️ edge " } else { if (fa) "  ·  ☁️ ورکر " else "  ·  ☁️ worker " })
+        val w = r.workerMs
+        if (w != null) {
+            append(w).append("ms")
+            r.workerJitterMs?.let { append(" ±").append(it) }
+            r.workerLossPct?.takeIf { it >= 1f }?.let { append(" ").append(it.toInt()).append("%✗") }
+            r.workerColo?.let { append(" ").append(it) }
+            if (lineMs != null) append(" (+").append((w - lineMs).coerceAtLeast(0L)).append(")")
+        } else {
+            val ws = runCatching { PingJitterMeter.WorkerState.valueOf(state) }.getOrNull()
+            append("✗ ").append(if (ws != null) PingJitterMeter.stateLabel(ws, fa) else state)
+        }
+    }
+}
+
+/**
+ * The worker the ☁️ column measures through: a deployed Cat panel first, then the
+ * worker host baked into the subscriptions, then the scan SNI when it is a
+ * workers.dev name. Vercel and bare-IP panels cannot ride a Cloudflare IP → null
+ * (the column then measures Cloudflare's own edge and says so). Reads storage: IO only.
+ */
+internal fun MainActivity.scannerWorkerHost(scanSni: String?): String? {
+    fun usable(h: String?): String? {
+        val host = h?.trim()?.lowercase(Locale.US)?.trimEnd('.').orEmpty()
+        if (host.isEmpty() || !host.contains('.') || host.contains(':')) return null
+        if (host.all { it.isDigit() || it == '.' }) return null
+        if (PingJitterMeter.isNonCloudflareHost(host)) return null
+        return host
+    }
+    runCatching { PanelDeploymentStore(this).deployments() }.getOrNull().orEmpty().forEach { d ->
+        usable(runCatching { java.net.URI(d.workerUrl).host }.getOrNull())?.let { return it }
+    }
+    usable(runCatching { detectPanelSniFromSubscriptions() }.getOrNull())
+        ?.takeIf { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") || !IpScanner.RECOMMENDED_SNIS.contains(it) }
+        ?.let { return it }
+    return usable(scanSni)?.takeIf { it.endsWith(".workers.dev") }
+}
+
+/** 🏠/☁️ pass over [rows]: 6 TCP samples + 6 warm-TLS worker samples each, 4 at a time. */
+internal suspend fun MainActivity.measureScannerRows(
+    rows: List<IpScanner.ScanResult>,
+    workerHost: String?,
+): Map<String, IpScanner.ScanResult> = kotlinx.coroutines.coroutineScope {
+    val gate = Semaphore(4)
+    rows.map { r ->
+        async(Dispatchers.IO) {
+            gate.withPermit {
+                val report = runCatching {
+                    PingJitterMeter.measure(r.ip, r.port, workerHost, lineSamples = 6, workerSamples = 6)
+                }.getOrNull() ?: return@withPermit null
+                scannerRowKey(r) to PingJitterMeter.applyTo(r, report)
+            }
+        }
+    }.awaitAll().filterNotNull().toMap()
+}
+
+/**
+ * One result as a column row: ☑ · address (+ provenance) · country · ping ·
+ * jitter · speed. Tapping the row ticks it; long-press copies the address.
+ */
+internal fun MainActivity.scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
+    val selected = scannerSelected.contains(scannerRowKey(result))
+    val speed = result.speedBps
+    val up = result.uploadBps
+    val location = if (!result.countryCode.isNullOrBlank()) {
+        result.countryName ?: getString(R.string.scanner_result_edge_fallback)
+    } else {
+        result.colo?.takeIf { it.isNotBlank() } ?: getString(R.string.scanner_result_edge_fallback)
+    }
+    val metrics = buildString {
+        when {
+            speed != null && up != null -> append(" · ").append(getString(R.string.scanner_result_speeds, speed / 1_000_000.0, up / 1_000_000.0))
+            speed != null -> append(" · ").append(getString(R.string.scanner_result_speed, speed / 1_000_000.0))
+            up != null -> append(" · ").append(getString(R.string.scanner_result_upload, up / 1_000_000.0))
+        }
+    }
+    // ONE TextView per result — deliberately. The old column layout spent 280dp on
+    // fixed-width cells (checkbox 26 + country 54 + ping 56 + jitter 46 + speed 78
+    // + padding 20) before the weighted address column got anything, so on a
+    // 320dp-class screen (or Display size = Large) the address was squeezed to a
+    // few dp and the trailing cells were clipped by clipToOutline: the row kept its
+    // box and its flag and showed no IP. It has been reported as «no rows at all»
+    // three times since. A single wrapping text cannot be squeezed, clipped or
+    // zero-width; if it ever fails to appear, the failure is the list itself —
+    // which verifyScannerRowsPainted() now reports instead of leaving it blank.
+    return TextView(this).apply {
+        text = buildString {
+            append(if (selected) "☑ " else "☐ ")
+            append(result.flag).append(' ').append(result.ip).append(':').append(result.port)
+            append('\n')
+            append(if (result.tlsOk) "TLS ✓" else "TCP")
+            if (rank == 1 && result.tlsOk) append(" · ").append(getString(R.string.scanner_recommended))
+            append(" · ").append(getString(R.string.scanner_result_ping, result.pingMs))
+            append(metrics)
+            append(" · ").append(location)
+            scannerMeasureLine(result)?.let { append('\n').append(it) }
+        }
+        textSize = 12.5f
+        typeface = CatClientDataTypeface
+        setTextColor(TEXT_PRIMARY)
+        includeFontPadding = false
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        setLineSpacing(dp(2).toFloat(), 1f)
+        setPadding(dp(12), dp(9), dp(12), dp(9))
+        // Order matters: setSelectableBackground() replaces the background, so the
+        // glass card (and the teal edge on a selected row) must be applied after it.
+        setSelectableBackground()
+        background = glassSurfaceDrawable(radiusDp = 12, highlighted = selected)
+        clipToOutline = true
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { toggleScannerRow(result) }
+        setOnLongClickListener { copyScannerIp(result); true }
+    }
+}
+
+/**
+ * True when the live panel was deployed with a username (PANEL_USER): its
+ * /api/login then needs both fields. Asked over the public /api/version,
+ * which reports the same flag its login page uses to render the field.
+ */
+internal fun MainActivity.panelNeedsUsername(base: String): Boolean = runCatching {
+    val conn = URL("$base/api/version").openConnection() as HttpURLConnection
+    conn.connectTimeout = 6_000
+    conn.readTimeout = 6_000
+    conn.instanceFollowRedirects = false
+    val text = (if (conn.responseCode < 400) conn.inputStream else conn.errorStream)
+        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+    conn.disconnect()
+    org.json.JSONObject(text).optBoolean("needsUser", false)
+}.getOrDefault(false)
+
+internal fun MainActivity.updateScannerPanelPushProgress(percent: Int, label: String, visible: Boolean = true) {
+    val clamped = percent.coerceIn(0, 100)
+    scannerPanelPushProgressBar?.apply {
+        visibility = if (visible) View.VISIBLE else View.GONE
+        progress = clamped
+    }
+    scannerPanelPushStatusText?.apply {
+        visibility = if (visible) View.VISIBLE else View.GONE
+        text = "$label ($clamped%)"
+    }
+}
+
+internal fun MainActivity.sendScanToPanel() = activityScope.launch { sendScanToPanelSuspend() }
+
+/**
+ * Import clean IPs into Cat Panel over its API: POST /api/login (password →
+ * session cookie), then POST /api/ips {ips:[…]} which appends and returns the
+ * new list size. Nothing is stored on the phone. Mirror of
+ * ProxyIpScannerPage.pushToPanel.
+ */
+internal fun MainActivity.pushIpsToPanel(base: String, password: String, lines: List<String>, replace: Boolean = false, pingMs: org.json.JSONObject? = null, countries: org.json.JSONObject? = null, neighborLines: List<String> = emptyList()): Int {
+    fun call(path: String, method: String, body: String?, cookie: String?): Pair<HttpURLConnection, String> {
+        val conn = URL("$base$path").openConnection() as HttpURLConnection
+        conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+        conn.setRequestProperty("Accept", "application/json")
+        if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+        if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+        val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+        return conn to stream.bufferedReader().readText()
+    }
+    val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
+    if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+    val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+    login.disconnect()
+    val body = org.json.JSONObject().put("ips", org.json.JSONArray(lines))
+    if (replace) body.put("replace", true)
+    // Source tag + per-IP latency measured from THIS network + country tags.
+    body.put("source", "scanner")
+    if (pingMs != null && pingMs.length() > 0) body.put("pingMs", pingMs)
+    if (countries != null && countries.length() > 0) body.put("countries", countries)
+    // 👑 Provenance: IPs discovered by the neighbor scan are flagged so the
+    // panel shows the crown badge («👑 همسایه») next to them.
+    if (neighborLines.isNotEmpty()) body.put("neighborIps", org.json.JSONArray(neighborLines))
+    val (post, postBody) = call("/api/ips", "POST", body.toString(), cookie)
+    val ok = post.responseCode == 200 && org.json.JSONObject(postBody).optBoolean("ok")
+    post.disconnect()
+    if (!ok) throw IllegalStateException("HTTP ${post.responseCode}")
+    val outcome = PanelIpsReadBack.verify(postBody, lines)
+    if (!outcome.persisted) throw IllegalStateException("NO_KV")
+    return outcome.stored
+}
+
+internal fun MainActivity.copyScannerIp(result: IpScanner.ScanResult) {
+    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("clean-ip", result.authority))
+    Toast.makeText(this, getString(R.string.scanner_ip_copied, result.authority), Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * Applies a scanned IP:port as a fronting endpoint: connects to that clean CDN
+ * endpoint while the profile's SNI/Host (the panel domain) stays untouched.
+ */
+internal fun MainActivity.applyScannerResult(result: IpScanner.ScanResult? = null) {
+    val target = result ?: scannerResults.firstOrNull()
+    if (target == null) {
+        Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val entryAuthority = RelayCatalogAction.useAsEntry(
+        target.toCatalogEntry(System.currentTimeMillis()),
+    )?.value ?: target.authority
+    val previousValue = frontingIpPreferenceStore.readFrontingIp()
+    // Dual-stack apply: when nothing specific was tapped, take the best v4 AND
+    // the best v6 so the tunnel survives either family dropping.
+    val companions = if (result == null) {
+        val pool = (if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()).filter { it.tlsOk }
+        val otherFamily = pool.firstOrNull { IpScanner.isIpv6(it.ip) != IpScanner.isIpv6(target.ip) }
+        listOfNotNull(otherFamily?.authority)
+    } else {
+        emptyList()
+    }
+    frontingIps = FrontingIpPolicy.mergeNewestFirst(listOf(entryAuthority) + companions, frontingIps)
+    renderFrontingIpChips()
+    if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
+    Toast.makeText(
+        this,
+        getString(R.string.scanner_applied, entryAuthority, target.pingMs),
+        Toast.LENGTH_LONG,
+    ).show()
 }

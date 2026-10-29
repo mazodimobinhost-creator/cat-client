@@ -31,4 +31,16 @@ class CodeMapTest {
             assertTrue(f.name, Regex("(?m)^internal (suspend )?fun MainActivity\\.").containsMatchIn(text))
         }
     }
+
+    /** beta221 (split phase 2): MainActivity.kt is the core only; no screen file may grow back into a monolith. */
+    @Test
+    fun mainActivityStaysACoreAndAreaFilesStaySmall() {
+        val src = listOf(File("app/src/main/java/com/cat/client"), File("src/main/java/com/cat/client")).first { it.isDirectory }
+        val core = File(src, "MainActivity.kt").readLines().size
+        assertTrue("MainActivity.kt has $core lines — put new screens/dialogs in a MainActivity<Area>.kt file", core <= 4_200)
+        src.listFiles { f -> f.name.startsWith("MainActivity") && f.name.endsWith(".kt") }.orEmpty().forEach { f ->
+            val n = f.readLines().size
+            assertTrue("${f.name} has $n lines — split it by feature (see docs/CODEMAP.md)", n <= 4_500)
+        }
+    }
 }

@@ -103,7 +103,7 @@ import java.util.Locale
 import java.text.DateFormat
 import com.cat.client.MainActivity.Companion.SCREEN_SERVERS
 
-// Home tab: dashboard, traffic meter row, world map page.
+// Home tab: dashboard, traffic meter row, world map page, home ticket.
 // Moved out of MainActivity.kt unchanged (beta220 code split); see docs/CODEMAP.md.
 
 /** ZedSecure FlowMeter: two tonal halves with asymmetric corners and a cookie badge. */
@@ -1324,4 +1324,75 @@ internal fun MainActivity.showMapPage() {
     } else null
     dialog.setOnDismissListener { lookupJob?.cancel() }
     dialog.show()
+}
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+/** ZedSecure ticket card: shape badge · server · "Tap to change server" · round chevron. */
+internal fun MainActivity.buildZedTicket(): LinearLayout {
+    val s = zedScheme
+    val portal = appDesign == AppDesign.Portal
+    val container = if (portal) s.primaryContainer else s.surfaceContainerHigh
+    val ink = if (portal) s.onPrimaryContainer else s.onSurface
+    val sub = if (portal) withAlpha(s.onPrimaryContainer, 190) else s.onSurfaceVariant
+    activeConfigTitle.setTextColor(ink)
+    activeConfigTitle.textSize = 17f
+    val badge = ZedShapeIconView(
+        this,
+        if (portal) ZedShape.Cookie9 else ZedShape.Cookie4,
+        if (portal) s.primary else s.primaryContainer,
+        R.drawable.ic_zed_public,
+        if (portal) s.onPrimary else s.onPrimaryContainer,
+        0f,
+        0.48f,
+    )
+    val chevron = ImageView(this).apply {
+        setImageResource(R.drawable.ic_zed_chevron_right)
+        imageTintList = ColorStateList.valueOf(ink)
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        setPadding(dp(8), dp(8), dp(8), dp(8))
+        if (resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL) scaleX = -1f
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(withAlpha(ink, 22))
+        }
+    }
+    return LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        gravity = Gravity.CENTER_VERTICAL
+        setPaddingRelative(dp(14), dp(14), dp(14), dp(14))
+        isClickable = true
+        isFocusable = true
+        background = RippleDrawable(
+            ColorStateList.valueOf(withAlpha(ink, 36)),
+            GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(30).toFloat()
+                setColor(container)
+            },
+            null,
+        )
+        setOnClickListener {
+            badge.animate().rotationBy(45f).setDuration(380L).start()
+            if (connectionChainPreferenceStore.read().enabled) openConnectionChainSettingsFromHome() else openScreen(SCREEN_SERVERS)
+        }
+        addView(badge, LinearLayout.LayoutParams(dp(54), dp(54)))
+        addView(
+            LinearLayout(this@buildZedTicket).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                addView(activeConfigTitle, LinearLayout.LayoutParams(-1, -2))
+                addView(TextView(this@buildZedTicket).apply {
+                    setText(R.string.home_tap_change_server)
+                    textSize = 13f
+                    typeface = CatClientBodyTypeface
+                    setTextColor(sub)
+                    includeFontPadding = false
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            },
+            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) },
+        )
+        addView(chevron, LinearLayout.LayoutParams(dp(40), dp(40)))
+    }
 }

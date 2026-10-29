@@ -107,7 +107,7 @@ import com.cat.client.MainActivity.Companion.SCREEN_SCANNER
 import com.cat.client.MainActivity.Companion.SCREEN_SERVERS
 import com.cat.client.MainActivity.FinderEntry
 
-// Plain-language guides, recommended one-click wizard, feature finder.
+// Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy.
 // Moved out of MainActivity.kt unchanged (beta220 code split); see docs/CODEMAP.md.
 
 /**
@@ -824,3 +824,176 @@ internal fun MainActivity.showFeatureFinderDialog() {
             .create()
             .showCatClientDialog()
     }
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+internal fun MainActivity.normalizeFinderText(text: String): String = text.lowercase(Locale.ROOT)
+    .replace('ي', 'ی').replace('ك', 'ک').replace("\u200c", "").replace("آ", "ا")
+
+/** Compact bar placed under each tab's title: opens the finder. */
+internal fun MainActivity.featureFinderBar(): View {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    return LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(48)
+        setPadding(dp(14), dp(10), dp(14), dp(10))
+        background = GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat()
+            setColor(withAlpha(palette.surfaceElevated2, 230))
+            setStroke(dp(1), withAlpha(TEAL, 120))
+        }
+        isClickable = true
+        isFocusable = true
+        contentDescription = if (isFarsi) "جست‌وجوی همهٔ ابزارها" else "Search all tools"
+        addView(
+            TextView(this@featureFinderBar).apply {
+                text = if (isFarsi) "🧭 دنبال چی می‌گردی؟ اینجا بنویس یا بزن — همهٔ ابزارها با توضیح ساده"
+                else "🧭 Looking for something? Tap here — every tool with a plain explanation"
+                textSize = 13.5f
+                typeface = CatClientBodyBoldTypeface
+                setTextColor(TEXT_PRIMARY)
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            },
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        setOnClickListener { showFeatureFinderDialog() }
+    }
+}
+
+internal fun MainActivity.showFirewallConnectionGuideDialog() {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val msg = if (isFarsi) {
+        "🟦 راه‌های اتصال به کلودفلر بر روی فایروال همراه اول:\n\n" +
+            "۱) CDN/WORKER با IPv6:\n" +
+            "• مخصوص دامنه شخصی فیلترنشده یا *.workers.dev (دامنه *.pages.dev به طور کلی فیلتر است).\n" +
+            "• مقادیر echConfigList، cipherSuites و finalMask پاک شوند.\n" +
+            "• فینگرپرینت روی chrome و آدرس روی یک IPv6 مانند 2a06:98c1:3101::6812:202f قرار گیرد.\n\n" +
+            "۲) WARP با IPv6:\n" +
+            "• از قسمت افزودن Cat Warp پروتکل را روی WireGuard و نوع آی‌پی را روی IPv6 بگذارید، اسکن کنید، نام انتخاب و ذخیره کنید.\n\n" +
+            "۳) MASQUE/H2:\n" +
+            "• از قسمت افزودن Cat Warp پروتکل را روی MASQUE-HTTP/2 بگذارید، اسکن کنید، نام انتخاب و ذخیره کنید.\n\n" +
+            "───────────────\n" +
+            "🟧 راه‌های اتصال به کلودفلر بر روی فایروال ایرانسل:\n\n" +
+            "۱) CDN/WORKER با متد F&F (رفع محدودیت آپلود):\n" +
+            "• مقدار echConfigList پاک شود و از آدرسی مانند 188.114.98.0 استفاده شود.\n" +
+            "• مقدار finalMask روی tlshello-0-len (متد F&F)، مقدار cipherSuites روی semi-python (متد F&F) و فینگرپرینت روی unsafe قرار گیرد.\n" +
+            "• مقدار ALPN برای ws روی http/1.1 و برای XHTTP روی h2,http/1.1 تنظیم شود.\n" +
+            "• (سایر روش‌ها روی فایروال ایرانسل با محدودیت سرعت آپلود مواجه هستند.)\n\n" +
+            "۲) WARP: همان مراحل همراه اول، با هر نوع IP (IPv4/IPv6).\n" +
+            "۳) MASQUE/H2: دقیقاً همان مراحل همراه اول.\n\n" +
+            "───────────────\n" +
+            "🔓 ۳) رفع تحریم‌ها با چین کردن سایفون / تور (warp -> psiphon/tor):\n" +
+            "• در صورت عدم رفع تحریم‌ها حتی با پروتکل wireguard-over-masque-HTTP/2، می‌توانید با چین کردن سایفون/تور (warp -> psiphon/tor) تحریم‌ها را دور بزنید.\n" +
+            "• وقتی سایفون/تور را چین می‌کنید، بهتر است از پروتکل‌های ساده wireguard یا masque-h2 استفاده کنید.\n" +
+            "• دقت کنید tor/psiphon سرعت متوسطی دارند و بهتر است فقط در صورتی که نیاز به رفع تحریم هم دارید از آن‌ها استفاده کنید.\n\n" +
+            "⚠️ توجه مهم: در برخی مناطق سیم‌کارت همراه اول دارای فایروال ایرانسل است و بالعکس! سایر نت‌ها هم معمولاً از یکی از این دو فایروال استفاده می‌کنند."
+    } else {
+        "🟦 MCI Firewall Methods:\n" +
+            "1) CDN/Worker with IPv6 (unfiltered domain or *.workers.dev; *.pages.dev is blocked): clear echConfigList, cipherSuites & finalMask; fingerprint=chrome; IPv6 e.g. 2a06:98c1:3101::6812:202f.\n" +
+            "2) WARP with IPv6: Add Cat Warp → WireGuard → IPv6 → Scan → Name & Save.\n" +
+            "3) MASQUE/H2: Add Cat Warp → MASQUE-HTTP/2 → Scan → Name & Save.\n\n" +
+            "🟧 Irancell Firewall Methods:\n" +
+            "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.0; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP).\n" +
+            "2) WARP: Add Cat Warp → WireGuard → Any IP → Scan → Save.\n" +
+            "3) MASQUE/H2: Same as MCI.\n\n" +
+            "🔓 3) Sanction Bypass (warp -> psiphon/tor):\n" +
+            "• If geo-sanctions persist even with wireguard-over-masque-HTTP/2, chain Psiphon or Tor (warp -> psiphon/tor).\n" +
+            "• When chaining Psiphon/Tor, use simple wireguard or masque-h2 protocols.\n" +
+            "• Note: tor/psiphon have medium speed; use them only when you also need sanction bypass.\n\n" +
+            "⚠️ Regional firewall may differ from SIM brand; other ISPs use one of these two firewalls."
+    }
+    MaterialAlertDialogBuilder(this)
+        .setTitle(if (isFarsi) "🛡 راهنمای اتصال روی فایروال همراه اول و ایرانسل" else "🛡 MCI & Irancell Firewall Connection Guide")
+        .setMessage(msg)
+        .setNeutralButton(if (isFarsi) "➕ افزودن Cat Warp" else "➕ Add Cat Warp") { _, _ ->
+            showAddAetherDialog()
+        }
+        .setPositiveButton(android.R.string.ok, null)
+        .create()
+        .showCatClientDialog()
+}
+
+internal fun MainActivity.showPrivacyPolicyIfNeeded(onAccepted: (() -> Unit)? = null): Boolean {
+    if (privacyPolicyStore.isAccepted()) return false
+    showPrivacyPolicyDialog(onAccepted)
+    return true
+}
+
+internal fun MainActivity.showPrivacyPolicyDialog(onAccepted: (() -> Unit)? = null) {
+    if (privacyPolicyDialog?.isShowing == true) return
+
+    val messageText = TextView(this).apply {
+        text = getString(R.string.privacy_policy_message)
+        textSize = 14f
+        setTextColor(TEXT_PRIMARY)
+        includeFontPadding = true
+        setLineSpacing(dp(2).toFloat(), 1.0f)
+    }
+    val checkbox = CheckBox(this).apply {
+        text = getString(R.string.privacy_policy_checkbox)
+        textSize = 14f
+        setTextColor(TEXT_PRIMARY)
+    }
+    val content = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(4), dp(4), dp(4), 0)
+        addView(
+            messageText,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        addView(
+            checkbox,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp(12)
+            },
+        )
+    }
+    val scrollView = ScrollView(this).apply {
+        addView(
+            content,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+    }
+
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.privacy_policy_title)
+        .setView(scrollView)
+        .setNegativeButton(R.string.privacy_policy_not_now, null)
+        .setPositiveButton(R.string.privacy_policy_accept, null)
+        .create()
+
+    dialog.setOnDismissListener {
+        if (privacyPolicyDialog === dialog) {
+            privacyPolicyDialog = null
+        }
+    }
+    privacyPolicyDialog = dialog
+    dialog.showCatClientDialog {
+        val acceptButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        acceptButton.isEnabled = false
+        checkbox.setOnCheckedChangeListener { _, isChecked ->
+            acceptButton.isEnabled = isChecked
+        }
+        acceptButton.setOnClickListener {
+            privacyPolicyStore.acceptCurrentVersion()
+            DiagnosticLogger.info(
+                this@showPrivacyPolicyDialog,
+                "privacy.accepted",
+                "version=${PrivacyPolicyAcceptancePolicy.CURRENT_VERSION}",
+            )
+            dialog.dismiss()
+            onAccepted?.invoke()
+        }
+    }
+}

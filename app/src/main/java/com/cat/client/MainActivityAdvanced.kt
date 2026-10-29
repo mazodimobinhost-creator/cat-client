@@ -101,8 +101,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import java.text.DateFormat
+import com.cat.client.MainActivity.Companion.KEYBOARD_SCROLL_DELAY_MS
+import com.cat.client.MainActivity.Companion.SCREEN_SETTINGS
 
-// Settings tab: advanced screen, appearance block, chain settings, split tunnel.
+// Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs.
 // Moved out of MainActivity.kt unchanged (beta220 code split); see docs/CODEMAP.md.
 
 /**
@@ -3171,4 +3173,880 @@ internal fun MainActivity.showSplitTunnelSettings(
     container.removeAllViews()
     container.addView(content, LinearLayout.LayoutParams(-1, -2))
     updateSplitTunnelControlsEnabled?.invoke(controlsEnabled)
+}
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+internal fun MainActivity.showResetSettingsDialog() {
+    MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.settings_reset)
+        .setMessage(R.string.settings_reset_message)
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+        .setPositiveButton(R.string.settings_reset_confirm) { _, _ ->
+            AppSettingsResetter.reset(this)
+            CatClientTileService.requestTileRefresh(this)
+            Toast.makeText(this, R.string.settings_reset_done, Toast.LENGTH_SHORT).show()
+            recreate()
+        }
+        .create()
+        .showCatClientDialog(positiveColor = ERROR)
+}
+
+internal fun MainActivity.scrollFieldIntoView(
+    scrollView: ScrollView,
+    field: View,
+    delayMs: Long = KEYBOARD_SCROLL_DELAY_MS,
+) {
+    scrollView.postDelayed(
+        {
+            val scrollLocation = IntArray(2)
+            val fieldLocation = IntArray(2)
+            scrollView.getLocationInWindow(scrollLocation)
+            field.getLocationInWindow(fieldLocation)
+            val visibleBottom = scrollLocation[1] + scrollView.height - scrollView.paddingBottom - dp(16)
+            val overlap = fieldLocation[1] + field.height - visibleBottom
+            if (overlap > 0) scrollView.smoothScrollBy(0, overlap)
+        },
+        delayMs,
+    )
+}
+
+internal fun MainActivity.advancedSectionLabel(value: String): TextView {
+    return TextView(this).apply {
+        text = value
+        textSize = 13f
+        letterSpacing = 0f
+        typeface = CatClientBodyBoldTypeface
+        setTextColor(TEAL)
+        setPaddingRelative(dp(4), 0, dp(4), 0)
+        includeFontPadding = false
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+        gravity = Gravity.START
+    }
+}
+
+internal fun MainActivity.connectionChainFixedLabel(
+    ref: ConnectionChainProfileRef?,
+    options: List<ConnectionChainPickerOption>,
+): String {
+    if (ref == null) return getString(R.string.connection_chain_unavailable)
+    val option = options.firstOrNull {
+        it.subscriptionId == ref.subscriptionId && it.profile.fingerprint == ref.fingerprint
+    }
+    return if (option == null) {
+        getString(R.string.connection_chain_unavailable)
+    } else {
+        getString(
+            R.string.connection_chain_fixed_value,
+            option.subscriptionName,
+            option.profile.displayTag,
+        )
+    }
+}
+
+internal fun MainActivity.connectionChainSlotLabelRes(slot: ConnectionChainSlot): Int = when (slot) {
+    ConnectionChainSlot.Before -> R.string.connection_chain_before
+    ConnectionChainSlot.Base -> R.string.connection_chain_base
+    ConnectionChainSlot.After -> R.string.connection_chain_after
+}
+
+/**
+ * The pinned address of one hop: the address that hop's first proxy is dialled at — the
+ * only place a bare IP can enter a chain, because a hop itself is a full config.
+ */
+internal fun MainActivity.editConnectionChainHopIp(slot: ConnectionChainSlot, hop: ConnectionChainHop) {
+    val input = TextInputEditText(this).apply {
+        hint = getString(R.string.connection_chain_hop_ip_hint)
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        setText(hop.serverOverride.orEmpty())
+    }
+    val box = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        setPadding(dp(20), dp(12), dp(20), 0)
+        addView(input, LinearLayout.LayoutParams(-1, -2))
+        addView(
+            TextView(this@editConnectionChainHopIp).apply {
+                text = getString(R.string.connection_chain_hop_ip_detail)
+                textSize = 12f
+                typeface = CatClientBodyTypeface
+                setTextColor(TEXT_SECONDARY)
+                setPadding(0, dp(8), 0, 0)
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+    }
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(
+            getString(
+                R.string.connection_chain_hop_ip_title,
+                getString(connectionChainSlotLabelRes(slot)),
+            ),
+        )
+        .setView(box)
+        .setNegativeButton(android.R.string.cancel, null)
+        .setPositiveButton(R.string.connection_chain_hop_ip_save) { _, _ ->
+            val raw = input.text?.toString().orEmpty().trim()
+            val encoded = raw.takeIf { it.isNotEmpty() }
+                ?.let(::connectionChainEndpointOrNull)
+                ?.encoded()
+            if (raw.isNotEmpty() && encoded == null) {
+                Toast.makeText(
+                    this@editConnectionChainHopIp,
+                    getString(R.string.connection_chain_hop_ip_invalid),
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@setPositiveButton
+            }
+            updateConnectionChainSettings(
+                connectionChainPreferenceStore.read()
+                    .withHop(slot, hop.copy(serverOverride = encoded)),
+            )
+        }
+    if (hop.serverOverride.isNullOrBlank()) {
+        dialog.setNeutralButton(R.string.connection_chain_hop_ip_clear, null)
+    } else {
+        dialog.setNeutralButton(R.string.connection_chain_hop_ip_clear) { _, _ ->
+            updateConnectionChainSettings(
+                connectionChainPreferenceStore.read()
+                    .withHop(slot, hop.copy(serverOverride = null)),
+            )
+        }
+    }
+    dialog.show()
+}
+
+internal fun MainActivity.refreshChainExitCountries() {
+    val settings = connectionChainPreferenceStore.read()
+    if (!settings.isActive) {
+        chainExitCountryCodes = null
+        return
+    }
+    activityScope.launch {
+        val codes = withContext(Dispatchers.IO) {
+            runCatching {
+                ConnectionChainPlanner.exitCountryCodes(
+                    settings = settings,
+                    sources = cachedConnectionChainSources(),
+                )
+            }.onFailure { error ->
+                DiagnosticLogger.warn(this@refreshChainExitCountries, "activity.chain.exit.failed", error = error)
+            }.getOrDefault(emptyList())
+        }
+        chainExitCountryCodes = codes
+        DiagnosticLogger.info(this@refreshChainExitCountries, "activity.chain.exit.options", "codes=${codes.joinToString(",")}")
+        renderLocationSelection()
+    }
+}
+
+internal fun MainActivity.renderFragmentCarrierLine() {
+    val line = fragmentCarrierLine ?: return
+    val carrier = CarrierDetector.detect(this, refresh = true)
+    val stored = dpiBypassPreferenceStore.presetId()
+    val tune = panelTuneStore.read()
+    val applied = DpiFragmentPreset.resolve(stored, carrier, tune)
+    line.text = getString(
+        R.string.dpi_carrier_line,
+        getString(carrierLabelRes(carrier)),
+        getString(presetLabelRes(applied)),
+    ) + if (stored == DpiFragmentPreset.AUTO_ID && tune.presetIdFor(carrier) != null) {
+        " · " + getString(R.string.dpi_tune_from_panel)
+    } else {
+        ""
+    }
+}
+
+internal fun MainActivity.carrierLabelRes(carrier: MobileCarrier): Int = when (carrier) {
+    MobileCarrier.MCI -> R.string.dpi_preset_mci
+    MobileCarrier.IRANCELL -> R.string.dpi_preset_irancell
+    MobileCarrier.RIGHTEL -> R.string.dpi_preset_rightel
+    MobileCarrier.TCI -> R.string.dpi_preset_tci
+    MobileCarrier.OTHER, MobileCarrier.UNKNOWN -> R.string.dpi_carrier_unknown
+}
+
+internal fun MainActivity.presetLabelRes(preset: DpiFragmentPreset): Int = when (preset) {
+    DpiFragmentPreset.MCI -> R.string.dpi_preset_mci
+    DpiFragmentPreset.IRANCELL -> R.string.dpi_preset_irancell
+    DpiFragmentPreset.RIGHTEL -> R.string.dpi_preset_rightel
+    DpiFragmentPreset.TCI -> R.string.dpi_preset_tci
+    DpiFragmentPreset.GAMING -> R.string.dpi_preset_gaming
+    DpiFragmentPreset.PATTN -> R.string.dpi_preset_pattn
+    DpiFragmentPreset.DEFAULT -> R.string.dpi_preset_default
+}
+
+internal fun MainActivity.updateConnectionChainSettings(settings: ConnectionChainSettings) {
+    if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) {
+        renderChainSettingsPage?.invoke()
+        return
+    }
+    val previous = connectionChainPreferenceStore.read()
+    val normalized = settings.normalized()
+    if (previous == normalized) return
+    connectionChainPreferenceStore.save(normalized)
+    renderChainSettingsPage?.invoke()
+    renderConnectionDetails(buttonModel.state)
+    renderConnectionSelection()
+    refreshChainExitCountries()
+    if (
+        buttonModel.state == VpnState.Started &&
+        (previous.isActive || normalized.isActive) &&
+        connectionChainCompatibilityIssue == null
+    ) {
+        reconnectForConnectionOptionChange()
+    }
+}
+
+internal fun MainActivity.openConnectionChainSettingsFromHome() {
+    openScreen(SCREEN_SETTINGS)
+    openConnectionChainSettingsPage?.invoke()
+}
+
+internal fun MainActivity.cachedConnectionChainPickerOptions(
+    subscriptionIds: Set<String>? = null,
+): List<ConnectionChainPickerOption> =
+    connectionChainPickerOptions(cachedConnectionChainSources(subscriptionIds))
+
+internal fun MainActivity.cachedConnectionChainSources(
+    subscriptionIds: Set<String>? = null,
+): List<ConnectionChainSource> {
+    val subscriptions = userSubscriptionManager.list()
+    val repository = ConfigRepository(this)
+    return buildList {
+        addAll(
+            SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.map {
+                it to builtInSubscriptionName(it)
+            },
+        )
+        addAll(subscriptions.map { it.id to it.name })
+    }.filter { (subscriptionId, _) -> subscriptionIds == null || subscriptionId in subscriptionIds }
+        .mapNotNull { (subscriptionId, subscriptionName) ->
+            val snapshot = repository.readCachedMihomoConfigOrNullNow(subscriptionId)
+                ?: return@mapNotNull null
+            ConnectionChainSource(subscriptionId, subscriptionName, snapshot)
+        }
+}
+
+internal fun MainActivity.connectionChainPickerOptions(
+    sources: List<ConnectionChainSource>,
+): List<ConnectionChainPickerOption> = sources.flatMap { source ->
+    val selectable = ConnectionChainPlanner.selectableFingerprints(source.snapshot)
+    source.snapshot.catalog.profiles.filter { it.fingerprint in selectable }.map { profile ->
+        ConnectionChainPickerOption(
+            subscriptionId = source.subscriptionId,
+            subscriptionName = source.subscriptionName,
+            profile = profile,
+        )
+    }
+}
+
+internal fun MainActivity.connectionChainFixedOptions(
+    settings: ConnectionChainSettings,
+    sources: List<ConnectionChainSource>,
+): List<ConnectionChainPickerOption> {
+    val refs = listOf(settings.base, settings.after).mapNotNull { hop ->
+        hop.profileRef.takeIf { hop.mode == ConnectionChainHopMode.Fixed }
+    }
+    return sources.flatMap { source ->
+        val fingerprints = refs.filter { it.subscriptionId == source.subscriptionId }
+            .mapTo(mutableSetOf(), ConnectionChainProfileRef::fingerprint)
+        source.snapshot.catalog.profiles.filter { it.fingerprint in fingerprints }.map { profile ->
+            ConnectionChainPickerOption(source.subscriptionId, source.subscriptionName, profile)
+        }
+    }
+}
+
+internal fun MainActivity.advancedSectionDetail(value: String): TextView {
+    return TextView(this).apply {
+        text = value
+        textSize = 12f
+        typeface = CatClientBodyTypeface
+        setTextColor(TEXT_SECONDARY)
+        includeFontPadding = false
+        setLineSpacing(dp(2).toFloat(), 1f)
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+        gravity = Gravity.START
+    }
+}
+
+internal fun MainActivity.advancedSettingsPanel(): LinearLayout {
+    return LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        background = glassSurfaceDrawable(radiusDp = 22)
+        clipToOutline = true
+        elevation = 0f
+        setPadding(dp(8), dp(8), dp(8), dp(14))
+    }
+}
+
+internal fun MainActivity.showThemeSelector() {
+    val modes = AppThemeMode.entries
+    val selected = appThemePreferenceStore.read()
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.theme_dialog_title)
+        .setSingleChoiceItems(
+            modes.map { getString(it.labelRes) }.toTypedArray(),
+            modes.indexOf(selected),
+        ) { dialog, which ->
+            val mode = modes[which]
+            dialog.dismiss()
+            if (mode == selected) return@setSingleChoiceItems
+            appThemePreferenceStore.save(mode)
+            VpnWidgetProvider.refresh(this)
+            recreate()
+        }
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+        .create()
+    dialog.showCatClientDialog()
+}
+
+/** Accent colour picker (ZedSecure appearance): swatches in a grid, applied with a recreate. */
+internal fun MainActivity.showAccentSelector() {
+    val store = AppAccentPreferenceStore(this)
+    val selected = store.read()
+    val night = palette.isDark
+    val grid = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(8), dp(20), dp(8))
+    }
+    var dialog: AlertDialog? = null
+    AppAccent.entries.chunked(3).forEach { rowItems ->
+        grid.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+                rowItems.forEach { accent ->
+                    val tone = if (night) accent.dark else accent.light
+                    addView(
+                        LinearLayout(this@showAccentSelector).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER_HORIZONTAL
+                            setPadding(dp(6), dp(10), dp(6), dp(10))
+                            isClickable = true
+                            isFocusable = true
+                            setOnClickListener {
+                                dialog?.dismiss()
+                                if (accent != selected) {
+                                    store.save(accent)
+                                    recreate()
+                                }
+                            }
+                            addView(
+                                TextView(this@showAccentSelector).apply {
+                                    text = if (accent == selected) "✓" else ""
+                                    gravity = Gravity.CENTER
+                                    textSize = 20f
+                                    typeface = CatClientBodyBoldTypeface
+                                    setTextColor(if (night) accent.onDark else accent.onLight)
+                                    background = GradientDrawable().apply {
+                                        shape = GradientDrawable.OVAL
+                                        setColor(tone)
+                                        if (accent == selected) setStroke(dp(3), TEXT_PRIMARY)
+                                    }
+                                },
+                                LinearLayout.LayoutParams(dp(52), dp(52)),
+                            )
+                            addView(
+                                TextView(this@showAccentSelector).apply {
+                                    setText(accent.labelRes)
+                                    textSize = 12f
+                                    typeface = CatClientBodyTypeface
+                                    setTextColor(TEXT_SECONDARY)
+                                    gravity = Gravity.CENTER
+                                },
+                                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) },
+                            )
+                        },
+                        LinearLayout.LayoutParams(0, -2, 1f),
+                    )
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+    }
+    dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.accent_setting_title)
+        .setView(grid)
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+        .create()
+    dialog.showCatClientDialog()
+}
+
+internal fun MainActivity.showLanguageSelector() {
+    val languages = AppLanguage.entries
+    val selected = appLanguagePreferenceStore.read()
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.language_dialog_title)
+        .setSingleChoiceItems(
+            languages.map { getString(it.labelRes) }.toTypedArray(),
+            languages.indexOf(selected),
+        ) { dialog, which ->
+            val language = languages[which]
+            dialog.dismiss()
+            if (language == selected) return@setSingleChoiceItems
+            AppLocale.apply(applicationContext, language)
+            VpnWidgetProvider.refresh(this)
+            CatClientTileService.requestTileRefresh(this)
+            recreate()
+        }
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+        .create()
+    dialog.showCatClientDialog()
+}
+
+internal fun MainActivity.showDnsPrivacySelector() {
+    if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
+    val modes = DnsPrivacyMode.values()
+    val selectedMode = dnsPrivacyPreferenceStore.readMode()
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.dns_encrypted_title)
+        .setSingleChoiceItems(
+            modes.map { getString(it.labelRes) }.toTypedArray(),
+            modes.indexOf(selectedMode),
+        ) { dialog, which ->
+            if (handleDnsPrivacySelected(modes[which])) dialog.dismiss()
+        }
+        .create()
+    dialog.showCatClientDialog()
+}
+
+internal fun MainActivity.showRoutingModeSelector() {
+    if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
+    val modes = RoutingMode.values()
+    val selectedMode = routingModePreferenceStore.read()
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.routing_rules_title)
+        .setSingleChoiceItems(
+            modes.map { getString(it.labelRes) }.toTypedArray(),
+            modes.indexOf(selectedMode),
+        ) { dialog, which ->
+            val mode = modes[which]
+            dialog.dismiss()
+            if (mode == selectedMode) return@setSingleChoiceItems
+            routingModePreferenceStore.save(mode)
+            DiagnosticLogger.info(this, "activity.routing.saved", "mode=${mode.wireName}")
+            renderRoutingModeSelection()
+            reconnectForConnectionOptionChange()
+        }
+        .create()
+    dialog.showCatClientDialog()
+}
+
+/**
+ * The Orbot row's verdict. Four states, and each one names what the next connection will
+ * actually do — «روشن but nothing listens» must never read like «on Tor».
+ */
+internal fun MainActivity.renderOrbotRow() {
+    val status = orbotStatusText ?: return
+    val enabled = orbotEnginePreferenceStore.isEnabled()
+    val endpoint = "${orbotEnginePreferenceStore.readHost()}:${orbotEnginePreferenceStore.readPort()}"
+    if (orbotEngineCheckbox?.isChecked != enabled) orbotEngineCheckbox?.isChecked = enabled
+    val probe = lastOrbotProbe
+    when {
+        !enabled -> status.setText(getString(R.string.orbot_off, endpoint))
+        probe == null -> status.setText(getString(R.string.orbot_idle, endpoint))
+        probe.reachable -> status.setText(
+            getString(R.string.orbot_ready, endpoint, probe.latencyMs ?: 0L),
+        )
+        else -> status.setText(getString(R.string.orbot_absent, endpoint, probe.detail))
+    }
+    status.setTextColor(if (enabled && probe?.reachable == true) TEAL else TEXT_SECONDARY)
+
+    val watchdog = watchdogStatusText ?: return
+    val armed = pathWatchdogStore.isArmed()
+    val state = pathWatchdogStore.readState()
+    watchdogToggle?.isChecked = armed
+    watchdog.setText(
+        when {
+            !armed -> getString(R.string.watchdog_off)
+            state.usingFallback -> getString(
+                R.string.watchdog_on_fallback,
+                PathWatchdogPolicy.PRIMARY_RETRY_INTERVAL_MS / 60_000L,
+            )
+            else -> getString(
+                R.string.watchdog_on_primary,
+                state.consecutivePrimaryFailures,
+                PathWatchdogPolicy.FAILURES_BEFORE_SWITCH,
+            )
+        },
+    )
+    watchdog.setTextColor(if (armed && state.usingFallback) TEAL else TEXT_SECONDARY)
+}
+
+/** Probe off the main thread: a TCP connect that hangs must not freeze the settings page. */
+internal fun MainActivity.probeOrbotEngine(showToast: Boolean) {
+    val host = orbotEnginePreferenceStore.readHost()
+    val port = orbotEnginePreferenceStore.readPort()
+    orbotProbeButton?.isEnabled = false
+    activityScope.launch {
+        val probe = kotlinx.coroutines.withContext(Dispatchers.IO) { OrbotProbe.probe(host, port) }
+        lastOrbotProbe = probe
+        orbotProbeButton?.isEnabled = true
+        renderOrbotRow()
+        DiagnosticLogger.info(
+            this@probeOrbotEngine,
+            "activity.orbot.probe",
+            "host=$host port=$port reachable=${probe.reachable} ms=${probe.latencyMs} detail=${probe.detail}",
+        )
+        if (showToast) {
+            Toast.makeText(
+                this@probeOrbotEngine,
+                orbotStatusText?.text?.toString().orEmpty(),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+}
+
+internal fun MainActivity.displayDnsPrivacyEndpoint(mode: DnsPrivacyMode, value: String): String {
+    // DoT is the one mode whose scheme is stripped: `tls://` is the only DoT spelling, so
+    // hiding it keeps the box to host:port. DoQ and DoH3 keep theirs, because `quic://`
+    // and `h3://` are what tell the core which transport to use — and a bare `1.1.1.1`
+    // would silently become DoT in the owner's head.
+    return when (mode) {
+        DnsPrivacyMode.DoT -> value.removePrefix("tls://")
+        else -> value
+    }
+}
+
+internal fun MainActivity.setDnsPrivacyEndpointInputText(value: String) {
+    if (dnsPrivacyEndpointInput.text.toString() == value) return
+    dnsPrivacyInputUpdating = true
+    try {
+        dnsPrivacyEndpointInput.setText(value)
+        dnsPrivacyEndpointInput.setSelection(dnsPrivacyEndpointInput.text.length)
+    } finally {
+        dnsPrivacyInputUpdating = false
+    }
+}
+
+internal fun MainActivity.showDnsPrivacyError(message: String, focusOnError: Boolean) {
+    dnsPrivacyErrorText.text = message
+    dnsPrivacyErrorText.visibility = View.VISIBLE
+    if (focusOnError) dnsPrivacyEndpointInput.requestFocus()
+}
+
+internal fun MainActivity.showSplitTunnelSelector(container: LinearLayout) {
+    updateSplitTunnelControlsEnabled = null
+    container.removeAllViews()
+    container.addView(
+        ProgressBar(this).apply {
+            isIndeterminate = true
+            contentDescription = getString(R.string.split_tunnel_title)
+        },
+        LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(32)
+        },
+    )
+    activityScope.launch {
+        val apps = runCatching {
+            withContext(Dispatchers.IO) {
+                installedAppRepository.loadLaunchableApps()
+            }
+        }.onFailure { error ->
+            DiagnosticLogger.warn(this@showSplitTunnelSelector, "activity.splitTunnel.apps.failed", error = error)
+        }.getOrNull()
+
+        if (apps == null) {
+            container.removeAllViews()
+            container.addView(
+                advancedSectionDetail(getString(R.string.split_tunnel_empty_apps)),
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
+            )
+            Toast.makeText(this@showSplitTunnelSelector, R.string.split_tunnel_empty_apps, Toast.LENGTH_SHORT).show()
+            return@launch
+        }
+        showSplitTunnelSettings(container, apps)
+    }
+}
+
+internal fun MainActivity.saveTlsIntegrityEnabled(enabled: Boolean) {
+    val previousValue = tlsIntegrityPreferenceStore.isEnabled()
+    if (previousValue == enabled) return
+    tlsIntegrityPreferenceStore.saveEnabled(enabled)
+    if (!enabled) CatClientScanStateStore(this).clearTlsQuarantine()
+    DiagnosticLogger.info(this, "activity.tlsIntegrity.saved", "enabled=$enabled")
+    reconnectForConnectionOptionChange()
+}
+
+internal fun MainActivity.saveAdBlockEnabled(enabled: Boolean) {
+    if (routingModePreferenceStore.isAdBlockEnabled() == enabled) return
+    routingModePreferenceStore.saveAdBlockEnabled(enabled)
+    DiagnosticLogger.info(this, "activity.adBlock.saved", "enabled=$enabled")
+    Toast.makeText(this, R.string.ad_block_toast, Toast.LENGTH_SHORT).show()
+}
+
+/** [refreshPanelTune] but only when fragmenting is on and the panel URL is known. */
+internal fun MainActivity.refreshPanelTuneIfNeeded() {
+    if (dpiBypassPreferenceStore.isEnabled()) refreshPanelTune()
+}
+
+/**
+ * Pull the owner's carrier table. Best-effort and off the main thread: [panelBaseUrl]
+ * reads the deployment store and can walk the subscriptions, and a panel that is asleep
+ * must never be able to delay the screen.
+ */
+internal fun MainActivity.refreshPanelTune() {
+    activityScope.launch {
+        val refreshed = withContext(Dispatchers.IO) {
+            val base = panelBaseUrl() ?: return@withContext null
+            runCatching { PanelTuneClient.refresh(panelTuneStore, base) }.getOrNull()
+        }
+        if (refreshed != null) {
+            DiagnosticLogger.info(
+                this@refreshPanelTune,
+                "panel.tune.synced",
+                "version=${refreshed.version} carriers=${refreshed.presets.size}",
+            )
+            renderFragmentCarrierLine()
+        }
+    }
+}
+
+internal fun MainActivity.saveTlsFragmentEnabled(enabled: Boolean) {
+    if (dpiBypassPreferenceStore.isEnabled() == enabled) return
+    dpiBypassPreferenceStore.saveEnabled(enabled)
+    DiagnosticLogger.info(this, "activity.tlsFragment.saved", "enabled=$enabled")
+    if (enabled) refreshPanelTune()
+    Toast.makeText(
+        this,
+        if (enabled) R.string.tls_fragment_enabled_toast else R.string.tls_fragment_disabled_toast,
+        Toast.LENGTH_SHORT,
+    ).show()
+    reconnectForConnectionOptionChange()
+}
+
+internal fun MainActivity.saveLanSharingEnabled(enabled: Boolean) {
+    if (lanSharingPreferenceStore.read().enabled == enabled) return
+    lanSharingPreferenceStore.saveEnabled(enabled)
+    DiagnosticLogger.info(this, "activity.lanSharing.saved", "enabled=$enabled")
+    renderLanSharingControls(settingsEnabled = true)
+    reconnectForConnectionOptionChange()
+}
+
+internal fun MainActivity.saveConnectionMode(mode: ConnectionMode) {
+    if (connectionModePreferenceStore.read() == mode) return
+    connectionModePreferenceStore.save(mode)
+    DiagnosticLogger.info(this, "activity.connectionMode.saved", "mode=${mode.wireName}")
+    renderLanSharingControls(settingsEnabled = true)
+    if (buttonModel.state != VpnState.Started) return
+    if (mode == ConnectionMode.Vpn) {
+        beginConnectFlow(Actions.RECONNECT)
+    } else {
+        buttonModel.onStateChanged(VpnState.Starting)
+        renderState(VpnState.Starting)
+        startVpnService(Actions.RECONNECT)
+    }
+}
+
+internal fun MainActivity.saveLanSharingPasswordRequired(required: Boolean) {
+    val settings = lanSharingPreferenceStore.read()
+    if (settings.passwordRequired == required) return
+    lanSharingPreferenceStore.savePasswordRequired(required)
+    DiagnosticLogger.info(this, "activity.lanSharing.passwordRequired.saved", "required=$required")
+    renderLanSharingControls(settingsEnabled = true)
+    if (settings.enabled) reconnectForConnectionOptionChange()
+}
+
+internal fun MainActivity.regenerateLanSharingPassword() {
+    val settings = lanSharingPreferenceStore.read()
+    lanSharingPreferenceStore.regeneratePassword()
+    DiagnosticLogger.info(this, "activity.lanSharing.password.regenerated", "enabled=${settings.enabled}")
+    renderLanSharingControls(settingsEnabled = true)
+    if (settings.enabled && settings.passwordRequired) reconnectForConnectionOptionChange()
+}
+
+internal fun MainActivity.copyLanSharingSettings() {
+    val settings = lanSharingPreferenceStore.read()
+    val value = lanSharingDetails(settings)
+    getSystemService(ClipboardManager::class.java)
+        .setPrimaryClip(ClipData.newPlainText("Cat Client LAN proxy", value))
+    Toast.makeText(this, R.string.lan_sharing_copied, Toast.LENGTH_SHORT).show()
+}
+
+internal fun MainActivity.lanSharingDetails(settings: LanSharingSettings): String {
+    val localEndpoint = getString(
+        R.string.lan_sharing_local_endpoint,
+        MihomoRuntimeDefaults.MIXED_PORT,
+    )
+    val addresses = LanSharingAddresses.reachablePrivateIpv4Addresses()
+    val endpoints = if (addresses.isEmpty()) {
+        getString(R.string.lan_sharing_no_address)
+    } else {
+        addresses.joinToString("\n") { address ->
+            getString(R.string.lan_sharing_endpoint, address, MihomoRuntimeDefaults.MIXED_PORT)
+        }
+    }
+    val lanEndpoints = if (settings.passwordRequired) {
+        getString(R.string.lan_sharing_credentials, endpoints, settings.username, settings.password)
+    } else {
+        getString(R.string.lan_sharing_no_credentials, endpoints)
+    }
+    return getString(R.string.lan_sharing_details, localEndpoint, lanEndpoints)
+}
+
+internal fun MainActivity.saveAmneziaNoiseEnabled(enabled: Boolean) {
+    val previous = connectionOptionsPreferenceStore.read()
+    val settings = if (enabled) {
+        runCatching(this::readAmneziaNoiseInputs).getOrElse { error ->
+            amneziaNoiseCheckbox.isChecked = false
+            showAmneziaNoiseError(localizedError(error, R.string.amnezia_noise_invalid))
+            return
+        }
+    } else {
+        previous.amneziaNoise
+    }
+    connectionOptionsPreferenceStore.saveAmneziaNoise(enabled, settings)
+    DiagnosticLogger.info(
+        this,
+        "activity.amneziaNoise.saved",
+        "enabled=$enabled count=${settings.count} min=${settings.minSize} max=${settings.maxSize} " +
+            "ttl=${settings.fakeTtl ?: "default"} version=${settings.version ?: "default"} " +
+            "stack=${settings.ipStackMode ?: "default"}",
+    )
+    renderConnectionOptionsControls(settingsEnabled = true)
+    if (previous.amneziaNoiseEnabled != enabled) reconnectForConnectionOptionChange()
+}
+
+internal fun MainActivity.applyAmneziaNoiseSettings() {
+    val previous = connectionOptionsPreferenceStore.read()
+    val settings = runCatching(this::readAmneziaNoiseInputs).getOrElse { error ->
+        showAmneziaNoiseError(localizedError(error, R.string.amnezia_noise_invalid))
+        return
+    }
+    connectionOptionsPreferenceStore.saveAmneziaNoise(enabled = true, settings)
+    amneziaNoiseErrorText.visibility = View.GONE
+    if (previous.amneziaNoise != settings || !previous.amneziaNoiseEnabled) {
+        DiagnosticLogger.info(
+            this,
+            "activity.amneziaNoise.applied",
+            "count=${settings.count} min=${settings.minSize} max=${settings.maxSize} " +
+                "ttl=${settings.fakeTtl ?: "default"} version=${settings.version ?: "default"} " +
+                "stack=${settings.ipStackMode ?: "default"}",
+        )
+        reconnectForConnectionOptionChange()
+    }
+}
+
+internal fun MainActivity.readAmneziaNoiseInputs(): AmneziaNoiseSettings {
+    val settings = AmneziaNoiseSettings(
+        count = amneziaNoiseCountInput.text.toString().toIntOrNull()
+            ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_count_invalid)),
+        minSize = amneziaNoiseMinSizeInput.text.toString().toIntOrNull()
+            ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_min_size_invalid)),
+        maxSize = amneziaNoiseMaxSizeInput.text.toString().toIntOrNull()
+            ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_max_size_invalid)),
+        fakeTtl = optionalAmneziaInt(amneziaNoiseTtlInput),
+        version = optionalAmneziaInt(amneziaNoiseVersionInput),
+        ipStackMode = optionalAmneziaText(amneziaNoiseIpStackInput),
+        congestionController = optionalAmneziaText(amneziaNoiseCongestionInput),
+        headerProtectionKey = amneziaNoiseHeaderProtectionKeyInput.text.toString(),
+        contentPaddingAddition = amneziaNoiseContentPaddingInput.text.toString(),
+        rekeyAfterTime = amneziaNoiseRekeyAfterInput.text.toString(),
+        rekeyTimeout = amneziaNoiseRekeyTimeoutInput.text.toString(),
+        rejectAfterTime = amneziaNoiseRejectAfterInput.text.toString(),
+        keepaliveTimeout = amneziaNoiseKeepaliveTimeoutInput.text.toString(),
+        maxHandshakeAttempts = amneziaNoiseMaxHandshakeAttemptsInput.text.toString(),
+        randomTrailers = optionalAmneziaBoolean(amneziaNoiseRandomTrailersInput),
+        disableCookies = optionalAmneziaBoolean(amneziaNoiseDisableCookiesInput),
+    )
+    return MihomoConnectionOptionsPolicy.validateNoise(settings)
+}
+
+internal fun MainActivity.optionalAmneziaInt(input: EditText): Int? {
+    val value = input.text.toString().trim()
+    if (value.isEmpty()) return null
+    return value.toIntOrNull() ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_invalid))
+}
+
+internal fun MainActivity.optionalAmneziaText(input: EditText): String? =
+    input.text.toString().trim().takeIf(String::isNotEmpty)
+
+internal fun MainActivity.optionalAmneziaBoolean(input: EditText): Boolean? {
+    return when (input.text.toString().trim().lowercase()) {
+        "" -> null
+        "true", "on", "1" -> true
+        "false", "off", "0" -> false
+        else -> throw IllegalArgumentException(getString(R.string.amnezia_noise_invalid))
+    }
+}
+
+internal fun MainActivity.showAmneziaNoiseError(message: String) {
+    amneziaNoiseErrorText.text = message
+    amneziaNoiseErrorText.visibility = View.VISIBLE
+}
+
+internal fun MainActivity.reconnectForConnectionOptionChange() {
+    if (buttonModel.state != VpnState.Started) return
+    buttonModel.onStateChanged(VpnState.Starting)
+    renderState(VpnState.Starting)
+    startVpnService(Actions.RECONNECT)
+}
+
+internal fun MainActivity.saveFrontingIps(reconnectIfChanged: Boolean, previousValue: String?): Boolean {
+    val nextValue = FrontingIpPolicy.normalize(frontingIps.joinToString(","))
+    frontingIpPreferenceStore.saveFrontingIp(nextValue)
+    frontingIps = FrontingIpPolicy.normalizeIps(nextValue)
+    renderFrontingIpChips()
+    frontingIpErrorText.visibility = View.GONE
+
+    if (previousValue != nextValue) {
+        DiagnosticLogger.info(this, "activity.frontingIp.saved", "enabled=${nextValue != null} count=${frontingIps.size}")
+        if (reconnectIfChanged && buttonModel.state == VpnState.Started) {
+            buttonModel.onStateChanged(VpnState.Starting)
+            renderState(VpnState.Starting)
+            startVpnService(Actions.RECONNECT)
+        }
+    }
+    return true
+}
+
+internal fun MainActivity.addFrontingIpTokens(tokens: List<String>, focusOnError: Boolean): Boolean {
+    val nextTokens = tokens.map { it.trim() }.filter { it.isNotEmpty() }
+    if (nextTokens.isEmpty()) return true
+    val nextIps = runCatching {
+        FrontingIpPolicy.normalizeIps((frontingIps + nextTokens).joinToString(","))
+    }.getOrElse { error ->
+        showFrontingIpError(localizedError(error, R.string.fronting_invalid), focusOnError)
+        return false
+    }
+    frontingIps = nextIps
+    renderFrontingIpChips()
+    return true
+}
+
+internal fun MainActivity.removeFrontingIp(ip: String) {
+    val previousValue = frontingIpPreferenceStore.readFrontingIp()
+    frontingIps = frontingIps.filterNot { it == ip }
+    renderFrontingIpChips()
+    saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
+}
+
+internal fun MainActivity.setFrontingIpInputText(value: String) {
+    frontingIpInputUpdating = true
+    try {
+        frontingIpInput.setText(value)
+        frontingIpInput.setSelection(frontingIpInput.text.length)
+    } finally {
+        frontingIpInputUpdating = false
+    }
+}
+
+internal fun MainActivity.frontingIpInputHint(): String {
+    return if (frontingIps.size >= 5) {
+        getString(R.string.fronting_capacity_full)
+    } else {
+        getString(R.string.fronting_helper)
+    }
+}
+
+internal fun MainActivity.showFrontingIpError(message: String, focusOnError: Boolean) {
+    frontingIpErrorText.text = message
+    frontingIpErrorText.visibility = View.VISIBLE
+    if (focusOnError) {
+        frontingIpInput.requestFocus()
+    }
 }

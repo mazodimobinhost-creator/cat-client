@@ -101,8 +101,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import java.text.DateFormat
+import com.cat.client.MainActivity.Companion.FREE_QR_BATCH
+import com.cat.client.MainActivity.Companion.FREE_SUBSCRIPTION_LIMIT
+import com.cat.client.MainActivity.Companion.SCREEN_HOME
+import com.cat.client.MainActivity.Companion.SUBSCRIPTION_ITEM_ID_BASE
 
-// Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer.
+// Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions.
 // Moved out of MainActivity.kt unchanged (beta220 code split); see docs/CODEMAP.md.
 
 internal fun MainActivity.buildSubscriptionsScreen(): View {
@@ -1319,4 +1323,983 @@ internal fun MainActivity.optimizeUserSubscription(item: UserSubscription) {
         }
     }
     builder.create().showCatClientDialog()
+}
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+internal fun MainActivity.fetchFreeConfigs() {
+    if (freeConfigsFetching) return
+    // If a tunnel is up we fetch *through* it: inside Iran most of the mirrors
+    // are unreachable directly but answer fine once anything is connected.
+    val useTunnel = vpnStateEqualsStarted()
+    freeConfigsFetching = true
+    freeConfigsFetchButton.isEnabled = false
+    freeConfigsProgress.visibility = View.VISIBLE
+    freeConfigsProgress.progress = 0
+    freeConfigsStatus.text = getString(if (useTunnel) R.string.free_loading_tunnel else R.string.free_loading)
+    freeConfigsList.removeAllViews()
+    freeConfigsJob = activityScope.launch {
+        val report = runCatching {
+            FreeConfigs.fetchAll(this@fetchFreeConfigs, useTunnel = useTunnel) { name, done, total ->
+                mainHandler.post {
+                    freeConfigsProgress.progress = (done * 100) / total.coerceAtLeast(1)
+                    if (name.isNotEmpty()) {
+                        freeConfigsStatus.text = getString(R.string.free_progress, name, done, total)
+                    }
+                }
+            }
+        }.getOrNull()
+        freeConfigsFetching = false
+        freeConfigsFetchButton.isEnabled = true
+        freeConfigsProgress.visibility = View.GONE
+        if (report == null || report.entries.isEmpty()) {
+            val cached = FreeConfigs.loadCache(this@fetchFreeConfigs)
+            if (cached != null && cached.entries.isNotEmpty()) {
+                freeConfigEntries = cached.entries
+                freeConfigsStatus.setText(R.string.free_from_cache)
+                renderFreeConfigs()
+            } else {
+                freeConfigsStatus.setText(R.string.free_empty)
+            }
+            return@launch
+        }
+        FreeConfigs.saveCache(this@fetchFreeConfigs, report)
+        freeConfigEntries = report.entries
+        freeConfigsStatus.text = buildString {
+            append(getString(R.string.free_loaded, report.entries.size))
+            if (report.sourcesOk.isNotEmpty()) append("\n✓ ").append(report.sourcesOk.joinToString(" · "))
+            if (report.sourcesFailed.isNotEmpty()) append("\n✗ ").append(report.sourcesFailed.joinToString(" · "))
+        }
+        renderFreeConfigs()
+    }
+}
+
+internal fun MainActivity.freeConfigRow(entry: FreeConfigs.FreeEntry): View {
+    val row = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+        background = glassSurfaceDrawable(radiusDp = 12)
+        clipToOutline = true
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+    }
+    row.addView(
+        TextView(this).apply {
+            text = entry.tag
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(TEXT_PRIMARY)
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        },
+        LinearLayout.LayoutParams(-1, -2),
+    )
+    row.addView(
+        TextView(this).apply {
+            text = entry.protocol.uppercase(Locale.US) + " · " + entry.host
+            textSize = 11.5f
+            typeface = CatClientBodyTypeface
+            setTextColor(TEXT_SECONDARY)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
+    )
+    val actions = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+    }
+    fun actionButton(labelRes: Int, accent: Boolean, click: (View) -> Unit) =
+        MaterialButton(this).apply {
+            setText(labelRes)
+            textSize = 11.5f
+            typeface = CatClientBodyBoldTypeface
+            isAllCaps = false
+            isSingleLine = true
+            cornerRadius = dp(9)
+            minWidth = 0
+            minimumWidth = 0
+            insetTop = 0
+            insetBottom = 0
+            setPaddingRelative(dp(6), 0, dp(6), 0)
+            backgroundTintList =
+                ColorStateList.valueOf(if (accent) TEAL else withAlpha(TEXT_SECONDARY, 40))
+            setTextColor(if (accent) palette.onAccent else TEXT_PRIMARY)
+            setOnClickListener(click)
+        }
+    actions.addView(
+        actionButton(R.string.free_add_single, true) { addSingleConfig(entry.link, entry.tag) },
+        LinearLayout.LayoutParams(0, dp(40), 1f),
+    )
+    actions.addView(
+        actionButton(R.string.free_copy, false) { copyFreeConfig(entry) },
+        LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) },
+    )
+    actions.addView(
+        actionButton(R.string.free_qr, false) { showConfigQrCodes(listOf(entry.link), entry.tag) },
+        LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) },
+    )
+    row.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+    return row
+}
+
+internal fun MainActivity.copyFreeConfig(entry: FreeConfigs.FreeEntry) {
+    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("free-config", entry.link))
+    Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+}
+
+/** Adds one share-link as its own Subscription and selects it. */
+internal fun MainActivity.addSingleConfig(link: String, name: String) {
+    if (link.isBlank()) return
+    val subscriptionName = name.take(48).ifBlank { "Cat Single" }
+    activityScope.launch {
+        val added = runCatching {
+            withContext(Dispatchers.IO) { userSubscriptionManager.add(subscriptionName, link) }
+        }.getOrNull()
+        if (added == null) {
+            Toast.makeText(this@addSingleConfig, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
+            return@launch
+        }
+        userSubscriptionManager.select(added.id)
+        renderSubscriptions()
+        onSubscriptionSelected()
+        MaterialAlertDialogBuilder(this@addSingleConfig)
+            .setTitle(R.string.free_quick_add_done)
+            .setMessage(subscriptionName)
+            .setPositiveButton(R.string.free_quick_add_connect) { _, _ -> beginConnectFlow(Actions.CONNECT) }
+            .setNegativeButton(R.string.split_tunnel_cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+}
+
+/** Paste / clipboard / QR entry point for a single config. */
+internal fun MainActivity.showQuickConfigMenu(anchor: View) {
+    val menu = catClientPopupMenu(anchor)
+    menu.menu.add(R.string.free_quick_paste).setOnMenuItemClickListener {
+        showQuickConfigDialog()
+        true
+    }
+    menu.menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
+        addSubscriptionFromClipboard()
+        true
+    }
+    menu.menu.add(R.string.subscription_scan_qr).setOnMenuItemClickListener {
+        startSubscriptionQrScan()
+        true
+    }
+    menu.menu.add(R.string.free_qr_all).setOnMenuItemClickListener {
+        showConfigQrCodes(freeConfigEntries.take(FREE_QR_BATCH).map { it.link }, getString(R.string.free_title))
+        true
+    }
+    menu.show()
+}
+
+internal fun MainActivity.showQuickConfigDialog() {
+    val input = EditText(this).apply {
+        hint = getString(R.string.free_quick_hint)
+        textSize = 13f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        maxLines = 4
+        setTextColor(TEXT_PRIMARY)
+        setHintTextColor(TEXT_SECONDARY)
+    }
+    val container = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(4), dp(8), dp(4), 0)
+        addView(input, LinearLayout.LayoutParams(-1, -2))
+    }
+    MaterialAlertDialogBuilder(this)
+        .setTitle(R.string.free_quick_add)
+        .setView(container)
+        .setPositiveButton(R.string.free_quick_add_confirm) { _, _ ->
+            val link = input.text?.toString()?.trim().orEmpty()
+            if (link.isEmpty()) {
+                Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
+            }
+            AetherSelection.fromAetherUri(link)?.let { parsed ->
+                importAndConnectAetherSelection(parsed)
+                return@setPositiveButton
+            }
+            normalizedSubscriptionSource(link)?.let { source ->
+                addSingleConfig(source, scannedSubscriptionName(source) ?: "Cat Single")
+            } ?: Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
+        }
+        .setNeutralButton(R.string.subscription_scan_qr) { _, _ -> startSubscriptionQrScan() }
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+        .show()
+}
+
+/** Ping-tests the fetched free configs through the core's connection testing page. */
+internal fun MainActivity.testFreeConfigs() {
+    val entries = freeConfigEntries
+    if (entries.isEmpty()) {
+        Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
+        return
+    }
+    activityScope.launch {
+        val id = ensureFreeSubscription(entries.map { it.link }.take(FREE_SUBSCRIPTION_LIMIT))
+        if (id != null) openSubscriptionConnectionTesting(id)
+    }
+}
+
+/** Adds every fetched free config as one Subscription (capped for size). */
+internal fun MainActivity.importFreeConfigs() {
+    val entries = freeConfigEntries
+    if (entries.isEmpty()) {
+        Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
+        return
+    }
+    activityScope.launch {
+        val id = ensureFreeSubscription(entries.map { it.link }.take(FREE_SUBSCRIPTION_LIMIT))
+        if (id == null) {
+            Toast.makeText(this@importFreeConfigs, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
+            return@launch
+        }
+        userSubscriptionManager.select(id)
+        renderSubscriptions()
+        onSubscriptionSelected()
+        Toast.makeText(this@importFreeConfigs, R.string.free_imported, Toast.LENGTH_LONG).show()
+    }
+}
+
+internal suspend fun MainActivity.ensureFreeSubscription(links: List<String>): String? {
+    if (links.isEmpty()) return null
+    val content = links.joinToString("\n")
+    val name = getString(R.string.free_subscription_name)
+    val existing = userSubscriptionManager.list().firstOrNull { it.name == name }
+    if (existing != null) {
+        val updated = runCatching {
+            withContext(Dispatchers.IO) { userSubscriptionManager.update(existing.id, name, content) }
+        }.getOrNull()
+        if (updated != null) return updated.id
+        // Fall through to creating a fresh one when the update is rejected.
+        userSubscriptionManager.delete(existing.id)
+    }
+    return runCatching {
+        withContext(Dispatchers.IO) { userSubscriptionManager.add(name, content) }
+    }.getOrNull()?.id
+}
+
+/** QR codes for one or more share links, shown natively (no network needed). */
+internal fun MainActivity.showConfigQrCodes(links: List<String>, title: String) {
+    val valid = links.filter { it.isNotBlank() }.distinct()
+    if (valid.isEmpty()) {
+        Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val index = intArrayOf(0)
+    val image = ImageView(this).apply {
+        adjustViewBounds = true
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        setBackgroundColor(Color.WHITE)
+    }
+    val caption = TextView(this).apply {
+        textSize = 11.5f
+        setTextColor(TEXT_SECONDARY)
+        maxLines = 3
+        ellipsize = TextUtils.TruncateAt.MIDDLE
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        setPadding(dp(16), dp(6), dp(16), 0)
+    }
+    val container = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        addView(image, LinearLayout.LayoutParams(-1, -2))
+        addView(caption, LinearLayout.LayoutParams(-1, -2))
+    }
+    fun render() {
+        val link = valid[index[0]]
+        image.setImageBitmap(QrCodes.bitmap(link, sizePx = dp(240)))
+        caption.text = "${index[0] + 1}/${valid.size} · $link"
+    }
+    render()
+    val builder = MaterialAlertDialogBuilder(this)
+        .setTitle(getString(R.string.free_qr_title, title))
+        .setView(container)
+        .setPositiveButton(R.string.free_qr_copy) { _, _ ->
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", valid[index[0]]))
+            Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+        }
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+    if (valid.size > 1) {
+        builder.setNeutralButton(R.string.free_qr_next) { _, _ ->
+            index[0] = (index[0] + 1) % valid.size
+            showConfigQrCodes(listOf(valid[index[0]]), title)
+        }
+    }
+    builder.show()
+}
+
+/** Human-readable quota line for a subscription panel that reports usage. */
+internal fun MainActivity.subscriptionUsageLine(usage: SubscriptionUsage?): String {
+    if (usage == null) return ""
+    val parts = mutableListOf<String>()
+    if (usage.totalBytes > 0) {
+        parts += getString(
+            R.string.subscription_usage_traffic,
+            SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
+            SubscriptionUsagePolicy.formatBytes(usage.totalBytes),
+            usage.usedPercent,
+        )
+    } else if (usage.usedBytes > 0) {
+        parts += getString(
+            R.string.subscription_usage_used_only,
+            SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
+        )
+    }
+    usage.expireEpochSeconds?.let { seconds ->
+        val days = ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0L)
+        parts += getString(R.string.subscription_usage_expiry, days)
+    }
+    return if (parts.isEmpty()) "" else "\n" + parts.joinToString(" · ")
+}
+
+internal fun MainActivity.openSubscriptionConnectionTesting(subscriptionId: String) {
+    if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
+    val store = SubscriptionStore(this)
+    if (store.readSelectedSubscriptionId() != subscriptionId) {
+        userSubscriptionManager.select(subscriptionId)
+        onSubscriptionSelected()
+    }
+    val profiles = if (SubscriptionStore.isBuiltInSubscription(subscriptionId)) {
+        store.readCatalog(subscriptionId)?.profiles
+    } else {
+        runCatching { userSubscriptionManager.cachedSnapshot(subscriptionId) }
+            .getOrNull()
+            ?.catalog
+            ?.profiles
+    }.orEmpty()
+    updateLocationOptions(profiles, resetMissingSelection = true)
+    showConnectionTestingPage()
+}
+
+internal fun MainActivity.startSubscriptionQrScan() {
+    IntentIntegrator(this)
+        .setCaptureActivity(SubscriptionQrCaptureActivity::class.java)
+        .setDesiredBarcodeFormats(listOf(IntentIntegrator.QR_CODE))
+        .setPrompt(getString(R.string.subscription_scan_qr_prompt))
+        .setBeepEnabled(false)
+        .setBarcodeImageEnabled(false)
+        .initiateScan()
+}
+
+internal fun MainActivity.showAddSubscriptionMenu(anchor: View) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    // Most used first; every label says in plain words what happens.
+    catClientPopupMenu(anchor).apply {
+        menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
+            addSubscriptionFromClipboard()
+            true
+        }
+        menu.add(
+            if (isFarsi) "📝 نوشتن یا چسباندن لینک (vless، vmess، لینک اشتراک…)"
+            else "📝 Type or paste a link (vless, vmess, subscription URL…)",
+        ).setOnMenuItemClickListener {
+            showAddSubscriptionDialog()
+            true
+        }
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            menu.add(R.string.subscription_scan_qr).setOnMenuItemClickListener {
+                startSubscriptionQrScan()
+                true
+            }
+        }
+        menu.add(
+            if (isFarsi) "📂 از فایل (‎.txt / .conf / .vpn / .yaml / .json)"
+            else "📂 From a file (.txt / .conf / .vpn / .yaml / .json)",
+        ).setOnMenuItemClickListener {
+            appTools.openImportFilePicker()
+            true
+        }
+        menu.add(
+            if (isFarsi) "🔐 کلید Amnezia (vpn://) یا AmneziaWG"
+            else "🔐 Amnezia key (vpn://) or AmneziaWG",
+        ).setOnMenuItemClickListener {
+            showAmneziaSectionDialog()
+            true
+        }
+        menu.add(
+            if (isFarsi) "⚙️ پیشرفته: کانفیگ Cat Warp دستی (MASQUE)"
+            else "⚙️ Advanced: manual Cat Warp config (MASQUE)",
+        ).setOnMenuItemClickListener {
+            showAddAetherDialog()
+            true
+        }
+        menu.add(
+            if (isFarsi) "⚙️ پیشرفته: ساخت خودکار Cat (MASQUE + سایفون)"
+            else "⚙️ Advanced: build Cat automatically (MASQUE + Psiphon)",
+        ).setOnMenuItemClickListener {
+            runOneTapPattNgMimPsiphonSetup()
+            true
+        }
+        show()
+    }
+}
+
+/**
+ * Writes a Cat Warp config into «⚡ Cat Warp Configs». beta214: builders, the wizard and the country chips pass
+ * [replaceAll] = true so the list holds exactly ONE config — the one just built for the chosen country — instead
+ * of piling up «United States · Warp», «Germany · Warp», … rows. A link pasted from elsewhere is merged.
+ * [onSaved] runs on the main thread after the subscription is written and selected, so a connect started from
+ * it really uses the new config (it used to race the save and could start the previously selected list).
+ */
+internal fun MainActivity.saveAetherConfigIntoMainSubscriptionList(
+    selection: AetherSelection,
+    activateAetherEngine: Boolean = true,
+    replaceAll: Boolean = true,
+    onSaved: (() -> Unit)? = null,
+) {
+    val uri = selection.toAetherUri()
+    val subName = CatWarpListPolicy.SUBSCRIPTION_NAME
+    activityScope.launch {
+        runCatching {
+            val existing = userSubscriptionManager.list().firstOrNull {
+                it.name.equals(subName, ignoreCase = true)
+            }
+            val saved = withContext(Dispatchers.IO) {
+                if (existing != null) {
+                    userSubscriptionManager.update(
+                        existing.id,
+                        subName,
+                        CatWarpListPolicy.mergedInput(existing.input, uri, replaceAll),
+                    )
+                } else {
+                    userSubscriptionManager.add(subName, uri)
+                }
+            }
+            if (activateAetherEngine) {
+                userSubscriptionManager.select(saved.id)
+                // The new link is put first; drop an older picked entry so connect really uses the config just built.
+                connectionSelectionPreferenceStore.saveSelectedProfile(saved.id, null, userPick = true)
+                aetherPreferenceStore.save(selection.copy(enabled = true))
+                renderSubscriptions()
+                renderConnectionDetails(buttonModel.state)
+                renderConnectionSelection()
+                renderAdvancedControls()
+            } else {
+                renderSubscriptions()
+            }
+        }.onFailure { error ->
+            DiagnosticLogger.warn(this@saveAetherConfigIntoMainSubscriptionList, "aether.list.save", error.message.orEmpty(), error)
+        }
+        onSaved?.invoke()
+    }
+}
+
+/** Connects (or reconnects) after a Cat Warp config was written and selected. */
+internal fun MainActivity.connectCatWarpAfterSave() {
+    openScreen(SCREEN_HOME)
+    if (currentVpnServiceState == VpnState.Started) {
+        reconnectForConnectionOptionChange()
+    } else {
+        beginConnectFlow(Actions.CONNECT)
+    }
+}
+
+internal fun MainActivity.addSubscriptionFromClipboard() {
+    val rawClip = getSystemService(ClipboardManager::class.java).primaryClip
+        ?.takeIf { it.itemCount > 0 }
+        ?.getItemAt(0)
+        ?.coerceToText(this)
+        ?.toString()
+        ?.trim()
+        .orEmpty()
+    AetherSelection.fromAetherUri(rawClip)?.let { parsed ->
+        importAndConnectAetherSelection(parsed)
+        return
+    }
+    if (AmneziaVpnKey.extractKeys(rawClip).isNotEmpty()) {
+        previewAndImportAmneziaText(rawClip)
+        return
+    }
+    val source = normalizedSubscriptionSource(rawClip)
+    if (source == null) {
+        Toast.makeText(this, R.string.subscription_clipboard_empty, Toast.LENGTH_SHORT).show()
+    } else {
+        showAddSubscriptionDialog(source, scannedSubscriptionName(source).orEmpty())
+    }
+}
+
+internal fun MainActivity.importAndConnectAetherSelection(selection: AetherSelection) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val now = System.currentTimeMillis()
+    val peer = selection.endpoint ?: when {
+        selection.ipScan == "v6" && selection.mode == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+        selection.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+        selection.mode == AetherMode.WireGuard -> "162.159.192.1:2408"
+        else -> "162.159.198.1:443"
+    }
+    val innerPeer = selection.innerEndpoint ?: when (selection.mode) {
+        AetherMode.MasqueInMasque ->
+            if (peer.startsWith("[")) "[2606:4700:d0::a29f:c002]:443"
+            else if (peer.startsWith("162.159.198.1:")) "162.159.198.2:443"
+            else "162.159.198.1:443"
+        AetherMode.WarpInWarp ->
+            if (peer.startsWith("[")) "[2606:4700:d0::a29f:c002]:2408"
+            else if (peer.startsWith("162.159.192.1:")) "162.159.193.1:2408"
+            else "162.159.192.1:2408"
+        else -> null
+    }
+    val ready = selection.copy(
+        enabled = true,
+        endpoint = peer,
+        innerEndpoint = innerPeer,
+        endpointScannedAt = now,
+    )
+    aetherPreferenceStore.save(ready)
+    aetherPreferenceStore.saveNamedProfile(
+        AetherSavedProfile(
+            name = ready.profileName.ifBlank { "Cat Warp" },
+            mode = ready.mode,
+            ipScan = ready.ipScan,
+            endpoint = peer,
+            scannedAt = now,
+            chainTarget = ready.chainTarget,
+            exitLocation = ready.exitLocation,
+            psiphonRegion = ready.psiphonRegion,
+            masqueTransport = ready.masqueTransport,
+            innerEndpoint = innerPeer.orEmpty(),
+        ),
+    )
+    Toast.makeText(
+        this,
+        if (isFarsi) "🚀 کانفیگ Cat Warp «${ready.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
+        else "🚀 Cat Warp '${ready.profileName}' enabled — connecting directly in Cat Client…",
+        Toast.LENGTH_LONG,
+    ).show()
+    saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = false) {
+        connectCatWarpAfterSave()
+    }
+}
+
+internal fun MainActivity.showAddSubscriptionDialog(initialSource: String = "", initialName: String = "") =
+    showSubscriptionDialog(initialSource = initialSource, initialName = initialName)
+
+/** Undo HTML-entity escaping (&amp; …) that survives copy/paste from Telegram and web pages. */
+internal fun MainActivity.unescapeHtmlEntities(s: String): String = s
+    .replace("&amp;", "&")
+    .replace("&lt;", "<")
+    .replace("&gt;", ">")
+    .replace("&quot;", "\"")
+    .replace("&#39;", "'")
+    .replace("&apos;", "'")
+
+/**
+ * socks5/http link → panel FIXED EXIT (chain): every config the panel emits
+ * then leaves through this server (stable IP & country). Panel picker +
+ * pre-filled password, same as the scanner push.
+ */
+internal suspend fun MainActivity.pushChainToPanelSuspend(link: String) {
+    val base = withContext(Dispatchers.Main) { pickPanelBaseInteractive() }?.trim()?.trimEnd('/')
+    if (base.isNullOrBlank()) { Toast.makeText(this, R.string.pip_no_panel, Toast.LENGTH_LONG).show(); return }
+    val storedPass = runCatching { PanelCredentials.defaultPassword(this, base) }.getOrNull().orEmpty()
+    withContext(Dispatchers.Main) {
+        val input = TextInputEditText(this@pushChainToPanelSuspend).apply {
+            hint = getString(R.string.pip_password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            if (storedPass.isNotBlank()) setText(storedPass)
+        }
+        val box = LinearLayout(this@pushChainToPanelSuspend).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(input, LinearLayout.LayoutParams(-1, -2))
+        }
+        MaterialAlertDialogBuilder(this@pushChainToPanelSuspend)
+            .setTitle(getString(R.string.chain_push_title, base.removePrefix("https://")))
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.chain_push_btn) { d, _ ->
+                val password = input.text.toString()
+                d.dismiss()
+                activityScope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { pushChainToPanelApi(base, password, link) } }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@pushChainToPanelSuspend, result.fold({ getString(R.string.chain_push_ok, link) }, { getString(R.string.chain_push_fail, it.message ?: "?") }), Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+}
+
+internal fun MainActivity.pushChainToPanelApi(base: String, password: String, chain: String): Unit {
+    fun call(path: String, method: String, body: String?, cookie: String?): Pair<java.net.HttpURLConnection, String> {
+        val conn = java.net.URL("$base$path").openConnection() as java.net.HttpURLConnection
+        conn.requestMethod = method; conn.connectTimeout = 10_000; conn.readTimeout = 15_000; conn.instanceFollowRedirects = false
+        conn.setRequestProperty("Accept", "application/json")
+        if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+        if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json"); conn.outputStream.use { it.write(body.toByteArray()) } }
+        val stream = if (conn.responseCode < 400) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+        return conn to stream.bufferedReader().readText()
+    }
+    val (login, loginBody) = call("/api/login", "POST", PanelCredentials.loginPayload(applicationContext, base, password).toString(), null)
+    if (login.responseCode != 200 || !org.json.JSONObject(loginBody).optBoolean("ok")) throw IllegalStateException(getString(R.string.pip_wrong_password))
+    val cookie = login.headerFields.entries.filter { it.key.equals("set-cookie", true) }.flatMap { it.value }.joinToString("; ") { it.substringBefore(';') }
+    login.disconnect()
+    val (put, putBody) = call("/api/settings", "PUT", org.json.JSONObject().put("chain", chain).toString(), cookie)
+    val ok = put.responseCode == 200 && org.json.JSONObject(putBody).optBoolean("ok")
+    put.disconnect()
+    if (!ok) throw IllegalStateException("HTTP ${put.responseCode}")
+}
+
+internal fun MainActivity.showEditSubscriptionDialog(item: UserSubscription) = showSubscriptionDialog(item)
+
+internal fun MainActivity.testSubscription(item: UserSubscription) {
+    runSubscriptionAction(getString(R.string.subscription_testing, item.name)) {
+        val imported = userSubscriptionManager.test(item.input)
+        getString(R.string.subscription_found, connectionCountLabel(imported.connectionCount))
+    }
+}
+
+internal fun MainActivity.refreshSubscription(item: UserSubscription) {
+    runSubscriptionAction(
+        startMessage = getString(R.string.subscription_refreshing, item.name),
+        refreshProfiles = item.id == userSubscriptionManager.selectedId(),
+    ) {
+        val refreshed = userSubscriptionManager.refresh(item.id)
+        getString(R.string.subscription_refreshed, connectionCountLabel(refreshed.connectionCount))
+    }
+}
+
+internal fun MainActivity.refreshBuiltInSubscription(subscriptionId: String, name: String) {
+    runSubscriptionAction(
+        startMessage = getString(R.string.subscription_refreshing, name),
+        refreshProfiles = userSubscriptionManager.selectedId() == subscriptionId,
+    ) {
+        val refreshed = ConfigRepository(this@refreshBuiltInSubscription).refreshBuiltInMihomoConfig(subscriptionId)
+        getString(R.string.subscription_refreshed, connectionCountLabel(refreshed.catalog.profiles.size))
+    }
+}
+
+internal fun MainActivity.runSubscriptionAction(
+    startMessage: String,
+    refreshProfiles: Boolean = false,
+    action: suspend () -> String,
+) {
+    Toast.makeText(this, startMessage, Toast.LENGTH_SHORT).show()
+    activityScope.launch {
+        val result = runCatching { withContext(Dispatchers.IO) { action() } }
+        renderSubscriptions()
+        if (result.isSuccess && refreshProfiles) refreshLocationOptions()
+        result.onSuccess { message -> Toast.makeText(this@runSubscriptionAction, message, Toast.LENGTH_SHORT).show() }
+            .onFailure { error ->
+                Toast.makeText(
+                    this@runSubscriptionAction,
+                    localizedError(error, R.string.subscription_operation_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+    }
+}
+
+internal fun MainActivity.collectVerifiedEndpointsForFailover(nowMs: Long = System.currentTimeMillis()): List<VerifiedEndpoint> {
+    val out = ArrayList<VerifiedEndpoint>()
+    IpHealthStore(this).entries()
+        .filter { it.fails == 0 && it.port in 1..65535 }
+        .forEach { e ->
+            val cleanHost = e.ip.removePrefix("[").removeSuffix("]")
+            val family = when {
+                cleanHost.contains(':') -> EndpointFamily.IPV6
+                Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+                else -> EndpointFamily.DOMAIN
+            }
+            runCatching {
+                out += VerifiedEndpoint(
+                    host = cleanHost,
+                    port = e.port,
+                    role = EndpointRole.CLEAN_IP,
+                    family = family,
+                    verdict = EndpointVerdict.VERIFIED,
+                    checkedAtMs = nowMs,
+                    latencyMs = e.pingMs.takeIf { it > 0L },
+                    countryCode = e.countryCode?.takeIf(String::isNotBlank),
+                    source = "ip-health",
+                )
+            }
+        }
+    frontingIps.forEach { raw ->
+        val parsed = runCatching { FrontingIpPolicy.parseEndpoint(raw) }.getOrNull() ?: return@forEach
+        val port = parsed.port ?: return@forEach
+        val cleanHost = parsed.ip.removePrefix("[").removeSuffix("]")
+        val family = when {
+            cleanHost.contains(':') -> EndpointFamily.IPV6
+            Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$").matches(cleanHost) -> EndpointFamily.IPV4
+            else -> EndpointFamily.DOMAIN
+        }
+        runCatching {
+            out += VerifiedEndpoint(
+                host = cleanHost,
+                port = port,
+                role = EndpointRole.CLEAN_IP,
+                family = family,
+                verdict = EndpointVerdict.VERIFIED,
+                checkedAtMs = nowMs,
+                source = "fronting-ip",
+            )
+        }
+    }
+    val orderedClean = VerifiedEndpointSelection.subscriptionEntries(out, nowMs, 86_400_000L)
+    val combined = ArrayList<VerifiedEndpoint>(orderedClean.size + 64)
+    combined += orderedClean
+    combined += VerifiedProxyIpStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
+    combined += VerifiedRelayStore(this).verifiedEndpoints(nowMs).map { it.copy(checkedAtMs = nowMs) }
+    return combined.distinctBy { Triple(it.role, it.host.lowercase(), it.port) }
+}
+
+internal fun MainActivity.rotateProfileRouteInSubscription(
+    subscriptionId: String,
+    profile: ConnectionProfile,
+    preferProxyIp: Boolean = false,
+): Pair<ConnectionProfile, Pair<String, String>>? {
+    val link = profile.shareLink?.takeIf(String::isNotBlank) ?: return null
+    val nowMs = System.currentTimeMillis()
+    val candidates = collectVerifiedEndpointsForFailover(nowMs)
+    val maxAgeMs = 86_400_000L
+    val (rebuiltUri, failoverResult) = VerifiedConfigFailover.failoverUriWithResult(
+        rawUri = link,
+        candidates = candidates,
+        nowMs = nowMs,
+        maxAgeMs = maxAgeMs,
+        preferProxyIp = preferProxyIp,
+    ) ?: return null
+    val updatedProfile = userSubscriptionManager.replaceProfileShareLink(
+        subscriptionId = subscriptionId,
+        targetTag = profile.tag,
+        updatedShareLink = rebuiltUri,
+        nowMs = nowMs,
+    ) ?: return null
+    val beforeLabel = failoverResult.previousAuthority.ifBlank { "${profile.server}:${profile.port}" }
+    val afterLabel = failoverResult.selectedAuthority.ifBlank { "${updatedProfile.server}:${updatedProfile.port}" }
+    return updatedProfile to (beforeLabel to afterLabel)
+}
+
+/**
+ * Long-press menu on a connection row: copy / QR / share the `vless://`-style form of that one
+ * connection, so a single working config can be moved to v2rayNG, V2Box, Streisand, etc.
+ */
+internal fun MainActivity.showConnectionShareMenu(
+    anchor: View,
+    profile: ConnectionProfile,
+    onRotateAndRetest: ((preferProxyIp: Boolean) -> Unit)? = null,
+    subscriptionId: String? = null,
+) {
+    val link = profile.shareLink?.takeIf(String::isNotBlank)
+    if (link == null) {
+        Toast.makeText(this, R.string.connection_share_unavailable, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val catWarpRow = CatWarpListPolicy.isCatWarpLink(link)
+    val plainLocalRow = LoopbackProfileGuard.isPlainLoopback(profile.type, profile.server, link)
+    catClientPopupMenu(anchor).apply {
+        // beta214: Cat Warp rows get the endpoint scan and the editor here (users looked for it on the row).
+        if (catWarpRow) {
+            menu.add(if (isFarsi) "🔍 اسکن اندپوینت (پیدا کردن IP سالم روی خط شما)" else "🔍 Endpoint scan (find a working IP on your line)")
+                .setOnMenuItemClickListener {
+                    openCatWarpEditorForLink(subscriptionId, link, autoScan = true)
+                    true
+                }
+            menu.add(if (isFarsi) "✏️ ویرایش این کانفیگ Cat Warp" else "✏️ Edit this Cat Warp config")
+                .setOnMenuItemClickListener {
+                    openCatWarpEditorForLink(subscriptionId, link, autoScan = false)
+                    true
+                }
+        }
+        if (plainLocalRow) {
+            menu.add(if (isFarsi) "ℹ️ چرا این ردیف وصل نمی‌شود؟" else "ℹ️ Why does this row not connect?")
+                .setOnMenuItemClickListener {
+                    showDeadLocalRowExplanation(profile)
+                    true
+                }
+        }
+        // Route / ProxyIP switching rewrites a server IP:port — it has no effect on Cat Warp or local rows.
+        if (onRotateAndRetest != null && !catWarpRow && !plainLocalRow && !LoopbackProfileGuard.isLoopbackHost(profile.server)) {
+            menu.add(R.string.connection_action_change_route).setOnMenuItemClickListener {
+                onRotateAndRetest(false)
+                true
+            }
+            menu.add(R.string.connection_action_change_proxyip).setOnMenuItemClickListener {
+                onRotateAndRetest(true)
+                true
+            }
+        }
+        menu.add(R.string.subscription_action_copy_link).setOnMenuItemClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", link))
+            Toast.makeText(this@showConnectionShareMenu, R.string.free_copied, Toast.LENGTH_SHORT).show()
+            true
+        }
+        menu.add(R.string.subscription_action_qr).setOnMenuItemClickListener {
+            showConfigQrCodes(listOf(link), profile.displayTag)
+            true
+        }
+        menu.add(R.string.subscription_action_share).setOnMenuItemClickListener {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, profile.displayTag)
+                putExtra(Intent.EXTRA_TEXT, link)
+            }
+            runCatching { startActivity(Intent.createChooser(send, profile.displayTag)) }
+                .onFailure {
+                    Toast.makeText(this@showConnectionShareMenu, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show()
+                }
+            true
+        }
+        show()
+    }
+}
+
+internal fun MainActivity.subscriptionLink(item: UserSubscription): String = item.input.trim()
+
+internal fun MainActivity.copySubscriptionLink(item: UserSubscription) {
+    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("subscription", subscriptionLink(item)))
+    Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
+}
+
+internal fun MainActivity.shareSubscriptionLink(item: UserSubscription) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, item.name)
+        putExtra(Intent.EXTRA_TEXT, subscriptionLink(item))
+    }
+    runCatching { startActivity(Intent.createChooser(send, item.name)) }
+        .onFailure { Toast.makeText(this, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show() }
+}
+
+/**
+ * Hands the subscription to another installed client through its URL scheme
+ * (the same standard deep-link schemes used by common client pages). Falls back to copying the link.
+ */
+internal fun MainActivity.openSubscriptionInApp(item: UserSubscription, app: String) {
+    val link = subscriptionLink(item)
+    val encoded = Uri.encode(link)
+    val name = Uri.encode(item.name)
+    val target = when (app) {
+        "v2rayng" -> "v2rayng://install-sub?url=$encoded&name=$name"
+        "v2box" -> "v2box://install-sub?url=$encoded&name=$name"
+        "hiddify" -> "hiddify://import/$link#${item.name}"
+        else -> return
+    }
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val launched = runCatching { startActivity(intent); true }.getOrDefault(false)
+    if (!launched) {
+        copySubscriptionLink(item)
+        Toast.makeText(this, getString(R.string.subscription_app_missing, app), Toast.LENGTH_LONG).show()
+    }
+}
+
+/** Cat Panel per-user pages live at /info/<token>; other panels get the plain link. */
+internal fun MainActivity.openSubscriptionInfoPage(item: UserSubscription) {
+    val link = subscriptionLink(item)
+    val info = Regex("^(https://[^/]+)/u/([^/?#]+)").find(link)
+        ?.let { "${it.groupValues[1]}/info/${it.groupValues[2]}" }
+        ?: link.substringBefore('#').let { if (it.contains('?')) "$it&web=1" else "$it?web=1" }
+    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info))) }
+        .onFailure { copySubscriptionLink(item) }
+}
+
+internal fun MainActivity.confirmDeleteSubscription(item: UserSubscription) {
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(getString(R.string.subscription_delete_title, item.name))
+        .setMessage(R.string.subscription_delete_message)
+        .setNegativeButton(R.string.split_tunnel_cancel, null)
+        .setPositiveButton(R.string.subscription_action_delete) { _, _ ->
+            userSubscriptionManager.delete(item.id)
+            renderSubscriptions()
+            refreshLocationOptions()
+        }
+        .create()
+    dialog.showCatClientDialog(positiveColor = ERROR)
+}
+
+internal fun MainActivity.onSubscriptionSelected() {
+    val selectedId = SubscriptionStore(this).readSelectedSubscriptionId()
+    val cachedCatalog = if (SubscriptionStore.isBuiltInSubscription(selectedId)) {
+        SubscriptionStore(this).readCatalog(selectedId)
+    } else {
+        userSubscriptionManager.cachedSnapshot(selectedId)?.catalog
+    }
+    val firstShare = cachedCatalog?.profiles?.firstOrNull()?.shareLink.orEmpty()
+    val allAether = cachedCatalog != null &&
+        cachedCatalog.profiles.isNotEmpty() &&
+        cachedCatalog.profiles.all {
+            val link = it.shareLink.orEmpty()
+            link.startsWith("aether://", ignoreCase = true) || link.startsWith("masque://", ignoreCase = true)
+        }
+    val currentAether = aetherPreferenceStore.read()
+    if (allAether) {
+        AetherSelection.fromAetherUri(firstShare)?.let { parsed ->
+            aetherPreferenceStore.save(parsed.copy(enabled = true))
+            renderAdvancedControls()
+        }
+    } else if (currentAether.enabled) {
+        aetherPreferenceStore.save(currentAether.copy(enabled = false))
+        renderAdvancedControls()
+    }
+    locationPreferenceStore.clearSelectedCountry()
+    if (cachedCatalog != null) {
+        updateLocationOptions(cachedCatalog.profiles, resetMissingSelection = true)
+    }
+    renderSubscriptions()
+    renderConnectionDetails(buttonModel.state)
+    renderConnectionSelection()
+    refreshLocationOptions()
+    if (buttonModel.state == VpnState.Started) {
+        buttonModel.onStateChanged(VpnState.Starting)
+        renderState(VpnState.Starting)
+        startVpnService(Actions.RECONNECT)
+    }
+}
+
+internal fun MainActivity.connectionCountLabel(count: Int): String =
+    resources.getQuantityString(R.plurals.connection_count, count, count)
+
+internal fun MainActivity.localizedSubscriptionError(error: String): String = when {
+    error.isBlank() -> ""
+    else -> getString(R.string.subscription_operation_failed)
+}
+
+internal fun MainActivity.selectedSubscriptionName(): String {
+    val store = SubscriptionStore(this)
+    val selectedId = store.readSelectedSubscriptionId()
+    return store.readUserSubscription(selectedId)?.name ?: builtInSubscriptionName(selectedId)
+}
+
+internal fun MainActivity.builtInSubscriptionName(id: String): String = getString(
+    if (id == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID) {
+        R.string.subscription_public_name
+    } else {
+        R.string.subscription_private_name
+    },
+)
+
+internal fun MainActivity.showSubscriptionSelectorMenu(anchor: View) {
+    val subscriptions = SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.map {
+        it to builtInSubscriptionName(it)
+    } + userSubscriptionManager.list().map { it.id to it.name }
+    val selectedId = userSubscriptionManager.selectedId()
+    catClientPopupMenu(anchor).apply {
+        subscriptions.forEachIndexed { index, (id, name) ->
+            menu.add(0, SUBSCRIPTION_ITEM_ID_BASE + index, index, name).apply {
+                isCheckable = true
+                isChecked = id == selectedId
+            }
+        }
+        menu.setGroupCheckable(0, true, true)
+        setOnMenuItemClickListener { item ->
+            val subscriptionId = subscriptions[item.itemId - SUBSCRIPTION_ITEM_ID_BASE].first
+            if (subscriptionId != selectedId) {
+                userSubscriptionManager.select(subscriptionId)
+                onSubscriptionSelected()
+            }
+            true
+        }
+    }.show()
 }

@@ -1195,3 +1195,126 @@ internal fun MainActivity.connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) 
         }
     }
 }
+
+// ---- moved from MainActivity.kt in beta221 (code split phase 2) ----
+
+internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit = {}) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    // Free (unlocked) locations first; locked ones answer 403 for a free account and fall back to «Recommended».
+    val countries = FirefoxVpnEngine.getAvailableCountries(this).let { all ->
+        all.filter { !it.locked } + all.filter { it.locked }
+    }
+    val codes = listOf(FirefoxVpnEngine.COUNTRY_FASTEST) + countries.map { it.code }
+    val labels = buildList {
+        add(
+            if (isFarsi) "⚡ سریع‌ترین کشور خودکار (تست پینگ لحظه‌ای هنگام اتصال)"
+            else "⚡ Fastest Country Automatically (Live Ping on Connect)",
+        )
+        countries.forEach { c ->
+            val name = if (isFarsi) c.nameFa else c.nameEn
+            val tag = when {
+                !c.locked -> if (isFarsi) "✅ رایگان" else "✅ free"
+                isFarsi -> "🔒 قفل برای حساب رایگان (خودکار میره رو پیشنهادی)"
+                else -> "🔒 locked for free accounts (falls back to Recommended)"
+            }
+            add("${c.flag} $name · $tag · ${c.exactEndpoint}")
+        }
+    }.toTypedArray()
+    val currentCode = FirefoxVpnEngine.readSelectedCountryCode(this)
+    val checkedIdx = codes.indexOfFirst { it.equals(currentCode, ignoreCase = true) }.coerceAtLeast(0)
+
+    MaterialAlertDialogBuilder(this)
+        .setTitle(
+            if (isFarsi) "🌍 انتخاب کشور Cat Fox VPN — ${countries.count { !it.locked }} کشور رایگان از ${countries.size}"
+            else "🌍 Cat Fox VPN country — ${countries.count { !it.locked }} free of ${countries.size}",
+        )
+        .setSingleChoiceItems(labels, checkedIdx) { dlg, idx ->
+            dlg.dismiss()
+            val chosenCode = codes[idx]
+            FirefoxVpnEngine.saveSelectedCountryCode(this, chosenCode)
+            onChanged()
+            Toast.makeText(
+                this,
+                if (isFarsi) "✅ کشور Cat Fox VPN روی «${labels[idx].substringBefore(" ·")}» تنظیم شد"
+                else "✅ Cat Fox VPN country set to '${labels[idx].substringBefore(" ·")}'",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+        .setNeutralButton(if (isFarsi) "🔄 دریافت آخرین لیست سرورهای موزیلا" else "🔄 Sync Mozilla Servers") { _, _ ->
+            activityScope.launch {
+                val synced = withContext(Dispatchers.IO) {
+                    FirefoxVpnEngine.syncRemoteSettingsCountries(this@showFirefoxCountryPickerDialog)
+                }
+                onChanged()
+                Toast.makeText(
+                    this@showFirefoxCountryPickerDialog,
+                    if (isFarsi) "✅ لیست ${synced.size} کشور از سرور موزیلا بروزرسانی شد"
+                    else "✅ Synced ${synced.size} countries from Mozilla Remote Settings",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+        .setNegativeButton(android.R.string.cancel, null)
+        .create()
+        .showCatClientDialog()
+}
+
+internal fun MainActivity.showFirefoxTokenImportDialog(onChanged: () -> Unit = {}) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val labelInput = EditText(this).apply {
+        hint = if (isFarsi) "نام یا ایمیل دلخواه (مثلاً اکانت ۱)" else "Label or Email (e.g. Account 1)"
+        setSingleLine(true)
+    }
+    val tokenInput = EditText(this).apply {
+        hint = if (isFarsi) "توکن Refresh / Access / ProxyPass JWT (eyJ...) یا JSON" else "Refresh/Access Token, ProxyPass JWT (eyJ...) or JSON"
+        minLines = 3
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    val box = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(10), dp(20), dp(4))
+        addView(labelInput)
+        addView(tokenInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+    }
+
+    MaterialAlertDialogBuilder(this)
+        .setTitle(
+            if (isFarsi) "🔑 افزودن سریع حساب با توکن یا JSON"
+            else "🔑 Quick Add Account via Token or JSON",
+        )
+        .setMessage(
+            if (isFarsi) "اگر توکن حساب فایرفاکس را از مرورگر فایرفاکس کپی کرده‌اید، اینجا قرار دهید تا بلافاصله ۵۰ گیگابایت فعال شود:"
+            else "Paste your Firefox OAuth token, ProxyPass JWT (eyJ...), or account JSON:",
+        )
+        .setView(box)
+        .setNegativeButton(android.R.string.cancel, null)
+        .setPositiveButton(if (isFarsi) "💾 ذخیره و فعال‌سازی" else "💾 Save & Activate") { _, _ ->
+            val label = labelInput.text?.toString()?.trim().orEmpty()
+            val raw = tokenInput.text?.toString()?.trim().orEmpty()
+            if (raw.isEmpty()) {
+                Toast.makeText(
+                    this,
+                    if (isFarsi) "لطفاً توکن را وارد کنید" else "Please paste the token",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                return@setPositiveButton
+            }
+            activityScope.launch {
+                val added = withContext(Dispatchers.IO) {
+                    FirefoxVpnEngine.addAccountFromTokenOrJson(this@showFirefoxTokenImportDialog, label, raw)
+                }
+                if (added != null) {
+                    onChanged()
+                    Toast.makeText(
+                        this@showFirefoxTokenImportDialog,
+                        if (isFarsi) "✅ حساب «${added.email}» اضافه شد (${FirefoxVpnEngine.formatQuotaSummaryFa(added)})"
+                        else "✅ Added '${added.email}' (${FirefoxVpnEngine.formatQuotaSummaryEn(added)})",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
+        .create()
+        .showCatClientDialog()
+}
