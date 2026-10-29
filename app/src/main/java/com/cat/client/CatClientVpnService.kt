@@ -686,7 +686,10 @@ class CatClientVpnService : VpnService() {
         switchRequestedByUser: Boolean = false,
     ) {
         if (subscriptionId.isBlank() || fingerprint.isBlank()) return
-        if (switchRequestedByUser) realCheckHopPending = true // a route the user picks is always measured
+        if (switchRequestedByUser) {
+            realCheckHopPending = true // a route the user picks is always measured …
+            realCheckSessionAutomatic = false // … and never replaced behind their back
+        }
         if (state != VpnState.Started) {
             DiagnosticLogger.info(this, "connection.switch.ignored", "reason=state state=${state.wireName}")
             return
