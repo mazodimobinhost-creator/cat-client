@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta214] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app (Cat Warp)
+- **One config for the chosen country.** Every Cat Warp build (direct connect, «🤖 اسکن و ساخت خودکار», MASQUE-in-MASQUE build, «➕ افزودن», the quick country chips DE/NL/US/FI/GB) used to be merged in front of the old lines of «⚡ Cat Warp Configs» (up to 24), so the list filled with «United States · Warp», «Germany · Warp», … and Automatic could start any of them. Builders now leave exactly **one** config — the one just built; only a link pasted from elsewhere is still added next to the others.
+- **Connect really uses the config just built.** The save into the list ran in the background while connect started at once, so the previously selected list (or an old picked row) could win. Connect now starts only after the config is written and its list selected. The wizard result is now also written into the list (it was kept only in the settings), and «ذخیره و اتصال» in the Cat Warp editor now really connects (it only saved) with the edited config first.
+- **Rows that only point at another app's local proxy.** A row such as «Cat · Germany · Local · SOCKS5 127.0.0.1:10819» (a socks inbound copied out of another app's JSON config) has no server; with nothing listening on that port the Cat core failed with «Local Cat core proxy did not pass health check at 127.0.0.1:2080». Such rows are now explained in plain words (new fault «این ردیف سرور ندارد»), left out of the Automatic Cat Warp decision, get «ℹ️ چرا این ردیف وصل نمی‌شود؟» in their long-press menu, and are no longer created when such a JSON is imported (real servers in the same JSON are kept).
+
+### Added — app
+- **Endpoint scan on the row.** Long-press a Cat Warp row → «🔍 اسکن اندپوینت» (opens the Cat Warp editor and starts the scan on your line) or «✏️ ویرایش این کانفیگ Cat Warp». Rows of a remote list are copied into «⚡ Cat Warp Configs» first. The Cat Warp card got a direct «🔍 اسکن اندپوینت و ویرایش کانفیگ Cat Warp» button. Route / ProxyIP switching (which rewrites a server IP:port and does nothing for Cat Warp or local rows) is no longer offered on those rows.
+
+### Tests
+- `Beta214CatWarpListTest` (one-config list, merge of pasted links, line lookup, local-row detection, listening probe, fault text) and `Beta214CatWarpWiringTest`.
+
 ## [1.10.0-beta213] — 2026-10-29 (Panel 6.77.3)
 
 ### Fixed — app

@@ -10,6 +10,7 @@ internal object ConnectionFaultExplainer {
 
     enum class Cause {
         PortBusy,
+        LocalProxyMissing,
         Config,
         Certificate,
         Reality,
