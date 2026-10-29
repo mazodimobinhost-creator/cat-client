@@ -1982,10 +1982,22 @@ object MihomoConnectionOptionsPatcher {
 }
 
 object MihomoDpiBypassPatcher {
+    /**
+     * beta220: `finalMask=tlshello-…` (the Irancell «F&F» recipe) is an Xray TLS-ClientHello fragmentation option.
+     * The Cat core (mihomo v1.19.30) has no such field — its option decoder silently ignores unknown keys, so the
+     * `final-mask` line in the YAML did nothing. Those proxies are now dialled through the app's own fragmenting
+     * proxy (ByeByeDPI, carrier preset), which is what the recipe asks for. Other proxies are left alone.
+     */
+    private val TLS_HELLO_FINAL_MASK = Regex("""(?im)(?:^|[\s{,])final-mask\s*:\s*['"]?tlshello""")
+
+    fun hasTlsHelloFinalMask(yaml: String): Boolean = TLS_HELLO_FINAL_MASK.containsMatchIn(yaml)
+
     fun patch(
         rawYaml: String,
         enabled: Boolean,
         proxyPort: Int = DpiBypassDefaults.FALLBACK_PROXY_PORT,
+        /** Only proxies that carry `final-mask: tlshello…` are fragmented (the user did not switch DPI bypass on). */
+        finalMaskOnly: Boolean = false,
     ): String {
         if (!enabled) return rawYaml
         val normalized = rawYaml.replace("\r\n", "\n").replace('\r', '\n')
@@ -2002,7 +2014,8 @@ object MihomoDpiBypassPatcher {
                 output += dpiProxyBlock(proxyPort)
             } else if (
                 MihomoFrontingPatcher.hasEchEnabled(currentProxy) ||
-                MihomoFrontingPatcher.isLoopbackProxyBlock(currentProxy)
+                MihomoFrontingPatcher.isLoopbackProxyBlock(currentProxy) ||
+                (finalMaskOnly && !hasTlsHelloFinalMask(currentProxy.joinToString("\n")))
             ) {
                 output += currentProxy
             } else {

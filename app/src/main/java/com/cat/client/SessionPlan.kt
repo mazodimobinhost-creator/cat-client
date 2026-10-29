@@ -47,6 +47,8 @@ internal data class SessionPlanRequest(
     val validateConnectivity: Boolean,
     val dpiBypassEnabled: Boolean,
     val dpiBypassPort: Int?,
+    /** beta220: DPI bypass runs only for proxies with `final-mask: tlshello…` (see MihomoDpiBypassPatcher). */
+    val dpiBypassFinalMaskOnly: Boolean = false,
     val forcedProxyName: String? = null,
     val excludedProfileFingerprint: String = "",
     val allowAutomaticBridge: Boolean = true,
@@ -104,6 +106,7 @@ internal object SessionPlanner {
             rawYaml = optionsYaml,
             enabled = request.dpiBypassEnabled,
             proxyPort = request.dpiBypassPort ?: DpiBypassDefaults.FALLBACK_PROXY_PORT,
+            finalMaskOnly = request.dpiBypassFinalMaskOnly,
         )
         val automaticSelections = MihomoSelectionPolicy.desiredSelections(
             request.snapshot.summary,

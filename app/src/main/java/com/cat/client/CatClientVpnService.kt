@@ -2575,7 +2575,12 @@ class CatClientVpnService : VpnService() {
         excludedProfileFingerprint: String = "",
         quickSpeedRequested: Boolean = false,
     ): StartedMihomoRuntime {
-        val dpiBypassEnabled = forcedProxyName == null && preferences.dpiBypassEnabled
+        // beta220: the core ignores Xray's `finalMask=tlshello…`; honour it with our fragmenting proxy for exactly
+        // those proxies, even when the user left the global DPI bypass off.
+        val finalMaskOnly = forcedProxyName == null && !preferences.dpiBypassEnabled &&
+            MihomoDpiBypassPatcher.hasTlsHelloFinalMask(snapshot.rawConfig)
+        if (finalMaskOnly) DiagnosticLogger.info(this, "dpiBypass.finalMask", "tlshello proxies fragmented by the local proxy")
+        val dpiBypassEnabled = forcedProxyName == null && (preferences.dpiBypassEnabled || finalMaskOnly)
         val request = SessionPlanRequest(
             snapshot = snapshot,
             splitTunnelPlan = splitTunnelPlan,
@@ -2599,6 +2604,7 @@ class CatClientVpnService : VpnService() {
                 request = request.copy(
                     dpiBypassEnabled = dpiEnabled,
                     dpiBypassPort = dpiPort,
+                    dpiBypassFinalMaskOnly = dpiEnabled && finalMaskOnly,
                     allowAutomaticBridge = allowAutomaticBridge,
                 ),
                 preferences = preferences,
