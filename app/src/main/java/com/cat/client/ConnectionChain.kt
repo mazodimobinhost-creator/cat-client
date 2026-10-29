@@ -547,15 +547,35 @@ object ConnectionChainPlanner {
         }.distinct().sorted()
     }.getOrDefault(emptyList())
 
+    // beta217: the connection list asked for these on the main thread every time it opened, and each call parsed
+    // the whole subscription YAML again (thousands of proxies → a visible freeze when opening/selecting a config).
+    // The parsed blocks are kept for the last raw config seen; a changed subscription is a different string.
+    private val blocksMemoLock = Any()
+    private var blocksMemoKey: String? = null
+    private var blocksMemo: Map<String, MihomoProxyBlock> = emptyMap()
+
+    private fun blocksByName(rawConfig: String): Map<String, MihomoProxyBlock> {
+        synchronized(blocksMemoLock) {
+            val key = blocksMemoKey
+            if (key != null && (key === rawConfig || (key.length == rawConfig.length && key == rawConfig))) return blocksMemo
+        }
+        val parsed = MihomoProxyBlockParser.parse(rawConfig).associateBy(MihomoProxyBlock::name)
+        synchronized(blocksMemoLock) {
+            blocksMemoKey = rawConfig
+            blocksMemo = parsed
+        }
+        return parsed
+    }
+
     fun selectableFingerprints(snapshot: MihomoSubscriptionSnapshot): Set<String> = runCatching {
-        val blocks = MihomoProxyBlockParser.parse(snapshot.rawConfig).associateBy(MihomoProxyBlock::name)
+        val blocks = blocksByName(snapshot.rawConfig)
         snapshot.catalog.profiles.mapNotNullTo(mutableSetOf()) { profile ->
             profile.fingerprint.takeIf { resolveProxyChain(profile.tag, blocks) != null }
         }
     }.getOrDefault(emptySet())
 
     fun udpSupportByFingerprint(snapshot: MihomoSubscriptionSnapshot): Map<String, Boolean> = runCatching {
-        val blocks = MihomoProxyBlockParser.parse(snapshot.rawConfig).associateBy(MihomoProxyBlock::name)
+        val blocks = blocksByName(snapshot.rawConfig)
         snapshot.catalog.profiles.mapNotNull { profile ->
             blocks[profile.tag]?.let { block -> profile.fingerprint to block.supportsUdpDialing }
         }.toMap()

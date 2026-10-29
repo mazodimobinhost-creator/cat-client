@@ -124,7 +124,28 @@ class ZedWorldMapView(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        pulseAnimator.start(); breatheAnimator.start()
+        syncLoops()
+    }
+
+    // beta217: pulse/breathe loops run only while the map is on screen (they ran behind every other tab).
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        syncLoops()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        syncLoops()
+    }
+
+    private fun syncLoops() {
+        if (isAttachedToWindow && isShown) {
+            if (!pulseAnimator.isStarted) pulseAnimator.start()
+            if (!breatheAnimator.isStarted) breatheAnimator.start()
+        } else {
+            if (pulseAnimator.isStarted) pulseAnimator.cancel()
+            if (breatheAnimator.isStarted) breatheAnimator.cancel()
+        }
     }
 
     override fun onDetachedFromWindow() {

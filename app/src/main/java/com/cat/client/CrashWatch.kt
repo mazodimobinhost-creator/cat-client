@@ -129,6 +129,7 @@ object CrashWatch {
         val trimmed = text.take(20_000)
         runCatching { crashFile(context).writeText(trimmed) }
         runCatching { DiagnosticLogger.error(context, "crash.uncaught", trimmed.take(400)) }
+        runCatching { DiagnosticLogger.flush() }
         exportCrash(context, trimmed)
     }
 

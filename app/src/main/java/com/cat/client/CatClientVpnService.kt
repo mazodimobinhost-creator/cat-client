@@ -2105,6 +2105,34 @@ class CatClientVpnService : VpnService() {
         preferences: SessionPlanPreferences,
         availableProfiles: List<ConnectionProfile>,
     ): Pair<StartedMihomoRuntime, String?> {
+        val frontingNetworkKey = networkMonitor.currentDefaultNetwork().quickSpeedNetworkFingerprint()
+        if (FrontingFailureMemory.shouldTryOriginalFirst(frontingNetworkKey, frontingIps)) {
+            DiagnosticLogger.info(
+                this,
+                "frontingIp.originalFirst",
+                "reason=frontingFailedRecentlyOnThisNetwork ips=${frontingIps.size}",
+            )
+            try {
+                return connectWithOriginal(
+                    snapshot = snapshot,
+                    splitTunnelPlan = splitTunnelPlan,
+                    selectedCountryCode = selectedCountryCode,
+                    preferences = preferences,
+                    availableProfiles = availableProfiles,
+                    excludedProfileFingerprint = exclusion.profileFingerprint,
+                ) to FRONTING_SKIPPED_NOTICE
+            } catch (error: Throwable) {
+                if (
+                    error is CancellationException ||
+                    error is MihomoCoreBusyException ||
+                    error is MihomoCoreSetupTimeoutException
+                ) {
+                    throw error
+                }
+                DiagnosticLogger.warn(this, "frontingIp.originalFirst.failed", "retry=frontingIps", error)
+                if (!stopCoreService()) throw MihomoCoreBusyException(error)
+            }
+        }
         return try {
             connectWithTopIpCandidates(
                 eventPrefix = eventPrefix,
@@ -2119,7 +2147,7 @@ class CatClientVpnService : VpnService() {
                 useCachedFirst = false,
                 preferences = preferences,
                 availableProfiles = availableProfiles,
-            ) to null
+            ).also { FrontingFailureMemory.frontingWorked(frontingNetworkKey, frontingIps) } to null
         } catch (error: Throwable) {
             if (
                 error is CancellationException ||
@@ -2137,6 +2165,7 @@ class CatClientVpnService : VpnService() {
                 availableProfiles = availableProfiles,
                 excludedProfileFingerprint = exclusion.profileFingerprint,
             )
+            FrontingFailureMemory.frontingFailedOriginalWorked(frontingNetworkKey, frontingIps)
             startedRuntime to FRONTING_FALLBACK_NOTICE
         }
     }
@@ -6183,6 +6212,8 @@ class CatClientVpnService : VpnService() {
         const val TUN_ESTABLISH_ATTEMPTS = 3
         const val TUN_ESTABLISH_RETRY_DELAY_MS = 250L
         const val FRONTING_FALLBACK_NOTICE = "None of the Fronting IPs were reachable. Used original connection."
+        const val FRONTING_SKIPPED_NOTICE =
+            "Fronting IPs failed on this network a moment ago, so the original connection was used first (faster)."
         const val SCAN_DIAGNOSTICS_ENABLED = true
         const val MIHOMO_TUN_STACK = "gvisor"
         const val MIHOMO_TUN_MTU = 9000

@@ -201,7 +201,31 @@ class ZedWavyProgressView(context: Context) : View(context) {
             phase = (phase + 0.045f) % 1f
             amplitude += (targetAmplitude - amplitude) * 0.08f
             invalidate()
+            if (targetAmplitude <= 0f && amplitude < 0.005f) {
+                amplitude = 0f
+                post { syncTicker() }
+            }
         }
+    }
+
+    // beta217: a flat line (no traffic) or a hidden view no longer redraws 60 times a second.
+    private fun syncTicker() {
+        val wantsFrames = isAttachedToWindow && isShown && (targetAmplitude > 0f || amplitude > 0f)
+        if (wantsFrames) {
+            if (!ticker.isStarted) ticker.start()
+        } else if (ticker.isStarted) {
+            ticker.cancel()
+        }
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        syncTicker()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        syncTicker()
     }
 
     /** Feed the current rate; 0 collapses the wave into a flat line. */
@@ -212,9 +236,10 @@ class ZedWavyProgressView(context: Context) : View(context) {
         targetAmplitude = fraction
         flowing = live && bytesPerSecond > 0L
         invalidate()
+        syncTicker()
     }
 
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); ticker.start() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); syncTicker() }
     override fun onDetachedFromWindow() { ticker.cancel(); super.onDetachedFromWindow() }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -263,8 +288,24 @@ class ZedRouteConnectorView(context: Context) : View(context) {
         duration = 1_800L; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
         addUpdateListener { travel = it.animatedValue as Float; invalidate() }
     }
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); ticker.start() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); syncTicker() }
     override fun onDetachedFromWindow() { ticker.cancel(); super.onDetachedFromWindow() }
+    // beta217: travels only while on screen.
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        syncTicker()
+    }
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        syncTicker()
+    }
+    private fun syncTicker() {
+        if (isAttachedToWindow && isShown) {
+            if (!ticker.isStarted) ticker.start()
+        } else if (ticker.isStarted) {
+            ticker.cancel()
+        }
+    }
     override fun onDraw(canvas: Canvas) {
         val d = resources.displayMetrics.density
         val y = height / 2f

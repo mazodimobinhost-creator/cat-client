@@ -105,7 +105,27 @@ class ZedBlobView(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (!ticker.isStarted) ticker.start()
+        syncTicker()
+    }
+
+    // beta217: the 60 fps breathing loop kept running while the home screen was hidden behind another tab,
+    // waking the main thread every frame; it now runs only while the view is actually on screen.
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        syncTicker()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        syncTicker()
+    }
+
+    private fun syncTicker() {
+        if (isAttachedToWindow && isShown) {
+            if (!ticker.isStarted) ticker.start()
+        } else if (ticker.isStarted) {
+            ticker.cancel()
+        }
     }
 
     override fun onDetachedFromWindow() {

@@ -143,12 +143,60 @@ internal fun replaceSubscriptionSnapshot(
     }
 }
 
+/**
+ * beta217: every tap that needed a subscription (select it, open its list, the picker…) read its YAML file again —
+ * up to a few MB, decoded and re-hashed on the main thread — before the parsed-snapshot memo could even answer.
+ * The text is kept for the few most recently used files and reused while the file's size and modification time are
+ * unchanged. Writes go through [writeSubscriptionTextAtomically], which refreshes the entry, so an edit is never
+ * served stale; returning the same String instance also lets the parsed memo reuse its cached hash.
+ */
+internal object SnapshotTextMemo {
+    private const val MAX_ENTRIES = 4
+
+    private class Slot(val length: Long, val modified: Long, val text: String)
+
+    private val slots = LinkedHashMap<String, Slot>(8, 0.75f, true)
+
+    fun read(file: File): String? {
+        if (!file.isFile) return null
+        val length = file.length()
+        if (length <= 0L) return null
+        val modified = file.lastModified()
+        synchronized(slots) {
+            slots[file.path]?.takeIf { it.length == length && it.modified == modified }?.let { return it.text }
+        }
+        val text = file.readText()
+        remember(file, length, modified, text)
+        return text
+    }
+
+    fun stored(file: File, text: String) {
+        if (!file.isFile) {
+            invalidate(file)
+            return
+        }
+        remember(file, file.length(), file.lastModified(), text)
+    }
+
+    fun invalidate(file: File) {
+        synchronized(slots) { slots.remove(file.path) }
+    }
+
+    private fun remember(file: File, length: Long, modified: Long, text: String) {
+        synchronized(slots) {
+            slots[file.path] = Slot(length, modified, text)
+            while (slots.size > MAX_ENTRIES) slots.remove(slots.keys.first())
+        }
+    }
+}
+
 internal fun writeSubscriptionTextAtomically(file: File, value: String) {
     val parent = file.parentFile
         ?: throw IOException("Subscription Snapshot file does not have a parent directory")
     if (!parent.isDirectory && !parent.mkdirs()) {
         throw IOException("Unable to create Subscription Snapshot directory")
     }
+    SnapshotTextMemo.invalidate(file)
     val temporary = File.createTempFile(".${file.name}.", ".tmp", parent)
     try {
         temporary.writeText(value)
@@ -166,6 +214,7 @@ internal fun writeSubscriptionTextAtomically(file: File, value: String) {
                 StandardCopyOption.REPLACE_EXISTING,
             )
         }
+        SnapshotTextMemo.stored(file, value)
     } finally {
         temporary.delete()
     }
@@ -188,7 +237,7 @@ internal class AndroidSubscriptionSnapshotAdapter(
             val file = builtInSnapshotFile(id)
             return SubscriptionSnapshotEntry(
                 source = managedSource(id),
-                cachedYaml = file.takeIf { it.isFile && it.length() > 0L }?.readText(),
+                cachedYaml = SnapshotTextMemo.read(file),
                 fetchedAt = store.readCatalog(id)?.fetchedAt
                     ?: file.lastModified().takeIf { it > 0L }
                     ?: 0L,

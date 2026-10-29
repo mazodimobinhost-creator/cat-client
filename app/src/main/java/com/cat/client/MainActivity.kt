@@ -2529,39 +2529,8 @@ class MainActivity : Activity() {
             setPadding(dp(8), dp(6), dp(8), dp(6))
             visibility = View.GONE
         }
-        fun updateLiveFormatBadge(rawText: String) {
-            val trimmed = rawText.trim()
-            if (trimmed.isEmpty()) {
-                liveFormatBadge.visibility = View.GONE
-                return
-            }
-            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
-                val hasAt = '@' in trimmed.substringAfter("://").substringBefore('/')
-                if (!hasAt) {
-                    liveFormatBadge.text = if (isFarsiSubDialog) {
-                        "🌐 لینک سابسکریپشن ابری تشخیص داده شد (آماده دانلود و اتصال)"
-                    } else {
-                        "🌐 Remote Subscription URL detected (Ready to fetch & connect)"
-                    }
-                    liveFormatBadge.visibility = View.VISIBLE
-                    return
-                }
-            }
-            if (CatFusionLink.isCatFusion(trimmed)) {
-                val fusedCount = CatFusionLink.decode(trimmed.lines().first().trim())?.size ?: 0
-                liveFormatBadge.text = when {
-                    fusedCount == 0 && isFarsiSubDialog -> "⚠️ لینک catfusion:// خراب یا ناقص است"
-                    fusedCount == 0 -> "⚠️ Broken catfusion:// link"
-                    isFarsiSubDialog -> "📤 تانل ترکیبی catfusion:// با $fusedCount کانفیگ (موازی + ضدقطع + سریع‌ترین)"
-                    else -> "📤 catfusion:// fused tunnel with $fusedCount configs"
-                }
-                liveFormatBadge.visibility = View.VISIBLE
-                if (nameInput.text.isNullOrBlank()) {
-                    CatFusionLink.title(trimmed)?.let { nameInput.setText(it.take(40)) }
-                }
-                return
-            }
-            val inspection = runCatching { SubConvConverter.inspectUniversalConfigInput(trimmed) }.getOrNull()
+        var liveFormatBadgeGeneration = 0
+        fun renderLiveFormatInspection(inspection: SubConvConverter.UniversalConfigInspection?) {
             if (inspection != null && inspection.totalCount > 0) {
                 val summary = inspection.formatCounts.entries.joinToString(" · ") { "${it.value}× ${it.key}" }
                 liveFormatBadge.text = if (isFarsiSubDialog) {
@@ -2578,6 +2547,52 @@ class MainActivity : Activity() {
                 }
             } else {
                 liveFormatBadge.visibility = View.GONE
+            }
+        }
+        fun updateLiveFormatBadge(rawText: String) {
+            val trimmed = rawText.trim()
+            if (trimmed.isEmpty()) {
+                liveFormatBadgeGeneration++
+                liveFormatBadge.visibility = View.GONE
+                return
+            }
+            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                val hasAt = '@' in trimmed.substringAfter("://").substringBefore('/')
+                if (!hasAt) {
+                    liveFormatBadge.text = if (isFarsiSubDialog) {
+                        "🌐 لینک سابسکریپشن ابری تشخیص داده شد (آماده دانلود و اتصال)"
+                    } else {
+                        "🌐 Remote Subscription URL detected (Ready to fetch & connect)"
+                    }
+                    liveFormatBadge.visibility = View.VISIBLE
+                    liveFormatBadgeGeneration++
+                    return
+                }
+            }
+            if (CatFusionLink.isCatFusion(trimmed)) {
+                liveFormatBadgeGeneration++
+                val fusedCount = CatFusionLink.decode(trimmed.lines().first().trim())?.size ?: 0
+                liveFormatBadge.text = when {
+                    fusedCount == 0 && isFarsiSubDialog -> "⚠️ لینک catfusion:// خراب یا ناقص است"
+                    fusedCount == 0 -> "⚠️ Broken catfusion:// link"
+                    isFarsiSubDialog -> "📤 تانل ترکیبی catfusion:// با $fusedCount کانفیگ (موازی + ضدقطع + سریع‌ترین)"
+                    else -> "📤 catfusion:// fused tunnel with $fusedCount configs"
+                }
+                liveFormatBadge.visibility = View.VISIBLE
+                if (nameInput.text.isNullOrBlank()) {
+                    CatFusionLink.title(trimmed)?.let { nameInput.setText(it.take(40)) }
+                }
+                return
+            }
+            // beta217: decoding a large paste took long enough to freeze typing; it now runs off the main thread
+            // and only the newest request is allowed to update the badge.
+            val generation = ++liveFormatBadgeGeneration
+            activityScope.launch {
+                val inspection = withContext(Dispatchers.Default) {
+                    runCatching { SubConvConverter.inspectUniversalConfigInput(trimmed) }.getOrNull()
+                }
+                if (generation != liveFormatBadgeGeneration) return@launch
+                renderLiveFormatInspection(inspection)
             }
         }
         val pasteClipboardBtn = MaterialButton(this).apply {
@@ -2609,15 +2624,12 @@ class MainActivity : Activity() {
                 }
             }
         }
-        sourceInput.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(e: android.text.Editable?) {
-                val txt = e?.toString().orEmpty()
+        sourceInput.addTextChangedListener(
+            DebouncedTextWatcher(sourceInput) { txt ->
                 chainPush.visibility = if (txt.trim().startsWith("socks5://")) View.VISIBLE else View.GONE
                 updateLiveFormatBadge(txt)
-            }
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
-        })
+            },
+        )
         updateLiveFormatBadge(sourceInput.text?.toString().orEmpty())
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3459,6 +3471,7 @@ class MainActivity : Activity() {
         renderFragmentCarrierLine()
         appUpdateUi.onResume()
         prewarmSubscriptionSnapshots()
+        runCatching { UiStallWatchdog.setActive(this, true) }
     }
 
     /**
@@ -3479,6 +3492,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        runCatching { UiStallWatchdog.setActive(this, false) }
         appUpdateUi.onPause()
         super.onPause()
     }
@@ -7933,13 +7947,7 @@ class MainActivity : Activity() {
             // The «منابع اسکن» counts are drawn from THIS box, so they must follow the
             // typing: a range the user just pasted has to show up as +24 candidates
             // immediately, otherwise the card answers the same question as the old screen.
-            addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(editable: android.text.Editable?) {
-                    renderScannerSources()
-                }
-            })
+            addTextChangedListener(DebouncedTextWatcher(this, delayMs = 300L) { renderScannerSources() })
         }
         controls.addView(
             scannerFieldLayout(getString(R.string.scanner_subnets_label), scannerSubnetsInput),
@@ -18523,11 +18531,7 @@ class MainActivity : Activity() {
                 )
             }
         }
-        search.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: android.text.Editable?) = render(s?.toString().orEmpty())
-        })
+        search.addTextChangedListener(DebouncedTextWatcher(search, delayMs = 150L) { text -> render(text) })
         render("")
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -19969,13 +19973,8 @@ class MainActivity : Activity() {
             else "ℹ️ Paste your configs above or tap 'Read from Clipboard'."
         }
 
-        fun inspectAndRender(raw: String) {
-            val clean = unescapeHtmlEntities(raw).trim()
-            if (clean.isBlank()) {
-                reportView.text = if (isFarsi) "⚠️ متنی وارد نشده است." else "⚠️ Input is empty."
-                return
-            }
-            val inspection = SubConvConverter.inspectUniversalConfigInput(clean)
+        var inspectGeneration = 0
+        fun renderInspection(inspection: SubConvConverter.UniversalConfigInspection) {
             if (inspection.totalCount == 0) {
                 reportView.text = if (isFarsi) {
                     "⚠️ کانفیگ معتبری در متن پیدا نشد. مطمئن شوید لینک کامل یا JSON/TOML معتبر است."
@@ -19999,6 +19998,22 @@ class MainActivity : Activity() {
                     appendLine("${item.index}. [${item.detectedFormat}] ${item.proxyName} -> ${item.serverSummary}")
                 }
             }.trimEnd()
+        }
+        // beta217: decoding runs off the main thread (a big paste froze the box); only the newest result is shown.
+        fun inspectAndRender(raw: String) {
+            val generation = ++inspectGeneration
+            val clean = unescapeHtmlEntities(raw).trim()
+            if (clean.isBlank()) {
+                reportView.text = if (isFarsi) "⚠️ متنی وارد نشده است." else "⚠️ Input is empty."
+                return
+            }
+            activityScope.launch {
+                val inspection = withContext(Dispatchers.Default) {
+                    runCatching { SubConvConverter.inspectUniversalConfigInput(clean) }.getOrNull()
+                }
+                if (generation != inspectGeneration) return@launch
+                if (inspection != null) renderInspection(inspection)
+            }
         }
 
         val pasteBtn = MaterialButton(this).apply {
@@ -20029,13 +20044,7 @@ class MainActivity : Activity() {
         root.addView(pasteBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         root.addView(reportView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
-        inputEdit.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) {
-                inspectAndRender(s?.toString().orEmpty())
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-        })
+        inputEdit.addTextChangedListener(DebouncedTextWatcher(inputEdit) { text -> inspectAndRender(text) })
 
         // Auto-populate if clipboard already has a config
         runCatching {
@@ -29163,10 +29172,13 @@ class MainActivity : Activity() {
         profile: ConnectionProfile?,
         selectedTypes: Set<String>,
     ) {
+        // beta217: the settings panels (renderAdvancedControls) were redrawn up to twice per tap here; the Cat Warp
+        // preference is now settled first and the panels are redrawn once, only if it actually changed.
         val currentAether = aetherPreferenceStore.read()
+        var aetherSettingsChanged = false
         if (currentAether.enabled) {
             aetherPreferenceStore.save(currentAether.copy(enabled = false))
-            renderAdvancedControls()
+            aetherSettingsChanged = true
         }
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val previous = connectionSelectionPreferenceStore.readSelectedProfile(
@@ -29193,12 +29205,10 @@ class MainActivity : Activity() {
         if (pickedShareLink.startsWith("aether://", ignoreCase = true) || pickedShareLink.startsWith("masque://", ignoreCase = true)) {
             AetherSelection.fromAetherUri(pickedShareLink)?.let { parsed ->
                 aetherPreferenceStore.save(parsed.copy(enabled = true))
-                renderAdvancedControls()
+                aetherSettingsChanged = true
             }
-        } else if (profile != null && aetherPreferenceStore.read().enabled) {
-            aetherPreferenceStore.save(aetherPreferenceStore.read().copy(enabled = false))
-            renderAdvancedControls()
         }
+        if (aetherSettingsChanged) renderAdvancedControls()
         renderConnectionSelection()
         renderLocationSelection()
 
@@ -30224,13 +30234,8 @@ class MainActivity : Activity() {
             currentMode = modeById[checkedId] ?: SplitTunnelMode.Off
             updateModeUi()
         }
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                renderAppList(s?.toString().orEmpty())
-            }
-        })
+        // beta217: filter the (often several hundred) installed apps once typing pauses, not per key press.
+        searchInput.addTextChangedListener(DebouncedTextWatcher(searchInput, delayMs = 180L) { text -> renderAppList(text) })
 
         content.addView(
             modeGroup,

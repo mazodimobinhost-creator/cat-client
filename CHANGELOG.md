@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta217] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app (speed)
+- **Typing lagged.** Several boxes redid heavy work on every key press: the «add subscription» box decoded every pasted config to show «✅ Detected N configs», the config inspector did the same, the split-tunnel app search filtered and redrew hundreds of apps, and the scanner subnet box rebuilt its source list. They now wait until typing pauses (150–300 ms), and decoding runs off the main thread (only the newest result is shown).
+- **Selecting a config / opening the connection list froze.** Every open re-read the subscription file (up to a few MB) and re-parsed its whole YAML to find UDP support; the file text and the parsed proxy blocks are now kept while the file is unchanged (any edit or refresh is picked up). A config tap no longer redraws all settings panels twice.
+- **Logging no longer blocks taps.** Diagnostics lines were sanitized and written to the log file on the caller's thread under a lock the VPN threads also used (including trimming a 512 KB log); they are now written on one background thread in order, and a copied report still contains everything (the crash handler waits for the queue).
+- **Animations only while visible.** The home blob, world map, traffic wave and route connector ran 60 fps loops even behind other tabs or with no traffic; they now pause when hidden (and the wave when flat).
+- **Slow connect with saved fronting IPs.** With fronting/clean IPs saved, each connect first tried up to five of them (core start + up to 20 s health check each) before using the config's own address. When they all fail on a network and the original works, the app now remembers it for that network and IP list (6 h) and tries the original first next time; the IPs are still tried if the original fails, and a fronting success, a different network or a changed list forgets it.
+
+### Added — app
+- **Freeze watchdog.** While the app is in front, it notices when the screen freezes ≥0.6 s and keeps the duration plus the app methods that were running (no user data) in the diagnostics report under «UI freezes», so any remaining slow spot can be fixed exactly.
+
+### Tests
+- `Beta217PerformanceTest` (fronting memory per network/IP list, expiry and reset; subscription text reuse and refresh after a rewrite).
+
 ## [1.10.0-beta216] — 2026-10-29 (Panel 6.77.3)
 
 ### Fixed — app (Cat Warp → Psiphon)

@@ -109,15 +109,15 @@ class SubscriptionStore(private val context: Context) {
         readUserSubscriptions().firstOrNull { it.id == id }
 
     fun readUserSubscriptionYaml(id: String): String {
-        val file = userSubscriptionYamlFile(id)
-        return if (file.isFile && file.length() > 0L) file.readText() else ""
+        // beta217: served from SnapshotTextMemo while the file is unchanged (it was re-read on every tap).
+        return SnapshotTextMemo.read(userSubscriptionYamlFile(id)).orEmpty()
     }
 
     @Synchronized
     fun deleteUserSubscription(id: String) {
         val remaining = readUserSubscriptions().filterNot { it.id == id }
         writeUserSubscriptions(remaining)
-        userSubscriptionYamlFile(id).delete()
+        userSubscriptionYamlFile(id).also { SnapshotTextMemo.invalidate(it) }.delete()
         deleteConnectionDelayRecords(id)
         if (readSelectedSubscriptionId() == id) saveSelectedSubscriptionId(DEFAULT_SUBSCRIPTION_ID)
     }

@@ -7,6 +7,9 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object DiagnosticLogger {
     private const val TAG = "CatClientDiag"
@@ -25,7 +28,28 @@ object DiagnosticLogger {
         info(context, "diagnostics.capture.start")
     }
 
+    /**
+     * beta217: lines used to be sanitized (three regexes) and appended to the file on the caller's thread, under a
+     * lock the VPN service threads also held — so a tap on the main thread could wait behind a service thread that
+     * was trimming a 512 KB log. Writing now happens on one background thread, in call order; [read] and [clear]
+     * wait for the queue to drain first so a copied report still contains everything logged before it.
+     */
+    private val writer: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "cat-diagnostics").apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
+    }
+
+    private fun flushPending(timeoutMs: Long = 3_000L) {
+        runCatching { writer.submit {}.get(timeoutMs, TimeUnit.MILLISECONDS) }
+    }
+
+    /** Waits briefly for queued lines to reach the file (crash handler: the process is about to die). */
+    fun flush(timeoutMs: Long = 1_500L) = flushPending(timeoutMs)
+
     fun clear(context: Context) {
+        flushPending()
         runCatching {
             synchronized(this) {
                 logFile(context).writeText("")
@@ -46,6 +70,7 @@ object DiagnosticLogger {
     }
 
     fun read(context: Context): String {
+        flushPending()
         val body = runCatching {
             synchronized(this) {
                 val file = logFile(context)
@@ -72,6 +97,11 @@ object DiagnosticLogger {
             append("Cat Client ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n")
             append("Device ${Build.MANUFACTURER} ${Build.MODEL}; Android ${Build.VERSION.RELEASE} ")
             append("(SDK ${Build.VERSION.SDK_INT}); ABIs ${Build.SUPPORTED_ABIS.joinToString()}\n")
+            UiStallWatchdog.report(context).takeIf(String::isNotBlank)?.let { stalls ->
+                append("--- UI freezes (beta217 watchdog) ---\n")
+                append(stalls)
+                append("\n")
+            }
             append("--- events ---\n")
             append(body.takeLast(MAX_COPIED_CHARS))
         }.sanitizeForLog()
@@ -97,8 +127,24 @@ object DiagnosticLogger {
         error: Throwable?,
     ) {
         if (!captureEnabled) return
+        val appContext = context.applicationContext ?: context
+        val stamp = timestamp()
+        val accepted = runCatching {
+            writer.execute { persist(appContext, stamp, level, event, message, error) }
+        }.isSuccess
+        if (!accepted) persist(appContext, stamp, level, event, message, error)
+    }
+
+    private fun persist(
+        context: Context,
+        stamp: String,
+        level: String,
+        event: String,
+        message: String,
+        error: Throwable?,
+    ) {
         val line = buildString {
-            append(timestamp())
+            append(stamp)
             append(" ")
             append(level)
             append(" ")
@@ -128,8 +174,7 @@ object DiagnosticLogger {
                 if (file.exists() && file.length() > MAX_LOG_BYTES) {
                     file.writeText(file.readText().takeLast(TRIM_TO_BYTES))
                 }
-                file.appendText(line)
-                file.appendText("\n")
+                file.appendText(line + "\n")
             }
         }.onFailure { writeError ->
             if (BuildConfig.DEBUG) Log.w(TAG, "Unable to persist diagnostics", writeError)
