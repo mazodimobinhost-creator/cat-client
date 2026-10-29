@@ -4,6 +4,23 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta226] — 2026-10-29 (Panel 6.79.1)
+
+### Fixed — linked panels (KataBump ⇄ Cloudflare) and every VLESS/Trojan chain exit
+- **The chain never reached a Node panel.** Three wire bugs, found with a new real-socket test (real launcher process + Cloudflare panel), meant «exit through the linked panel» and every VLESS/Trojan chain to a Node/Vercel/KataBump panel could not carry a byte:
+  1. the WebSocket client key was 24 random characters instead of base64 of 16 bytes — Node's `ws` (all Node hosts) answered `400` to the upgrade;
+  2. the VLESS request had no «addons length» byte, so a real VLESS server (Xray or our panel) read the command as the port and refused it;
+  3. the dialer waited for the server's first answer before letting the phone send — but VLESS servers only answer with the first target data and Trojan servers never answer, so every chained connection hung until its timeout. It now returns at once and strips the 2-byte VLESS answer when it arrives.
+- Proven end to end: phone → Cloudflare panel → (sockets) → KataBump launcher on one port → target, both the source and the minified artifact.
+
+### Added — server country per host
+- **Railway: «📍 Server country» picker** (Amsterdam — recommended for Iran, Virginia, California, Singapore). The app sets it through `serviceInstanceUpdate` / `multiRegionConfig` right after creating the service (step 4/8); if Railway refuses, the install continues on the account's preferred region with a clear note. The saved panel name carries the flag.
+- **Bot-Hosting:** the country cannot be chosen (their rules); after install the app shows the real node and its country (fi / de / us / fr / eu).
+- Guides now state each host's rule: KataBump France only (OVH Gravelines), Lucity EU only (PORT 8080 automatic, «Generate Domain» needed), Shiprr region eu / us / asia / oc at app creation (a preference, may fall back), SmarterASP Europe (Amsterdam) or USA at sign-up.
+
+### Tests
+- `katabump-cf-link.test.mjs` (13 checks, real processes and sockets) in `npm test` and the artifact step; `chain-protocols.test.mjs` asserts the real VLESS layout and parses it back; `Beta226LinkRegionTest.kt`.
+
 ## [1.10.0-beta225] — 2026-10-29 (Panel 6.79.0)
 
 ### Changed — free-host panels audited host by host

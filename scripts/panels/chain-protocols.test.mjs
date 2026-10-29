@@ -31,16 +31,29 @@ test('parseChain: reality and flow are rejected (not supported)', () => {
   assert.equal(T.parseChain('vless://a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d@x.example:443?type=ws&flow=xtls-rprx-vision'), null);
 });
 
-test('vlessHeader: ver0 + uuid + cmdTCP + portBE + domain', () => {
+test('vlessHeader: ver0 + uuid + addons length 0 + cmdTCP + portBE + domain (the VLESS wire format)', () => {
   const h = T.vlessHeader('a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d', 'example.com', 443);
   assert.equal(hex(h.slice(0, 17)), '00' + 'a3b1c2d3e4f54a5b8c6d7e8f9a0b1c2d');
-  assert.equal(h[17], 0x01);
-  assert.equal(h[18], 0x01); assert.equal(h[19], 0xbb);
-  assert.equal(h[20], 0x02); assert.equal(h[21], 11);
-  assert.equal(new TextDecoder().decode(h.slice(22, 33)), 'example.com');
+  assert.equal(h[17], 0x00); // beta226: addons length — it was missing, so real servers read the port as the command
+  assert.equal(h[18], 0x01);
+  assert.equal(h[19], 0x01); assert.equal(h[20], 0xbb);
+  assert.equal(h[21], 0x02); assert.equal(h[22], 11);
+  assert.equal(new TextDecoder().decode(h.slice(23, 34)), 'example.com');
   const h4 = T.vlessHeader('a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d', '1.2.3.4', 80);
-  assert.equal(h4[20], 0x01);
-  assert.equal(hex(h4.slice(21, 25)), '01020304');
+  assert.equal(h4[21], 0x01);
+  assert.equal(hex(h4.slice(22, 26)), '01020304');
+});
+
+test('vlessHeader is read back correctly by the panel\'s own VLESS server parser', () => {
+  const h = T.vlessHeader('a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d', 'example.com', 8443);
+  const withPayload = new Uint8Array(h.byteLength + 3); withPayload.set(h); withPayload.set([1, 2, 3], h.byteLength);
+  const p = T.parseVlessHeader(withPayload);
+  assert.ok(p, 'parsed');
+  assert.equal(p.uuid, 'a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d');
+  assert.equal(p.command, 1);
+  assert.equal(p.host, 'example.com');
+  assert.equal(p.port, 8443);
+  assert.deepEqual(Array.from(p.rest), [1, 2, 3]);
 });
 
 test('trojanRequest: sha224(pass) CRLF + addr + CRLF (exact length)', async () => {
@@ -123,9 +136,11 @@ test('dialViaChain: vless over httpupgrade+tls end-to-end (fake socket)', async 
   assert.match(capturedHead, /GET \/hu HTTP\/1\.1/);
   assert.match(capturedHead, /Upgrade: websocket/i);
   assert.match(capturedHead, /Host: free\.example\.com/);
-  const done = await dialed.socket.readable.getReader().read();
-  assert.equal(done.done, true); // prefix consumed by the handshake
-  assert.ok(dec.decode(dialed.leftover).startsWith('HTTP/1.1 204')); // pure target data
+  // beta226: dialViaChain returns right after the request (the server answers only with the first target bytes),
+  // and the VLESS answer [0,0] is stripped from the stream on the fly.
+  assert.equal(dialed.leftover.byteLength, 0);
+  const first = await dialed.socket.readable.getReader().read();
+  assert.ok(dec.decode(first.value).startsWith('HTTP/1.1 204')); // pure target data
 });
 
 test('chainProbe: full round-trip reports exit ip/country through the chain', async () => {

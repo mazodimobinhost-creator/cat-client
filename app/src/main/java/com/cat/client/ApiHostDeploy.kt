@@ -38,6 +38,34 @@ object ApiHostPlan {
     const val RAILWAY_IMAGE = "node:22-alpine"
     const val RAILWAY_PORT = 8080
 
+    /** beta226 Railway deploy regions (docs.railway.com/deployments/regions, Oct 2026): id → (fa, en). The exit
+     *  country of the panel = the region. Amsterdam first: the closest one to Iran. */
+    val RAILWAY_REGIONS: List<Pair<String, Pair<String, String>>> = listOf(
+        "europe-west4-drams3a" to ("🇳🇱 هلند (آمستردام) — پیشنهادی، نزدیک‌ترین به ایران" to "🇳🇱 Netherlands (Amsterdam) — recommended, closest to Iran"),
+        "us-east4-eqdc4a" to ("🇺🇸 آمریکا (ویرجینیا)" to "🇺🇸 USA (Virginia)"),
+        "us-west2" to ("🇺🇸 آمریکا (کالیفرنیا)" to "🇺🇸 USA (California)"),
+        "asia-southeast1-eqsg3a" to ("🇸🇬 سنگاپور" to "🇸🇬 Singapore"),
+    )
+    const val RAILWAY_DEFAULT_REGION = "europe-west4-drams3a"
+
+    /** serviceInstanceUpdate.multiRegionConfig for ONE replica in [region] (Railway ignores the old `region` field). */
+    fun railwayRegionConfig(region: String): String? =
+        region.takeIf { r -> RAILWAY_REGIONS.any { it.first == r } }?.let { "{" + jsonString(it) + ":{\"numReplicas\":1}}" }
+
+    /** Bot-Hosting places a deployment itself (legal §2: «You cannot choose where your deployment runs»); the node
+     *  name says where it landed: «fi3…» Finland, «de1…» Germany, «us2…» USA. null when the name says nothing. */
+    fun botHostingNodeCountry(fqdn: String?): Pair<String, String>? {
+        val label = fqdn.orEmpty().trim().lowercase().substringBefore('.').removePrefix("prem-")
+        return when (label.takeWhile { it in 'a'..'z' }) {
+            "fi" -> "🇫🇮 فنلاند" to "🇫🇮 Finland"
+            "de" -> "🇩🇪 آلمان" to "🇩🇪 Germany"
+            "us" -> "🇺🇸 آمریکا" to "🇺🇸 USA"
+            "fr" -> "🇫🇷 فرانسه" to "🇫🇷 France"
+            "eu" -> "🇪🇺 اروپا" to "🇪🇺 Europe"
+            else -> null
+        }
+    }
+
     const val DEPLOY_NAME = "cat-panel"
 
     /** Scopes the Bot-Hosting key needs — nothing that can spend credits or delete. */
@@ -317,6 +345,15 @@ internal object ApiHostClient {
         val q = "mutation serviceInstanceUpdate(\$serviceId: String!, \$environmentId: String!, \$input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: \$serviceId, environmentId: \$environmentId, input: \$input) }"
         val v = "{\"serviceId\":" + ApiHostPlan.jsonString(serviceId) + ",\"environmentId\":" + ApiHostPlan.jsonString(environmentId) +
             ",\"input\":{\"startCommand\":" + ApiHostPlan.jsonString(startCommand) + ",\"restartPolicyType\":\"ON_FAILURE\",\"restartPolicyMaxRetries\":5}}"
+        rw(token, q, v)
+    }
+
+    /** beta226: put the service in ONE region (multiRegionConfig — the documented way; `region` alone is ignored). */
+    fun rwSetRegion(token: String, serviceId: String, environmentId: String, region: String) {
+        val config = ApiHostPlan.railwayRegionConfig(region) ?: throw ApiHostException("unknown region: $region", 400)
+        val q = "mutation serviceInstanceUpdate(\$serviceId: String!, \$environmentId: String!, \$input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: \$serviceId, environmentId: \$environmentId, input: \$input) }"
+        val v = "{\"serviceId\":" + ApiHostPlan.jsonString(serviceId) + ",\"environmentId\":" + ApiHostPlan.jsonString(environmentId) +
+            ",\"input\":{\"multiRegionConfig\":" + config + "}}"
         rw(token, q, v)
     }
 

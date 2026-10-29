@@ -370,6 +370,12 @@ internal class NodeHostStore(context: Context) {
         get() = prefs.getString("railway_token", "").orEmpty()
         set(value) { prefs.edit().putString("railway_token", value.trim()).apply() }
 
+    /** beta226: the Railway region picked last time (ApiHostPlan.RAILWAY_REGIONS id). */
+    var railwayRegion: String
+        get() = prefs.getString("railway_region", ApiHostPlan.RAILWAY_DEFAULT_REGION).orEmpty()
+            .takeIf { r -> ApiHostPlan.RAILWAY_REGIONS.any { it.first == r } } ?: ApiHostPlan.RAILWAY_DEFAULT_REGION
+        set(value) { prefs.edit().putString("railway_region", value).apply() }
+
     var githubToken: String
         get() = prefs.getString("github_token", "").orEmpty()
         set(value) { prefs.edit().putString("github_token", value.trim()).apply() }

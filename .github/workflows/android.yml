@@ -307,6 +307,8 @@ jobs:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/vercel-cf-front.test.mjs
             # 6.69.45 the 2-file launcher for any Node host (KataBump / Lucity / Shiprr) with the shipped panel
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/node-host.test.mjs
+            # beta226 real launcher + CF panel with real sockets: KataBump joined to a CF panel really carries bytes
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/katabump-cf-link.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/tunnel-grain.test.mjs
             # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
             # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here

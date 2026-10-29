@@ -13,6 +13,8 @@ import android.provider.MediaStore
 import android.text.InputType
 import android.view.View
 import android.widget.CheckBox
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -243,10 +245,17 @@ class NodeHostController(
     // ❓ guide — plain words: «tap this → this happens»
     // ------------------------------------------------------------------------------------
 
+    /** beta226 Shiprr regions (shiprr.app/docs/limits, Oct 2026): eu / us / oc / asia — a placement preference. */
+    private fun shiprrRegionHint(): String = t(
+        "📍 کشور = منطقه‌ای که اینجا انتخاب می‌کنید: eu اروپا (پیشنهادی، پینگ بهتر از ایران)، us آمریکا، asia آسیا، oc استرالیا/اقیانوسیه. اگر آن منطقه جا نداشت Shiprr ممکن است جای نزدیک دیگری بگذارد.",
+        "📍 Country = the region you pick here: eu Europe (recommended, better ping from Iran), us USA, asia Asia, oc Australia/Oceania. If that region is full, Shiprr may place it in another nearby one.",
+    )
+
     fun showGuide(kind: String) {
         val text = when (kind) {
             NodeHostPanel.KATABUMP -> t(
                 "KataBump یک هاست رایگان Node.js است. پنل Cat روی آن بالا می‌آید و یک کانفیگ VLESS و یک Trojan روی «آی‌پی:پورت» سرور می‌دهد.\n\n" +
+                    "📍 کشور: فقط فرانسه (دیتاسنتر OVH در Gravelines) — قابل انتخاب نیست. پورت: همان یک پورتی که KataBump به سرور می‌دهد؛ برنامه خودش آن را می‌خواند، دامنه لازم نیست.\n\n" +
                     "⚠️ قوانین KataBump (بند 2.4) پروکسی/VPN را ممنوع کرده؛ ممکن است سرور یا حساب را پاک کنند. برای چیز مهم از آن استفاده نکنید.\n\n" +
                     "🟢 راه آسان (خودکار):\n" +
                     "1) katabump.com ← ثبت‌نام رایگان ← یک سرور Node.js بسازید.\n" +
@@ -261,6 +270,7 @@ class NodeHostController(
                     "🔁 تمدید: KataBump هر ۴ روز تمدید می‌خواهد وگرنه سرور پاک می‌شود. تمدید کپچا دارد، پس برنامه نمی‌تواند به‌جای شما بزند؛ ولی شمارش معکوس نشان می‌دهد و یک روز قبل یادآوری می‌فرستد. «🔁 تمدید» را بزنید ← صفحهٔ تمدید باز می‌شود ← Renew ← برگردید و «✅ تمدید کردم».\n\n" +
                     "🔒 بهتر شدن: کانفیگ آی‌پی:پورت بدون TLS است. با یک دامنه پشت Cloudflare کانفیگ TLS هم می‌گیرید (دکمهٔ «🌐 دامنه + TLS» در «📋 پنل‌های من»).",
                 "KataBump is a free Node.js host. The Cat panel runs on it and gives one VLESS and one Trojan config on the server's «IP:port».\n\n" +
+                    "📍 Country: France only (OVH data center in Gravelines) — cannot be chosen. Port: the one port KataBump gives the server; the app reads it itself, no domain is needed.\n\n" +
                     "⚠️ KataBump's rules (section 2.4) forbid proxies/VPNs; they may delete the server or the account. Do not rely on it for anything important.\n\n" +
                     "🟢 Easy way (automatic):\n" +
                     "1) katabump.com → free sign-up → create a Node.js server.\n" +
@@ -305,7 +315,7 @@ class NodeHostController(
             )
             NodeHostPanel.SMARTERASP -> smarterAspGuide()
             NodeHostPanel.LUCITY -> t(
-                "Lucity یک هاست اروپایی است که برنامه را از یک مخزن GitHub می‌سازد. ۱۴ روز (۵ یورو اعتبار) رایگان، بعد پولی. کانفیگ‌ها TLS روی 443 هستند.\n\n" +
+                "Lucity یک هاست اروپایی است که برنامه را از یک مخزن GitHub می‌سازد. ۱۴ روز (۵ یورو اعتبار) رایگان، بعد پولی. کانفیگ‌ها TLS روی 443 هستند.\n📍 کشور: فقط اروپا (Lucity در اتحادیهٔ اروپا میزبانی می‌شود و انتخاب کشور ندارد). پورت: Lucity خودش PORT=8080 می‌دهد و لانچر همان را می‌خواند؛ فقط Generate Domain را بزنید.\n\n" +
                     "1) اگر GitHub ندارید: «⚡ ساخت خودکار» ← «ثبت‌نام GitHub».\n" +
                     "2) «⚡ ساخت خودکار» ← «ساخت توکن» (صفحه آماده باز می‌شود) ← پایین صفحه Generate token ← کپی ← «چسباندن» ← ادامه. برنامه یک مخزن خصوصی با ۴ فایل می‌سازد.\n" +
                     "3) دکمهٔ «باز کردن Lucity» ← Login with GitHub ← اجازهٔ دسترسی به همان مخزن را بدهید.\n" +
@@ -314,7 +324,7 @@ class NodeHostController(
                     "6) وقتی ساخت سبز شد، آدرس را کپی کنید ← «✍️ پنلم را اضافه کن». برنامه پنل و WebSocket را تست می‌کند و کانفیگ‌ها را اضافه می‌کند.\n\n" +
                     "🔁 «به‌روزرسانی» فایل‌های همین نسخهٔ برنامه را دوباره در مخزن می‌گذارد تا Lucity از نو بسازد.\n" +
                     "💾 بدون Volume، کاربرهای ساخته‌شده در پنل با هر ساخت دوباره پاک می‌شوند (کانفیگ اصلی می‌ماند چون UUID در cat-config.json است).",
-                "Lucity is a European host that builds the app from a GitHub repository. 14 days (5 EUR credit) free, then paid. Configs are TLS on 443.\n\n" +
+                "Lucity is a European host that builds the app from a GitHub repository. 14 days (5 EUR credit) free, then paid. Configs are TLS on 443.\n📍 Country: EU only (Lucity is hosted in the European Union; there is no country picker). Port: Lucity gives PORT=8080 itself and the launcher reads it; you only press Generate Domain.\n\n" +
                     "1) No GitHub account? «⚡ Build automatically» → «GitHub sign-up».\n" +
                     "2) «⚡ Build automatically» → «Create a token» (the page opens pre-filled) → Generate token at the bottom → copy → «Paste» → Continue. The app creates a private repository with 4 files.\n" +
                     "3) «Open Lucity» → Login with GitHub → allow access to that repository.\n" +
@@ -328,13 +338,13 @@ class NodeHostController(
                 "Shiprr یک هاست اروپایی است که برنامه را از GitHub می‌سازد. ۵ یورو اعتبار رایگان. آدرس: https://نام-برنامه.shiprr.dev — کانفیگ‌ها TLS روی 443.\n\n" +
                     "1) «⚡ ساخت خودکار» ← «ساخت توکن» ← Generate token ← کپی ← «چسباندن» ← ادامه. برنامه یک مخزن خصوصی با ۴ فایل می‌سازد.\n" +
                     "2) «باز کردن Shiprr» ← ثبت‌نام ← GitHub را وصل کنید.\n" +
-                    "3) Apps ← New app ← یک نام، همان مخزن، منطقه (Europe) ← ساخت.\n" +
+                    "3) Apps ← New app ← یک نام، همان مخزن، منطقه (Region) ← ساخت. " + shiprrRegionHint() + "\n" +
                     "4) وقتی بالا آمد ← «✍️ پنلم را اضافه کن» ← آدرس https://نام.shiprr.dev. برنامه تست می‌کند WebSocket از Shiprr رد می‌شود یا نه (مستندات Shiprr چیزی نگفته) و نتیجهٔ واقعی را می‌گوید.\n\n" +
                     "💾 Shiprr دیسک دائمی ندارد: کاربرهای اضافهٔ پنل با هر دیپلوی پاک می‌شوند؛ کانفیگ اصلی می‌ماند.",
                 "Shiprr is a European host that builds the app from GitHub. 5 EUR free credit. Address: https://app-name.shiprr.dev — configs are TLS on 443.\n\n" +
                     "1) «⚡ Build automatically» → «Create a token» → Generate token → copy → «Paste» → Continue. The app creates a private repository with 4 files.\n" +
                     "2) «Open Shiprr» → sign up → connect GitHub.\n" +
-                    "3) Apps → New app → a name, that repository, region (Europe) → create.\n" +
+                    "3) Apps → New app → a name, that repository, region → create. " + shiprrRegionHint() + "\n" +
                     "4) When it is up → «✍️ Add my panel» → the https://name.shiprr.dev address. The app tests whether WebSocket passes through Shiprr (their docs do not say) and tells you the real result.\n\n" +
                     "💾 Shiprr has no persistent disk: extra panel users vanish on each deploy; the main config stays.",
             )
@@ -463,10 +473,10 @@ class NodeHostController(
         ) else Step(
             t("ساخت برنامه در Shiprr و افزودن پنل", "Create the app on Shiprr and add the panel"),
             t(
-                "1) Apps ← New app ← یک نام انگلیسی (مثلاً mycat) ← مخزن cat-node-panel-xxxxx ← منطقه Europe ← ساخت.\n" +
+                "1) Apps ← New app ← یک نام انگلیسی (مثلاً mycat) ← مخزن cat-node-panel-xxxxx ← منطقه (Region) ← ساخت. " + shiprrRegionHint() + "\n" +
                     "2) صبر کنید تا بالا بیاید. آدرس می‌شود https://همان-نام.shiprr.dev\n" +
                     "3) «✍️ پنلم را اضافه کن» ← آدرس ← تست و اضافه. برنامه واقعاً تست می‌کند WebSocket از Shiprr رد می‌شود یا نه.",
-                "1) Apps → New app → a name (e.g. mycat) → repository cat-node-panel-xxxxx → region Europe → create.\n" +
+                "1) Apps → New app → a name (e.g. mycat) → repository cat-node-panel-xxxxx → region → create. " + shiprrRegionHint() + "\n" +
                     "2) Wait until it is up. The address is https://that-name.shiprr.dev\n" +
                     "3) «✍️ Add my panel» → the address → Test and add. The app really tests whether WebSocket passes through Shiprr.",
             ),
@@ -482,7 +492,7 @@ class NodeHostController(
         "SmarterASP.NET یک هاست ویندوزی است که ۶۰ روز آزمایشی رایگان می‌دهد، بدون کارت بانکی، با Node.js و یک دامنهٔ موقت. پنل Cat روی آن بالا می‌آید و کانفیگ VLESS/Trojan روی WebSocket همان دامنه می‌دهد.\n\n" +
             "⚠️ پیش از استفاده بدانید: هاست اشتراکی است؛ ممکن است اتصال‌های بیرونی یا WebSocket را محدود کند و دامنهٔ موقتش روی اینترنت شما باز نباشد. برنامه بعد از نصب واقعاً تست می‌کند (پنل، اشتراک، WebSocket 101) و نتیجهٔ واقعی را می‌گوید. بعد از ۶۰ روز یا باید پلن بخرید یا سایت پاک می‌شود. قوانین استفادهٔ SmarterASP را خودتان بخوانید؛ مسئولیت با شماست.\n\n" +
             "🟢 نصب (دستی، ۵ دقیقه):\n" +
-            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است).\n" +
+            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است). 📍 در ثبت‌نام دیتاسنتر را انتخاب کنید: Europe (هلند، آمستردام — پینگ بهتر از ایران) یا USA؛ کشور خروجی پنل همین است و بعداً عوض نمی‌شود.\n" +
             "2) «📦 ذخیرهٔ فایل‌ها» ← یک zip در پوشهٔ Download (همهٔ فایل‌ها آماده: پنل، web.config، node_modules، App_Data).\n" +
             "3) کنترل‌پنل ← سایت ← File Manager ← zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا با FTP). web.config باید کنار index.js باشد.\n" +
             "4) Node.js را برای سایت روشن کنید (Hosting Manager ← Node.js).\n" +
@@ -492,7 +502,7 @@ class NodeHostController(
         "SmarterASP.NET is a Windows host with a 60-day free trial, no card, Node.js and a temporary domain. The Cat panel runs on it and gives VLESS/Trojan configs over WebSocket on that domain.\n\n" +
             "⚠️ Know before you start: it is shared hosting; it may limit outgoing connections or WebSocket, and its temporary domain may not open on your line. After installing, the app really tests it (panel, subscription, WebSocket 101) and tells you the real result. After 60 days you either buy a plan or the site is removed. Read SmarterASP's usage rules yourself; it is your responsibility.\n\n" +
             "🟢 Install (by hand, 5 minutes):\n" +
-            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed).\n" +
+            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed). 📍 Pick the data center at sign-up: Europe (Amsterdam, Netherlands — better ping from Iran) or USA; that is the panel's exit country and it does not change later.\n" +
             "2) «📦 Save the files» → a zip in the Download folder (everything ready: panel, web.config, node_modules, App_Data).\n" +
             "3) Control panel → the site → File Manager → upload the zip to the site's root and Extract it (or use FTP). web.config must sit next to index.js.\n" +
             "4) Enable Node.js for the site (Hosting Manager → Node.js).\n" +
@@ -746,21 +756,23 @@ class NodeHostController(
         val railway = kind == NodeHostPanel.RAILWAY
         box.addView(label(if (railway) t(
             "این کارها با توکن شما روی Railway انجام می‌شود:\n" +
-                "• یک پروژهٔ تازه به نام cat-panel\n• یک سرویس از ایمیج رسمی node:22-alpine\n• متغیرهای UUID و TROJAN_PASS (هویت پنل شما) و PORT=8080\n" +
+                "• یک پروژهٔ تازه به نام cat-panel\n• یک سرویس از ایمیج رسمی node:22-alpine\n• سرویس در کشوری که انتخاب کردید گذاشته می‌شود\n• متغیرهای UUID و TROJAN_PASS (هویت پنل شما) و PORT=8080 (برنامه خودش می‌گذارد؛ دامنه هم خودکار روی همین پورت ساخته می‌شود و کانفیگ‌ها TLS روی 443 هستند)\n" +
                 "• دستور شروع: لانچر همین نسخه از GitHub دانلود و اجرا می‌شود (پنل را با SHA-256 چک می‌کند)\n• یک دامنهٔ *.up.railway.app و یک Deploy\n• بعد برنامه از همین گوشی پنل، اشتراک و WebSocket را واقعاً تست می‌کند.\n\n" +
                 "⚠️ قوانین Railway (Acceptable Use) «اجرای پروکسی یا سرویس ناشناس‌سازی» را سوءاستفاده می‌داند؛ ممکن است سرویس یا حساب را ببندند. Railway رایگان نیست: بعد از اعتبار آزمایشی، پلن پولی لازم است. ریسک با خود شماست.",
             "With your token the app does this on Railway:\n" +
-                "• a new project named cat-panel\n• one service from the official node:22-alpine image\n• variables UUID and TROJAN_PASS (your panel identity) and PORT=8080\n" +
+                "• a new project named cat-panel\n• one service from the official node:22-alpine image\n• the service is placed in the country you picked\n• variables UUID and TROJAN_PASS (your panel identity) and PORT=8080 (set by the app; the domain is created on that port automatically and the configs are TLS on 443)\n" +
                 "• start command: downloads THIS release's launcher from GitHub and runs it (it checks the panel's SHA-256)\n• a *.up.railway.app domain and one Deploy\n• then the app really tests the panel, the subscription and the WebSocket from this phone.\n\n" +
                 "⚠️ Railway's Acceptable Use Policy lists «operating proxies or anonymization services» as abuse; they may close the service or the account. Railway is not free: after the trial credit a paid plan is needed. The risk is yours.",
         ) else t(
             "این کارها با کلید شما روی Bot-Hosting.net انجام می‌شود:\n" +
                 "• اگر دیپلویی به نام cat-panel دارید همان به‌روز می‌شود، وگرنه یک دیپلوی Node.js 22 ساخته می‌شود (پلن رایگان: ۱ دیپلوی)\n" +
                 "• ۴ فایل گذاشته می‌شود: index.js، package.json، README.md و cat-config.json (هویت پنل شما)\n• دستور شروع: npm install && node index.js\n• دامنهٔ رایگان HTTPS (*.apps.bot-hosting.cloud) فعال و دیپلوی روشن می‌شود\n• بعد برنامه از همین گوشی پنل، اشتراک و WebSocket را واقعاً تست می‌کند.\n\n" +
+                "📍 کشور: Bot-Hosting خودش سرور را انتخاب می‌کند (طبق قوانینش قابل انتخاب نیست؛ معمولاً فنلاند یا آلمان، گاهی آمریکا). برنامه بعد از نصب نام سرور و کشورش را نشان می‌دهد. پورت و دامنهٔ HTTPS را هم خودش می‌دهد؛ کانفیگ‌ها TLS روی 443.\n\n" +
                 "قوانین Bot-Hosting (بند ۵) پروکسی را ممنوع نکرده، ولی فروش/اجارهٔ سرویس به دیگران (Reselling) ممنوع است — فقط استفادهٔ شخصی. پلن رایگان هر ۴ روز تمدید می‌خواهد؛ برنامه یادآوری می‌گذارد.",
             "With your key the app does this on Bot-Hosting.net:\n" +
                 "• a deployment named cat-panel is updated if you have one, otherwise a Node.js 22 deployment is created (free plan: 1 deployment)\n" +
                 "• 4 files are written: index.js, package.json, README.md and cat-config.json (your panel identity)\n• start command: npm install && node index.js\n• the free HTTPS domain (*.apps.bot-hosting.cloud) is activated and the deployment started\n• then the app really tests the panel, the subscription and the WebSocket from this phone.\n\n" +
+                "📍 Country: Bot-Hosting picks the server itself (its rules say it cannot be chosen; usually Finland or Germany, sometimes the USA). After installing, the app shows the server name and its country. It also gives the port and the HTTPS domain; configs are TLS on 443.\n\n" +
                 "Bot-Hosting's rules (section 5) do not forbid proxies, but reselling the service to others is forbidden — personal use only. The free plan needs a renewal every 4 days; the app sets a reminder.",
         ), 13f, palette.textPrimary, 2))
         val tick = CheckBox(activity).apply {
@@ -819,6 +831,11 @@ class NodeHostController(
                 }
                 .onFailure { step("   ⚠️ " + apiExplain(kind, it)) }
             val fresh = runCatching { ApiHostClient.bhGet(key, id) }.getOrNull()
+            // beta226: Bot-Hosting picks the node itself (cannot be chosen); say where it really landed.
+            fresh?.nodeHost?.let { node ->
+                val c = ApiHostPlan.botHostingNodeCountry(node)
+                step("   📍 " + t("سرور: ", "server: ") + node + (c?.let { " — " + t(it.first, it.second) } ?: ""))
+            }
             val httpsBase = url ?: fresh?.url
             val directBase = fresh?.let { d -> d.nodeHost?.let { h -> d.port?.let { p -> NodeHostPanel.normalizeAddress("$h:$p") } } }
             val first = httpsBase ?: directBase
@@ -861,6 +878,25 @@ class NodeHostController(
         box.addView(button(t("👤 ورود به Railway", "👤 Log in to Railway")) { open(ApiHostPlan.RAILWAY_LOGIN) }, lp(8))
         box.addView(button(t("🔑 صفحهٔ توکن", "🔑 Token page")) { open(ApiHostPlan.RAILWAY_TOKENS) }, lp(6))
         box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
+        // beta226: the region = the country sites see. Railway lets every plan pick one of its 4 regions.
+        box.addView(label(t(
+            "📍 کشور سرور (سایت‌ها آی‌پی همین کشور را می‌بینند):",
+            "📍 Server country (sites see an IP from this country):",
+        ), 13f, palette.textPrimary, 14))
+        val regionGroup = RadioGroup(activity)
+        val regionIds = HashMap<Int, String>()
+        ApiHostPlan.RAILWAY_REGIONS.forEach { (id, names) ->
+            val rb = RadioButton(activity).apply {
+                this.id = View.generateViewId()
+                text = t(names.first, names.second)
+                setTextColor(palette.textPrimary)
+                minHeight = (44 * activity.resources.displayMetrics.density).toInt()
+            }
+            regionIds[rb.id] = id
+            regionGroup.addView(rb)
+            if (id == store.railwayRegion) rb.isChecked = true
+        }
+        box.addView(regionGroup, lp(4))
         showDialog(
             MaterialAlertDialogBuilder(activity)
                 .setTitle(t("🚂 نصب خودکار روی Railway", "🚂 Automatic install on Railway"))
@@ -871,7 +907,9 @@ class NodeHostController(
                         toast(t("توکن را کامل بچسبانید", "Paste the whole token"))
                     } else {
                         store.railwayToken = token
-                        confirmApiInstall(NodeHostPanel.RAILWAY) { installRailway(token) }
+                        val region = regionIds[regionGroup.checkedRadioButtonId] ?: ApiHostPlan.RAILWAY_DEFAULT_REGION
+                        store.railwayRegion = region
+                        confirmApiInstall(NodeHostPanel.RAILWAY) { installRailway(token, region) }
                     }
                 }
                 .setNegativeButton(android.R.string.cancel, null)
@@ -879,21 +917,25 @@ class NodeHostController(
         )
     }
 
-    private fun installRailway(token: String) {
+    private fun installRailway(token: String, region: String = ApiHostPlan.RAILWAY_DEFAULT_REGION) {
         val kind = NodeHostPanel.RAILWAY
         val tag = NodeHostPanel.releaseTag(BuildConfig.VERSION_NAME)
         runSteps<Outcome>("🚂 Railway", { step ->
             val (uuid, pass) = identity(kind)
             fun <T> api(block: () -> T): T = try { block() } catch (e: Exception) { throw IllegalStateException(apiExplain(kind, e)) }
-            step(t("1/7 بررسی توکن…", "1/7 Checking the token…"))
+            step(t("1/8 بررسی توکن…", "1/8 Checking the token…"))
             val who = api { ApiHostClient.rwWhoAmI(token) }
             step("   ✓ " + who.ifBlank { "Railway" })
-            step(t("2/7 ساخت پروژهٔ cat-panel…", "2/7 Creating the cat-panel project…"))
+            step(t("2/8 ساخت پروژهٔ cat-panel…", "2/8 Creating the cat-panel project…"))
             val (projectId, envId) = api { ApiHostClient.rwCreateProject(token, ApiHostPlan.DEPLOY_NAME) }
             step("   ✓ project " + projectId.take(8) + "…")
-            step(t("3/7 سرویس از ایمیج ", "3/7 Service from image ") + ApiHostPlan.RAILWAY_IMAGE + "…")
+            step(t("3/8 سرویس از ایمیج ", "3/8 Service from image ") + ApiHostPlan.RAILWAY_IMAGE + "…")
             val serviceId = api { ApiHostClient.rwCreateService(token, projectId, ApiHostPlan.DEPLOY_NAME, ApiHostPlan.RAILWAY_IMAGE) }
-            step(t("4/7 متغیرها (UUID، TROJAN_PASS، PORT)…", "4/7 Variables (UUID, TROJAN_PASS, PORT)…"))
+            step(t("4/8 کشور سرور: ", "4/8 Server country: ") + (ApiHostPlan.RAILWAY_REGIONS.firstOrNull { it.first == region }?.second?.let { t(it.first, it.second) } ?: region))
+            runCatching { ApiHostClient.rwSetRegion(token, serviceId, envId, region) }
+                .onSuccess { step("   ✓ " + region) }
+                .onFailure { step("   ⚠️ " + apiExplain(kind, it) + t(" — Railway منطقهٔ پیش‌فرض حساب را می‌گذارد (railway.com ← Account ← Preferred region).", " — Railway uses the account's default region (railway.com → Account → Preferred region).")) }
+            step(t("5/8 متغیرها (UUID، TROJAN_PASS، PORT)…", "5/8 Variables (UUID, TROJAN_PASS, PORT)…"))
             api {
                 ApiHostClient.rwUpsertVariables(token, projectId, envId, serviceId, linkedMapOf(
                     "UUID" to uuid,
@@ -903,13 +945,13 @@ class NodeHostController(
                     "CAT_HOST" to NodeHostPanel.RAILWAY,
                 ))
             }
-            step(t("5/7 دستور شروع (لانچر ", "5/7 Start command (launcher ") + tag + ")…")
+            step(t("6/8 دستور شروع (لانچر ", "6/8 Start command (launcher ") + tag + ")…")
             api { ApiHostClient.rwSetStartCommand(token, serviceId, envId, ApiHostPlan.railwayStartCommand(tag)) }
-            step(t("6/7 دامنه…", "6/7 Domain…"))
+            step(t("7/8 دامنه…", "7/8 Domain…"))
             val domain = api { ApiHostClient.rwCreateDomain(token, serviceId, envId, ApiHostPlan.RAILWAY_PORT) }
             val base = ApiHostPlan.httpsBase(domain) ?: throw IllegalStateException("domain: $domain")
             step("   ✓ $base")
-            step(t("7/7 Deploy…", "7/7 Deploy…"))
+            step(t("8/8 Deploy…", "8/8 Deploy…"))
             runCatching { ApiHostClient.rwDeploy(token, serviceId, envId) }.onFailure { step("   ⚠️ " + apiExplain(kind, it)) }
             var status = ""
             for (i in 0 until 24) {
@@ -920,7 +962,7 @@ class NodeHostController(
             }
             val ref = ApiHostPlan.railwayRef(projectId, serviceId, envId)
             val now = System.currentTimeMillis()
-            val saved = SavedNodeHost("railway-$serviceId", kind, "cat-panel · Railway", base, uuid, ref, now, now, pass)
+            val saved = SavedNodeHost("railway-$serviceId", kind, "cat-panel · Railway " + (ApiHostPlan.RAILWAY_REGIONS.firstOrNull { it.first == region }?.second?.first?.substringBefore(' ') ?: ""), base, uuid, ref, now, now, pass)
             store.save(saved)
             if (status == "FAILED" || status == "CRASHED") {
                 Outcome(saved, emptyList(), false, t(
@@ -1591,11 +1633,11 @@ class NodeHostController(
         ) else t(
             "✅ مخزن آماده است: " + full + "\n\nحالا در Shiprr (۳ قدم):\n" +
                 "1) «🌐 باز کردن Shiprr» ← ثبت‌نام ← GitHub را وصل کنید.\n" +
-                "2) Apps ← New app ← یک نام (مثلاً cat" + repoShort.takeLast(5) + ")، مخزن " + repoShort + "، منطقه Europe ← ساخت.\n" +
+                "2) Apps ← New app ← یک نام (مثلاً cat" + repoShort.takeLast(5) + ")، مخزن " + repoShort + "، منطقه (Region) ← ساخت. " + shiprrRegionHint() + "\n" +
                 "3) وقتی بالا آمد، آدرس https://نام.shiprr.dev است ← «✍️ ساختم — پنلم را اضافه کن».",
             "✅ The repository is ready: " + full + "\n\nNow on Shiprr (3 steps):\n" +
                 "1) «🌐 Open Shiprr» → sign up → connect GitHub.\n" +
-                "2) Apps → New app → a name (e.g. cat" + repoShort.takeLast(5) + "), repository " + repoShort + ", region Europe → create.\n" +
+                "2) Apps → New app → a name (e.g. cat" + repoShort.takeLast(5) + "), repository " + repoShort + ", region → create. " + shiprrRegionHint() + "\n" +
                 "3) When it is up, the address is https://name.shiprr.dev → «✍️ Deployed — add my panel».",
         )
         val box = column()

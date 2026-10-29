@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.79.0';
+const CAT_PANEL_VERSION = '6.79.1';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -2766,7 +2766,9 @@ function vlessHeader(uuidText, host, port) {
   if (!/^[0-9a-fA-F]{32}$/.test(hex)) throw new Error('chain vless: bad uuid');
   const head = [0x00];
   for (let i = 0; i < 16; i++) head.push(parseInt(hex.slice(i * 2, i * 2 + 2), 16));
-  head.push(0x01, (port >> 8) & 0xff, port & 0xff);
+  // beta226: [addons length = 0] before the command — without it every real VLESS server (Xray, sing-box and this
+  // panel's own parser, see parseVlessHeader) read the port as the command and closed the chain.
+  head.push(0x00, 0x01, (port >> 8) & 0xff, port & 0xff);
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
     head.push(0x01, ...host.split('.').map((x) => Number(x) & 0xff));
   } else {
@@ -2879,13 +2881,10 @@ async function openChainTransport(sockets, chain) {
     if (socket.opened) await withTimeout(socket.opened, 5000, 'connect-timeout');
   }
   if (chain.transport === 'ws' || chain.transport === 'httpupgrade') {
-    const keyBytes = crypto.getRandomValues(new Uint8Array(16));
-    let key = '';
-    const b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    for (let i = 0; i < keyBytes.length; i += 3) {
-      const n = (keyBytes[i] << 16) | ((keyBytes[i + 1] || 0) << 8) | (keyBytes[i + 2] || 0);
-      key += b64[(n >> 18) & 63] + b64[(n >> 12) & 63] + b64[(n >> 6) & 63] + b64[n & 63];
-    }
+    // beta226: a real RFC 6455 key — 16 random bytes in padded base64 (22 chars + «==»). The old hand-rolled
+    // encoder wrote «AA» instead of «==», which Node's `ws` (Vercel / Railway / KataBump / every Node panel)
+    // answers with 400, so a Cloudflare panel could never exit through a linked Node or Vercel panel.
+    const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
     const enc = new TextEncoder();
     const head = 'GET ' + (chain.path || '/') + ' HTTP/1.1\r\n' +
       'Host: ' + (chain.wsHost || chain.host) + '\r\n' +
@@ -3274,6 +3273,31 @@ async function huntSocks(env, settings, cc, want, sockets, exclude) {
   return { found, tried, listed: pool.length };
 }
 
+/** readable minus the VLESS response prefix ([0][addons length][addons]); writable/close passthrough. */
+function stripVlessResponse(socket) {
+  const src = socket.readable.getReader();
+  let head = new Uint8Array(0);
+  let passed = false;
+  const readable = new ReadableStream({
+    async pull(controller) {
+      for (;;) {
+        const { done, value } = await src.read();
+        if (done) { controller.close(); return; }
+        if (!value || !value.byteLength) continue;
+        if (passed) { controller.enqueue(value); return; }
+        head = head.byteLength ? concatBytes(head, value) : value;
+        if (head.byteLength < 2 || head.byteLength < 2 + head[1]) continue;
+        passed = true;
+        const rest = head.subarray(2 + head[1]);
+        head = null;
+        if (rest.byteLength) { controller.enqueue(rest); return; }
+      }
+    },
+    cancel(reason) { try { src.cancel(reason); } catch (_e) { /* ignore */ } },
+  });
+  return { readable, writable: socket.writable, close() { try { socket.close(); } catch (_e) { /* ignore */ } } };
+}
+
 async function dialViaChain(sockets, chain, host, port) {
   if (chain.type === 'vless' || chain.type === 'trojan') {
     // 🧩 config-link chain: transport (TLS/ws/httpupgrade) + inner protocol.
@@ -3287,32 +3311,11 @@ async function dialViaChain(sockets, chain, host, port) {
         await writer.write(await trojanRequest(chain.pass, host, port));
       }
       writer.releaseLock(); // the caller's real payload (or the chain-test probe) follows
-      // Drain the protocol response prefix; every byte past it (already
-      // buffered here) is handed back as leftover for the pump.
-      const reader = socket.readable.getReader();
-      let rbuf = new Uint8Array(0);
-      const readExact = async (n) => {
-        while (rbuf.byteLength < n) {
-          const { done, value } = await reader.read();
-          if (done) throw new Error('chain: remote closed during handshake');
-          if (!value || !value.byteLength) continue;
-          const merged = new Uint8Array(rbuf.byteLength + value.byteLength);
-          merged.set(rbuf); merged.set(value, rbuf.byteLength);
-          rbuf = merged;
-        }
-        const out = rbuf.slice(0, n);
-        rbuf = rbuf.slice(n);
-        return out;
-      };
-      if (chain.type === 'vless') {
-        const head = await readExact(2);
-        if (head[1] > 0) await readExact(head[1]);
-      } else {
-        const resp = await readExact(2);
-        if (resp[0] !== 0x0d || resp[1] !== 0x0a) throw new Error('trojan chain: auth failed');
-      }
-      reader.releaseLock();
-      return { socket, leftover: rbuf };
+      // beta226: a VLESS server answers [version][addons length][addons] together with the FIRST bytes coming
+      // back from the destination, and a Trojan server answers nothing at all. Waiting for that answer before the
+      // caller may write deadlocked every client-speaks-first protocol (HTTP, TLS) — so return now and strip the
+      // VLESS answer from the stream as it arrives.
+      return { socket: chain.type === 'vless' ? stripVlessResponse(socket) : socket, leftover: new Uint8Array(0) };
     } catch (e) {
       try { socket && socket.close(); } catch (_e2) { /* ignore */ }
       throw e;
