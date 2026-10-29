@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta213] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app
+- **Cat SSTP: «Android refused to protect the SSTP socket» on every server.** A fresh Android `Socket()` has no file descriptor until an option is set, it is bound or it connects, and `VpnService.protect()` on it returns false. The SSTP dialer protected the socket before touching it; it now sets `TCP_NODELAY`/keep-alive first (and binds as a last resort) and only then protects, as the other protected sockets in the app already do. The real SSTP ping got the same fix (a failed protect is now an error instead of a test silently running through the tunnel).
+
+### Tests
+- `Beta212SstpWiringTest.dialerCreatesTheDescriptorBeforeProtecting`.
+
 ## [1.10.0-beta212] — 2026-10-29 (Panel 6.77.3)
 
 Cat SSTP — free SSTP servers (VPN Gate, user `vpn` / password `vpn`) built into the app.

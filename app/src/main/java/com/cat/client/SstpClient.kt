@@ -914,8 +914,16 @@ internal object SstpDialer {
     ): Opened {
         val raw = Socket()
         try {
-            protect(raw)
+            // Android creates a Socket's file descriptor lazily (first option / bind / connect); VpnService.protect()
+            // on a descriptor-less socket returns false. Touch an option first, bind as a last resort.
             raw.tcpNoDelay = true
+            raw.keepAlive = true
+            try {
+                protect(raw)
+            } catch (first: Exception) {
+                runCatching { raw.bind(null) }
+                protect(raw)
+            }
             val target = if (link.ip.isNotBlank()) InetAddress.getByName(link.ip) else resolve(link.host)
             raw.connect(InetSocketAddress(target, link.port), timeoutMs)
             raw.soTimeout = timeoutMs

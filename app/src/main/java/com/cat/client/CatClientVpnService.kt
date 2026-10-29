@@ -4483,7 +4483,7 @@ class CatClientVpnService : VpnService() {
         val t0 = System.nanoTime()
         var conn: SstpConnection? = null
         return try {
-            val opened = SstpDialer.open(link, protect = { s -> protect(s) }, resolve = { h -> FirefoxVpnEngine.resolveEdgeAddress(h) }, timeoutMs = budget)
+            val opened = SstpDialer.open(link, protect = { s -> if (!protect(s)) throw IOException("protect failed") }, resolve = { h -> FirefoxVpnEngine.resolveEdgeAddress(h) }, timeoutMs = budget)
             conn = opened.connection
             opened.connection.handshake(budget.toLong())
             ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
@@ -4518,7 +4518,11 @@ class CatClientVpnService : VpnService() {
                 val opened = withContext(Dispatchers.IO) {
                     SstpDialer.open(
                         link,
-                        protect = { s -> if (!protect(s)) throw IOException("Android refused to protect the SSTP socket") },
+                        protect = { s ->
+                            if (!protect(s)) {
+                                throw IOException("Android refused to protect the SSTP socket (VPN permission revoked or another VPN app is always-on)")
+                            }
+                        },
                         resolve = { h -> FirefoxVpnEngine.resolveEdgeAddress(h) },
                         timeoutMs = SSTP_CONNECT_TIMEOUT_MS,
                         log = { line -> DiagnosticLogger.info(this@CatClientVpnService, "sstp.engine", line) },

@@ -387,6 +387,16 @@ class Beta212SstpWiringTest {
     }
 
     @org.junit.Test
+    fun dialerCreatesTheDescriptorBeforeProtecting() {
+        // A fresh Android Socket has no fd until an option/bind/connect; protect() on it returns false (beta212 bug).
+        val dialer = src("SstpClient.kt").substringAfter("internal object SstpDialer")
+        val option = dialer.indexOf("raw.tcpNoDelay = true")
+        val protect = dialer.indexOf("protect(raw)")
+        org.junit.Assert.assertTrue(option in 0 until protect)
+        org.junit.Assert.assertTrue(dialer.contains("raw.bind(null)"))
+    }
+
+    @org.junit.Test
     fun subscriptionsAndUiKnowSstp() {
         val conv = src("SubConvConverter.kt")
         org.junit.Assert.assertTrue(conv.contains("\"sstp://\""))
