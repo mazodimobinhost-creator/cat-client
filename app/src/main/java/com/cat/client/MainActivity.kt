@@ -15653,7 +15653,7 @@ class MainActivity : Activity() {
         val items = if (isFarsi) {
             arrayOf(
                 "📖 ۰) راهنمای خیلی ساده به زبان خودمانی (اینو بزنی این میشه، اونو بزنی این میشه!)",
-                "🦊 ۱) Cat Fox VPN (۵۰ گیگ رایگان ماهانه + ۳۵ کشور Fastly)",
+                "🦊 ۱) Cat Fox VPN (۵۰ گیگ رایگان ماهانه روی سرورهای موزیلا)",
                 "🪄 ۲) تعمیر خودکار کانفیگ واقعی من و اتصال فوری (۵ روش اسپوف کلادفلر + برش SNI)",
                 "🧦 ۳) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
                 "🧭 ۴) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
@@ -15679,7 +15679,7 @@ class MainActivity : Activity() {
         } else {
             arrayOf(
                 "📖 0) Plain-Language Step-by-Step Guide (What Every Button Does!)",
-                "🦊 1) Cat Fox VPN (50 GB/mo Free + 35 Fastly Countries)",
+                "🦊 1) Cat Fox VPN (50 GB/mo free on Mozilla servers)",
                 "🪄 2) 1-Click Auto-Repair My Real Config & Connect Immediately",
                 "🧦 3) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
                 "🧭 4) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
@@ -21379,7 +21379,7 @@ class MainActivity : Activity() {
 
     /**
      * Dedicated card for **Firefox Browser VPN (`FENIX` / Mozilla IP Protection on Fastly)**
-     * offering 50 GB/month per free Firefox Account, multi-account auto-failover, and 35 countries.
+     * offering 50 GB/month per free Firefox Account, multi-account auto-failover, and the Recommended + free countries.
      */
     private fun buildFirefoxVpnFenixCard(): View {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
@@ -21402,9 +21402,9 @@ class MainActivity : Activity() {
         card.addView(
             TextView(this).apply {
                 text = if (isFarsi) {
-                    "ترافیک کل گوشی روی سرورهای Fastly مرورگر فایرفاکس (غیرکلادفلر و باز در ایران) در ۳۵ کشور دنیا + پشتیبانی از چند اکانت همزمان با چرخش خودکار ۵۰ گیگابایت و برش بسته TLS ضد فیلترینگ."
+                    "ترافیک کل گوشی روی سرورهای Fastly مرورگر فایرفاکس (غیرکلادفلر و باز در ایران) — سرور پیشنهادی و کشورهای رایگان + پشتیبانی از چند اکانت همزمان با چرخش خودکار ۵۰ گیگابایت و برش بسته TLS ضد فیلترینگ."
                 } else {
-                    "Full-device VPN over Mozilla's Fastly Edge in 35 countries — 50 GB/month per free Firefox account with multi-account auto-failover and Anti-DPI TLS splitting."
+                    "Full-device VPN over Mozilla's Fastly edge (Recommended + free countries) — 50 GB/month per free Firefox account with multi-account auto-failover and Anti-DPI TLS splitting."
                 }
                 textSize = 12f
                 setTextColor(TEXT_SECONDARY)
@@ -21513,12 +21513,12 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
         )
 
-        // Row: Country Picker (35 Countries) + Account Manager (50 GB/mo)
+        // Row: Country Picker (free first) + Account Manager (50 GB/mo)
         val row1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             addView(
-                fenixBtn(if (isFarsi) "🌍 کشور (۳۵ کشور) ▾" else "🌍 Country (35) ▾") {
+                fenixBtn(if (isFarsi) "🌍 کشور ▾" else "🌍 Country ▾") {
                     showFirefoxCountryPickerDialog { refreshFenixSummary() }
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
@@ -21535,7 +21535,7 @@ class MainActivity : Activity() {
         // Secondary Row: Full FENIX Hub & Ping Scanner
         card.addView(
             fenixBtn(
-                label = if (isFarsi) "⚙️ پنل کامل Cat Fox VPN، تست پینگ ۳۵ کشور و اسکن Fastly" else "⚙️ Full Cat Fox VPN Hub, 35-Country Ping & Fastly Scan",
+                label = if (isFarsi) "⚙️ پنل کامل Cat Fox VPN، تست پینگ کشورها و اسکن Fastly" else "⚙️ Full Cat Fox VPN Hub, Country Ping & Fastly Scan",
                 accent = false,
             ) {
                 showFirefoxVpnFenixHubDialog { refreshFenixSummary() }
@@ -22302,7 +22302,7 @@ class MainActivity : Activity() {
         val options = if (isFarsi) {
             arrayOf(
                 "🦊 ۱) اتصال فوری با Cat Fox VPN (روشن کردن تانل کل گوشی همین الان)",
-                "🌍 ۲) انتخاب کشور از بین ۳۵ کشور شبکه Fastly موزیلا",
+                "🌍 ۲) انتخاب کشور (✅ رایگان‌ها اول؛ 🔒 قفل‌ها خودکار میرن رو پیشنهادی)",
                 "⚡ ۳) تست پینگ زنده همه کشورها و انتخاب خودکار سریع‌ترین کشور روی خط من",
                 "👤 ۴) مدیریت حساب‌های ۵۰ گیگابایتی فایرفاکس (افزودن چند اکانت + چرخش خودکار)",
                 "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
