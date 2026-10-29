@@ -23,7 +23,7 @@ class Beta227HostCountryTest {
         assertEquals(HostRegions.Mode.HOST_DECIDES, HostRegions.mode(NodeHostPanel.BOTHOSTING))
         assertEquals(4, HostRegions.choices(NodeHostPanel.RAILWAY).size)
         assertEquals(listOf("eu", "us", "asia", "oc"), HostRegions.choices(NodeHostPanel.SHIPRR).map { it.site })
-        assertEquals(listOf("Europe (Amsterdam)", "USA"), HostRegions.choices(NodeHostPanel.SMARTERASP).map { it.site })
+        assertEquals(listOf("-US", "Europe"), HostRegions.choices(NodeHostPanel.SMARTERASP).map { it.site })
     }
 
     @Test

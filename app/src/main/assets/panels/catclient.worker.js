@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.79.1';
+const CAT_PANEL_VERSION = '6.79.2';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -2831,7 +2831,8 @@ function wsClientLayer(socket) {
           if (!value || !value.byteLength) continue;
           const buf = carry ? concatBytes(carry, value) : value;
           const { payloads, rest, closed } = decodeFrames(buf);
-          if (closed) { controller.close(); return; }
+          // 6.79.2: the last data frame often shares one read with the close frame — deliver it before closing
+          if (closed) { for (const p of payloads) controller.enqueue(p); controller.close(); return; }
           carry = rest;
           if (payloads.length) {
             for (const p of payloads) controller.enqueue(p);

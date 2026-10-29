@@ -35,3 +35,4 @@
 - 2026-10-29 beta225 (292, Panel 6.79.0): free-host audit — CAT_HOST per host, KataBump direct-port header trust fix, 🟧 Cloudflare front for HTTPS Node hosts, per-platform hiding of CF-only panel sections, per-host renew reminders + SmarterASP trial reminder, IIS keep-warm. Local: npm test 134/134, node-host 69 checks, artifact suites green, NodeHostPanel helpers compiled+run with kotlinc 2.4.21.
 - 2026-10-29 beta226: chain fixes (ws key, VLESS addons, no response wait), katabump-cf-link real-socket test, Railway region picker (multiRegionConfig), Bot-Hosting node country, host country texts. Panel 6.79.1.
 - 2026-10-30 beta227: HostRegions + askCountry before every host install, Railway change-region button, flags in saved names.
+- 2026-10-30 beta228: SmarterASP Linux trial guide + smarterasp-linux.test.mjs, USA default, cat-config leak check, wsClientLayer close-frame data fix (Panel 6.79.2).

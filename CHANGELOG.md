@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta228] — 2026-10-30 (Panel 6.79.2)
+
+### Added — SmarterASP Linux trial
+- SmarterASP's control panel now offers two 60-day trials: «60-Day Free Trial» (W60-US, Windows/IIS) and «60-Day Free Linux Trial» (W60LX-US: a real Node app with start command, variables and logs, 800 MB memory). The guide and the 🧭 wizard name both; Linux is recommended. The same zip runs on both — on Linux: start command `node index.js`, PORT from the host, the vendored `ws` needs no npm install (proved by `smarterasp-linux.test.mjs`, real launcher process from the exact zip layout: listen on $PORT, /api/version, /sub, WebSocket 101).
+- The trial card codes end with the location (-US), so SmarterASP's country now defaults to 🇺🇸 USA; Europe only if a card with a Europe code is offered.
+- After a panel answers, the app checks whether the host's web server hands out `cat-config.json` (UUID + Trojan password) — shared hosting may serve the folder — and warns with what to do.
+
+### Fixed
+- **Chain/link exit lost the end of a response** (Panel 6.79.2): when the last WebSocket data frame and the close frame arrived in one read, the data was dropped (e.g. the end of an HTTP reply through «exit via linked panel»). Regression test in `chain-protocols.test.mjs`; this also removes the occasional failure of `katabump-cf-link.test.mjs` under load.
+
 ## [1.10.0-beta227] — 2026-10-30 (Panel 6.79.1)
 
 ### Added — «📍 Server country» before every free-host install

@@ -6,7 +6,7 @@ package com.cat.client
  * now starts with «📍 Server country». What the app can really do differs per host (Oct 2026 sources):
  *  • Railway: 4 regions, the app sets it through the API (docs.railway.com/deployments/regions);
  *  • Shiprr: eu / us / asia / oc, picked by YOU in the «New app» form — a preference, may fall back (shiprr.app/docs/limits);
- *  • SmarterASP: Europe (Amsterdam) or USA, picked by YOU at sign-up, fixed afterwards;
+ *  • SmarterASP: the trial card's code says the location (W60-US / W60LX-US = USA); Europe only if such a card shows;
  *  • KataBump: France only (OVH Gravelines, legal notice); Lucity: EU only;
  *  • Bot-Hosting: the host decides («You cannot choose where your deployment runs», legal §2) — the app shows the node.
  * Pure Kotlin (no Android) so the JVM tests can pin it.
@@ -32,9 +32,11 @@ internal object HostRegions {
             Region("asia", "🌏 آسیا", "🌏 Asia", "asia"),
             Region("oc", "🇦🇺 استرالیا / اقیانوسیه", "🇦🇺 Australia / Oceania", "oc"),
         )
+        // beta228: the trial cards in the control panel are «W60-US» (Windows) and «W60LX-US» (Linux) — the code
+        // ends with the location; Europe only when a card with a Europe code is offered.
         "smarterasp" -> listOf(
-            Region("europe", "🇳🇱 هلند (آمستردام) — پیشنهادی، نزدیک‌تر به ایران", "🇳🇱 Netherlands (Amsterdam) — recommended, closer to Iran", "Europe (Amsterdam)"),
-            Region("usa", "🇺🇸 آمریکا", "🇺🇸 USA", "USA"),
+            Region("usa", "🇺🇸 آمریکا — کارت‌های آزمایشی فعلی (W60-US و W60LX-US)", "🇺🇸 USA — the current trial cards (W60-US and W60LX-US)", "-US"),
+            Region("europe", "🇪🇺 اروپا (آمستردام) — فقط اگر کارت آزمایشی با کد اروپا دیدید", "🇪🇺 Europe (Amsterdam) — only if you see a trial card with a Europe code", "Europe"),
         )
         "katabump" -> listOf(Region("fr", "🇫🇷 فرانسه (OVH، Gravelines)", "🇫🇷 France (OVH, Gravelines)"))
         "lucity" -> listOf(Region("eu", "🇪🇺 اتحادیهٔ اروپا", "🇪🇺 European Union"))

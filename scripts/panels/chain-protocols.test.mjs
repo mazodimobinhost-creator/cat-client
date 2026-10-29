@@ -183,3 +183,20 @@ test('chainProbe: dial failure rejects', async () => {
   const chain = T.parseChain('vless://a3b1c2d3-e4f5-4a5b-8c6d-7e8f9a0b1c2d@free.example.com:443?security=tls&sni=free.example.com&type=httpupgrade&host=free.example.com&path=%2Fhu');
   await assert.rejects(() => T.chainProbe({ connect: () => deadSock }, chain));
 });
+
+test('wsClientLayer: the last data frame sharing one read with the close frame is delivered (6.79.2)', async () => {
+  const body = new TextEncoder().encode('HTTP/1.1 200 OK\r\n\r\nTHE-END');
+  const frame = new Uint8Array(2 + body.length + 2);
+  frame[0] = 0x82; frame[1] = body.length; frame.set(body, 2);
+  frame[2 + body.length] = 0x88; frame[3 + body.length] = 0; // close frame, same chunk
+  const sock = {
+    readable: new ReadableStream({ start(c) { c.enqueue(frame); c.close(); } }),
+    writable: new WritableStream({ write() {} }),
+    close() {},
+  };
+  const layer = T.wsClientLayer(sock);
+  const rd = layer.readable.getReader();
+  let got = '';
+  for (;;) { const { done, value } = await rd.read(); if (done) break; got += new TextDecoder().decode(value); }
+  assert.match(got, /THE-END$/);
+});

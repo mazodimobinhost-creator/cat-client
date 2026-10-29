@@ -565,24 +565,38 @@ class NodeHostController(
 
     private fun smarterAspSite(): String = HostRegions.region(NodeHostPanel.SMARTERASP, store.region(NodeHostPanel.SMARTERASP))?.site.orEmpty()
 
+    /** beta228: SmarterASP's «Free Trial» page shows two cards — Windows (W60-US) and Linux (W60LX-US); the code's end is the location. */
+    private fun smarterAspCountryLine(): String = if (smarterAspSite() == "-US") t(
+        "📍 کشور: آخر کد کارت (مثلاً W60LX-US) جای سرور است؛ «-US» یعنی آمریکا. الان کارت‌های آزمایشی فقط -US هستند.",
+        "📍 Country: the end of the card's code (e.g. W60LX-US) is the server location; «-US» means USA. Right now the trial cards are -US only.",
+    ) else t(
+        "📍 کشور: کارتی را فعال کنید که کدش اروپا را نشان می‌دهد. اگر همهٔ کارت‌ها به «-US» ختم می‌شوند، آزمایشی فقط آمریکا است.",
+        "📍 Country: activate a card whose code shows Europe. If every card ends with «-US», the trial is USA only.",
+    )
+
+    private fun smarterAspTrialLine(): String = t(
+        "در صفحهٔ Free Trial یکی را فعال کنید (Activate): «60-Day Free Linux Trial» (W60LX-US — پیشنهادی: Node واقعی با Start command، متغیرها و لاگ، ۸۰۰ مگ حافظه) یا «60-Day Free Trial» (W60-US — ویندوز/IIS). فایل‌های برنامه برای هر دو یکی است.",
+        "On the Free Trial page activate one card: «60-Day Free Linux Trial» (W60LX-US — recommended: a real Node app with a start command, variables and logs, 800 MB memory) or «60-Day Free Trial» (W60-US — Windows/IIS). The app's files are the same for both.",
+    )
+
     private fun smarterAspGuide(): String = t(
-        "SmarterASP.NET یک هاست ویندوزی است که ۶۰ روز آزمایشی رایگان می‌دهد، بدون کارت بانکی، با Node.js و یک دامنهٔ موقت. پنل Cat روی آن بالا می‌آید و کانفیگ VLESS/Trojan روی WebSocket همان دامنه می‌دهد.\n\n" +
+        "SmarterASP.NET دو آزمایشی رایگان ۶۰ روزه دارد (لینوکس و ویندوز)، بدون کارت بانکی، با Node.js و یک دامنهٔ موقت. پنل Cat روی آن بالا می‌آید و کانفیگ VLESS/Trojan روی WebSocket همان دامنه می‌دهد.\n\n" +
             "⚠️ پیش از استفاده بدانید: هاست اشتراکی است؛ ممکن است اتصال‌های بیرونی یا WebSocket را محدود کند و دامنهٔ موقتش روی اینترنت شما باز نباشد. برنامه بعد از نصب واقعاً تست می‌کند (پنل، اشتراک، WebSocket 101) و نتیجهٔ واقعی را می‌گوید. بعد از ۶۰ روز یا باید پلن بخرید یا سایت پاک می‌شود. قوانین استفادهٔ SmarterASP را خودتان بخوانید؛ مسئولیت با شماست.\n\n" +
             "🟢 نصب (دستی، ۵ دقیقه):\n" +
-            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است). 📍 در فرم ثبت‌نام دیتاسنتر را «" + smarterAspSite() + "» بگذارید (همانی که در برنامه انتخاب کردید)؛ کشور پنل همین است و بعداً عوض نمی‌شود.\n" +
+            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است) ← " + smarterAspTrialLine() + "\n   " + smarterAspCountryLine() + "\n" +
             "2) «📦 ذخیرهٔ فایل‌ها» ← یک zip در پوشهٔ Download (همهٔ فایل‌ها آماده: پنل، web.config، node_modules، App_Data).\n" +
-            "3) کنترل‌پنل ← سایت ← File Manager ← zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا با FTP). web.config باید کنار index.js باشد.\n" +
-            "4) Node.js را برای سایت روشن کنید (Hosting Manager ← Node.js).\n" +
+            "3) کنترل‌پنل ← سایت ← File Manager ← zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا با FTP). index.js کنار package.json و web.config باشد.\n" +
+            "4) 🐧 لینوکس: بخش Node.js ← برنامه با Start command = node index.js (متغیر PORT را خودتان نسازید، مگر فرم یک پورت مشخص بدهد؛ آن‌وقت PORT = همان عدد) ← Start. 🪟 ویندوز: Hosting Manager ← Node.js ← برای سایت روشن.\n" +
             "5) آدرس موقت سایت را کپی کنید ← «✍️ پنلم را اضافه کن». بار اول تا ۲ دقیقه طول می‌کشد چون پنل از GitHub دانلود و با SHA-256 چک می‌شود.\n\n" +
             "🔧 اگر لاگ App_Data/cat-node….log گفت Node قدیمی است: طبق راهنمای خود SmarterASP فایل node.exe نسخهٔ 22 (win-x64) را در App_Data بگذارید و در web.config به‌جای processPath=\"node\" بنویسید processPath=\".\\App_Data\\node.exe\" (دکمهٔ «📖 راهنمای نسخهٔ Node»).\n" +
             "🔒 https: اگر آدرس https دارد، کانفیگ‌ها TLS روی 443 می‌شوند؛ اگر فقط http، کانفیگ‌ها بدون TLS روی 80. با دامنهٔ خودتان پشت Cloudflare کانفیگ‌های کامل Cloudflare هم می‌گیرید.",
-        "SmarterASP.NET is a Windows host with a 60-day free trial, no card, Node.js and a temporary domain. The Cat panel runs on it and gives VLESS/Trojan configs over WebSocket on that domain.\n\n" +
+        "SmarterASP.NET has two 60-day free trials (Linux and Windows), no card, Node.js and a temporary domain. The Cat panel runs on it and gives VLESS/Trojan configs over WebSocket on that domain.\n\n" +
             "⚠️ Know before you start: it is shared hosting; it may limit outgoing connections or WebSocket, and its temporary domain may not open on your line. After installing, the app really tests it (panel, subscription, WebSocket 101) and tells you the real result. After 60 days you either buy a plan or the site is removed. Read SmarterASP's usage rules yourself; it is your responsibility.\n\n" +
             "🟢 Install (by hand, 5 minutes):\n" +
-            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed). 📍 On the sign-up form set the data center to «" + smarterAspSite() + "» (the one you picked in the app); that is the panel's country and it cannot change later.\n" +
+            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed) → " + smarterAspTrialLine() + "\n   " + smarterAspCountryLine() + "\n" +
             "2) «📦 Save the files» → a zip in the Download folder (everything ready: panel, web.config, node_modules, App_Data).\n" +
-            "3) Control panel → the site → File Manager → upload the zip to the site's root and Extract it (or use FTP). web.config must sit next to index.js.\n" +
-            "4) Enable Node.js for the site (Hosting Manager → Node.js).\n" +
+            "3) Control panel → the site → File Manager → upload the zip to the site's root and Extract it (or use FTP). index.js sits next to package.json and web.config.\n" +
+            "4) 🐧 Linux: the Node.js section → an app with start command = node index.js (do not create PORT yourself unless the form gives a fixed port; then PORT = that number) → Start. 🪟 Windows: Hosting Manager → Node.js → enable it for the site.\n" +
             "5) Copy the site's temporary address → «✍️ Add my panel». The first start takes up to 2 minutes while the panel downloads from GitHub and is checked with SHA-256.\n\n" +
             "🔧 If the log App_Data/cat-node….log says Node is too old: as SmarterASP's own guide says, put node.exe version 22 (win-x64) in App_Data and in web.config replace processPath=\"node\" with processPath=\".\\App_Data\\node.exe\" («📖 Node version guide» button).\n" +
             "🔒 https: if the address has https, configs are TLS on 443; with http only, configs are without TLS on 80. With your own domain behind Cloudflare you also get the full Cloudflare set.",
@@ -594,11 +608,13 @@ class NodeHostController(
             t(
                 "1) «🌐 ثبت‌نام SmarterASP» را بزنید (صفحهٔ پلن رایگان باز می‌شود).\n" +
                     "2) ایمیل واقعی، نام کاربری و رمز ← ثبت‌نام. کارت بانکی نمی‌خواهد.\n" +
-                    "3) ایمیل فعال‌سازی را باز کنید (Spam را هم ببینید) و وارد کنترل‌پنل شوید.\n\n" +
+                    "3) ایمیل فعال‌سازی را باز کنید (Spam را هم ببینید) و وارد کنترل‌پنل شوید.\n" +
+                    "4) " + smarterAspTrialLine() + "\n" + smarterAspCountryLine() + "\n\n" +
                     "اگر سایت روی اینترنت شما باز نمی‌شود، اول یک کانفیگ را وصل کنید.",
                 "1) Tap «🌐 SmarterASP sign-up» (the free plan page opens).\n" +
                     "2) A real e-mail, a username and a password → sign up. No card needed.\n" +
-                    "3) Open the activation e-mail (check Spam) and sign in to the control panel.\n\n" +
+                    "3) Open the activation e-mail (check Spam) and sign in to the control panel.\n" +
+                    "4) " + smarterAspTrialLine() + "\n" + smarterAspCountryLine() + "\n\n" +
                     "If the site does not open on your line, connect a config first.",
             ),
             listOf(t("🌐 ثبت‌نام SmarterASP", "🌐 SmarterASP sign-up") to { open(NodeHostPanel.SMARTERASP_SIGNUP) }),
@@ -615,12 +631,14 @@ class NodeHostController(
             t("آپلود و روشن کردن Node.js", "Upload and enable Node.js"),
             t(
                 "1) «🌐 کنترل‌پنل» ← سایت (site1) ← File Manager.\n" +
-                    "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید). index.js و web.config باید مستقیم در پوشهٔ اصلی باشند.\n" +
-                    "3) Hosting Manager ← Node.js ← برای همین سایت روشن کنید.\n" +
+                    "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید). index.js و package.json باید مستقیم در همان پوشه باشند.\n" +
+                    "3) 🐧 آزمایشی لینوکس: بخش Node.js ← برنامهٔ تازه یا ویرایش: پوشه = همان پوشه، Start command = node index.js. متغیر PORT را خودتان نسازید (هاست می‌دهد)؛ فقط اگر فرم یک پورت مشخص نشان داد، متغیر PORT را همان عدد بگذارید ← Start. لاگ برنامه باید «Cat Panel … listening» بگوید.\n" +
+                    "   🪟 آزمایشی ویندوز: Hosting Manager ← Node.js ← برای همین سایت روشن کنید (web.config همراه zip است).\n" +
                     "4) آدرس موقت سایت را از صفحهٔ سایت کپی کنید.",
                 "1) «🌐 Control panel» → the site (site1) → File Manager.\n" +
-                    "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP). index.js and web.config must be directly in the root.\n" +
-                    "3) Hosting Manager → Node.js → enable it for this site.\n" +
+                    "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP). index.js and package.json must be directly in that folder.\n" +
+                    "3) 🐧 Linux trial: the Node.js section → a new app or edit: folder = that folder, start command = node index.js. Do not create PORT yourself (the host gives it); only if the form shows a fixed port, set the PORT variable to that number → Start. The app log should say «Cat Panel … listening».\n" +
+                    "   🪟 Windows trial: Hosting Manager → Node.js → enable it for this site (web.config comes in the zip).\n" +
                     "4) Copy the site's temporary address from the site page.",
             ),
             listOf(
@@ -1441,8 +1459,8 @@ class NodeHostController(
         }
         if (!answered) {
             val why = if (kind == NodeHostPanel.SMARTERASP) t(
-                "پنل روی " + base + " جواب نداد. در کنترل‌پنل SmarterASP: ۱) Node.js برای همین سایت روشن باشد. ۲) web.config و index.js در پوشهٔ اصلی سایت باشند (نه داخل یک پوشهٔ دیگر). ۳) فایل App_Data/cat-node….log را باز کنید: «Node … please pick Node 20» یعنی Node قدیمی است (راهنما ← نسخهٔ Node)، «not writable» یعنی به سایت اجازهٔ Write بدهید، «could not start» یعنی سرور به github.com نرسید. بعد سایت را Restart کنید و دوباره تست بزنید.",
-                "The panel did not answer at " + base + ". In the SmarterASP control panel: 1) Node.js must be enabled for this site. 2) web.config and index.js must be in the site's root (not inside another folder). 3) Open App_Data/cat-node….log: «Node … please pick Node 20» means Node is too old (guide → Node version), «not writable» means give the site Write permission, «could not start» means the server could not reach github.com. Then restart the site and test again.",
+                "پنل روی " + base + " جواب نداد. 🐧 لینوکس: در بخش Node.js برنامه Start شده باشد (Start command = node index.js) و لاگ برنامه را ببینید؛ «listening» یعنی پنل بالا است و مشکل از آدرس/پورت است. 🪟 ویندوز، در کنترل‌پنل SmarterASP: ۱) Node.js برای همین سایت روشن باشد. ۲) web.config و index.js در پوشهٔ اصلی سایت باشند (نه داخل یک پوشهٔ دیگر). ۳) فایل App_Data/cat-node….log را باز کنید: «Node … please pick Node 20» یعنی Node قدیمی است (راهنما ← نسخهٔ Node)، «not writable» یعنی به سایت اجازهٔ Write بدهید، «could not start» یعنی سرور به github.com نرسید. بعد سایت را Restart کنید و دوباره تست بزنید.",
+                "The panel did not answer at " + base + ". 🐧 Linux: the app must be started in the Node.js section (start command = node index.js); read its log — «listening» means the panel is up and the address/port is the problem. 🪟 Windows, in the SmarterASP control panel: 1) Node.js must be enabled for this site. 2) web.config and index.js must be in the site's root (not inside another folder). 3) Open App_Data/cat-node….log: «Node … please pick Node 20» means Node is too old (guide → Node version), «not writable» means give the site Write permission, «could not start» means the server could not reach github.com. Then restart the site and test again.",
             ) else if (kind == NodeHostPanel.KATABUMP) t(
                 "پنل روی " + base + " جواب نداد. در KataBump ← Console ببینید خطایی هست یا نه (مثلاً Node قدیمی، فایل شروع اشتباه). اگر Console می‌گوید «listening» ولی اینجا جواب نمی‌دهد، این آی‌پی:پورت روی اینترنت شما بسته است؛ با VPN دوباره «🔎 تست» را بزنید تا مطمئن شوید.",
                 "The panel did not answer at " + base + ". On KataBump → Console, look for an error (old Node, wrong start file). If the Console says «listening» but it does not answer here, this IP:port is blocked on your line; tap «🔎 Check» again with a VPN to be sure.",
@@ -1454,6 +1472,15 @@ class NodeHostController(
             return Check(emptyList(), false, why, false)
         }
         step("   ✓ " + t("پنل جواب داد", "the panel answers"))
+        // beta228: a host whose web server also serves the folder (shared Linux/Windows hosting) could hand out
+        // cat-config.json — the UUID and Trojan password. The launcher never serves it; if it comes back, warn.
+        val leak = runCatching { NodeHostApi.panelGet(base, "/" + NodeHostPanel.CONFIG_FILE, 6_000) }.getOrNull()
+        val exposed = leak != null && leak.first == 200 && leak.second.contains(uuid)
+        if (exposed) step("   ⚠️ " + t("cat-config.json از بیرون خوانده می‌شود!", "cat-config.json can be read from outside!"))
+        val exposedNote = if (!exposed) "" else t(
+            "\n\n⚠️ مهم: فایل cat-config.json (UUID و رمز Trojan) از آدرس سایت دانلود می‌شود؛ هر کسی می‌تواند با آن از پنل شما استفاده کند. فایل‌ها را به پوشه‌ای بیرون از پوشهٔ عمومی سایت ببرید (و پوشهٔ برنامهٔ Node.js را همان بگذارید)، یا در پنل UUID تازه بسازید.",
+            "\n\n⚠️ Important: cat-config.json (the UUID and Trojan password) downloads from the site address; anyone can use your panel with it. Move the files to a folder outside the site's public folder (and point the Node.js app there), or make a new UUID in the panel.",
+        )
         val sub = runCatching { NodeHostApi.panelGet(base, "/sub/" + uuid) }.getOrNull()
         val links = if (sub != null && sub.first == 200) NodeHostPanel.decodeSub(sub.second) else emptyList()
         if (links.isEmpty()) {
@@ -1474,13 +1501,13 @@ class NodeHostController(
             Check(links, true, t(
                 "✅ پنل کار می‌کند و تونل WebSocket از " + name(kind) + " رد می‌شود. کانفیگ‌ها آماده‌اند.",
                 "✅ The panel works and the WebSocket tunnel passes through " + name(kind) + ". The configs are ready.",
-            ), true)
+            ) + exposedNote, true)
         } else {
             step("   ❌ WebSocket " + ws)
             Check(links, false, t(
                 "پنل جواب می‌دهد ولی دست‌دادن WebSocket جواب " + ws + " گرفت (باید 101 باشد). یعنی " + name(kind) + " تونل را رد نمی‌کند و کانفیگ‌ها وصل نمی‌شوند. اگر پشت Cloudflare هستید، WebSockets در Network روشن باشد.",
                 "The panel answers but the WebSocket handshake got " + ws + " (must be 101). " + name(kind) + " does not pass the tunnel, so the configs will not connect. Behind Cloudflare, make sure Network → WebSockets is on.",
-            ), true)
+            ) + exposedNote, true)
         }
     }
 

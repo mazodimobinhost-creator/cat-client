@@ -49,7 +49,7 @@ class Beta226LinkRegionTest {
         assertTrue(c.contains("ApiHostPlan.botHostingNodeCountry(node)"))
         assertTrue(c.contains("France only (OVH data center in Gravelines)"))
         assertTrue(c.contains("EU only (Lucity is hosted in the European Union"))
-        assertTrue(c.contains("set the data center to «\" + smarterAspSite() + \"»"))
+        assertTrue(c.contains("smarterAspCountryLine()"))
         assertEquals(6, Regex("shiprrRegionHint\\(\\)").findAll(c).count() - 1)
         assertTrue(!c.contains("region Europe") && !c.contains("منطقه Europe"))
         val api = read("app/src/main/java/com/cat/client/ApiHostDeploy.kt")
