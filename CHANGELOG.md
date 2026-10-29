@@ -4,6 +4,24 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta225] — 2026-10-29 (Panel 6.79.0)
+
+### Changed — free-host panels audited host by host
+- **Each panel knows its host.** The app writes `CAT_HOST` (katabump / bothosting / railway / lucity / shiprr / smarterasp) into `cat-config.json` (Railway: a variable; Railway and IIS are also recognised by themselves). The panel note names the host and only offers what that host can do: KataBump «one port only, plain ws» + how to get TLS (kdns.fr on Cloudflare) or, without a domain, «🔗 Link panels» from the Cloudflare panel; HTTPS hosts «TLS 443 on the host's own name» + the 🟧 Cloudflare front; SmarterASP over http «open it with https:// for TLS configs».
+- **Cloudflare-only sections are hidden where they cannot work.** On a direct Node host (KataBump IP:port, Railway/Bot-Hosting/Lucity/Shiprr/SmarterASP HTTPS) the clean-IP scanner, ProxyIP repositories, SNI spoof, exit-location / VIP / bridge / SOCKS cards are hidden (they never changed a Node config); on Vercel the ProxyIP/SOCKS location cards are hidden. They stay in the page (nothing removed), WARP-on-Xray and «🔗 Link panels» stay visible, and a Node host reached through Cloudflare keeps everything.
+- **🟧 Cloudflare front for Node hosts with an HTTPS name.** The front Worker built for Vercel now also fronts Railway, Bot-Hosting, Lucity, Shiprr and SmarterASP (https): the app asks for a Cloudflare token, shows exactly what it will create, deploys `cf-front.js` pointed only at that host, saves the name in that host's Cat panel and adds the two «🟧» configs. The panel puts one VLESS + one Trojan «🟧» line first (front name as address/Host/SNI, TLS 443); sites still see the host's own IP. A request that arrives through the front is answered as the host's TLS edge even when Cloudflare added a `cf-ray` on the way out.
+
+### Fixed
+- **KataBump: forged forwarded headers.** KataBump has no proxy in front of the port, but a client could send `X-Forwarded-Proto: https` (+ `X-Forwarded-For`) and get a fresh login budget and TLS/«wrong host» lines. With `CAT_HOST=katabump` the panel believes `cf-ray` only from Cloudflare's published edge ranges and ignores `X-Forwarded-Host/Port/Proto/For` from clients.
+- Renewal reminders said «KataBump» and opened KataBump's page for Bot-Hosting too; each host now has its own title, text and page. The «Ready» dialog no longer says «KataBump» for other hosts, and «✍️ I will type the address» after a failed check opens the form of the host that failed (it always opened KataBump's).
+- The SmarterASP 60-day trial reminder existed only as a constant; it is now scheduled 5 days before the end.
+- «🔐 Logins and links» told Bot-Hosting, Railway and SmarterASP users to «log in with GitHub»; each host now says how you really log in.
+- SmarterASP / IIS: the launcher wakes the site through its public address after 9 idle minutes (IIS stops idle sites and the next phone hit a cold start); `CAT_KEEPALIVE=0` turns it off.
+- The launcher logs the host and the container's memory limit (KataBump free 308 MB, Bot-Hosting 256 MB) at start.
+
+### Tests
+- `node-host.test.mjs`: front lines on an HTTPS host / through the front / on the plain edge / cleared, `data-plat` + hiding CSS, Cloudflare edge keeps everything, a KataBump launcher started from `cat-config.json` refuses forged `X-Forwarded-*` / `cf-ray` (configs and login lockout), `hostOf` / `directHost` / `containerMemoryMb` / `keepWarm`. `Beta225FreeHostsTest` (config host, front eligibility, renewal pages, trial delay, wiring). Paste-artifact gzip budget 262 000 → 264 000 (measured 261 954 B before the raise).
+
 ## [1.10.0-beta224] — 2026-10-29 (Panel 6.78.0)
 
 ### Added — Cat panel on SmarterASP.NET (60-day free trial, Windows/IIS)

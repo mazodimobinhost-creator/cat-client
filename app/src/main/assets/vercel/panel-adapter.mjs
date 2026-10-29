@@ -423,13 +423,32 @@ function waitUntilFn() {
 }
 
 function firstHeader(req, name) { return String(req.headers[name] || '').split(',')[0].trim(); }
+// Cloudflare's published edge ranges (cloudflare.com/ips) — on a direct host only these may claim cf-ray.
+const CF_V4 = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18',
+  '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'];
+const CF_V6 = ['2400:cb00:', '2606:4700:', '2803:f800:', '2405:b500:', '2405:8100:', '2a06:98c', '2c0f:f248:'];
+function v4num(ip) { const p = ip.split('.').map(Number); return p.length === 4 && p.every((n) => n >= 0 && n < 256) ? ((p[0] << 24) >>> 0) + (p[1] << 16) + (p[2] << 8) + p[3] : -1; }
+function isCloudflareIp(raw) {
+  const ip = String(raw || '').toLowerCase().replace(/^::ffff:/, '');
+  if (ip.indexOf(':') >= 0) return CF_V6.some((p) => ip.startsWith(p));
+  const n = v4num(ip);
+  return n >= 0 && CF_V4.some((c) => { const [b, l] = c.split('/'); const m = l === '0' ? 0 : (~0 << (32 - Number(l))) >>> 0; return ((n & m) >>> 0) === ((v4num(b) & m) >>> 0); });
+}
 /**
  * Node hosts: how did this request reach us? cf-ray → through Cloudflare; an x-forwarded-proto from the
  * host's own HTTPS edge → 'tls'; nothing in front → 'plain' (the host's own port, e.g. KataBump IP:port).
+ * 6.79.0: on a host with NO proxy of its own (CAT_HOST_DIRECT=1 — KataBump / any Pterodactyl server) every
+ * forwarded header comes from the client itself, so only a real Cloudflare edge address may claim cf-ray and
+ * nothing else can pretend to be TLS (a forged x-forwarded-for would otherwise dodge the login lockout).
+ * Our own 🟧 Cloudflare front (x-cat-front, over the host's HTTPS name) is answered as the TLS edge whatever
+ * Cloudflare headers its subrequest picked up — the panel adds the front's own lines itself.
  */
 function nodeEdgeOf(req) {
-  if (req.headers['cf-ray']) return 'cf';
+  if (process.env.CAT_HOST_DIRECT === '1') return req.headers['cf-ray'] && isCloudflareIp(req.socket.remoteAddress) ? 'cf' : 'plain';
   const proto = firstHeader(req, 'x-forwarded-proto').toLowerCase();
+  if (req.headers['x-cat-front'] && proto === 'https') return 'tls';
+  if (req.headers['cf-ray']) return 'cf';
   if (proto === 'https' || req.socket.encrypted) return 'tls';
   if (proto === 'http') return 'proxied-http';
   return 'plain';
@@ -447,12 +466,14 @@ function clientIp(req) {
 }
 /** The URL the phone used: scheme + host[:port] as it sees them (node); Vercel is always https on its host. */
 function publicOrigin(req) {
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost');
+  // a direct host (KataBump) has no proxy, so x-forwarded-host / -port can only be the client's own invention
+  const direct = PLATFORM === 'node' && process.env.CAT_HOST_DIRECT === '1';
+  const host = String((!direct && req.headers['x-forwarded-host']) || req.headers.host || 'localhost');
   if (PLATFORM !== 'node') return { url: 'https://' + host, edge: '', port: 443 };
   const edge = nodeEdgeOf(req);
   const tls = edge === 'tls' || (edge === 'cf' && firstHeader(req, 'x-forwarded-proto').toLowerCase() !== 'http');
   const m = /:(\d{1,5})$/.exec(host);
-  const fwdPort = Number(firstHeader(req, 'x-forwarded-port')) || 0;
+  const fwdPort = direct ? 0 : Number(firstHeader(req, 'x-forwarded-port')) || 0;
   const port = m ? Number(m[1]) : (fwdPort || (edge === 'plain' ? Number(process.env.CAT_PUBLIC_PORT || req.socket.localPort || 80) : (tls ? 443 : 80)));
   const bare = host.replace(/:\d{1,5}$/, '');
   const scheme = tls ? 'https' : 'http';

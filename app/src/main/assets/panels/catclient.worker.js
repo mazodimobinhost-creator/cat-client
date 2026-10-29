@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.78.0';
+const CAT_PANEL_VERSION = '6.79.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -5349,16 +5349,18 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // vercel.app name → mixed-case project → the project name itself. Each group repeats the same addresses.
   // 6.69.44 🟧 CF lines: the Cloudflare front's own name as address, Host and SNI (one VLESS + one Trojan;
   // the app's Cloudflare scanner swaps in clean IPs with the ports it actually tested).
-  const cfFront = isVercelPlatform(env) ? vercelCfFront(env, settings) : '';
-  const cfFrontLines = (list) => ['vless', 'trojan'].map((proto) => list.find((e) => e.proto === proto && e.tls)).filter(Boolean).map((e) => {
+  // 6.79.0: the same front works for a Node host with its own HTTPS name (Railway, Bot-Hosting, Lucity, Shiprr…).
+  const cfFront = isVercelPlatform(env) || isNodePlatform(env) ? vercelCfFront(env, settings) : '';
+  const cfFrontLines = (list) => ['vless', 'trojan'].map((proto) => list.find((e) => e.proto === proto && (e.tls || isNodePlatform(env)))).filter(Boolean).map((e) => {
     const nm = '🟧 ' + (e.proto === 'vless' ? 'VLESS' : 'TROJAN') + ' - Cloudflare front TLS : 443 · CF';
     const c2 = Object.assign({}, ctx, { sni: cfFront, hostHeader: cfFront });
-    return Object.assign({}, e, { addr: cfFront, port: 443, sni: cfFront, hostHeader: cfFront, name: nm, link: (e.proto === 'vless' ? vlessLink : trojanLink)(c2, cfFront, 443, true, e.cc, { name: nm }) });
+    return Object.assign({}, e, { addr: cfFront, port: 443, tls: true, sni: cfFront, hostHeader: cfFront, name: nm, link: (e.proto === 'vless' ? vlessLink : trojanLink)(c2, cfFront, 443, true, e.cc, { name: nm }) });
   });
   if (cfFront && q.sni === cfFront) {
     const pinnedFront = cfFrontLines(entries);
     entries.splice(0, entries.length, ...pinnedFront);
   }
+  if (cfFront && isNodePlatform(env) && !q.sni && !(limited && q.limit <= PIN_LIMIT)) entries.unshift(...cfFrontLines(entries));
   if (isVercelPlatform(env) && !q.sni && !(limited && q.limit <= PIN_LIMIT)) {
     const base = entries.splice(0);
     if (cfFront) entries.push(...cfFrontLines(base));
@@ -8823,14 +8825,21 @@ function panelPage(env, settings, host, masterUuid) {
   // 6.69.41: on Vercel, say plainly what the three SNIs are and where the REAL per-line scanner lives (a browser
   // cannot dial an IP with a chosen SNI, so an honest IP scan from the user's own line needs the app).
   const nEdge = isNodePlatform(env) ? nodeEdge(env) : '';
+  // 6.79.0: the note names the real host (the launcher passes CAT_HOST) and only offers what that host can do.
+  const nHost = { katabump: 'KataBump', bothosting: 'Bot-Hosting', railway: 'Railway', lucity: 'Lucity', shiprr: 'Shiprr', smarterasp: 'SmarterASP' }[String(env.CAT_HOST || '')] || '';
+  const nFront = nEdge ? vercelCfFront(env, settings) : '';
+  const nCode = '<code>' + escapeHtml(String(host)) + (nEdge === 'plain' ? ':' + nodePort(env) : '') + '</code>';
   const nNote = !nEdge ? '' : '<div class="note i vnote" style="margin:10px 0">' + (nEdge === 'plain'
-    ? (fa ? '🖥️ <b>پنل روی هاست Node (مثل KataBump):</b> کانفیگ‌ها مستقیم به آدرس و پورت همین هاست (<code>' + escapeHtml(String(host)) + ':' + nodePort(env) + '</code>) و <b>بدون TLS</b> وصل می‌شوند. برای TLS و آی‌پی تمیز Cloudflare: دامنهٔ رایگان kdns.fr را به Cloudflare ببرید، رکورد A را با ابر نارنجی روی آی‌پی هاست بگذارید یک Origin Rule بسازید که پورت را به ' + nodePort(env) + ' عوض کند و SSL/TLS را روی Flexible بگذارید؛ پنل را از آن دامنه باز کنید تا خودش کانفیگ‌های Cloudflare بسازد.'
-      : '🖥️ <b>Panel on a Node host (like KataBump):</b> configs connect straight to this host\'s address and port (<code>' + escapeHtml(String(host)) + ':' + nodePort(env) + '</code>) <b>without TLS</b>. For TLS and Cloudflare clean IPs: move the free kdns.fr domain to Cloudflare, add an orange-cloud A record to the host IP an Origin Rule that rewrites the port to ' + nodePort(env) + ' and SSL/TLS set to Flexible; open the panel from that domain and it builds Cloudflare configs itself.')
+    ? (nHost === 'SmarterASP'
+      ? tr2('🖥️ <b>پنل روی SmarterASP (IIS):</b> این صفحه با http باز شده، پس کانفیگ‌ها بدون TLS روی ' + nCode + ' هستند. پنل را با <b>https://</b> همین آدرس باز کنید تا کانفیگ‌های TLS روی ۴۴۳ بسازد.',
+        '🖥️ <b>Panel on SmarterASP (IIS):</b> this page was opened over http, so the configs are plain on ' + nCode + '. Open the panel with <b>https://</b> on the same address to get TLS-on-443 configs.')
+      : tr2('🖥️ <b>پنل روی هاست Node (' + (nHost || 'مثل KataBump') + '، فقط یک پورت):</b> کانفیگ‌ها مستقیم به آدرس و پورت همین هاست (' + nCode + ') و <b>بدون TLS</b> وصل می‌شوند؛ پنل و تونل هر دو روی همین یک پورت هستند. برای TLS و آی‌پی تمیز Cloudflare: دامنهٔ رایگان kdns.fr را به Cloudflare ببرید، رکورد A را با ابر نارنجی روی آی‌پی هاست بگذارید یک Origin Rule بسازید که پورت را به ' + nodePort(env) + ' عوض کند و SSL/TLS را روی Flexible بگذارید؛ پنل را از آن دامنه باز کنید تا خودش کانفیگ‌های Cloudflare بسازد.<br>🔗 <b>بدون دامنه:</b> در پنل Cloudflare خودتان ← «🔗 اتصال پنل‌ها» این پنل را وصل و «خروجی» کنید: گوشی با Cloudflare (TLS و آی‌پی تمیز) حرف می‌زند و سایت‌ها آی‌پی همین هاست را می‌بینند.',
+        '🖥️ <b>Panel on a Node host (' + (nHost || 'like KataBump') + ', one port only):</b> configs connect straight to this host\'s address and port (' + nCode + ') <b>without TLS</b>; the panel and the tunnels share that one port. For TLS and Cloudflare clean IPs: move the free kdns.fr domain to Cloudflare, add an orange-cloud A record to the host IP an Origin Rule that rewrites the port to ' + nodePort(env) + ' and SSL/TLS set to Flexible; open the panel from that domain and it builds Cloudflare configs itself.<br>🔗 <b>No domain:</b> in your Cloudflare panel → “🔗 Link panels” link this panel and make it the exit: the phone talks to Cloudflare (TLS, clean IPs) and sites see this host\'s IP.'))
     : nEdge === 'tls'
-      ? (fa ? '🖥️ <b>پنل روی هاست با HTTPS (مثل Lucity یا Shiprr):</b> کانفیگ‌ها TLS روی پورت ' + nodePort(env) + ' با نام همین هاست (<code>' + escapeHtml(String(host)) + '</code>) هستند؛ آی‌پی تمیز Cloudflare این‌جا کار نمی‌کند.'
-        : '🖥️ <b>Panel on an HTTPS host (like Lucity or Shiprr):</b> configs are TLS on port ' + nodePort(env) + ' with this host\'s own name (<code>' + escapeHtml(String(host)) + '</code>); Cloudflare clean IPs do not apply here.')
-      : (fa ? '🟧 <b>پنل از پشت Cloudflare باز شده:</b> آی‌پی تمیز و همهٔ پورت‌های Cloudflare مثل یک Worker کار می‌کنند.'
-        : '🟧 <b>Panel reached through Cloudflare:</b> clean IPs and every Cloudflare port work as with a Worker.')) + '</div>';
+      ? tr2('🖥️ <b>پنل روی هاست با HTTPS (' + (nHost || 'مثل Lucity یا Shiprr') + '):</b> کانفیگ‌ها TLS روی پورت ' + nodePort(env) + ' با نام همین هاست (' + nCode + ') هستند؛ آی‌پی تمیز Cloudflare مستقیم به این نام نمی‌رسد.<br>🟧 ' + (nFront ? 'جلوی Cloudflare فعال است: <code>' + escapeHtml(nFront) + '</code> — خطوط «🟧» اول اشتراک با آی‌پی تمیز Cloudflare کار می‌کنند.' : 'اگر این نام روی خط شما فیلتر است: Cat Client ← همین هاست ← «🟧 جلوی Cloudflare» (یک Worker کوچک روی حساب Cloudflare شما؛ کانفیگ‌ها با آی‌پی تمیز Cloudflare و سایت‌ها هنوز آی‌پی همین هاست را می‌بینند).'),
+        '🖥️ <b>Panel on an HTTPS host (' + (nHost || 'like Lucity or Shiprr') + '):</b> configs are TLS on port ' + nodePort(env) + ' with this host\'s own name (' + nCode + '); Cloudflare clean IPs cannot reach this name directly.<br>🟧 ' + (nFront ? 'Cloudflare front active: <code>' + escapeHtml(nFront) + '</code> — the “🟧” lines at the top of the sub work with Cloudflare clean IPs.' : 'If this name is filtered on your line: Cat Client → this host → “🟧 Cloudflare front” (a small Worker on your Cloudflare account; configs use Cloudflare clean IPs and sites still see this host\'s IP).'))
+      : tr2('🟧 <b>پنل از پشت Cloudflare باز شده:</b> آی‌پی تمیز و همهٔ پورت‌های Cloudflare مثل یک Worker کار می‌کنند.',
+        '🟧 <b>Panel reached through Cloudflare:</b> clean IPs and every Cloudflare port work as with a Worker.')) + '</div>';
   const vNote = isVercelPlatform(env) ? '<div class="note i vnote" style="margin:10px 0">' + (fa
     ? '▲ <b>پنل روی Vercel:</b> هر آدرس در اشتراک با چند SNI آمده: <b>Domain</b> (اگر دامنهٔ شخصی وصل کرده باشی)، <b>✂️ Frag</b> (همان vercel.app با ClientHello تکه‌تکه)، <b>vercel.app</b>، یک نام تصادفی (<b>rnd</b>)، نام پروژه با حروف درهم (<b>Aa</b>) و خود نام پروژه. اگر اپراتور نام پروژه را ببندد (همهٔ کانفیگ‌ها -1)، بقیه هنوز می‌توانند کار کنند: اشتراک را به‌روزرسانی و دوباره تست کنید.<br>🔎 <b>اسکنر واقعی روی اینترنت خودتان:</b> برنامهٔ Cat Client → Vercel → «🔎 اسکنر آی‌پی Vercel»؛ و کارت «🔬 اسکنر Vercel» در بخش اسکن همین پنل.'
     : '▲ <b>Panel on Vercel:</b> every address appears with several SNIs: <b>Domain</b> (if you attached a custom domain), <b>✂️ Frag</b> (vercel.app with a split ClientHello), <b>vercel.app</b>, a random name (<b>rnd</b>), the project name in mixed case (<b>Aa</b>) and the project name itself. If your operator blocks the project name (all configs -1), the others can still work: update the subscription and test again.<br>🔎 <b>Real scanner on your own internet:</b> Cat Client app → Vercel → “🔎 Vercel IP scanner”, plus the “🔬 Vercel scanner” card in this panel\'s scan section.') + '</div>' : '';
@@ -9144,7 +9153,8 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 .pbar-track{height:6px;border-radius:999px;background:rgba(148,163,184,.22);overflow:hidden}
 .pbar-fill{height:100%;width:0%;background:linear-gradient(90deg,#14b8a6,#38bdf8);transition:width .25s ease}
 ${CLEAN_CSS}
-</style></head><body>
+[data-plat] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab){display:none!important}
+</style></head><body${nodeDirect(env) ? ' data-plat="node"' : isVercelPlatform(env) ? ' data-plat="vercel"' : ''}>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
  <h3 data-i="th_title"></h3>

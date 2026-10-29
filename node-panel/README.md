@@ -29,7 +29,7 @@
 ## `cat-config.json` (اختیاری)
 
 اگر کنار `index.js` باشد، launcher این کلیدها را از آن می‌خواند (متغیر محیطی هاست همیشه برنده است):
-`UUID`، `TROJAN_PASS`، `PANEL_PASSWORD`، `CAT_DATA_DIR`، `CAT_NO_DISK`، `CAT_PANEL_TAG`، `KV_REST_API_URL`، `KV_REST_API_TOKEN`.
+`UUID`، `TROJAN_PASS`، `PANEL_PASSWORD`، `CAT_DATA_DIR`، `CAT_NO_DISK`، `CAT_PANEL_TAG`، `KV_REST_API_URL`، `KV_REST_API_TOKEN`، `CAT_HOST`، `CAT_CF_FRONT`، `CAT_KEEPALIVE`.
 برنامه این فایل را با UUID و رمز Trojan خودِ گوشی می‌سازد تا لینک اشتراک (`/sub/UUID`) را بدون کپی کردن بداند.
 کلیدهای دیگر نادیده گرفته می‌شوند. این فایل رمز دارد؛ مخزن را **خصوصی** نگه دارید.
 
@@ -105,6 +105,13 @@ SmarterASP Node.js را با `httpPlatformHandler` در IIS اجرا می‌کن
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | Upstash Redis به‌جای دیسک (همه‌جا کار می‌کند) |
 | `UUID` / `TROJAN_PASS` | شناسهٔ اصلی ثابت |
 | `PANEL_PASSWORD` | رمز اولیهٔ پنل به‌جای admin |
+| `CAT_HOST` | نام هاست (`katabump`، `bothosting`، `railway`، `lucity`، `shiprr`، `smarterasp`) — برنامه خودش می‌نویسد. با `katabump` پنل می‌داند جلوی پورت هیچ پراکسی‌ای نیست و هدرهای «forwarded» را از کاربر قبول نمی‌کند |
+| `CAT_CF_FRONT` | نام Worker «🟧 جلوی Cloudflare» (فقط هاست‌هایی که نام HTTPS روی ۴۴۳ دارند) — خطوط «🟧» اول اشتراک می‌آیند |
+| `CAT_KEEPALIVE=0` | SmarterASP/IIS: سایت هر ۹ دقیقه بیدار نگه داشته نشود (IIS سایتِ بی‌کار را خاموش می‌کند) |
+
+**ترکیب هاست‌ها:** KataBump (فقط یک پورت، بدون TLS) را در پنل Cloudflare خودتان ← «🔗 اتصال پنل‌ها» وصل و «خروجی» کنید:
+گوشی با Cloudflare (TLS و آی‌پی تمیز) حرف می‌زند و سایت‌ها آی‌پی KataBump را می‌بینند. هاست‌های HTTPS (Railway، Bot-Hosting،
+Lucity، Shiprr، SmarterASP با https) اگر نامشان فیلتر شد: برنامه ← همان هاست ← «🟧 جلوی Cloudflare».
 
 ## اگر بالا نیامد
 
@@ -120,7 +127,8 @@ SmarterASP Node.js را با `httpPlatformHandler` در IIS اجرا می‌کن
 
 Easiest: Cat Client → Cloud tab → one card per host (⚡ automatic install / 📦 save the files / ✍️ add my panel / 🔁 renew-update / 📋 my panels).
 **KataBump's acceptable-use policy (§2.4) forbids proxies/VPNs — the server may be deleted.** An optional `cat-config.json` next to `index.js`
-may set UUID, TROJAN_PASS, PANEL_PASSWORD, CAT_DATA_DIR, CAT_NO_DISK, CAT_PANEL_TAG, KV_REST_API_URL, KV_REST_API_TOKEN (host env wins).
+may set UUID, TROJAN_PASS, PANEL_PASSWORD, CAT_DATA_DIR, CAT_NO_DISK, CAT_PANEL_TAG, KV_REST_API_URL, KV_REST_API_TOKEN,
+CAT_HOST, CAT_CF_FRONT, CAT_KEEPALIVE (host env wins). `CAT_HOST=katabump` = direct port: forwarded headers from clients are ignored.
 
 Upload `index.js` + `package.json` to any Node 20+ host and start it. The launcher downloads the newest Cat Panel
 release (`catclient.worker.js` + `cat-panel-adapter.mjs`), verifies both against `cat-node-panel.sha256`, caches them

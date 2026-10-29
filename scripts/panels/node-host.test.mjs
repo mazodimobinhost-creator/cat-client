@@ -227,6 +227,31 @@ for (let i = 1; i <= 12; i++) {
 }
 check('direct mode: forged X-Forwarded-For does not dodge the login lockout', lockedAt > 0, 'never locked');
 
+// ---- 6.79.0 🟧 Cloudflare front on a Node host with its own HTTPS name (Railway / Bot-Hosting / Lucity / Shiprr) ----
+const FRONT = 'cat-front-ab12cd.someone.workers.dev';
+const putFront = await send('PUT', '/api/settings', { vercelCfFront: FRONT }, { cookie: cookie2 });
+check('the front name saves on the Node host (settings)', putFront.status === 200, putFront.status + ' ' + putFront.body.slice(0, 160));
+const railHost = 'cat-panel-production.up.railway.app';
+const viaRail = (await subLines({ 'x-forwarded-proto': 'https', 'x-forwarded-host': railHost, 'x-forwarded-for': '203.0.113.9' })).map(parse);
+const frontLines = viaRail.filter((p) => p.host === FRONT);
+check('HTTPS host + front: one VLESS + one Trojan 🟧 line first, front name as address/Host/SNI on 443 TLS', frontLines.length === 2 && viaRail.slice(0, 2).every((p) => p.host === FRONT) && frontLines.every((p) => p.port === 443 && p.q.get('security') === 'tls' && p.q.get('sni') === FRONT && p.q.get('host') === FRONT && p.q.get('type') === 'ws'), JSON.stringify(viaRail.map((p) => [p.host, p.port, p.q.get('sni')])));
+check('HTTPS host + front: the host\'s own TLS lines stay (host:443, SNI = host)', viaRail.filter((p) => p.host === railHost).length === 2 && viaRail.filter((p) => p.host === railHost).every((p) => p.port === 443 && p.q.get('sni') === railHost));
+check('front lines keep the panel path / identity (same ws path as the host lines)', frontLines.every((f) => viaRail.some((h) => h.host === railHost && h.scheme === f.scheme && h.q.get('path') === f.q.get('path'))));
+// the front's own subrequest: Cloudflare may add cf-ray on the way out — it must not turn into the clean-IP set
+const viaFront = (await subLines({ 'x-cat-front': FRONT, 'cf-ray': '8f00bb-FRA', 'cf-worker': 'someone.workers.dev', 'x-forwarded-proto': 'https', 'x-forwarded-host': railHost })).map(parse);
+check('request through our front (x-cat-front + cf-ray): host TLS lines + 🟧 lines, never the Cloudflare clean-IP set', viaFront.length === 4 && viaFront.every((p) => p.host === FRONT || p.host === railHost) && viaFront.every((p) => p.port === 443), JSON.stringify(viaFront.map((p) => [p.host, p.port])));
+const tlsPanel = await get('/panel', { cookie: cookie2, 'x-forwarded-proto': 'https', 'x-forwarded-host': railHost });
+check('HTTPS host panel: says the front is active (name shown)', tlsPanel.body.includes(FRONT) && tlsPanel.body.includes('🟧'), tlsPanel.status);
+check('direct Node panel: <body data-plat="node"> + the CSS that hides the Cloudflare-only sections', /<body data-plat="node">/.test(tlsPanel.body) && /\[data-plat=node\] :is\(#v-scan,#v-nodes,#fSpoof,#v-addrtab\)\{display:none!important\}/.test(tlsPanel.body) && /\[data-plat\] :is\(#v-loc,#v-loc-cards,#v-socks\)/.test(tlsPanel.body));
+check('…but the hidden sections stay in the page and 🔗 Link panels is never hidden', tlsPanel.body.includes('id="v-scan"') && tlsPanel.body.includes('id="v-link"') && !/data-plat[^{]*#v-link/.test(tlsPanel.body));
+const cfPanel = await get('/panel', { cookie: cookie2, 'cf-ray': '8f00aa-FRA', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'cat.kdns.fr' });
+check('Node host behind Cloudflare: no data-plat (all Cloudflare features stay)', cfPanel.status === 200 && /<body>/.test(cfPanel.body) && !/<body data-plat/.test(cfPanel.body));
+const plainWithFront = (await subLines({})).map(parse);
+check('plain edge + front: the 🟧 lines are still TLS on 443 (the front itself speaks https to the host)', plainWithFront.filter((p) => p.host === FRONT).length === 2 && plainWithFront.filter((p) => p.host === FRONT).every((p) => p.port === 443 && p.q.get('security') === 'tls'));
+await send('PUT', '/api/settings', { vercelCfFront: '' }, { cookie: cookie2 });
+const noFront = (await subLines({})).map(parse);
+check('front cleared → back to exactly the host\'s two lines', noFront.length === 2 && noFront.every((p) => p.host === '127.0.0.1'));
+
 await stop(proc);
 
 // ---- beta224 SmarterASP.NET: what IIS runs (httpPlatformHandler → node index.js on 127.0.0.1:PORT) ----
@@ -293,6 +318,58 @@ for (let i = 1; i <= 12; i++) {
 check('IIS: the login lockout counts the real client IP from the tag, not a forged X-Forwarded-For', iisLockedAt > 0, 'never locked');
 await stop(iisProc);
 fs.rmSync(iisApp, { recursive: true, force: true });
+
+// ---- 6.79.0 host awareness (launcher) ----
+check('hostOf: CAT_HOST wins; Railway / IIS guessed; Pterodactyl alone is NOT guessed', L.hostOf({ CAT_HOST: 'KataBump' }) === 'katabump' && L.hostOf({ RAILWAY_ENVIRONMENT: 'production' }) === 'railway' && L.hostOf({ CAT_BEHIND_IIS: '1' }) === 'smarterasp' && L.hostOf({ P_SERVER_UUID: 'x' }) === '' && L.hostOf({ CAT_HOST: 'evil' }) === '');
+check('directHost: only an explicit CAT_HOST=katabump (Bot-Hosting / Pterodactyl vars alone stay proxied)', L.directHost({ CAT_HOST: 'katabump' }) && !L.directHost({ CAT_HOST: 'bothosting', P_SERVER_UUID: 'x' }) && !L.directHost({ P_SERVER_UUID: 'x' }));
+check('CONFIG_KEYS: CAT_HOST / CAT_CF_FRONT / CAT_KEEPALIVE allowed, still nothing like PATH / NODE_OPTIONS', ['CAT_HOST', 'CAT_CF_FRONT', 'CAT_KEEPALIVE'].every((k) => L.CONFIG_KEYS.includes(k)) && !L.CONFIG_KEYS.some((k) => /^(PATH|NODE_OPTIONS|CAT_HOST_DIRECT|CAT_PLATFORM)$/.test(k)));
+check('containerMemoryMb: cgroup v2 «max» → 0, a number → MB, v1 fallback', L.containerMemoryMb(() => 'max\n') === 0 && L.containerMemoryMb((f) => (f.endsWith('memory.max') ? '322961408\n' : '')) === 308 && L.containerMemoryMb((f) => { if (f.endsWith('memory.max')) throw new Error('no'); return '268435456'; }) === 256);
+{
+  const { EventEmitter } = await import('node:events');
+  const srv = new EventEmitter();
+  const hits = [];
+  const kw = L.keepWarm(srv, {}, (u) => { hits.push(u); return Promise.resolve({ body: { cancel() {} } }); }, 60);
+  srv.emit('request', { headers: { host: 'cat-user-001-site1.example-tempurl.com', 'x-forwarded-proto': 'https' } });
+  srv.emit('request', { headers: { host: '127.0.0.1:9000' } });
+  await new Promise((r) => setTimeout(r, 200));
+  clearInterval(kw.timer);
+  check('keepWarm (IIS): remembers the public https address (never 127.0.0.1) and wakes /api/version when idle', kw.origin() === 'https://cat-user-001-site1.example-tempurl.com' && hits.length >= 1 && hits.every((u) => u === 'https://cat-user-001-site1.example-tempurl.com/api/version'), JSON.stringify(hits));
+  check('keepWarm: CAT_KEEPALIVE=0 turns it off', L.keepWarm(new EventEmitter(), { CAT_KEEPALIVE: '0' }, () => {}) === null);
+}
+
+// ---- 6.79.0 KataBump = direct port: forwarded headers come from the client, so they are not believed ----
+const kbApp = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-node-kb-'));
+for (const f of ['index.js', 'package.json']) fs.copyFileSync(path.join(root, 'node-panel', f), path.join(kbApp, f));
+fs.symlinkSync(path.join(root, 'node_modules'), path.join(kbApp, 'node_modules'), 'dir');
+fs.writeFileSync(path.join(kbApp, 'cat-config.json'), JSON.stringify({ UUID, TROJAN_PASS: TPASS, CAT_HOST: 'katabump' }));
+const KPORT = await freePort();
+const kbProc = await new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, ['index.js'], { cwd: kbApp, env: { PATH: process.env.PATH, HOME: process.env.HOME, SERVER_PORT: String(KPORT), CAT_PANEL_SOURCE_DIR: src, P_SERVER_UUID: 'f00d' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  const t = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('KataBump launcher did not start: ' + out)); }, 30000);
+  const on = (d) => { out += d; if (/listening on 0\.0\.0\.0:/.test(out)) { clearTimeout(t); resolve({ child, out: () => out }); } };
+  child.stdout.on('data', on); child.stderr.on('data', on);
+  child.on('exit', (c) => { clearTimeout(t); reject(new Error('KataBump launcher exited ' + c + ': ' + out)); });
+});
+check('KataBump: the launcher logs «host: katabump (direct port…)» from cat-config.json', /host: katabump \(direct port/.test(kbProc.out()) && /settings from cat-config\.json: UUID, TROJAN_PASS, CAT_HOST/.test(kbProc.out()), kbProc.out());
+const kbReq = (method, p, headers = {}, body) => new Promise((resolve, reject) => {
+  const data = body == null ? '' : JSON.stringify(body);
+  const req = http.request('http://127.0.0.1:' + KPORT + p, { method, headers: Object.assign(body == null ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }, headers) }, (res) => { let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; }); res.on('end', () => resolve({ status: res.statusCode, body: b })); });
+  req.on('error', reject); req.end(data);
+});
+const kbLines = async (headers) => { const r = await kbReq('GET', '/sub/' + UUID, headers); const text = r.body.includes('://') ? r.body : Buffer.from(r.body, 'base64').toString('utf8'); return text.split('\n').filter((l) => /^(vless|trojan):\/\//.test(l)).map(parse); };
+const kbForgedTls = await kbLines({ 'x-forwarded-proto': 'https', 'x-forwarded-host': 'evil.example', 'x-forwarded-port': '443' });
+check('KataBump: a client-sent X-Forwarded-Proto cannot turn the configs into TLS lines', kbForgedTls.length === 2 && kbForgedTls.every((p) => p.port === KPORT && p.q.get('security') === 'none'), JSON.stringify(kbForgedTls.map((p) => [p.host, p.port, p.q.get('security')])));
+const kbForgedCf = await kbLines({ 'cf-ray': '8f00cc-FRA', 'cf-connecting-ip': '198.51.100.7', 'x-forwarded-proto': 'https', host: 'cat.kdns.fr' });
+check('KataBump: cf-ray from a non-Cloudflare address does not unlock the clean-IP set', kbForgedCf.length === 2 && kbForgedCf.every((p) => p.q.get('security') === 'none'), kbForgedCf.length);
+let kbLockedAt = 0;
+for (let i = 1; i <= 12; i++) {
+  const r = await kbReq('POST', '/api/login', { 'x-forwarded-proto': 'https', 'x-forwarded-for': '10.7.' + i + '.1', 'cf-ray': 'x', 'cf-connecting-ip': '10.8.' + i + '.1' }, { username: 'admin', password: 'wrong-' + i });
+  if (r.status === 429) { kbLockedAt = i; break; }
+}
+check('KataBump: forged X-Forwarded-Proto + X-Forwarded-For + CF-Connecting-IP do not dodge the login lockout', kbLockedAt > 0, 'never locked');
+await stop(kbProc);
+fs.rmSync(kbApp, { recursive: true, force: true });
 
 target.close();
 for (const d of [src, app, bad, badDir]) fs.rmSync(d, { recursive: true, force: true });

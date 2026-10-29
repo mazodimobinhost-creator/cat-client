@@ -61,6 +61,8 @@ class NodeHostController(
         val links: List<String>,
         val ok: Boolean,
         val headline: String,
+        /** beta225: which host this was for, so «✍️ type the address» opens the right form (it was always KataBump). */
+        val kind: String = "",
     )
 
     private fun dp(value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
@@ -162,7 +164,7 @@ class NodeHostController(
         val keepsDisk = kind == NodeHostPanel.KATABUMP || kind == NodeHostPanel.BOTHOSTING || kind == NodeHostPanel.SMARTERASP
         if (!update) {
             val (uuid, pass) = identity(kind)
-            out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = !keepsDisk).toByteArray()
+            out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = !keepsDisk, host = kind).toByteArray()
         }
         if (kind == NodeHostPanel.SMARTERASP) {
             // beta224: IIS needs web.config, a writable App_Data and node_modules/ws (no npm install there).
@@ -824,7 +826,7 @@ class NodeHostController(
                 Outcome(null, emptyList(), false, t(
                     "دیپلوی ساخته و روشن شد ولی Bot-Hosting آدرس عمومی نداد. در bot-hosting.net ← دیپلوی cat-panel ← Domains ← Activate را بزنید، آدرس را کپی کنید و «✍️ پنلم را اضافه کن».",
                     "The deployment was created and started but Bot-Hosting gave no public address. On bot-hosting.net → cat-panel → Domains → Activate, copy the address and tap «✍️ Add my panel».",
-                ))
+                ), kind = kind)
             } else {
                 step(t("تست پنل از همین گوشی (تا ۳ دقیقه)…", "Testing the panel from this phone (up to 3 min)…"))
                 var base = first
@@ -898,6 +900,7 @@ class NodeHostController(
                     "TROJAN_PASS" to pass,
                     "PORT" to ApiHostPlan.RAILWAY_PORT.toString(),
                     "CAT_PANEL_TAG" to tag,
+                    "CAT_HOST" to NodeHostPanel.RAILWAY,
                 ))
             }
             step(t("5/7 دستور شروع (لانچر ", "5/7 Start command (launcher ") + tag + ")…")
@@ -1277,7 +1280,7 @@ class NodeHostController(
                 Outcome(null, emptyList(), false, t(
                     "فایل‌ها نصب شدند ولی KataBump آدرس عمومی سرور را نداد. آدرس آی‌پی:پورت بالای صفحهٔ سرور را کپی کنید و «✍️ پنلم را اضافه کن» را بزنید.",
                     "Files are installed but KataBump did not give the public address. Copy the IP:port at the top of the server page and tap «✍️ Add my panel».",
-                ))
+                ), kind = kind)
             } else {
                 step(t("6/6 تست پنل از همین گوشی (تا ۲.۵ دقیقه؛ بار اول پنل دانلود می‌شود)…", "6/6 Testing the panel from this phone (up to 2.5 min; the first start downloads the panel)…"))
                 val check = verify(kind, base, uuid, step, 150)
@@ -1417,7 +1420,7 @@ class NodeHostController(
                 if (second.answered) { check = second; where = plainHttp }
             }
             if (!check.answered) {
-                Outcome(null, emptyList(), false, check.headline)
+                Outcome(null, emptyList(), false, check.headline, kind = kind)
             } else {
                 val pending = store.pending(kind)
                 val pass = if (pending != null && pending.first == uuid) pending.second else ""
@@ -1447,7 +1450,7 @@ class NodeHostController(
             }, lp(10))
         }
         if (saved != null) {
-            box.addView(button(t("🔐 اطلاعات ورود و لینک‌ها (پنل، اشتراک، KataBump)", "🔐 Logins and links (panel, subscription, KataBump)")) {
+            box.addView(button(t("🔐 اطلاعات ورود و لینک‌ها (پنل، اشتراک، ", "🔐 Logins and links (panel, subscription, ") + name(saved.kind) + ")") {
                 showInfo(saved)
             }, lp(6))
             box.addView(button(t("🌐 باز کردن پنل (admin / admin — رمز را عوض کنید)", "🌐 Open the panel (admin / admin — change the password)")) {
@@ -1458,15 +1461,33 @@ class NodeHostController(
             }, lp(6))
             if (saved.kind == NodeHostPanel.KATABUMP || saved.kind == NodeHostPanel.BOTHOSTING) {
                 remindLater(saved)
-                box.addView(label(t(
+                box.addView(label(if (saved.kind == NodeHostPanel.BOTHOSTING) t(
+                    "🔔 یادآوری تمدید برای ۳ روز دیگر تنظیم شد (پلن رایگان Bot-Hosting هر ۴ روز تمدید می‌خواهد، وگرنه معلق می‌شود). اگر امروز تمدید نکرده‌اید، همین حالا «🔁 تمدید» را بزنید.",
+                    "🔔 A renewal reminder is set for 3 days from now (Bot-Hosting's free plan needs a renewal every 4 days or it is suspended). If you did not renew today, tap «🔁 Renew» now.",
+                ) else t(
                     "🔔 یادآوری تمدید برای ۳ روز دیگر تنظیم شد (KataBump بعد از ۴ روز بدون تمدید پاک می‌کند). اگر امروز تمدید نکرده‌اید، همین حالا «🔁 تمدید» را بزنید.",
                     "🔔 A renewal reminder is set for 3 days from now (KataBump deletes after 4 days without renewal). If you did not renew today, tap «🔁 Renew» now.",
                 ), top = 10))
                 box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(saved) }, lp(6))
             }
+            if (saved.kind == NodeHostPanel.SMARTERASP) {
+                // beta225: the 60-day trial clock (the constant existed, the reminder did not).
+                runCatching {
+                    NodeHostRenewReminder.schedule(activity, saved.id, saved.name,
+                        NodeHostPanel.smarterAspReminderDelay(saved.createdAt, System.currentTimeMillis()), NodeHostPanel.SMARTERASP)
+                }
+                requestNotifications()
+                box.addView(label(t(
+                    "🔔 ۵ روز قبل از پایان مهلت ۶۰ روزهٔ رایگان SmarterASP یادآوری می‌شود تا پنل را جای دیگری بسازید.",
+                    "🔔 You get a reminder 5 days before SmarterASP's 60-day free trial ends, so you can build the panel elsewhere.",
+                ), top = 10))
+            }
+            if (NodeHostPanel.cfFrontCapable(saved.kind, saved.base)) {
+                box.addView(button(t("🟧 جلوی Cloudflare (اگر این نام فیلتر شد)", "🟧 Cloudflare front (if this name gets filtered)")) { askCfFront(saved) }, lp(6))
+            }
             if (!o.ok) box.addView(button(t("🔎 دوباره تست کن", "🔎 Test again")) { addChecked(saved.kind, saved.base, saved.uuid) }, lp(6))
         } else {
-            box.addView(button(t("✍️ آدرس را خودم می‌نویسم", "✍️ I will type the address")) { registerManual(NodeHostPanel.KATABUMP) }, lp(10))
+            box.addView(button(t("✍️ آدرس را خودم می‌نویسم", "✍️ I will type the address")) { registerManual(o.kind.ifBlank { NodeHostPanel.KATABUMP }) }, lp(10))
         }
         showDialog(
             MaterialAlertDialogBuilder(activity)
@@ -1479,7 +1500,7 @@ class NodeHostController(
 
     private fun remindLater(item: SavedNodeHost) {
         val wait = (item.renewedAt + NodeHostPanel.REMIND_AFTER_MS - System.currentTimeMillis()).coerceAtLeast(60_000L)
-        runCatching { NodeHostRenewReminder.schedule(activity, item.id, item.name, wait) }
+        runCatching { NodeHostRenewReminder.schedule(activity, item.id, item.name, wait, item.kind) }
         requestNotifications()
     }
 
@@ -1701,12 +1722,32 @@ class NodeHostController(
         } else {
             section(box, "🟦 " + name(item.kind))
             val repo = store.lastRepo(item.kind)
-            box.addView(label(t(
-                "ورود به " + name(item.kind) + " با همان حساب GitHub است (Login with GitHub) — رمز جدایی ندارد.",
-                "You log in to " + name(item.kind) + " with your GitHub account (Login with GitHub) — no separate password.",
-            ), 12.5f, palette.textPrimary, 4))
-            if (repo.isNotBlank()) infoRow(box, t("مخزن خصوصی GitHub", "Private GitHub repository"), "https://github.com/" + repo)
+            // beta225: only Lucity / Shiprr log in with GitHub; the others have their own account.
+            box.addView(label(when (item.kind) {
+                NodeHostPanel.BOTHOSTING -> t(
+                    "ورود به Bot-Hosting با حساب خود bot-hosting.net است؛ برنامه فقط کلید API (bhk_…) را روی همین گوشی نگه می‌دارد. تمدید هر ۴ روز از داشبورد.",
+                    "You log in to Bot-Hosting with your own bot-hosting.net account; the app only keeps the API key (bhk_…) on this phone. Renew every 4 days on the dashboard.",
+                )
+                NodeHostPanel.RAILWAY -> t(
+                    "ورود به Railway با حساب خود railway.com است؛ برنامه فقط توکن حساب را روی همین گوشی نگه می‌دارد.",
+                    "You log in to Railway with your own railway.com account; the app only keeps the account token on this phone.",
+                )
+                NodeHostPanel.SMARTERASP -> t(
+                    "ورود به کنترل‌پنل SmarterASP با ایمیل و رمز ثبت‌نام خودتان است. مهلت رایگان ۶۰ روز است.",
+                    "You log in to the SmarterASP control panel with your own sign-up e-mail and password. The free trial is 60 days.",
+                )
+                else -> t(
+                    "ورود به " + name(item.kind) + " با همان حساب GitHub است (Login with GitHub) — رمز جدایی ندارد.",
+                    "You log in to " + name(item.kind) + " with your GitHub account (Login with GitHub) — no separate password.",
+                )
+            }, 12.5f, palette.textPrimary, 4))
+            if (repo.isNotBlank() && (item.kind == NodeHostPanel.LUCITY || item.kind == NodeHostPanel.SHIPRR)) {
+                infoRow(box, t("مخزن خصوصی GitHub", "Private GitHub repository"), "https://github.com/" + repo)
+            }
             box.addView(button(t("🌐 باز کردن ", "🌐 Open ") + name(item.kind), filled = true) { open(siteFor(item.kind)) }, lp(12))
+            if (NodeHostPanel.cfFrontCapable(item.kind, item.base)) {
+                box.addView(button(t("🟧 جلوی Cloudflare برای این پنل", "🟧 Cloudflare front for this panel")) { askCfFront(item) }, lp(6))
+            }
         }
         showDialog(
             MaterialAlertDialogBuilder(activity)
@@ -1715,6 +1756,126 @@ class NodeHostController(
                 .setPositiveButton(android.R.string.ok, null)
                 .create(),
         )
+    }
+
+    // ------------------------------------------------------------------------------------
+    // beta225 🟧 Cloudflare front for a Node host with its own HTTPS name (Railway, Bot-Hosting, Lucity, Shiprr,
+    // SmarterASP over https): the same assets/vercel/cf-front.js Worker the Vercel page builds, pointed at this
+    // host only. Phone → Cloudflare clean IP (Host = SNI = the Worker's name) → Worker → https://<host>; sites
+    // still see the host's own IP. KataBump (plain IP:port) cannot sit behind it — there «🔗 Link panels» in the
+    // Cloudflare panel does the same job.
+    // ------------------------------------------------------------------------------------
+
+    private fun askCfFront(item: SavedNodeHost) {
+        val origin = NodeHostPanel.hostPort(item.base).first.lowercase()
+        if (!NodeHostPanel.cfFrontCapable(item.kind, item.base) || !VercelCfFront.isHostname(origin)) {
+            toast(t("این پنل نام HTTPS روی ۴۴۳ ندارد؛ جلوی Cloudflare فقط برای چنین پنلی ساخته می‌شود.", "This panel has no HTTPS name on 443; a Cloudflare front only works for such a panel."))
+            return
+        }
+        val cfStore = VercelRelayStore(activity)
+        val box = column()
+        box.addView(label(t(
+            "اگر «$origin» روی خط شما فیلتر است ولی Cloudflare باز است، یک Worker کوچک روی حساب Cloudflare خودتان جلوی همین پنل می‌گذاریم:\n" +
+                "• گوشی با آی‌پی تمیز Cloudflare و نام workers.dev وصل می‌شود؛ سایت‌ها هنوز آی‌پی همین هاست را می‌بینند.\n" +
+                "• Worker فقط به همین یک آدرس وصل می‌شود (پروکسی باز نیست)، لاگ و حافظه ندارد.\n" +
+                "• توکن Cloudflare لازم است (Edit Cloudflare Workers) — فقط روی همین گوشی می‌ماند.",
+            "If «$origin» is filtered on your line but Cloudflare is open, a small Worker on your own Cloudflare account goes in front of this panel:\n" +
+                "• the phone connects with a Cloudflare clean IP and a workers.dev name; sites still see this host's IP.\n" +
+                "• the Worker only ever talks to this one address (not an open proxy), with no logs or storage.\n" +
+                "• it needs a Cloudflare token (Edit Cloudflare Workers) — kept on this phone only.",
+        ), 13f, palette.textPrimary, 2))
+        val tokenInput = input(t("توکن Cloudflare را اینجا بچسبانید", "Paste the Cloudflare token here"), cfStore.cfToken, password = true)
+        box.addView(tokenInput, lp(10))
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("🟧 جلوی Cloudflare برای ", "🟧 Cloudflare front for ") + name(item.kind))
+            .setView(scroll(box))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(t("ادامه", "Continue"), null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val token = tokenInput.text.toString().trim()
+                if (token.length < 20) { tokenInput.error = t("توکن کامل نیست", "The token looks incomplete"); return@setOnClickListener }
+                dialog.dismiss()
+                confirmCfFront(item, origin, token)
+            }
+        }
+        showDialog(dialog)
+    }
+
+    private fun confirmCfFront(item: SavedNodeHost, origin: String, token: String) {
+        scope.launch {
+            val perms = runCatching { CloudflareWorker.verifyToken(token) }
+            val p = perms.getOrNull()
+            if (p == null || !p.valid || p.accountId.isNullOrBlank()) {
+                val why = perms.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName }
+                    ?: (t("توکن معتبر نیست یا دسترسی کم دارد: ", "The token is not valid or lacks access: ") + p?.missingScopes?.joinToString().orEmpty())
+                message(t("❌ توکن Cloudflare", "❌ Cloudflare token"), why + t("\n\nاگر api.cloudflare.com روی خط شما باز نیست، اول با یک کانفیگ دیگر وصل شوید.", "\n\nIf api.cloudflare.com is blocked on your line, connect with another config first."))
+                return@launch
+            }
+            VercelRelayStore(activity).cfToken = token
+            val accountId = p.accountId.orEmpty()
+            val workerName = VercelCfFront.randomWorkerName()
+            // Installer confirmation: exactly what is created / changed, before anything runs.
+            showDialog(
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(t("🟧 ساخت جلوی Cloudflare؟", "🟧 Build the Cloudflare front?"))
+                    .setMessage(t(
+                        "این کارها انجام می‌شود:\n• یک Worker تازه به نام «$workerName» روی حساب Cloudflare «${p.accountName.orEmpty()}» (هیچ Worker موجودی عوض نمی‌شود).\n" +
+                            "• فقط به «$origin» وصل می‌شود.\n• در پنل Cat همین هاست، نام جلو ذخیره می‌شود تا خطوط «🟧» اول اشتراک بیایند (UUID، رمزها و کاربرها عوض نمی‌شوند).",
+                        "This will:\n• create a new Worker “$workerName” on the Cloudflare account “${p.accountName.orEmpty()}” (no existing Worker is changed);\n" +
+                            "• point it only at “$origin”;\n• save the front's name in this host's Cat panel so “🟧” lines lead its subscription (UUID, passwords and users stay the same).",
+                    ))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(t("بساز", "Build")) { _, _ -> buildCfFront(item, origin, token, accountId, workerName) }
+                    .create(),
+            )
+        }
+    }
+
+    private fun buildCfFront(item: SavedNodeHost, origin: String, token: String, accountId: String, workerName: String) {
+        runSteps<Pair<CloudflareWorker.VercelFrontResult, List<String>>>("🟧 Cloudflare front", { step ->
+            step(t("1/3 ساخت Worker روی Cloudflare…", "1/3 Creating the Worker on Cloudflare…"))
+            val r = CloudflareWorker.deployVercelFront(activity, token, accountId, origin, workerName)
+            step((if (r.verified) "   ✓ " else "   ⚠️ ") + r.host)
+            step(t("2/3 ذخیرهٔ نام جلو در پنل Cat…", "2/3 Saving the front's name in the Cat panel…"))
+            val pass = store.panelPassword(item.id).ifBlank { NodeHostPanel.PANEL_DEFAULT_PASSWORD }
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    CloudflareWorker.restorePanelState(item.base, "{\"vercelCfFront\":\"" + r.host + "\"}", "[]", username = NodeHostPanel.PANEL_USER, password = pass).settingsApplied
+                }.getOrDefault(false)
+            }
+            step(if (saved) "   ✓ vercelCfFront" else t("   ⚠️ ورود به پنل نشد (رمز پنل؟) — خطوط فقط در برنامه اضافه می‌شوند", "   ⚠️ Could not sign in to the panel (password?) — the lines are only added in the app"))
+            step(t("3/3 گرفتن کانفیگ‌های «🟧»…", "3/3 Fetching the “🟧” configs…"))
+            val sub = withContext(Dispatchers.IO) { runCatching { NodeHostApi.panelGet(item.base, "/sub/" + item.uuid) }.getOrNull() }
+            val all = if (sub != null && sub.first == 200) NodeHostPanel.decodeSub(sub.second) else emptyList()
+            val front = all.filter { NodeHostPanel.linkParam(it, "sni") == r.host }.ifEmpty { VercelCfFront.links(all, r.host) }
+            step("   ✓ " + front.size)
+            Pair(r, front)
+        }) { res, _ ->
+            val (r, links) = res
+            val box = column()
+            box.addView(label(
+                (if (r.verified) t("✅ جلوی Cloudflare ساخته شد و جواب داد: ", "✅ The Cloudflare front was built and answers: ")
+                else t("⚠️ Worker ساخته شد ولی هنوز جواب نداد (اسم تازهٔ workers.dev گاهی چند دقیقه طول می‌کشد): ", "⚠️ The Worker was built but does not answer yet (a new workers.dev name can take a few minutes): ")) + r.host,
+                13f, if (r.verified) palette.teal else palette.amber, 2))
+            box.addView(label(t(
+                "• «➕ افزودن» را بزنید و کانفیگ‌های «🟧» را امتحان کنید.\n• اگر خود workers.dev روی خط شما بسته است، اسکنر آی‌پی تمیز Cloudflare برنامه را روی همین کانفیگ‌ها بزنید؛ آی‌پی سالم با همان پورتی که تست شد جایگزین می‌شود.\n• پنل از این آدرس هم باز می‌شود: https://${r.host}/panel/",
+                "• Tap «➕ Add» and try the “🟧” configs.\n• If workers.dev itself is blocked on your line, run the app's Cloudflare clean-IP scanner on these configs; a working IP replaces the address with the port it was tested on.\n• The panel also opens at: https://${r.host}/panel/",
+            ), 12.5f, palette.textSecondary, 8))
+            if (links.isNotEmpty()) {
+                box.addView(button(t("➕ افزودن ", "➕ Add ") + links.size + t(" کانفیگ 🟧", " 🟧 configs"), filled = true) {
+                    addSubscription(links.joinToString("\n"), "Cat · " + name(item.kind) + " · 🟧 CF")
+                }, lp(10))
+            }
+            showDialog(
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle("🟧 Cloudflare front")
+                    .setView(scroll(box))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .create(),
+            )
+        }
     }
 
     private fun askPanelPassword(item: SavedNodeHost) {

@@ -1352,8 +1352,12 @@
     <string name="cloud_node_redeploy">🔁 به‌روزرسانی / ساخت دوباره</string>
     <string name="cloud_node_mine">📋 پنل‌های من (رمزها، لینک‌ها، تمدید)</string>
     <string name="cloud_node_guide">❓ راهنمای قدم‌به‌قدم</string>
-    <string name="node_renew_channel">تمدید KataBump</string>
+    <string name="node_renew_channel">تمدید هاست رایگان</string>
     <string name="node_renew_title">⏰ سرور KataBump را تمدید کنید</string>
     <string name="node_renew_text">«%1$s» اگر تا یک روز دیگر تمدید نشود پاک می‌شود. بزنید تا صفحهٔ تمدید باز شود، بعد در Cat Client «تمدید کردم» را بزنید.</string>
+    <string name="node_renew_title_bothosting">⏰ دیپلوی Bot-Hosting را تمدید کنید</string>
+    <string name="node_renew_text_bothosting">«%1$s» اگر پلن رایگان تمدید نشود (هر ۴ روز) معلق می‌شود. بزنید تا bot-hosting.net باز شود ← دیپلوی ← Renew، بعد در Cat Client «تمدید کردم» را بزنید.</string>
+    <string name="node_renew_title_smarterasp">⏰ مهلت رایگان SmarterASP رو به پایان است</string>
+    <string name="node_renew_text_smarterasp">مهلت ۶۰ روزهٔ رایگان SmarterASP برای «%1$s» حدود ۵ روز دیگر تمام می‌شود. بزنید تا کنترل‌پنل باز شود؛ قبل از خاموش شدن، پنل را روی هاست دیگری بسازید (برنامه در یک دقیقه می‌سازد).</string>
     <string name="cloud_node_start">🧭 از صفر شروع کن (ساخت حساب، قدم‌به‌قدم)</string>
 </resources>

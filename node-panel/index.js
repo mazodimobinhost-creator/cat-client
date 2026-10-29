@@ -15,6 +15,10 @@
 //   CAT_PANEL_SOURCE_DIR a folder that already holds catclient.worker.js + cat-panel-adapter.mjs (offline)
 //   CAT_BEHIND_IIS=1     Windows/IIS (SmarterASP): listen on 127.0.0.1, read the web.config edge tag
 //   CAT_CODE_DIR         where the downloaded panel is cached (inside this folder; default ./cat-code)
+//   CAT_HOST             which host this is (katabump, bothosting, railway, lucity, shiprr, smarterasp) — the app
+//                        writes it; otherwise it is guessed (Railway's own variables, IIS → smarterasp)
+//   CAT_CF_FRONT         the name of your 🟧 Cloudflare front Worker (the app sets it) — adds its lines to the sub
+//   CAT_KEEPALIVE=0      SmarterASP/IIS: do not wake the site every 9 minutes (IIS stops an idle site)
 //
 // Hosts where you cannot set environment variables (KataBump) can use a `cat-config.json` next to this file
 // instead — the Cat Client app writes one for you, e.g. {"UUID":"…","TROJAN_PASS":"…"}. Real environment
@@ -115,7 +119,58 @@ export function codeDirOf(here, env) {
 }
 
 /** Keys cat-config.json may set (never anything else — e.g. not PATH / NODE_OPTIONS). */
-export const CONFIG_KEYS = ['UUID', 'TROJAN_PASS', 'PANEL_PASSWORD', 'CAT_DATA_DIR', 'CAT_NO_DISK', 'CAT_PANEL_TAG', 'KV_REST_API_URL', 'KV_REST_API_TOKEN'];
+export const CONFIG_KEYS = ['UUID', 'TROJAN_PASS', 'PANEL_PASSWORD', 'CAT_DATA_DIR', 'CAT_NO_DISK', 'CAT_PANEL_TAG', 'KV_REST_API_URL', 'KV_REST_API_TOKEN', 'CAT_HOST', 'CAT_CF_FRONT', 'CAT_KEEPALIVE'];
+
+export const HOSTS = ['katabump', 'bothosting', 'railway', 'lucity', 'shiprr', 'smarterasp'];
+/**
+ * Which host runs us. The app writes CAT_HOST; otherwise: Railway's own variables → railway, IIS → smarterasp.
+ * '' = unknown (a VPS…), which keeps the generic behaviour.
+ */
+export function hostOf(env) {
+  const want = String(env.CAT_HOST || '').trim().toLowerCase();
+  if (HOSTS.includes(want)) return want;
+  if (env.CAT_BEHIND_IIS === '1') return 'smarterasp';
+  if (env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID || env.RAILWAY_PUBLIC_DOMAIN) return 'railway';
+  return '';
+}
+/**
+ * KataBump puts NOTHING in front of the port: a phone talks to IP:port itself, so a «forwarded» header can only
+ * come from the client and must not be believed (CAT_HOST_DIRECT=1 makes the adapter accept cf-ray only from a
+ * real Cloudflare address). Only an explicit CAT_HOST=katabump turns this on — a Pterodactyl variable alone is not
+ * enough, since other panels (with their own HTTPS proxy) run on Pterodactyl too.
+ */
+export function directHost(env) { return String(env.CAT_HOST || '').trim().toLowerCase() === 'katabump'; }
+
+/** Memory the container really has (cgroup v2 / v1), in MB; 0 = unknown/unlimited. */
+export function containerMemoryMb(read = (f) => fs.readFileSync(f, 'utf8')) {
+  for (const f of ['/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes']) {
+    try { const n = Number(String(read(f)).trim()); if (Number.isFinite(n) && n > 0 && n < 2 ** 50) return Math.round(n / 1048576); } catch (_) { /* not here */ }
+  }
+  return 0;
+}
+
+/**
+ * IIS stops a site after a few idle minutes and the next phone then waits for a cold start (often longer than a
+ * VPN app's connect timeout). Behind IIS we remember the public address of the last real request and, when
+ * nothing came in for 9 minutes, ask our own /api/version once through IIS — the normal way to keep a site warm.
+ */
+export function keepWarm(server, env, fetchImpl = globalThis.fetch, everyMs = 9 * 60 * 1000) {
+  if (env.CAT_KEEPALIVE === '0' || typeof fetchImpl !== 'function') return null;
+  let origin = '';
+  let last = Date.now();
+  server.on('request', (req) => {
+    last = Date.now();
+    const h = String(req.headers.host || '').toLowerCase();
+    if (/^[a-z0-9.-]+(:\d{1,5})?$/.test(h) && !/^(127\.|localhost)/.test(h)) origin = (req.headers['x-forwarded-proto'] === 'https' ? 'https://' : 'http://') + h;
+  });
+  const t = setInterval(() => {
+    if (!origin || Date.now() - last < everyMs - 1000) return;
+    last = Date.now();
+    Promise.resolve(fetchImpl(origin + '/api/version', { headers: { 'user-agent': 'cat-keepalive' } })).then((r) => r && r.body && r.body.cancel && r.body.cancel()).catch(() => {});
+  }, everyMs);
+  if (t.unref) t.unref();
+  return { origin: () => origin, timer: t };
+}
 
 /** Copies allowed keys from <dir>/cat-config.json into env (env wins); returns the key names used. */
 export function applyConfigFile(dir, env) {
@@ -218,6 +273,11 @@ export async function main(env = process.env) {
   const codeDir = codeDirOf(HERE, env);
   const tag = await prepareCode(codeDir, env);
   env.CAT_PLATFORM = 'node';
+  const host = hostOf(env);
+  if (host) env.CAT_HOST = host;
+  if (directHost(env)) env.CAT_HOST_DIRECT = '1';
+  const memMb = containerMemoryMb();
+  if (host || memMb) log('host: ' + (host || 'generic') + (env.CAT_HOST_DIRECT ? ' (direct port, no proxy in front)' : '') + (memMb ? ' · memory limit ' + memMb + ' MB' : ''));
   // behind IIS the port is IIS's private one, never the address a phone uses
   if (!iis) env.CAT_PUBLIC_PORT = env.CAT_PUBLIC_PORT || String(port);
   if (!env.DATA_PLANE_ENABLED) env.DATA_PLANE_ENABLED = 'true';
@@ -229,7 +289,7 @@ export async function main(env = process.env) {
   } else log('storage: ' + (hasRedis ? 'Upstash Redis' : 'none (CAT_NO_DISK=1) — users vanish on restart'));
   const { default: server } = await import(pathToFileURL(path.join(codeDir, 'api', 'index.mjs')).href);
   server.keepAliveTimeout = 65000;
-  if (iis) attachIisEdge(server);
+  if (iis) { attachIisEdge(server); keepWarm(server, env); }
   const bind = iis ? '127.0.0.1' : '0.0.0.0';
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, bind, resolve); });
   log('Cat Panel ' + tag + ' listening on ' + bind + ':' + port + (iis ? ' (behind IIS — open your site address + /panel)' : ''));

@@ -1353,8 +1353,12 @@
     <string name="cloud_node_redeploy">🔁 Update / rebuild</string>
     <string name="cloud_node_mine">📋 My panels (logins, links, renewal)</string>
     <string name="cloud_node_guide">❓ Step-by-step guide</string>
-    <string name="node_renew_channel">KataBump renewal</string>
+    <string name="node_renew_channel">Free host renewal</string>
     <string name="node_renew_title">⏰ Renew your KataBump server</string>
     <string name="node_renew_text">«%1$s» is deleted if it is not renewed within a day. Tap to open the renew page, then mark it as renewed in Cat Client.</string>
+    <string name="node_renew_title_bothosting">⏰ Renew your Bot-Hosting deployment</string>
+    <string name="node_renew_text_bothosting">«%1$s» is suspended if the free plan is not renewed (every 4 days). Tap to open bot-hosting.net → the deployment → Renew, then mark it as renewed in Cat Client.</string>
+    <string name="node_renew_title_smarterasp">⏰ SmarterASP free trial ends soon</string>
+    <string name="node_renew_text_smarterasp">The 60-day SmarterASP trial of «%1$s» ends in about 5 days. Tap to open the control panel; move the panel to another host before it stops (the app builds a new one in a minute).</string>
     <string name="cloud_node_start">🧭 Start from zero (create the account, step by step)</string>
 </resources>

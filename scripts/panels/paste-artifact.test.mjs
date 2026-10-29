@@ -132,7 +132,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // 236 914 B (~8 KB gzip over 6.73.0).
   // Raised 248 000 → 262 000 for 6.76.0 «🔗 link panels» (see the raw-size note above) — measured
   // 255 007 B (~9.7 KB gzip over 6.75.0, most of it the bilingual page + plain-words guide).
-  ok('gzip stays under the 262 KB regression budget', gz < 262_000, gz);
+  // Raised 262 000 → 264 000 for 6.79.0 «free hosts» (host-named Node notes, 🟧 Cloudflare front on Node hosts,
+  // per-platform hiding of the Cloudflare-only sections) — measured 261 954 B before the raise.
+  ok('gzip stays under the 264 KB regression budget', gz < 264_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

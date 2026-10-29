@@ -211,16 +211,16 @@
 
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
-| `ApiHostDeploy.kt` | 346 | 🤖 Bot-Hosting.net and 🚂 Railway — the Cat Node panel brought up FROM THE APP with the user's own API key. | ApiHostPlanTest · — |
+| `ApiHostDeploy.kt` | 346 | 🤖 Bot-Hosting.net and 🚂 Railway — the Cat Node panel brought up FROM THE APP with the user's own API key. | ApiHostPlanTest, Beta225FreeHostsTest · — |
 | `AppReport.kt` | 232 | beta220 «📨 report to panel» — ONE button, opt-in, nothing is sent without the user seeing the exact text first. | Beta220RealInternetTest, Beta220WiringTest · — |
 | `CloudflareAccountLinks.kt` | 42 | Cloudflare account/token entry links, and the invariant that makes the in-app «get a token» flow work for brand-new users. | — · — |
 | `CloudflareOperationApproval.kt` | 90 | Safety contract shared by the in-app Cloudflare installer UI. | — · — |
-| `CloudflareWorker.kt` | 2170 | PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09. | PanelSubKeyTest · compat-consistency, multipart-upload, panel-update-contract, paste-artifact, route-pending |
+| `CloudflareWorker.kt` | 2170 | PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09. | Beta225FreeHostsTest, PanelSubKeyTest · compat-consistency, multipart-upload, panel-update-contract, paste-artifact, route-pending |
 | `DeploymentMeasurementStore.kt` | 55 | Stores only conclusive probe evidence. | — · — |
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
-| `NodeHost.kt` | 732 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, NodeHostTest · — |
-| `NodeHostController.kt` | 2007 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest · — |
+| `NodeHost.kt` | 769 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, NodeHostTest · — |
+| `NodeHostController.kt` | 2168 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest · — |
 | `PanelBackup.kt` | 63 | Local, private snapshot of the panel's last known-good settings and users. | — · — |
 | `PanelCredentials.kt` | 76 | — | — · — |
 | `PanelEndpointBatch.kt` | 33 | — | — · — |
@@ -293,7 +293,7 @@
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_235 Kotlin files, 104927 lines._
+_235 Kotlin files, 105125 lines._
 
 ## MainActivity screens — function index
 

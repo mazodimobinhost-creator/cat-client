@@ -159,11 +159,38 @@ object NodeHostPanel {
      * cat-config.json for the launcher. noDisk = the host has no permanent disk (Lucity / Shiprr): the main
      * subscription still works forever (fixed UUID), only users created inside the panel would not survive.
      */
-    fun configJson(uuid: String, trojanPass: String, noDisk: Boolean): String {
+    fun configJson(uuid: String, trojanPass: String, noDisk: Boolean, host: String = ""): String {
         val parts = mutableListOf("\"UUID\": " + jsonString(uuid), "\"TROJAN_PASS\": " + jsonString(trojanPass))
         if (noDisk) parts += "\"CAT_NO_DISK\": \"1\""
+        // beta225: the launcher tells the panel which host it is on (host-named notes; KataBump = direct port, so
+        // forwarded headers from clients are not believed — see node-panel/index.js directHost()).
+        if (host in HOST_KINDS) parts += "\"CAT_HOST\": " + jsonString(host)
         return "{\n  " + parts.joinToString(",\n  ") + "\n}\n"
     }
+
+    val HOST_KINDS = listOf(KATABUMP, LUCITY, SHIPRR, BOTHOSTING, RAILWAY, SMARTERASP)
+
+    /**
+     * beta225 🟧 Cloudflare front for a Node host: only hosts with their own HTTPS name on 443 can sit behind the
+     * front (a Worker fetches https://<name>). KataBump's IP:port is plain http on a game port → no.
+     */
+    fun cfFrontCapable(kind: String, base: String): Boolean {
+        if (kind == KATABUMP || !base.startsWith("https://")) return false
+        val (h, p) = hostPort(base)
+        return p == 443 && !IPV4.matches(h) && h.contains('.')
+    }
+
+    /** Free plans that expire on a clock: renewal page + reminder text per host (null = nothing to renew). */
+    fun renewPage(kind: String): String? = when (kind) {
+        KATABUMP -> KATABUMP_DASHBOARD
+        BOTHOSTING -> ApiHostPlan.BOTHOSTING_DASHBOARD
+        SMARTERASP -> SMARTERASP_CONTROL
+        else -> null
+    }
+
+    /** SmarterASP: remind 5 days before the 60-day free trial ends (never in the past: at least 1 minute). */
+    fun smarterAspReminderDelay(createdAt: Long, now: Long): Long =
+        (createdAt + SMARTERASP_TRIAL_MS - 5L * 24 * 60 * 60 * 1000 - now).coerceAtLeast(60_000L)
 
     /** A zip with fixed timestamps (same input → same bytes). */
     fun zip(files: Map<String, ByteArray>): ByteArray {
@@ -677,8 +704,8 @@ internal object NodeHostApi {
 object NodeHostRenewReminder {
     private const val CHANNEL = "node_host_renew"
 
-    fun schedule(context: Context, hostId: String, name: String, delayMs: Long) {
-        val data = Data.Builder().putString("id", hostId).putString("name", name).build()
+    fun schedule(context: Context, hostId: String, name: String, delayMs: Long, kind: String = NodeHostPanel.KATABUMP) {
+        val data = Data.Builder().putString("id", hostId).putString("name", name).putString("kind", kind).build()
         val request = OneTimeWorkRequestBuilder<Worker>()
             .setInitialDelay(delayMs.coerceAtLeast(60_000L), TimeUnit.MILLISECONDS)
             .setInputData(data)
@@ -695,12 +722,12 @@ object NodeHostRenewReminder {
         override suspend fun doWork(): Result {
             val name = inputData.getString("name").orEmpty()
             val id = inputData.getString("id").orEmpty()
-            notifyRenew(applicationContext, id, name)
+            notifyRenew(applicationContext, id, name, inputData.getString("kind") ?: NodeHostPanel.KATABUMP)
             return Result.success()
         }
     }
 
-    private fun notifyRenew(context: Context, id: String, name: String) {
+    private fun notifyRenew(context: Context, id: String, name: String, kind: String) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -715,13 +742,23 @@ object NodeHostRenewReminder {
         val open = PendingIntent.getActivity(
             context,
             id.hashCode(),
-            Intent(Intent.ACTION_VIEW, Uri.parse(NodeHostPanel.KATABUMP_DASHBOARD)),
+            Intent(Intent.ACTION_VIEW, Uri.parse(NodeHostPanel.renewPage(kind) ?: NodeHostPanel.KATABUMP_DASHBOARD)),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val text = context.getString(R.string.node_renew_text, name)
+        // beta225: the reminder used to say «KataBump» and open KataBump's page for Bot-Hosting / SmarterASP too.
+        val text = when (kind) {
+            NodeHostPanel.BOTHOSTING -> context.getString(R.string.node_renew_text_bothosting, name)
+            NodeHostPanel.SMARTERASP -> context.getString(R.string.node_renew_text_smarterasp, name)
+            else -> context.getString(R.string.node_renew_text, name)
+        }
+        val title = when (kind) {
+            NodeHostPanel.BOTHOSTING -> context.getString(R.string.node_renew_title_bothosting)
+            NodeHostPanel.SMARTERASP -> context.getString(R.string.node_renew_title_smarterasp)
+            else -> context.getString(R.string.node_renew_title)
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_cloud_tab)
-            .setContentTitle(context.getString(R.string.node_renew_title))
+            .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(open)
