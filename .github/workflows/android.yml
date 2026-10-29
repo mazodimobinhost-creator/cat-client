@@ -343,6 +343,15 @@ jobs:
           # /api/login payload stops carrying a username.
           python3 scripts/panel-login-guard.py
 
+      - name: Guard - code map is up to date
+        run: |
+          set -euo pipefail
+          # docs/CODEMAP.md says which file owns what and which tests guard it
+          # (beta220 split MainActivity into area files). It must list every
+          # source file and screen function so a fix in one place can be checked
+          # against the right tests: python3 scripts/affected-tests.py
+          python3 scripts/codemap.py --check
+
       - name: Pre-check Kotlin compile (fail fast)
         run: |
           chmod +x gradlew
