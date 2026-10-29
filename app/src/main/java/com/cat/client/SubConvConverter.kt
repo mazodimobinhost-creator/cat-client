@@ -728,7 +728,14 @@ object SubConvConverter {
                     }
                 }
             }
-            if (out.isNotEmpty()) return out
+            // beta214: a socks/http "outbound" on 127.0.0.1 inside another app's JSON is that app's own local engine
+            // (it only works while that app runs). Imported alone it became a dead «Local 127.0.0.1:10819» row.
+            val engineKeys = listOf("aether-uri", "sstp-uri", "whitedns-uri", "fenix-uri", "paqet-uri")
+            val usable = out.filterNot { proxy ->
+                engineKeys.none(proxy::has) &&
+                    LoopbackProfileGuard.isPlainLoopback(proxy.optString("type"), proxy.optString("server"), null)
+            }
+            if (usable.isNotEmpty()) return usable
         }
 
         // Case 3: Raw CottenDNS / CottenMax / MasterDnsVPN TOML config (`DOMAINS = [...]`, `RESOLVERS = [...]`)

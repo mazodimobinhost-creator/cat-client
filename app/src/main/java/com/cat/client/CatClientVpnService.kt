@@ -1700,16 +1700,22 @@ class CatClientVpnService : VpnService() {
                 return
             }
         }
+        // beta214: plain socks/http rows on 127.0.0.1 with nothing listening (copied out of another app's config)
+        // can never work; they are left out of the Automatic decision and explained instead of failing with
+        // «health check at 127.0.0.1:2080».
+        val deadLocalTags = withContext(Dispatchers.IO) {
+            allProfiles.filter { p ->
+                LoopbackProfileGuard.isPlainLoopback(p.type, p.server, p.shareLink) && !LoopbackProfileGuard.isListening(p.port)
+            }.map { it.tag }.toSet()
+        }
         val autoAetherCandidate = if (explicitCandidate == null && initialSnapshot != null) {
             initialSnapshot.catalog.profiles.firstOrNull { p ->
-                val l = p.shareLink?.trim().orEmpty()
-                l.startsWith("aether://", ignoreCase = true) || l.startsWith("masque://", ignoreCase = true)
+                CatWarpListPolicy.isCatWarpLink(p.shareLink)
             }?.takeIf {
-                // In Automatic mode, launch Aether directly if the subscription is an Aether subscription
-                // (e.g. "⚡ Aether / PattNG Configs" or all profiles in the sub are aether://)
+                // In Automatic mode, launch Cat Warp directly when the subscription holds only Cat Warp rows
+                // (plus dead local rows that cannot carry traffic anyway).
                 initialSnapshot.catalog.profiles.all { p ->
-                    val l = p.shareLink?.trim().orEmpty()
-                    l.startsWith("aether://", ignoreCase = true) || l.startsWith("masque://", ignoreCase = true)
+                    CatWarpListPolicy.isCatWarpLink(p.shareLink) || p.tag in deadLocalTags
                 }
             }
         } else null
@@ -1741,6 +1747,14 @@ class CatClientVpnService : VpnService() {
         if (aetherSelection.enabled) {
             runAetherStartup(eventPrefix, aetherSelection)
             return
+        }
+
+        val explicitDeadLocal = explicitCandidate?.takeIf { it.tag in deadLocalTags }
+        val onlyDeadLocal = explicitCandidate == null && allProfiles.isNotEmpty() && allProfiles.all { it.tag in deadLocalTags }
+        if (explicitDeadLocal != null || onlyDeadLocal) {
+            val p = explicitDeadLocal ?: allProfiles.first()
+            DiagnosticLogger.warn(this, "$eventPrefix.deadLocalProxy", "port=${p.port} explicit=${explicitDeadLocal != null}")
+            throw IOException(LoopbackProfileGuard.deadLocalMessage(p.port, ConnectionLabelPolicy.displayName(p)))
         }
 
         val chainSettings = connectionChainPreferenceStore.read()

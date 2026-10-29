@@ -2250,12 +2250,21 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Writes a Cat Warp config into «⚡ Cat Warp Configs». beta214: builders, the wizard and the country chips pass
+     * [replaceAll] = true so the list holds exactly ONE config — the one just built for the chosen country — instead
+     * of piling up «United States · Warp», «Germany · Warp», … rows. A link pasted from elsewhere is merged.
+     * [onSaved] runs on the main thread after the subscription is written and selected, so a connect started from
+     * it really uses the new config (it used to race the save and could start the previously selected list).
+     */
     private fun saveAetherConfigIntoMainSubscriptionList(
         selection: AetherSelection,
         activateAetherEngine: Boolean = true,
+        replaceAll: Boolean = true,
+        onSaved: (() -> Unit)? = null,
     ) {
         val uri = selection.toAetherUri()
-        val subName = "⚡ Cat Warp Configs"
+        val subName = CatWarpListPolicy.SUBSCRIPTION_NAME
         activityScope.launch {
             runCatching {
                 val existing = userSubscriptionManager.list().firstOrNull {
@@ -2263,11 +2272,11 @@ class MainActivity : Activity() {
                 }
                 val saved = withContext(Dispatchers.IO) {
                     if (existing != null) {
-                        val oldLines = existing.input.lines()
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() && !it.endsWith("#" + uri.substringAfter('#', "")) }
-                        val merged = (listOf(uri) + oldLines).distinct().take(24).joinToString("\n")
-                        userSubscriptionManager.update(existing.id, subName, merged)
+                        userSubscriptionManager.update(
+                            existing.id,
+                            subName,
+                            CatWarpListPolicy.mergedInput(existing.input, uri, replaceAll),
+                        )
                     } else {
                         userSubscriptionManager.add(subName, uri)
                     }
@@ -2284,7 +2293,20 @@ class MainActivity : Activity() {
                 } else {
                     renderSubscriptions()
                 }
+            }.onFailure { error ->
+                DiagnosticLogger.warn(this@MainActivity, "aether.list.save", error.message.orEmpty(), error)
             }
+            onSaved?.invoke()
+        }
+    }
+
+    /** Connects (or reconnects) after a Cat Warp config was written and selected. */
+    private fun connectCatWarpAfterSave() {
+        openScreen(SCREEN_HOME)
+        if (currentVpnServiceState == VpnState.Started) {
+            reconnectForConnectionOptionChange()
+        } else {
+            beginConnectFlow(Actions.CONNECT)
         }
     }
 
@@ -2353,18 +2375,14 @@ class MainActivity : Activity() {
                 innerEndpoint = innerPeer.orEmpty(),
             ),
         )
-        saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true)
         Toast.makeText(
             this,
             if (isFarsi) "🚀 کانفیگ Cat Warp «${ready.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
             else "🚀 Cat Warp '${ready.profileName}' enabled — connecting directly in Cat Client…",
             Toast.LENGTH_LONG,
         ).show()
-        openScreen(SCREEN_HOME)
-        if (currentVpnServiceState == VpnState.Started) {
-            reconnectForConnectionOptionChange()
-        } else {
-            beginConnectFlow(Actions.CONNECT)
+        saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = false) {
+            connectCatWarpAfterSave()
         }
     }
 
@@ -3113,14 +3131,39 @@ class MainActivity : Activity() {
         anchor: View,
         profile: ConnectionProfile,
         onRotateAndRetest: ((preferProxyIp: Boolean) -> Unit)? = null,
+        subscriptionId: String? = null,
     ) {
         val link = profile.shareLink?.takeIf(String::isNotBlank)
         if (link == null) {
             Toast.makeText(this, R.string.connection_share_unavailable, Toast.LENGTH_SHORT).show()
             return
         }
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val catWarpRow = CatWarpListPolicy.isCatWarpLink(link)
+        val plainLocalRow = LoopbackProfileGuard.isPlainLoopback(profile.type, profile.server, link)
         catClientPopupMenu(anchor).apply {
-            if (onRotateAndRetest != null) {
+            // beta214: Cat Warp rows get the endpoint scan and the editor here (users looked for it on the row).
+            if (catWarpRow) {
+                menu.add(if (isFarsi) "🔍 اسکن اندپوینت (پیدا کردن IP سالم روی خط شما)" else "🔍 Endpoint scan (find a working IP on your line)")
+                    .setOnMenuItemClickListener {
+                        openCatWarpEditorForLink(subscriptionId, link, autoScan = true)
+                        true
+                    }
+                menu.add(if (isFarsi) "✏️ ویرایش این کانفیگ Cat Warp" else "✏️ Edit this Cat Warp config")
+                    .setOnMenuItemClickListener {
+                        openCatWarpEditorForLink(subscriptionId, link, autoScan = false)
+                        true
+                    }
+            }
+            if (plainLocalRow) {
+                menu.add(if (isFarsi) "ℹ️ چرا این ردیف وصل نمی‌شود؟" else "ℹ️ Why does this row not connect?")
+                    .setOnMenuItemClickListener {
+                        showDeadLocalRowExplanation(profile)
+                        true
+                    }
+            }
+            // Route / ProxyIP switching rewrites a server IP:port — it has no effect on Cat Warp or local rows.
+            if (onRotateAndRetest != null && !catWarpRow && !plainLocalRow && !LoopbackProfileGuard.isLoopbackHost(profile.server)) {
                 menu.add(R.string.connection_action_change_route).setOnMenuItemClickListener {
                     onRotateAndRetest(false)
                     true
@@ -12283,20 +12326,18 @@ class MainActivity : Activity() {
                         cur.mode == AetherMode.WireGuard -> "162.159.192.1:2408"
                         else -> "162.159.198.1:443"
                     }
-                    aetherPreferenceStore.save(
-                        cur.copy(
-                            enabled = true,
-                            endpoint = peer,
-                            endpointScannedAt = cur.endpointScannedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
-                        ),
+                    val ready = cur.copy(
+                        enabled = true,
+                        endpoint = peer,
+                        endpointScannedAt = cur.endpointScannedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
                     )
+                    aetherPreferenceStore.save(ready)
                     refreshEngineSummary()
                     renderAdvancedControls()
-                    openScreen(SCREEN_HOME)
-                    if (currentVpnServiceState == VpnState.Started) {
-                        reconnectForConnectionOptionChange()
-                    } else {
-                        beginConnectFlow(Actions.CONNECT)
+                    // beta214: write this exact config as the one row of «⚡ Cat Warp Configs» and select that list
+                    // before connecting, so another selected list (or an old picked row) can no longer win.
+                    saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = true) {
+                        connectCatWarpAfterSave()
                     }
                 },
                 LinearLayout.LayoutParams(0, -2, 1f),
@@ -12346,6 +12387,17 @@ class MainActivity : Activity() {
             )
         }
         card.addView(coreConfigRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        // beta214: the endpoint scan was only reachable through «ویرایش» of the subscription; now it has its own button.
+        card.addView(
+            smallActionBtn(
+                label = if (isFarsi) "🔍 اسکن اندپوینت و ویرایش کانفیگ Cat Warp" else "🔍 Endpoint scan & edit Cat Warp config",
+                accent = false,
+            ) {
+                openCatWarpEditorForCurrentConfig(autoScan = true)
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
 
         // Row 3: WhiteDNS & Resolver Connection Methods + Smart Tools Menu
         val dnsAndToolsRow = LinearLayout(this).apply {
@@ -13335,7 +13387,6 @@ class MainActivity : Activity() {
                             innerEndpoint = twoHop.innerPeer,
                         ),
                     )
-                    saveAetherConfigIntoMainSubscriptionList(readySelection, activateAetherEngine = true)
                     runCatching { waitDlg.dismiss() }
                     onDone?.invoke(readySelection)
                     Toast.makeText(
@@ -13347,11 +13398,8 @@ class MainActivity : Activity() {
                         },
                         Toast.LENGTH_LONG,
                     ).show()
-                    openScreen(SCREEN_HOME)
-                    if (currentVpnServiceState == VpnState.Started) {
-                        reconnectForConnectionOptionChange()
-                    } else {
-                        beginConnectFlow(Actions.CONNECT)
+                    saveAetherConfigIntoMainSubscriptionList(readySelection, activateAetherEngine = true, replaceAll = true) {
+                        connectCatWarpAfterSave()
                     }
                 }
             }
@@ -13417,7 +13465,92 @@ class MainActivity : Activity() {
             .showCatClientDialog()
     }
 
-    private fun showAetherConfigEditor(item: UserSubscription, lineIndex: Int, originalLine: String) {
+    /** beta214: opens the per-config Cat Warp editor (with its endpoint scan) for the config in «⚡ Cat Warp Configs». */
+    private fun openCatWarpEditorForCurrentConfig(autoScan: Boolean) {
+        activityScope.launch {
+            val list = withContext(Dispatchers.IO) {
+                userSubscriptionManager.list().firstOrNull { it.name.equals(CatWarpListPolicy.SUBSCRIPTION_NAME, ignoreCase = true) }
+            }
+            val firstLine = list?.let { subscriptionAetherLines(it).firstOrNull()?.second }
+            val link = firstLine ?: aetherPreferenceStore.read().toAetherUri()
+            openCatWarpEditorForLink(list?.id, link, autoScan)
+        }
+    }
+
+    /**
+     * beta214: long-press «🔍 اسکن اندپوینت» / «✏️ ویرایش» on a Cat Warp row. Finds the subscription line behind the
+     * row and opens the editor on it; a row of a remote (URL) list is first copied into «⚡ Cat Warp Configs».
+     */
+    private fun openCatWarpEditorForLink(subscriptionId: String?, shareLink: String?, autoScan: Boolean) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            runCatching {
+                val subs = withContext(Dispatchers.IO) { userSubscriptionManager.list() }
+                val ordered = subs.filter { it.id == subscriptionId } + subs.filter { it.id != subscriptionId }
+                val hit = ordered.firstNotNullOfOrNull { sub ->
+                    CatWarpListPolicy.lineIndexFor(sub.input, shareLink).takeIf { it >= 0 }?.let { sub to it }
+                }
+                if (hit != null) {
+                    showAetherConfigEditor(hit.first, hit.second, hit.first.input.lines()[hit.second].trim(), autoScan)
+                    return@runCatching
+                }
+                val parsed = AetherSelection.fromAetherUri(shareLink.orEmpty())
+                if (parsed == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (isFarsi) "این ردیف لینک Cat Warp سالم ندارد." else "This row has no valid Cat Warp link.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@runCatching
+                }
+                val uri = parsed.toAetherUri()
+                val existing = subs.firstOrNull { it.name.equals(CatWarpListPolicy.SUBSCRIPTION_NAME, ignoreCase = true) }
+                val saved = withContext(Dispatchers.IO) {
+                    if (existing != null) {
+                        userSubscriptionManager.update(
+                            existing.id,
+                            existing.name,
+                            CatWarpListPolicy.mergedInput(existing.input, uri, replaceAll = false),
+                        )
+                    } else {
+                        userSubscriptionManager.add(CatWarpListPolicy.SUBSCRIPTION_NAME, uri)
+                    }
+                }
+                renderSubscriptions()
+                val idx = CatWarpListPolicy.lineIndexFor(saved.input, uri).coerceAtLeast(0)
+                showAetherConfigEditor(saved, idx, saved.input.lines().getOrElse(idx) { uri }.trim(), autoScan)
+            }.onFailure { error ->
+                Toast.makeText(this@MainActivity, error.message ?: "Error", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** beta214: plain-words answer for a «Local 127.0.0.1:port» row that cannot carry traffic. */
+    private fun showDeadLocalRowExplanation(profile: ConnectionProfile) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        activityScope.launch {
+            val listening = withContext(Dispatchers.IO) { LoopbackProfileGuard.isListening(profile.port) }
+            val msg = if (isFarsi) {
+                "این ردیف خودش سرور ندارد؛ فقط می‌گوید «برو به پروکسیِ یک برنامهٔ دیگر روی همین گوشی، 127.0.0.1:${profile.port}».\n\n" +
+                    (if (listening) "✅ الان برنامه‌ای روی این پورت گوش می‌دهد، پس تا وقتی آن برنامه باز است کار می‌کند.\n\n"
+                    else "❌ الان هیچ برنامه‌ای روی این پورت نیست، پس وصل نمی‌شود (همان خطای «health check at 127.0.0.1:2080»).\n\n") +
+                    "اگر Cat Warp می‌خواهید: «⚡ Cat Warp» → «🤖 اسکن و ساخت خودکار» یا «🚀 اتصال مستقیم Cat Warp». این سابسکریپشن را می‌توانید حذف کنید."
+            } else {
+                "This row has no server of its own; it only says «use another app's proxy on this phone at 127.0.0.1:${profile.port}».\n\n" +
+                    (if (listening) "✅ Something is listening on that port right now, so it works while that app runs.\n\n"
+                    else "❌ Nothing listens on that port now, so it cannot connect (the «health check at 127.0.0.1:2080» error).\n\n") +
+                    "For Cat Warp use «⚡ Cat Warp» → «🤖 Auto-Scan & Build» or «🚀 Connect Cat Warp Now». You can delete this subscription."
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(if (isFarsi) "ℹ️ چرا این ردیف وصل نمی‌شود؟" else "ℹ️ Why does this row not connect?")
+                .setMessage(msg)
+                .setPositiveButton(android.R.string.ok, null)
+                .create()
+                .showCatClientDialog()
+        }
+    }
+
+    private fun showAetherConfigEditor(item: UserSubscription, lineIndex: Int, originalLine: String, autoScan: Boolean = false) {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         fun t(fa: String, en: String) = if (isFarsi) fa else en
         val original = AetherSelection.fromAetherUri(originalLine)
@@ -13747,6 +13880,8 @@ class MainActivity : Activity() {
             }
             .create()
             .showCatClientDialog()
+        // beta214: «🔍 اسکن اندپوینت» from a row's long-press menu / the Cat Warp card starts the scan right away.
+        if (autoScan) scanBtn.post { if (scanBtn.isEnabled) scanBtn.performClick() }
     }
 
     private fun saveEditedAetherLine(
@@ -13774,8 +13909,14 @@ class MainActivity : Activity() {
                     lines.indexOfFirst { it.trim() == originalLine }
                 }
                 if (at >= 0) lines[at] = newLine else lines.add(0, newLine)
+                // «Save & connect»: Automatic takes the first Cat Warp row, so the edited one goes first.
+                val text = if (connect) {
+                    CatWarpListPolicy.moveLineFirst(lines.joinToString("\n"), if (at >= 0) at else 0)
+                } else {
+                    lines.joinToString("\n")
+                }
                 val saved = withContext(Dispatchers.IO) {
-                    userSubscriptionManager.update(fresh.id, fresh.name, lines.joinToString("\n"))
+                    userSubscriptionManager.update(fresh.id, fresh.name, text)
                 }
                 val active = aetherPreferenceStore.read()
                 if (connect || (before != null && active.profileName == before.profileName)) {
@@ -13788,6 +13929,8 @@ class MainActivity : Activity() {
                 renderSubscriptions()
                 renderConnectionSelection()
                 Toast.makeText(this@MainActivity, if (isFarsi) "✅ ذخیره شد" else "✅ Saved", Toast.LENGTH_SHORT).show()
+                // beta214: «ذخیره و اتصال» only saved before — it now really connects.
+                if (connect) connectCatWarpAfterSave()
             }.onFailure {
                 Toast.makeText(this@MainActivity, it.message ?: "Error", Toast.LENGTH_LONG).show()
             }
@@ -15149,7 +15292,7 @@ class MainActivity : Activity() {
             }
         }
 
-        fun persistDraftSelection(copyLinkToClipboard: Boolean): AetherSelection {
+        fun persistDraftSelection(copyLinkToClipboard: Boolean, afterListSaved: (() -> Unit)? = null): AetherSelection {
             val draft = currentDraftSelection()
             val now = System.currentTimeMillis()
             aetherPreferenceStore.save(draft.copy(endpointScannedAt = now))
@@ -15184,7 +15327,7 @@ class MainActivity : Activity() {
                     torRelaysMode = draft.torRelaysMode,
                 ),
             )
-            saveAetherConfigIntoMainSubscriptionList(draft, activateAetherEngine = true)
+            saveAetherConfigIntoMainSubscriptionList(draft, activateAetherEngine = true, replaceAll = true, onSaved = afterListSaved)
             if (copyLinkToClipboard) {
                 val uri = draft.toAetherUri()
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -15212,19 +15355,13 @@ class MainActivity : Activity() {
                 ).show()
             }
             .setPositiveButton(if (isFarsi) "🚀 ذخیره و اتصال فوری" else "🚀 Save & Connect Now") { _, _ ->
-                val saved = persistDraftSelection(copyLinkToClipboard = false)
+                val saved = persistDraftSelection(copyLinkToClipboard = false) { connectCatWarpAfterSave() }
                 Toast.makeText(
                     this,
                     if (isFarsi) "🚀 کانفیگ Cat Warp «${saved.profileName}» فعال شد — در حال اتصال مستقیم در همین برنامه…"
                     else "🚀 Cat Warp '${saved.profileName}' enabled — connecting directly in Cat Client…",
                     Toast.LENGTH_LONG,
                 ).show()
-                openScreen(SCREEN_HOME)
-                if (currentVpnServiceState == VpnState.Started) {
-                    reconnectForConnectionOptionChange()
-                } else {
-                    beginConnectFlow(Actions.CONNECT)
-                }
             }
             .create()
             .showCatClientDialog()
@@ -15516,6 +15653,9 @@ class MainActivity : Activity() {
                         psiphonRegion = builtSelection.psiphonRegion,
                     ),
                 )
+                // beta214: the wizard result goes into the list as the ONE Cat Warp config (it was only kept in the
+                // preferences, so the list and «Connect» could still point at an older config or another list).
+                saveAetherConfigIntoMainSubscriptionList(builtSelection, activateAetherEngine = true, replaceAll = true)
                 onBuilt?.invoke(builtSelection)
 
                 val destTitle = when {
@@ -15568,11 +15708,8 @@ class MainActivity : Activity() {
                         ).show()
                     }
                     .setPositiveButton(if (isFarsi) "🚀 اتصال فوری با همین کانفیگ" else "🚀 Connect Now") { _, _ ->
-                        openScreen(SCREEN_HOME)
-                        if (currentVpnServiceState == VpnState.Started) {
-                            reconnectForConnectionOptionChange()
-                        } else {
-                            beginConnectFlow(Actions.CONNECT)
+                        saveAetherConfigIntoMainSubscriptionList(builtSelection, activateAetherEngine = true, replaceAll = true) {
+                            connectCatWarpAfterSave()
                         }
                     }
                     .create()
@@ -28079,6 +28216,7 @@ class MainActivity : Activity() {
                     showConnectionShareMenu(
                         anchor = row,
                         profile = target,
+                        subscriptionId = selectedSubscriptionId,
                         onRotateAndRetest = if (!pickerMode && canRunConnectionTests) { preferProxyIp ->
                             if (!testRunning) {
                                 val rotated = rotateProfileRouteInSubscription(selectedSubscriptionId, target, preferProxyIp)
