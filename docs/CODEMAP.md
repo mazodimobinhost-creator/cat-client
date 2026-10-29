@@ -65,7 +65,7 @@
 | `EarlyCrashProvider.kt` | 43 | The earliest app code Android runs. | — · — |
 | `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, Beta223XrayEngineTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
 | `MihomoCoreLifecycle.kt` | 85 | Serializes setup and cleanup of the process-wide Mihomo core. | — · — |
-| `MihomoRuntime.kt` | 2803 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
+| `MihomoRuntime.kt` | 2803 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, Beta223XrayEngineTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
 | `MihomoShareLink.kt` | 545 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, WhiteDnsSmartScannerTest · — |
 | `PathWatchdog.kt` | 178 | The multi-path watchdog: the tiny state machine that decides *when* the app stops insisting on the normal path and takes the Tor one instead — and… | PathWatchdogTest · orbot-engine |
 | `QuickSettingsTileState.kt` | 50 | — | — · — |
@@ -141,7 +141,7 @@
 | `SubscriptionSnapshot.kt` | 479 | — | Beta217PerformanceTest, WhiteDnsSmartScannerTest · — |
 | `SubscriptionStore.kt` | 491 | — | SmartRouteMeasurementAdapterTest · — |
 | `SubscriptionUsage.kt` | 105 | Subscription usage reported by a panel through the `subscription-userinfo` response header (`upload=…; download=…; total=…; expire=…`). | — · — |
-| `UserSubscriptions.kt` | 831 | — | Beta220FinalMaskTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
+| `UserSubscriptions.kt` | 831 | — | Beta220FinalMaskTest, Beta223XrayEngineTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
 | `VerifiedConfigDiff.kt` | 28 | Preview shown before optimizer/failover applies a config change. | — · — |
 | `VerifiedConfigFailover.kt` | 120 | — | — · — |
 | `VerifiedConfigUri.kt` | 167 | — | — · — |
