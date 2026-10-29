@@ -12046,6 +12046,14 @@ class MainActivity : Activity() {
             )
             addView(
                 hubBtn(
+                    if (isFarsi) "🌏 Cat SSTP — سرورهای رایگان SSTP ژاپن/کره (vpn/vpn)"
+                    else "🌏 Cat SSTP — free SSTP servers in Japan/Korea (vpn/vpn)",
+                    accent = false,
+                ) { showCatSstpDialog() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+            )
+            addView(
+                hubBtn(
                     if (isFarsi) "🔐 کانفیگ‌های Amnezia (کلید vpn:// و فایل ‎.conf)"
                     else "🔐 Amnezia configs (vpn:// key & .conf file)",
                     accent = false,
@@ -18171,6 +18179,10 @@ class MainActivity : Activity() {
             "کلیدی که با vpn:// شروع می‌شود یا فایل ‎.conf را می‌خواند و وصل می‌شود.",
             "Reads a vpn:// key or a .conf file and connects.",
             "امنزیا آمنزیا امنیزیا amnezia awg wireguard وایرگارد conf vpn://") { showAmneziaSectionDialog() },
+        FinderEntry("🌏 Cat SSTP (سرورهای رایگان vpn/vpn)", "🌏 Cat SSTP (free vpn/vpn servers)",
+            "سرورهای رایگان SSTP ژاپن و کره؛ بدون حساب. فهرست تازه را می‌گیرد و کل گوشی را وصل می‌کند.",
+            "Free SSTP servers in Japan/Korea, no account. Gets a fresh list and connects the whole phone.",
+            "sstp اس اس تی پی وی پی ان گیت vpngate vpn gate ژاپن کره japan korea رایگان free ویندوز windows") { showCatSstpDialog() },
         FinderEntry("🦊 Cat Fox VPN (۵۰ گیگ رایگان)", "🦊 Cat Fox VPN (50 GB free)",
             "با حساب فایرفاکس، ماهی ۵۰ گیگ رایگان از سرورهای موزیلا. ورود به حساب لازم است.",
             "50 GB/month free on Mozilla servers with a Firefox account (sign-in needed).",
@@ -18655,6 +18667,222 @@ class MainActivity : Activity() {
                 }
                 .setNegativeButton(t("بستن", "Close"), null)
                 .create().showCatClientDialog()
+        }
+    }
+
+    // ---------------------------------------------------------------- beta212: Cat SSTP
+
+    private val catSstpSubscriptionName = "🌏 Cat SSTP"
+    private val CAT_SSTP_LIST_LIMIT = 40
+
+    private fun catSstpGuideText(isFarsi: Boolean): String = if (isFarsi) {
+        """
+        🌏 Cat SSTP چیه؟
+        SSTP یه VPN استاندارده (همونی که ویندوز داره) که داخل HTTPS معمولی می‌ره. سرورهای رایگان داوطلبانه VPN Gate (بیشتر ژاپن و کره) با نام کاربری vpn و رمز vpn کار می‌کنن. سایت خود VPN Gate تو ایران فیلتره؛ برای همین فهرست از sstp.wireconf.workers.dev گرفته می‌شه.
+
+        👆 «📥 دریافت سرورها» رو بزنی چی میشه؟
+        • فهرست تازه سرورها گرفته می‌شه و یه اشتراک به اسم «🌏 Cat SSTP» ساخته (یا به‌روز) می‌شه.
+        • «🚀 دریافت و اتصال» همون کار رو می‌کنه و بعد کل گوشی رو وصل می‌کنه.
+        • اگه سرور اول جواب نده، برنامه خودش تا ۶ سرور بعدی رو امتحان می‌کنه.
+
+        👆 بعدش چی؟
+        • تو صفحه سرورها یکی از ردیف‌های «🐱 Cat · Japan · SSTP …» رو انتخاب کن و دکمه اتصال رو بزن.
+        • «تست پینگ» یه دست‌دادن کامل SSTP انجام می‌ده (تا گرفتن آی‌پی). عددش از پینگ معمولی بزرگ‌تره ولی واقعیه؛ ردیفی که جواب نده یعنی الان روی خط شما کار نمی‌کنه.
+        • عدد Mbps سرعتیه که خود سرور اعلام کرده، نه سرعت خط شما.
+        • این سرورها هر روز عوض می‌شن؛ اگه بیشترشون جواب ندادن دوباره «📥 دریافت سرورها» رو بزن.
+
+        ⚠️ صادقانه:
+        • گواهی این سرورها خودامضاست و بررسی نمی‌شه؛ صاحب سرور داوطلبه. برای کارهای حساس فقط سایت‌های https (قفل‌دار) رو باز کن.
+        • فقط IPv4 از تونل رد می‌شه؛ IPv6 بسته می‌شه که نشت نکنه.
+        • روی بعضی خطوط SSTP شناسایی و بسته می‌شه؛ اون وقت یه روش دیگه (Cat Warp یا Cat Fox VPN) رو امتحان کن.
+        • لینک دستی هم قبول می‌شه: sstp://vpn:vpn@host:port یا فقط اسم هاست مثل vpn123.opengw.net:1270
+        """.trimIndent()
+    } else {
+        """
+        🌏 What is Cat SSTP?
+        SSTP is a standard VPN (the one built into Windows) carried inside ordinary HTTPS. The free volunteer VPN Gate servers (mostly Japan/Korea) accept user vpn / password vpn. The VPN Gate site is filtered in Iran, so the list comes from sstp.wireconf.workers.dev.
+
+        👆 Tap “📥 Get servers”:
+        • A fresh server list is downloaded into a subscription named “🌏 Cat SSTP” (created or updated).
+        • “🚀 Get & connect” does the same and then connects the whole phone.
+        • If the first server does not answer, the app tries up to 6 more by itself.
+
+        👆 Then:
+        • On the servers screen pick a “🐱 Cat · Japan · SSTP …” row and tap connect.
+        • The ping test runs a full SSTP handshake (until an IP is assigned) — bigger than a normal ping but real; no answer means it does not work on your line right now.
+        • The Mbps figure is the server's own advertised speed, not your line.
+        • These servers change daily; if most fail, tap “📥 Get servers” again.
+
+        ⚠️ Honestly:
+        • Their certificates are self-signed and not verified; the operators are volunteers. Use only https sites for anything sensitive.
+        • Only IPv4 goes through the tunnel; IPv6 is blocked so it cannot leak.
+        • Some networks detect and block SSTP; then try another method (Cat Warp or Cat Fox VPN).
+        • Manual links work too: sstp://vpn:vpn@host:port, or just a host such as vpn123.opengw.net:1270
+        """.trimIndent()
+    }
+
+    private fun showCatSstpDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        fun t(fa: String, en: String) = if (isFarsi) fa else en
+        val sortLabels = arrayOf(
+            t("⭐ ترتیب پیشنهادی فهرست", "⭐ List's recommended order"),
+            t("⚡ پرسرعت‌ترین (سرعت اعلامی سرور)", "⚡ Fastest (server's advertised speed)"),
+            t("🕐 پایدارترین (بیشترین روز روشن بودن)", "🕐 Most stable (longest uptime)"),
+            t("🆕 تازه‌ترین سرورها", "🆕 Newest servers"),
+        )
+        var sortIndex = 0
+        val message = TextView(this).apply {
+            text = catSstpGuideText(isFarsi)
+            textSize = 13f
+            setTextColor(TEXT_PRIMARY)
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(dp(22), dp(8), dp(22), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_LOCALE
+        }
+        val sortGroup = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.RadioGroup.VERTICAL
+            setPadding(dp(18), dp(4), dp(18), dp(8))
+            sortLabels.forEachIndexed { i, label ->
+                addView(
+                    android.widget.RadioButton(this@MainActivity).apply {
+                        id = View.generateViewId()
+                        text = label
+                        textSize = 13.5f
+                        minHeight = dp(44)
+                        setTextColor(TEXT_PRIMARY)
+                        isChecked = i == 0
+                        setOnCheckedChangeListener { _, checked -> if (checked) sortIndex = i }
+                    },
+                )
+            }
+        }
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(message)
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = t("ترتیب فهرست:", "Order:")
+                    textSize = 13.5f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                    setPadding(dp(22), dp(8), dp(22), 0)
+                },
+            )
+            addView(sortGroup)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(t("🌏 Cat SSTP — سرورهای رایگان SSTP", "🌏 Cat SSTP — free SSTP servers"))
+            .setView(ScrollView(this).apply { addView(column) })
+            .setPositiveButton(t("🚀 دریافت و اتصال", "🚀 Get & connect")) { _, _ ->
+                fetchAndSaveCatSstpServers(SstpServerList.SORTS[sortIndex], connect = true)
+            }
+            .setNeutralButton(t("📥 فقط دریافت سرورها", "📥 Get servers only")) { _, _ ->
+                fetchAndSaveCatSstpServers(SstpServerList.SORTS[sortIndex], connect = false)
+            }
+            .setNegativeButton(t("✍️ لینک دستی", "✍️ Manual link")) { _, _ -> showManualCatSstpDialog() }
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun fetchAndSaveCatSstpServers(sort: String, connect: Boolean) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        Toast.makeText(
+            this,
+            if (isFarsi) "⏳ در حال گرفتن فهرست تازه سرورهای SSTP…" else "⏳ Downloading a fresh SSTP server list…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        activityScope.launch {
+            val servers = runCatching { withContext(Dispatchers.IO) { SstpServerList.fetch(sort, CAT_SSTP_LIST_LIMIT) } }
+                .getOrElse { error ->
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle(if (isFarsi) "⚠️ فهرست سرورها گرفته نشد" else "⚠️ Could not get the server list")
+                        .setMessage(
+                            (if (isFarsi) {
+                                "دلیل: ${error.message ?: error.javaClass.simpleName}\n\nاگه sstp.wireconf.workers.dev روی خط شما باز نمی‌شه، اول با یه روش دیگه وصل شو و دوباره بزن، یا لینک/هاست سرور رو دستی وارد کن."
+                            } else {
+                                "Reason: ${error.message ?: error.javaClass.simpleName}\n\nIf sstp.wireconf.workers.dev does not open on your line, connect another way first and retry, or enter a server link/host manually."
+                            }),
+                        )
+                        .setPositiveButton(if (isFarsi) "✍️ لینک دستی" else "✍️ Manual link") { _, _ -> showManualCatSstpDialog() }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .create()
+                        .showCatClientDialog()
+                    return@launch
+                }
+            saveCatSstpSubscription(SstpServerList.subscriptionText(servers), connect)
+        }
+    }
+
+    private fun showManualCatSstpDialog() {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val input = EditText(this).apply {
+            hint = "sstp://vpn:vpn@public-vpn-79.opengw.net:443"
+            minLines = 3
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+        }
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = if (isFarsi) {
+                        "هر خط یک سرور: sstp://user:pass@host:port یا فقط هاست VPN Gate مثل vpn123.opengw.net:1270 (نام کاربری و رمز پیش‌فرض vpn). پورت دقیقاً همونی که می‌نویسی استفاده می‌شه."
+                    } else {
+                        "One server per line: sstp://user:pass@host:port, or just a VPN Gate host such as vpn123.opengw.net:1270 (default user/password vpn). The port is used exactly as written."
+                    }
+                    textSize = 12.5f
+                    setTextColor(TEXT_SECONDARY)
+                },
+            )
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (isFarsi) "✍️ افزودن سرور SSTP" else "✍️ Add SSTP server")
+            .setView(wrap)
+            .setPositiveButton(if (isFarsi) "🚀 افزودن و اتصال" else "🚀 Add & connect") { _, _ ->
+                val links = input.text.toString().lines().mapNotNull { SstpLink.parse(it) }
+                if (links.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        if (isFarsi) "⚠️ هیچ لینک یا هاست SSTP درستی پیدا نشد" else "⚠️ No valid SSTP link or host found",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    saveCatSstpSubscription(links.joinToString("\n") { it.toUri() }, connect = true)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .showCatClientDialog()
+    }
+
+    private fun saveCatSstpSubscription(text: String, connect: Boolean) {
+        val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        val name = catSstpSubscriptionName
+        activityScope.launch {
+            val saved = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = userSubscriptionManager.list().firstOrNull { it.name == name }
+                    if (existing != null) userSubscriptionManager.update(existing.id, name, text)
+                    else userSubscriptionManager.add(name, text)
+                }
+            }.getOrElse { error ->
+                Toast.makeText(
+                    this@MainActivity,
+                    (if (isFarsi) "افزودن نشد: " else "Could not add: ") + (error.message ?: error.javaClass.simpleName),
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            Toast.makeText(
+                this@MainActivity,
+                if (isFarsi) "✅ «$name» آماده شد (${saved.connectionCount} سرور)" else "✅ “$name” ready (${saved.connectionCount} servers)",
+                Toast.LENGTH_LONG,
+            ).show()
+            renderSubscriptions()
+            if (connect) selectSubscriptionAndConnect(saved.id) else userSubscriptionManager.select(saved.id)
         }
     }
 

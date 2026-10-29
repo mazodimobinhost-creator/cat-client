@@ -674,6 +674,28 @@ class CatClientVpnService : VpnService() {
             publishState(VpnState.Started, getString(R.string.connection_chain_switch_unavailable))
             return
         }
+        // beta212: Cat SSTP is not a Cat core outbound, so switching to or away from an SSTP row restarts the tunnel
+        // with the picked row first (the core selector would only reach the row's dead loopback placeholder).
+        val targetIsSstp = activeAvailableProfiles.firstOrNull { it.fingerprint == fingerprint }
+            ?.shareLink?.trim()?.startsWith("sstp://", ignoreCase = true) == true
+        if (sstpConnection != null || targetIsSstp) {
+            scope.launch {
+                val picked = runCatching {
+                    withContext(Dispatchers.IO) {
+                        configRepository.fetchOrCachedMihomoConfig(subscriptionId).catalog.profiles
+                            .firstOrNull { it.fingerprint == fingerprint }
+                    }
+                }.getOrNull()
+                if (picked == null) {
+                    publishState(VpnState.Started, getString(R.string.connection_switch_unavailable))
+                    return@launch
+                }
+                DiagnosticLogger.info(this@CatClientVpnService, "connection.switch.sstpRestart", "profile=${picked.tag}")
+                connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, picked, userPick = true)
+                reconnectVpn()
+            }
+            return
+        }
         if (
             connectionDelayTestJob?.isActive == true ||
             connectionSpeedTestJobs.isNotEmpty() ||
@@ -897,7 +919,7 @@ class CatClientVpnService : VpnService() {
                     }
                     snapshot to profiles
                 }
-                withConnectionTestController(resolvedSubscriptionId, snapshot, profiles) { controller, _ ->
+                withConnectionTestController(resolvedSubscriptionId, snapshot, profiles, sstpCoreless = true) { controller, _ ->
                     val startedSession = ConnectionDelayTestState.update(testId) {
                         it.copy(
                             targetFingerprints = profiles.map(ConnectionProfile::fingerprint),
@@ -1179,8 +1201,14 @@ class CatClientVpnService : VpnService() {
         subscriptionId: String,
         snapshot: MihomoSubscriptionSnapshot,
         requiredProfiles: List<ConnectionProfile>,
+        sstpCoreless: Boolean = false,
         block: suspend (MihomoControllerClient, temporaryCore: Boolean) -> T,
     ): T {
+        // beta212: SSTP rows are measured with their own full handshake (realSstpDelayMs) and never touch the Cat
+        // core, so they can be tested while any tunnel (also a live SSTP call) is up, without a temporary core.
+        if (sstpCoreless && requiredProfiles.isNotEmpty() && requiredProfiles.all { it.shareLink?.trim()?.startsWith("sstp://", ignoreCase = true) == true }) {
+            return block(MihomoControllerClient(""), false)
+        }
         val runtime = connectionTestWakeLock.hold {
             connectionTestControllerMutex.withLock {
                 val shared = connectionTestRuntime
@@ -4440,6 +4468,14 @@ class CatClientVpnService : VpnService() {
         sstpTunFd = null
     }
 
+    /** Closes one call; the shared fields are cleared only if a newer startup has not replaced them meanwhile. */
+    private fun closeSstpCall(connection: SstpConnection?, tun: android.os.ParcelFileDescriptor?, reason: String) {
+        connection?.let { runCatching { it.close(reason) } }
+        tun?.let { runCatching { it.close() } }
+        if (connection != null && sstpConnection === connection) sstpConnection = null
+        if (tun != null && sstpTunFd === tun) sstpTunFd = null
+    }
+
     /** Real SSTP delay: time from TCP connect until the server has handed out an IP address. */
     private fun realSstpDelayMs(rawShare: String, timeoutMs: Int): Int? {
         val link = SstpLink.parse(rawShare) ?: return null
@@ -4472,6 +4508,7 @@ class CatClientVpnService : VpnService() {
             val name = link.remark.ifBlank { link.host }
             VpnRuntimeStateStore.saveLiveConnectStep(this, "${index + 1}/${links.size}: Cat SSTP — وصل شدن به $name")
             DiagnosticLogger.info(this, "$eventPrefix.sstp.try", "server=${link.endpoint} ip=${link.ip.ifBlank { "dns" }}")
+            var attempt: SstpConnection? = null
             try {
                 val opened = withContext(Dispatchers.IO) {
                     SstpDialer.open(
@@ -4482,25 +4519,31 @@ class CatClientVpnService : VpnService() {
                         log = { line -> DiagnosticLogger.info(this@CatClientVpnService, "sstp.engine", line) },
                     )
                 }
+                attempt = opened.connection
                 sstpConnection = opened.connection
                 lease = runInterruptible(Dispatchers.IO) { opened.connection.handshake(SSTP_HANDSHAKE_TIMEOUT_MS) }
                 connection = opened.connection
                 chosen = link
                 break
             } catch (error: CancellationException) {
-                closeSstp("canceled")
+                closeSstpCall(attempt, null, "canceled")
                 throw error
             } catch (error: Exception) {
                 lastError = error
                 DiagnosticLogger.warn(this, "$eventPrefix.sstp.failed", "server=${link.endpoint} reason=${error.message}")
-                closeSstp("candidate failed")
+                closeSstpCall(attempt, null, "candidate failed")
             }
         }
         if (connection == null || lease == null || chosen == null) {
             throw IOException("Cat SSTP: هیچ‌کدام از ${links.size} سرور وصل نشد (${lastError?.message ?: "بدون پاسخ"})", lastError)
         }
         VpnRuntimeStateStore.saveLiveConnectStep(this, "Cat SSTP: آی‌پی ${lease.address} گرفته شد — ساخت تونل")
-        val tun = establishSstpTun(lease, splitPlan, chosen.remark.ifBlank { chosen.host })
+        val tun = try {
+            establishSstpTun(lease, splitPlan, chosen.remark.ifBlank { chosen.host })
+        } catch (error: Exception) {
+            closeSstpCall(connection, null, "tun failed")
+            throw error
+        }
         sstpTunFd = tun
         val ended = CompletableDeferred<String>()
         connection.startDataPlane(
@@ -4516,7 +4559,7 @@ class CatClientVpnService : VpnService() {
         val reason = try {
             ended.await()
         } finally {
-            closeSstp("tunnel finished")
+            closeSstpCall(connection, tun, "tunnel finished")
         }
         if (state != VpnState.Stopping && state != VpnState.Stopped) {
             throw IOException("Cat SSTP: اتصال قطع شد ($reason)")
