@@ -283,11 +283,11 @@ class Beta212SstpTest {
             override fun write(b: Int) = Unit
             override fun write(b: ByteArray, off: Int, len: Int) { tunOut.put(b.copyOfRange(off, off + len)) }
         }) { reason = it; closed.countDown() }
-        assertArrayEquals(down, tunOut.poll(5, TimeUnit.SECONDS) ?: fail("no packet from server"))
+        assertArrayEquals(down, tunOut.poll(5, TimeUnit.SECONDS) ?: throw AssertionError("no packet from server"))
         tunPackets.put(ByteArray(40).also { it[0] = 0x60 }) // IPv6 is dropped
         val sent = ipv4(9, 8)
         tunPackets.put(sent)
-        assertArrayEquals(sent, up.poll(5, TimeUnit.SECONDS) ?: fail("no packet to server: $errors"))
+        assertArrayEquals(sent, up.poll(5, TimeUnit.SECONDS) ?: throw AssertionError("no packet to server: $errors"))
         assertTrue("closed on terminate", closed.await(5, TimeUnit.SECONDS))
         assertTrue(reason, reason.contains("terminate"))
         server.join(3000)
