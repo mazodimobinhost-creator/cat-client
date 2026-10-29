@@ -376,6 +376,15 @@ internal class NodeHostStore(context: Context) {
             .takeIf { r -> ApiHostPlan.RAILWAY_REGIONS.any { it.first == r } } ?: ApiHostPlan.RAILWAY_DEFAULT_REGION
         set(value) { prefs.edit().putString("railway_region", value).apply() }
 
+    /** beta227: the server country picked for a host kind (HostRegions id; Railway keeps its own key). */
+    fun region(kind: String): String =
+        if (kind == "railway") railwayRegion else HostRegions.valid(kind, prefs.getString("region_$kind", null))
+
+    fun setRegion(kind: String, id: String) {
+        if (kind == "railway") railwayRegion = HostRegions.valid(kind, id)
+        else prefs.edit().putString("region_$kind", HostRegions.valid(kind, id)).apply()
+    }
+
     var githubToken: String
         get() = prefs.getString("github_token", "").orEmpty()
         set(value) { prefs.edit().putString("github_token", value.trim()).apply() }

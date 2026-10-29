@@ -211,7 +211,7 @@
 
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
-| `ApiHostDeploy.kt` | 346 | 🤖 Bot-Hosting.net and 🚂 Railway — the Cat Node panel brought up FROM THE APP with the user's own API key. | ApiHostPlanTest, Beta225FreeHostsTest · — |
+| `ApiHostDeploy.kt` | 383 | 🤖 Bot-Hosting.net and 🚂 Railway — the Cat Node panel brought up FROM THE APP with the user's own API key. | ApiHostPlanTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest · — |
 | `AppReport.kt` | 232 | beta220 «📨 report to panel» — ONE button, opt-in, nothing is sent without the user seeing the exact text first. | Beta220RealInternetTest, Beta220WiringTest · — |
 | `CloudflareAccountLinks.kt` | 42 | Cloudflare account/token entry links, and the invariant that makes the in-app «get a token» flow work for brand-new users. | — · — |
 | `CloudflareOperationApproval.kt` | 90 | Safety contract shared by the in-app Cloudflare installer UI. | — · — |
@@ -219,8 +219,8 @@
 | `DeploymentMeasurementStore.kt` | 55 | Stores only conclusive probe evidence. | — · — |
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
-| `NodeHost.kt` | 769 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, NodeHostTest · — |
-| `NodeHostController.kt` | 2168 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest · — |
+| `NodeHost.kt` | 784 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, NodeHostTest · — |
+| `NodeHostController.kt` | 2300 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest · — |
 | `PanelBackup.kt` | 63 | Local, private snapshot of the panel's last known-good settings and users. | — · — |
 | `PanelCredentials.kt` | 76 | — | — · — |
 | `PanelEndpointBatch.kt` | 33 | — | — · — |
@@ -290,10 +290,11 @@
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
 | `FoxPortPolicy.kt` | 55 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest · — |
+| `HostRegions.kt` | 63 | beta227 — «ask the user the country». | Beta227HostCountryTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_235 Kotlin files, 105125 lines._
+_236 Kotlin files, 105372 lines._
 
 ## MainActivity screens — function index
 
@@ -624,6 +625,7 @@ for the dialog/button you want to change.
 | `GeminiWorkerReviewOutcome` | `WorkerStaticAnalyzer.kt` |
 | `GitHubReleaseClient` | `AppUpdate.kt` |
 | `GlobeDrawable` | `GlobeDrawable.kt` |
+| `HostRegions` | `HostRegions.kt` |
 | `ImportedUserSubscription` | `UserSubscriptions.kt` |
 | `IncomingConfigIntents` | `ConfigFileImport.kt` |
 | `InstalledAppRepository` | `SplitTunnel.kt` |

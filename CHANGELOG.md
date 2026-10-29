@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta227] — 2026-10-30 (Panel 6.79.1)
+
+### Added — «📍 Server country» before every free-host install
+- Every host now starts with a country question (⚡ automatic install and 🧭 from zero), and each host applies it the only way it really can:
+  - **Railway** (Netherlands-Amsterdam, USA-Virginia, USA-California, Singapore): the app sets it itself; **«📍 Change the server country»** under «📋 My panels» moves an existing Railway panel (same service, domain and configs).
+  - **Shiprr** (eu / us / asia / oc) and **SmarterASP** (Europe-Amsterdam / USA): the host gives the app no way to set it, so the pick is written into the guide — «Region = eu» in Shiprr's New-app form, «data center = Europe (Amsterdam)» on SmarterASP's sign-up form.
+  - **KataBump** (France) and **Lucity** (EU): one country only — shown, with where to go for another country.
+  - **Bot-Hosting**: the host decides; the dialog says so and the panel name gets the node's flag after install.
+- Saved panel names carry the country flag. The Railway token dialog no longer has its own radio list (the country is asked first).
+- `HostRegions.kt`: the per-host country table (pure Kotlin, JVM-tested).
+
+### Tests
+- `Beta227HostCountryTest.kt`.
+
 ## [1.10.0-beta226] — 2026-10-29 (Panel 6.79.1)
 
 ### Fixed — linked panels (KataBump ⇄ Cloudflare) and every VLESS/Trojan chain exit

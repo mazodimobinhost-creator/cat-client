@@ -245,11 +245,86 @@ class NodeHostController(
     // ❓ guide — plain words: «tap this → this happens»
     // ------------------------------------------------------------------------------------
 
-    /** beta226 Shiprr regions (shiprr.app/docs/limits, Oct 2026): eu / us / oc / asia — a placement preference. */
-    private fun shiprrRegionHint(): String = t(
-        "📍 کشور = منطقه‌ای که اینجا انتخاب می‌کنید: eu اروپا (پیشنهادی، پینگ بهتر از ایران)، us آمریکا، asia آسیا، oc استرالیا/اقیانوسیه. اگر آن منطقه جا نداشت Shiprr ممکن است جای نزدیک دیگری بگذارد.",
-        "📍 Country = the region you pick here: eu Europe (recommended, better ping from Iran), us USA, asia Asia, oc Australia/Oceania. If that region is full, Shiprr may place it in another nearby one.",
-    )
+    /** beta227 Shiprr: the region the user picked in «📍 Server country», to choose in Shiprr's «New app» form. */
+    private fun shiprrRegionHint(): String {
+        val r = HostRegions.region(NodeHostPanel.SHIPRR, store.region(NodeHostPanel.SHIPRR))
+        return t(
+            "📍 Region = «" + r?.site + "» (" + r?.fa?.substringBefore(" —") + "، کشوری که در برنامه انتخاب شده). اگر آن منطقه جا نداشت Shiprr ممکن است جای نزدیک دیگری بگذارد.",
+            "📍 Region = «" + r?.site + "» (" + r?.en?.substringBefore(" —") + ", the country chosen in the app). If that region is full, Shiprr may place it in another nearby one.",
+        )
+    }
+
+    /** «🇳🇱 Netherlands (Amsterdam)» for a host + region id, in the app language. */
+    private fun regionName(kind: String, id: String?): String =
+        HostRegions.region(kind, id)?.let { t(it.fa, it.en).substringBefore(" —") } ?: id.orEmpty()
+
+    // ------------------------------------------------------------------------------------
+    // 📍 Server country — asked before every install; the host decides what can really be applied
+    // ------------------------------------------------------------------------------------
+
+    private fun askCountry(kind: String, next: (String) -> Unit) {
+        val choices = HostRegions.choices(kind)
+        if (choices.isEmpty()) { next(""); return }
+        val mode = HostRegions.mode(kind)
+        val box = column()
+        box.addView(label(t(
+            "سایت‌ها آی‌پی کشوری را می‌بینند که سرور پنل در آن است.",
+            "Sites see an IP from the country the panel's server is in.",
+        ), 13f, palette.textPrimary, 2))
+        box.addView(label(when (mode) {
+            HostRegions.Mode.APP_SETS -> t(
+                "برنامه خودش سرور را در کشوری که انتخاب کنید می‌سازد. بعداً هم از «📋 پنل‌های من» عوض می‌شود.",
+                "The app creates the server in the country you pick. You can change it later under «📋 My panels».",
+            )
+            HostRegions.Mode.YOU_PICK -> t(
+                name(kind) + " به برنامه اجازه نمی‌دهد کشور را بگذارد؛ انتخاب کنید تا راهنما دقیقاً بگوید در سایت کجا همین را بزنید.",
+                name(kind) + " does not let the app set it; pick one and the guide tells you exactly where to choose the same on its site.",
+            ) + if (kind == NodeHostPanel.SMARTERASP) t(" (در فرم ثبت‌نام؛ بعداً عوض نمی‌شود.)", " (On the sign-up form; it cannot be changed later.)")
+            else t(" (اگر آن منطقه جا نداشت، Shiprr ممکن است جای نزدیک دیگری بگذارد.)", " (If that region is full, Shiprr may use another nearby one.)")
+            HostRegions.Mode.FIXED -> t(
+                name(kind) + " فقط همین یک کشور را دارد.",
+                name(kind) + " has this one country only.",
+            )
+            HostRegions.Mode.HOST_DECIDES -> t(
+                name(kind) + " خودش سرور را انتخاب می‌کند و نه شما نه برنامه نمی‌توانید عوضش کنید؛ بعد از نصب، برنامه می‌گوید کجا افتاد.",
+                name(kind) + " picks the server itself; neither you nor the app can change it. After the install the app tells you where it landed.",
+            )
+        }, 12.5f, palette.textSecondary, 6))
+        val group = RadioGroup(activity)
+        val ids = HashMap<Int, String>()
+        val current = store.region(kind)
+        choices.forEach { r ->
+            val rb = RadioButton(activity).apply {
+                this.id = View.generateViewId()
+                text = t(r.fa, r.en)
+                setTextColor(palette.textPrimary)
+                minHeight = dp(44)
+                isEnabled = HostRegions.selectable(kind)
+            }
+            ids[rb.id] = r.id
+            group.addView(rb)
+            if (r.id == current || choices.size == 1) rb.isChecked = true
+        }
+        box.addView(group, lp(6))
+        if (!HostRegions.selectable(kind)) {
+            box.addView(label(t(
+                "کشور دیگری می‌خواهید؟ Railway: هلند، آمریکا یا سنگاپور (برنامه خودش می‌گذارد) · Shiprr: اروپا، آمریکا، آسیا یا استرالیا · SmarterASP: هلند یا آمریکا.",
+                "Another country? Railway: Netherlands, USA or Singapore (set by the app) · Shiprr: Europe, USA, Asia or Australia · SmarterASP: Netherlands or USA.",
+            ), 12.5f, palette.textSecondary, 8))
+        }
+        showDialog(
+            MaterialAlertDialogBuilder(activity)
+                .setTitle("📍 " + t("کشور سرور — ", "Server country — ") + name(kind))
+                .setView(scroll(box))
+                .setPositiveButton(t("ادامه", "Continue")) { _, _ ->
+                    val id = ids[group.checkedRadioButtonId] ?: current
+                    store.setRegion(kind, id)
+                    next(store.region(kind))
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .create(),
+        )
+    }
 
     fun showGuide(kind: String) {
         val text = when (kind) {
@@ -488,11 +563,13 @@ class NodeHostController(
     // beta224 SmarterASP.NET — 60-day free trial, Windows/IIS, Node.js through httpPlatformHandler
     // ------------------------------------------------------------------------------------
 
+    private fun smarterAspSite(): String = HostRegions.region(NodeHostPanel.SMARTERASP, store.region(NodeHostPanel.SMARTERASP))?.site.orEmpty()
+
     private fun smarterAspGuide(): String = t(
         "SmarterASP.NET یک هاست ویندوزی است که ۶۰ روز آزمایشی رایگان می‌دهد، بدون کارت بانکی، با Node.js و یک دامنهٔ موقت. پنل Cat روی آن بالا می‌آید و کانفیگ VLESS/Trojan روی WebSocket همان دامنه می‌دهد.\n\n" +
             "⚠️ پیش از استفاده بدانید: هاست اشتراکی است؛ ممکن است اتصال‌های بیرونی یا WebSocket را محدود کند و دامنهٔ موقتش روی اینترنت شما باز نباشد. برنامه بعد از نصب واقعاً تست می‌کند (پنل، اشتراک، WebSocket 101) و نتیجهٔ واقعی را می‌گوید. بعد از ۶۰ روز یا باید پلن بخرید یا سایت پاک می‌شود. قوانین استفادهٔ SmarterASP را خودتان بخوانید؛ مسئولیت با شماست.\n\n" +
             "🟢 نصب (دستی، ۵ دقیقه):\n" +
-            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است). 📍 در ثبت‌نام دیتاسنتر را انتخاب کنید: Europe (هلند، آمستردام — پینگ بهتر از ایران) یا USA؛ کشور خروجی پنل همین است و بعداً عوض نمی‌شود.\n" +
+            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است). 📍 در فرم ثبت‌نام دیتاسنتر را «" + smarterAspSite() + "» بگذارید (همانی که در برنامه انتخاب کردید)؛ کشور پنل همین است و بعداً عوض نمی‌شود.\n" +
             "2) «📦 ذخیرهٔ فایل‌ها» ← یک zip در پوشهٔ Download (همهٔ فایل‌ها آماده: پنل، web.config، node_modules، App_Data).\n" +
             "3) کنترل‌پنل ← سایت ← File Manager ← zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا با FTP). web.config باید کنار index.js باشد.\n" +
             "4) Node.js را برای سایت روشن کنید (Hosting Manager ← Node.js).\n" +
@@ -502,7 +579,7 @@ class NodeHostController(
         "SmarterASP.NET is a Windows host with a 60-day free trial, no card, Node.js and a temporary domain. The Cat panel runs on it and gives VLESS/Trojan configs over WebSocket on that domain.\n\n" +
             "⚠️ Know before you start: it is shared hosting; it may limit outgoing connections or WebSocket, and its temporary domain may not open on your line. After installing, the app really tests it (panel, subscription, WebSocket 101) and tells you the real result. After 60 days you either buy a plan or the site is removed. Read SmarterASP's usage rules yourself; it is your responsibility.\n\n" +
             "🟢 Install (by hand, 5 minutes):\n" +
-            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed). 📍 Pick the data center at sign-up: Europe (Amsterdam, Netherlands — better ping from Iran) or USA; that is the panel's exit country and it does not change later.\n" +
+            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed). 📍 On the sign-up form set the data center to «" + smarterAspSite() + "» (the one you picked in the app); that is the panel's country and it cannot change later.\n" +
             "2) «📦 Save the files» → a zip in the Download folder (everything ready: panel, web.config, node_modules, App_Data).\n" +
             "3) Control panel → the site → File Manager → upload the zip to the site's root and Extract it (or use FTP). web.config must sit next to index.js.\n" +
             "4) Enable Node.js for the site (Hosting Manager → Node.js).\n" +
@@ -645,12 +722,16 @@ class NodeHostController(
 
     fun showStart(kind: String, startAt: Int = 0) {
         if (NodeHostPanel.isApiHost(kind)) { autoInstall(kind); return }
-        val steps = when (kind) {
-            NodeHostPanel.KATABUMP -> kataBumpSteps()
-            NodeHostPanel.SMARTERASP -> smarterAspSteps()
-            else -> githubSteps(kind)
+        val steps = {
+            when (kind) {
+                NodeHostPanel.KATABUMP -> kataBumpSteps()
+                NodeHostPanel.SMARTERASP -> smarterAspSteps()
+                else -> githubSteps(kind)
+            }
         }
-        wizard("🧭 " + name(kind) + t(" — از صفر", " — from zero"), steps, startAt)
+        // beta227: «from zero» starts with the country too (a resumed wizard already has it).
+        if (startAt > 0) wizard("🧭 " + name(kind) + t(" — از صفر", " — from zero"), steps(), startAt)
+        else askCountry(kind) { wizard("🧭 " + name(kind) + t(" — از صفر", " — from zero"), steps(), startAt) }
     }
 
     // ------------------------------------------------------------------------------------
@@ -854,14 +935,14 @@ class NodeHostController(
                     if (direct.ok || (!check.answered && direct.answered)) { base = directBase; check = direct }
                 }
                 val now = System.currentTimeMillis()
-                val saved = SavedNodeHost("bothosting-$id", kind, dep.name + " · Bot-Hosting", base, uuid, id, now, now, pass)
+                val saved = SavedNodeHost("bothosting-$id", kind, HostRegions.withFlag(dep.name + " · Bot-Hosting", ApiHostPlan.botHostingNodeCountry(fresh?.nodeHost)?.second?.substringBefore(' ').orEmpty()), base, uuid, id, now, now, pass)
                 store.save(saved)
                 Outcome(saved, check.links, check.ok, check.headline)
             }
         }) { outcome, lines -> showOutcome(outcome, lines) }
     }
 
-    private fun askRailwayToken() {
+    private fun askRailwayToken(region: String = store.railwayRegion) {
         val box = column()
         box.addView(label(t(
             "برنامه با «توکن» حساب Railway شما پروژه و سرویس را می‌سازد؛ توکن فقط روی همین گوشی می‌ماند.\n\n" +
@@ -878,25 +959,7 @@ class NodeHostController(
         box.addView(button(t("👤 ورود به Railway", "👤 Log in to Railway")) { open(ApiHostPlan.RAILWAY_LOGIN) }, lp(8))
         box.addView(button(t("🔑 صفحهٔ توکن", "🔑 Token page")) { open(ApiHostPlan.RAILWAY_TOKENS) }, lp(6))
         box.addView(button(t("📋 چسباندن", "📋 Paste")) { field.setText(clipboardText().trim()) }, lp(6))
-        // beta226: the region = the country sites see. Railway lets every plan pick one of its 4 regions.
-        box.addView(label(t(
-            "📍 کشور سرور (سایت‌ها آی‌پی همین کشور را می‌بینند):",
-            "📍 Server country (sites see an IP from this country):",
-        ), 13f, palette.textPrimary, 14))
-        val regionGroup = RadioGroup(activity)
-        val regionIds = HashMap<Int, String>()
-        ApiHostPlan.RAILWAY_REGIONS.forEach { (id, names) ->
-            val rb = RadioButton(activity).apply {
-                this.id = View.generateViewId()
-                text = t(names.first, names.second)
-                setTextColor(palette.textPrimary)
-                minHeight = (44 * activity.resources.displayMetrics.density).toInt()
-            }
-            regionIds[rb.id] = id
-            regionGroup.addView(rb)
-            if (id == store.railwayRegion) rb.isChecked = true
-        }
-        box.addView(regionGroup, lp(4))
+        box.addView(label("📍 " + t("کشور سرور: ", "Server country: ") + regionName(NodeHostPanel.RAILWAY, region), 13f, palette.textPrimary, 14))
         showDialog(
             MaterialAlertDialogBuilder(activity)
                 .setTitle(t("🚂 نصب خودکار روی Railway", "🚂 Automatic install on Railway"))
@@ -907,8 +970,6 @@ class NodeHostController(
                         toast(t("توکن را کامل بچسبانید", "Paste the whole token"))
                     } else {
                         store.railwayToken = token
-                        val region = regionIds[regionGroup.checkedRadioButtonId] ?: ApiHostPlan.RAILWAY_DEFAULT_REGION
-                        store.railwayRegion = region
                         confirmApiInstall(NodeHostPanel.RAILWAY) { installRailway(token, region) }
                     }
                 }
@@ -931,7 +992,7 @@ class NodeHostController(
             step("   ✓ project " + projectId.take(8) + "…")
             step(t("3/8 سرویس از ایمیج ", "3/8 Service from image ") + ApiHostPlan.RAILWAY_IMAGE + "…")
             val serviceId = api { ApiHostClient.rwCreateService(token, projectId, ApiHostPlan.DEPLOY_NAME, ApiHostPlan.RAILWAY_IMAGE) }
-            step(t("4/8 کشور سرور: ", "4/8 Server country: ") + (ApiHostPlan.RAILWAY_REGIONS.firstOrNull { it.first == region }?.second?.let { t(it.first, it.second) } ?: region))
+            step(t("4/8 کشور سرور: ", "4/8 Server country: ") + regionName(kind, region))
             runCatching { ApiHostClient.rwSetRegion(token, serviceId, envId, region) }
                 .onSuccess { step("   ✓ " + region) }
                 .onFailure { step("   ⚠️ " + apiExplain(kind, it) + t(" — Railway منطقهٔ پیش‌فرض حساب را می‌گذارد (railway.com ← Account ← Preferred region).", " — Railway uses the account's default region (railway.com → Account → Preferred region).")) }
@@ -962,7 +1023,7 @@ class NodeHostController(
             }
             val ref = ApiHostPlan.railwayRef(projectId, serviceId, envId)
             val now = System.currentTimeMillis()
-            val saved = SavedNodeHost("railway-$serviceId", kind, "cat-panel · Railway " + (ApiHostPlan.RAILWAY_REGIONS.firstOrNull { it.first == region }?.second?.first?.substringBefore(' ') ?: ""), base, uuid, ref, now, now, pass)
+            val saved = SavedNodeHost("railway-$serviceId", kind, HostRegions.withFlag("cat-panel · Railway", HostRegions.flag(kind, region)), base, uuid, ref, now, now, pass)
             store.save(saved)
             if (status == "FAILED" || status == "CRASHED") {
                 Outcome(saved, emptyList(), false, t(
@@ -975,6 +1036,32 @@ class NodeHostController(
                 Outcome(saved, check.links, check.ok, check.headline)
             }
         }) { outcome, lines -> showOutcome(outcome, lines) }
+    }
+
+    /** beta227: move an existing Railway panel to another region — same service, same domain, same configs. */
+    private fun changeRailwayRegion(item: SavedNodeHost) {
+        val token = store.railwayToken
+        val ref = ApiHostPlan.parseRailwayRef(item.serverId)
+        if (token.isBlank() || ref == null) {
+            toast(t("توکن Railway روی این گوشی نیست؛ یک بار «⚡ نصب خودکار» را بزنید.", "No Railway token on this phone; run «⚡ Install automatically» once."))
+            return
+        }
+        askCountry(NodeHostPanel.RAILWAY) { region ->
+            runSteps<Outcome>("🚂 Railway", { step ->
+                step(t("کشور سرور: ", "Server country: ") + regionName(NodeHostPanel.RAILWAY, region))
+                try { ApiHostClient.rwSetRegion(token, ref.second, ref.third, region) } catch (e: Exception) { throw IllegalStateException(apiExplain(NodeHostPanel.RAILWAY, e)) }
+                step("   ✓ " + region + t(" (دامنه و کانفیگ‌ها همان می‌مانند)", " (the domain and configs stay the same)"))
+                step("Deploy…")
+                runCatching { ApiHostClient.rwDeploy(token, ref.second, ref.third) }.onFailure { step("   ⚠️ " + apiExplain(NodeHostPanel.RAILWAY, it)) }
+                delay(45_000)
+                val moved = if (item.name.startsWith("cat-panel · Railway")) {
+                    item.copy(name = HostRegions.withFlag("cat-panel · Railway", HostRegions.flag(NodeHostPanel.RAILWAY, region)))
+                } else item
+                store.save(moved)
+                val check = verify(item.kind, item.base, item.uuid, step, 150)
+                Outcome(moved, check.links, check.ok, check.headline)
+            }) { outcome, lines -> showOutcome(outcome, lines) }
+        }
     }
 
     /** «🔁 Update» on an API host: Bot-Hosting rewrites the files and restarts; Railway redeploys the same service. */
@@ -1118,11 +1205,13 @@ class NodeHostController(
     // ------------------------------------------------------------------------------------
 
     fun autoInstall(kind: String) {
-        when (kind) {
-            NodeHostPanel.KATABUMP -> confirmKataBumpRules { askPteroKey() }
-            NodeHostPanel.BOTHOSTING -> askBotHostingKey()
-            NodeHostPanel.RAILWAY -> askRailwayToken()
-            else -> askGithubToken(kind)
+        askCountry(kind) { region ->
+            when (kind) {
+                NodeHostPanel.KATABUMP -> confirmKataBumpRules { askPteroKey() }
+                NodeHostPanel.BOTHOSTING -> askBotHostingKey()
+                NodeHostPanel.RAILWAY -> askRailwayToken(region)
+                else -> askGithubToken(kind)
+            }
         }
     }
 
@@ -1327,7 +1416,7 @@ class NodeHostController(
                 step(t("6/6 تست پنل از همین گوشی (تا ۲.۵ دقیقه؛ بار اول پنل دانلود می‌شود)…", "6/6 Testing the panel from this phone (up to 2.5 min; the first start downloads the panel)…"))
                 val check = verify(kind, base, uuid, step, 150)
                 val now = System.currentTimeMillis()
-                val saved = SavedNodeHost("katabump-" + id, kind, server.name, base, uuid, id, now, now, pass)
+                val saved = SavedNodeHost("katabump-" + id, kind, HostRegions.withFlag(server.name, HostRegions.flag(kind, null)), base, uuid, id, now, now, pass)
                 store.save(saved)
                 Outcome(saved, check.links, check.ok, check.headline)
             }
@@ -1469,7 +1558,7 @@ class NodeHostController(
                 val now = System.currentTimeMillis()
                 val existing = store.list().firstOrNull { it.kind == kind && it.base == where }
                 val saved = existing?.copy(uuid = uuid, trojanPass = pass.ifBlank { existing.trojanPass })
-                    ?: SavedNodeHost(kind + "-" + Integer.toHexString(where.hashCode()), kind, NodeHostPanel.hostPort(where).first, where, uuid, "", now, now, pass)
+                    ?: SavedNodeHost(kind + "-" + Integer.toHexString(where.hashCode()), kind, HostRegions.withFlag(NodeHostPanel.hostPort(where).first, HostRegions.flag(kind, store.region(kind))), where, uuid, "", now, now, pass)
                 store.save(saved)
                 Outcome(saved, check.links, check.ok, check.headline)
             }
@@ -2146,6 +2235,7 @@ class NodeHostController(
         } else if (NodeHostPanel.isApiHost(item.kind)) {
             if (item.kind == NodeHostPanel.BOTHOSTING) box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(item) }, lp(6))
             box.addView(button(t("🔁 به‌روزرسانی (نصب دوباره با API)", "🔁 Update (reinstall through the API)")) { updateApiHost(item) }, lp(6))
+            if (item.kind == NodeHostPanel.RAILWAY) box.addView(button(t("📍 تغییر کشور سرور", "📍 Change the server country")) { changeRailwayRegion(item) }, lp(6))
         } else if (NodeHostPanel.isUploadOnlyHost(item.kind)) {
             // beta224 SmarterASP: the launcher fetches each new panel release itself on restart; an update of the
             // launcher is just a new zip uploaded over the old files (App_Data keeps users and settings).
