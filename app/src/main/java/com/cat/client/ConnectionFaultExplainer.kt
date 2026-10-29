@@ -11,6 +11,7 @@ internal object ConnectionFaultExplainer {
     enum class Cause {
         PortBusy,
         LocalProxyMissing,
+        EngineBusy,
         Config,
         Certificate,
         Reality,
@@ -40,6 +41,8 @@ internal object ConnectionFaultExplainer {
     // Order matters: the first matching rule wins, most specific first.
     private val RULES: List<Pair<Cause, List<String>>> = listOf(
         Cause.LocalProxyMissing to listOf("only a local proxy at 127.0.0.1"),
+        Cause.EngineBusy to listOf("engine is already running", "engine did not shut down in time",
+            "route preparation is already running", "session is already active", "carrier is already active"),
         Cause.PortBusy to listOf("address already in use", "eaddrinuse", "failed to listen", "bind: ", "port is busy"),
         Cause.NeedsRoot to listOf("requires root", "needs root", "root access", "su binary", "raw socket"),
         Cause.Permission to listOf("vpn permission", "not prepared", "vpnservice.prepare", "failed to establish",
@@ -84,6 +87,12 @@ internal object ConnectionFaultExplainer {
                 "This row has no server (local proxy only)",
                 "این ردیف به پروکسی یک برنامهٔ دیگر روی همین گوشی (127.0.0.1) اشاره می‌کند که اجرا نیست. Cat Warp را از کارت «⚡ Cat Warp» بسازید یا این سابسکریپشن را حذف کنید.",
                 "This row points at another app's proxy on this phone (127.0.0.1) that is not running. Build Cat Warp from the «⚡ Cat Warp» card or delete this subscription.",
+                text)
+            Cause.EngineBusy -> Fault(cause,
+                "هستهٔ Cat Warp هنوز اتصال قبلی را می‌بست",
+                "The Cat Warp engine was still closing the previous connection",
+                "چند ثانیه صبر کنید و دوباره «اتصال» را بزنید. اگر تکرار شد، یک بار قطع و وصل کنید.",
+                "Wait a few seconds and tap Connect again. If it repeats, disconnect once and reconnect.",
                 text)
             Cause.NeedsRoot -> Fault(cause,
                 "این روش به روت نیاز دارد",

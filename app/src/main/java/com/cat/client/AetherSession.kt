@@ -23,6 +23,9 @@ internal class AetherSession(
         var tunFd = -1
         return try {
             check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
+            val gen = AetherEngineSlot.newGeneration()
+            // beta215: a previous engine (reconnect, failover, a chain carrier) may still hold the core's only run slot.
+            if (!AetherEngineSlot.stopAndAwaitIdle({ NativeAetherBridge.stop() })) throw IOException(AetherEngineSlot.BUSY_MESSAGE)
             val forceMimH2 = config.resolvedNativeTransport() == "mim" && config.usesMasqueHttp2
             NativeAetherBridge.setSocketProtector(NativeSocketProtector { fd ->
                 if (forceMimH2) AetherOperations.enforceMasqueHttp2EnvNow(true)
@@ -34,10 +37,11 @@ internal class AetherSession(
             var effectiveConfig = config
             var effectiveJson = primaryJson
             val prepared = AetherOperations.withMasqueHttp2ForMim(config) {
-                NativeAetherBridge.prepare(primaryJson)
+                AetherEngineSlot.prepareWhenFree { NativeAetherBridge.prepare(primaryJson) }
             }.recoverCatching { firstError ->
                 // Automatic fallback 1: if a pinned endpoint or IPv6-only scan failed (e.g. SIM has no IPv6 route),
                 // retry with dual-stack automatic endpoint discovery.
+                AetherEngineSlot.ensureCurrent(gen)
                 val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
                 val autoDiscovery = autoDiscoveryCfg.toNativeJson()
                 AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
@@ -53,6 +57,7 @@ internal class AetherSession(
                         AetherMode.WireGuard -> AetherMode.MasqueHttp2
                         else -> AetherMode.WireGuard
                     }
+                    AetherEngineSlot.ensureCurrent(gen)
                     val altCfg = config.copy(mode = altMode, endpoint = null, ipScan = "both")
                     val altJson = altCfg.toNativeJson()
                     NativeAetherBridge.prepare(altJson).onSuccess {
@@ -61,12 +66,13 @@ internal class AetherSession(
                     }.getOrElse { throw firstError }
                 }.getOrThrow()
             }.getOrThrow()
+            AetherEngineSlot.ensureCurrent(gen)
             val (ipv4, ipv6) = AetherTunPolicy.validatedAddresses(prepared.ipv4, prepared.ipv6)
             tunFd = establishTun(ipv4, ipv6)
             check(tunFd >= 0) { "Could not establish Cat Warp TUN" }
             handedOff = true
             AetherOperations.withMasqueHttp2ForMim(effectiveConfig) {
-                NativeAetherBridge.run(effectiveJson, prepared.peer, tunFd, NativeEngineListener(onReady))
+                AetherEngineSlot.track { NativeAetherBridge.run(effectiveJson, prepared.peer, tunFd, NativeEngineListener(onReady)) }
             }
         } catch (error: Throwable) {
             NativeResult(false, error.message ?: "Cat Warp session failed")

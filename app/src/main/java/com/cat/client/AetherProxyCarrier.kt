@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.Closeable
 import java.io.File
@@ -67,6 +68,14 @@ internal class AetherProxyCarrier(
                 echDomain = o.echDomain,
             )
         }
+        val gen = AetherEngineSlot.newGeneration()
+        // beta215: the WARP → Psiphon chain closes one carrier and starts the next at once; wait until the old
+        // engine's native run has returned, otherwise prepare answers «engine is already running».
+        val idle = withContext(Dispatchers.IO) { AetherEngineSlot.stopAndAwaitIdle({ NativeAetherBridge.stop() }) }
+        if (!idle) {
+            active.set(false)
+            throw IOException(AetherEngineSlot.BUSY_MESSAGE)
+        }
         val primaryJson = config.toNativeJson()
         val validation = NativeAetherBridge.validate(primaryJson)
         check(validation.ok) { validation.error ?: "Invalid Cat Warp proxy configuration" }
@@ -78,8 +87,9 @@ internal class AetherProxyCarrier(
         var effectiveConfig = config
         var effectiveJson = primaryJson
         val prepared = AetherOperations.withMasqueHttp2ForMim(config) {
-            NativeAetherBridge.prepare(primaryJson)
+            AetherEngineSlot.prepareWhenFree { NativeAetherBridge.prepare(primaryJson) }
         }.recoverCatching { firstError ->
+            AetherEngineSlot.ensureCurrent(gen)
             val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
             val autoDiscovery = autoDiscoveryCfg.toNativeJson()
             AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
@@ -94,6 +104,7 @@ internal class AetherProxyCarrier(
                     AetherMode.WireGuard -> AetherMode.MasqueHttp2
                     else -> AetherMode.WireGuard
                 }
+                AetherEngineSlot.ensureCurrent(gen)
                 val altCfg = config.copy(mode = fallbackMode, endpoint = null, ipScan = "both")
                 val altJson = altCfg.toNativeJson()
                 NativeAetherBridge.prepare(altJson).onSuccess {
@@ -102,13 +113,19 @@ internal class AetherProxyCarrier(
                 }.getOrElse { throw firstError }
             }.getOrThrow()
         }.getOrThrow()
+        if (!AetherEngineSlot.isCurrent(gen)) {
+            active.set(false)
+            throw IOException("Cat Warp start superseded by a newer connection")
+        }
         val runCfg = effectiveConfig
         val runJson = effectiveJson
         job = scope.launch(Dispatchers.IO) {
             val result = AetherOperations.withMasqueHttp2ForMim(runCfg) {
-                NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
-                    ready.complete(Unit)
-                })
+                AetherEngineSlot.track {
+                    NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
+                        ready.complete(Unit)
+                    })
+                }
             }
             if (!result.ok && !ready.isCompleted) {
                 ready.completeExceptionally(IOException(result.error ?: "Cat Warp proxy stopped"))
