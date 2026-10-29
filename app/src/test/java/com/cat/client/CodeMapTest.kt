@@ -43,4 +43,20 @@ class CodeMapTest {
             assertTrue("${f.name} has $n lines — split it by feature (see docs/CODEMAP.md)", n <= 4_500)
         }
     }
+
+    /** beta222: the VPN service is split per engine/feature; the core must not grow back and parts hold only extensions. */
+    @Test
+    fun vpnServiceStaysSplitPerEngine() {
+        val src = listOf(File("app/src/main/java/com/cat/client"), File("src/main/java/com/cat/client")).first { it.isDirectory }
+        val core = File(src, "CatClientVpnService.kt").readLines().size
+        assertTrue("CatClientVpnService.kt has $core lines — put engine code in a CatClientVpnService<Area>.kt file", core <= 4_600)
+        val parts = src.listFiles { f -> f.name.startsWith("CatClientVpnService") && f.name != "CatClientVpnService.kt" && f.name.endsWith(".kt") }.orEmpty()
+        assertTrue(parts.size >= 8)
+        for (f in parts) {
+            val text = f.readText()
+            assertTrue(f.name, !Regex("(?m)^(class|object|internal class|internal object) ").containsMatchIn(text))
+            assertTrue(f.name, !Regex("(?m)^(private |internal )?va[lr] ").containsMatchIn(text))
+            assertTrue(f.name, Regex("(?m)^internal (suspend )?fun CatClientVpnService\\.").containsMatchIn(text))
+        }
+    }
 }

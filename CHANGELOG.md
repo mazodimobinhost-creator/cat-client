@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta222] — 2026-10-29 (Panel 6.78.0)
+
+### Changed — code organisation (VPN service per engine)
+- `CatClientVpnService.kt` shrank from 6 468 to ≈4 270 lines: engine/feature code moved into `CatClientVpnService<Area>.kt` — `ConnectionTests` (list ping/speed), `QuickSpeed` (fastest reconnect), `DpiBypass` (fragmenting proxy), `Sstp`, `CatWarp` (Aether + Psiphon/Tor chains), `NetworkChange`, `RealInternet`, `Notifications`. Mechanical extension-function move (`scripts/dev/split-vpn-service.py`); behaviour unchanged. Code that creates the VPN interface (`VpnService.Builder`) stays in the core file.
+- Source-contract tests read the service through `VpnServiceSources` (JVM) / `vpn-service-source.mjs` (panel tests), like MainActivity; both views also show an extension's receiver label as the class label, so moving code between files cannot break a contract.
+- `docs/CODEMAP.md` lists the new files and their guards; `CodeMapTest` keeps the service core ≤ 4 600 lines and the parts extension-only.
+
 ## [1.10.0-beta221] — 2026-10-29 (Panel 6.78.0)
 
 ### Fixed — app (Irancell «F&F» recipe)
