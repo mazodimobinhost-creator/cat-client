@@ -82,7 +82,9 @@ class Beta225FreeHostsTest {
         assertTrue(adapter.contains("if (process.env.CAT_HOST_DIRECT === '1') return req.headers['cf-ray'] && isCloudflareIp(req.socket.remoteAddress) ? 'cf' : 'plain';"))
         assertTrue(adapter.contains("if (req.headers['x-cat-front'] && proto === 'https') return 'tls';"))
         val panel = read("app/src/main/assets/panels/catclient.worker.js")
-        assertTrue(panel.contains("const cfFront = isVercelPlatform(env) || isNodePlatform(env) ? vercelCfFront(env, settings) : '';"))
+        // CI swaps the worker for its minified build before the JVM tests, so only string literals are checked here
+        // (the cfFront code path itself is covered by scripts/panels/node-host.test.mjs on both builds).
+        assertTrue(panel.contains("جلوی Cloudflare فعال است"))
         assertTrue(panel.contains("data-plat=\"node\""))
     }
 }
