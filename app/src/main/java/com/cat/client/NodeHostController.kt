@@ -565,23 +565,23 @@ class NodeHostController(
 
     private fun smarterAspSite(): String = HostRegions.region(NodeHostPanel.SMARTERASP, store.region(NodeHostPanel.SMARTERASP))?.site.orEmpty()
 
-    /** beta228: SmarterASP's «Free Trial» page shows two cards — Windows (W60-US) and Linux (W60LX-US); the code's end is the location. */
-    private fun smarterAspCountryLine(): String = if (smarterAspSite() == "-US") t(
-        "📍 کشور: آخر کد کارت (مثلاً W60LX-US) جای سرور است؛ «-US» یعنی آمریکا. الان کارت‌های آزمایشی فقط -US هستند.",
-        "📍 Country: the end of the card's code (e.g. W60LX-US) is the server location; «-US» means USA. Right now the trial cards are -US only.",
+    /** beta229: after a trial card, SmarterASP asks for the hosting account; its «Server Location» list is the country. */
+    private fun smarterAspCountryLine(): String = if (smarterAspSite().startsWith("United States")) t(
+        "📍 کشور: در همان فرم، فهرست «Server Location» را روی «United States (Las Vegas)» بگذارید (پیش‌فرض است).",
+        "📍 Country: in that form set the «Server Location» list to «United States (Las Vegas)» (the default).",
     ) else t(
-        "📍 کشور: کارتی را فعال کنید که کدش اروپا را نشان می‌دهد. اگر همهٔ کارت‌ها به «-US» ختم می‌شوند، آزمایشی فقط آمریکا است.",
-        "📍 Country: activate a card whose code shows Europe. If every card ends with «-US», the trial is USA only.",
+        "📍 کشور: در همان فرم فهرست «Server Location» را باز کنید و اگر اروپا هست آن را بزنید؛ اگر نبود فقط آمریکا (Las Vegas) هست.",
+        "📍 Country: in that form open the «Server Location» list and pick Europe if it is there; if not, only USA (Las Vegas) is offered.",
     )
 
     private fun smarterAspTrialLine(): String = t(
-        "در صفحهٔ Free Trial یکی را فعال کنید (Activate): «60-Day Free Linux Trial» (W60LX-US — پیشنهادی: Node واقعی با Start command، متغیرها و لاگ، ۸۰۰ مگ حافظه) یا «60-Day Free Trial» (W60-US — ویندوز/IIS). فایل‌های برنامه برای هر دو یکی است.",
-        "On the Free Trial page activate one card: «60-Day Free Linux Trial» (W60LX-US — recommended: a real Node app with a start command, variables and logs, 800 MB memory) or «60-Day Free Trial» (W60-US — Windows/IIS). The app's files are the same for both.",
+        "در صفحهٔ Free Trial یکی را فعال کنید (Activate): «60-Day Free Linux Trial» (W60LX-US — پیشنهادی: Node واقعی با Start command، متغیرها و لاگ، ۸۰۰ مگ حافظه) یا «60-Day Free Trial» (W60-US — ویندوز/IIS). فایل‌های برنامه برای هر دو یکی است. بعد فرم ساخت هاست: Website / Folder Name = site1، یک Password (۸ تا ۲۰ نویسه، با حرف و عدد و یکی از []()!@$^,.~|=-_{}#)، تیک ← Create.",
+        "On the Free Trial page activate one card: «60-Day Free Linux Trial» (W60LX-US — recommended: a real Node app with a start command, variables and logs, 800 MB memory) or «60-Day Free Trial» (W60-US — Windows/IIS). The app's files are the same for both. Then the hosting-account form: Website / Folder Name = site1, a Password (8–20 characters with a letter, a number and one of []()!@$^,.~|=-_{}#), tick → Create.",
     )
 
     private fun smarterAspGuide(): String = t(
         "SmarterASP.NET دو آزمایشی رایگان ۶۰ روزه دارد (لینوکس و ویندوز)، بدون کارت بانکی، با Node.js و یک دامنهٔ موقت. پنل Cat روی آن بالا می‌آید و کانفیگ VLESS/Trojan روی WebSocket همان دامنه می‌دهد.\n\n" +
-            "⚠️ پیش از استفاده بدانید: هاست اشتراکی است؛ ممکن است اتصال‌های بیرونی یا WebSocket را محدود کند و دامنهٔ موقتش روی اینترنت شما باز نباشد. برنامه بعد از نصب واقعاً تست می‌کند (پنل، اشتراک، WebSocket 101) و نتیجهٔ واقعی را می‌گوید. بعد از ۶۰ روز یا باید پلن بخرید یا سایت پاک می‌شود. قوانین استفادهٔ SmarterASP را خودتان بخوانید؛ مسئولیت با شماست.\n\n" +
+            "⚠️ پیش از استفاده بدانید: هاست اشتراکی است؛ ممکن است اتصال‌های بیرونی یا WebSocket را محدود کند و دامنهٔ موقتش روی اینترنت شما باز نباشد. برنامه بعد از نصب واقعاً تست می‌کند (پنل، اشتراک، WebSocket 101) و نتیجهٔ واقعی را می‌گوید. بعد از ۶۰ روز یا باید پلن بخرید یا سایت پاک می‌شود. فرم ساخت هاست می‌گوید «ربات‌ها و سایت‌های فیشینگ بدون اخطار پاک می‌شوند»؛ قوانین استفادهٔ SmarterASP را خودتان بخوانید، ممکن است پنل پاک شود و مسئولیت با شماست.\n\n" +
             "🟢 نصب (دستی، ۵ دقیقه):\n" +
             "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است) ← " + smarterAspTrialLine() + "\n   " + smarterAspCountryLine() + "\n" +
             "2) «📦 ذخیرهٔ فایل‌ها» ← یک zip در پوشهٔ Download (همهٔ فایل‌ها آماده: پنل، web.config، node_modules، App_Data).\n" +
@@ -591,7 +591,7 @@ class NodeHostController(
             "🔧 اگر لاگ App_Data/cat-node….log گفت Node قدیمی است: طبق راهنمای خود SmarterASP فایل node.exe نسخهٔ 22 (win-x64) را در App_Data بگذارید و در web.config به‌جای processPath=\"node\" بنویسید processPath=\".\\App_Data\\node.exe\" (دکمهٔ «📖 راهنمای نسخهٔ Node»).\n" +
             "🔒 https: اگر آدرس https دارد، کانفیگ‌ها TLS روی 443 می‌شوند؛ اگر فقط http، کانفیگ‌ها بدون TLS روی 80. با دامنهٔ خودتان پشت Cloudflare کانفیگ‌های کامل Cloudflare هم می‌گیرید.",
         "SmarterASP.NET has two 60-day free trials (Linux and Windows), no card, Node.js and a temporary domain. The Cat panel runs on it and gives VLESS/Trojan configs over WebSocket on that domain.\n\n" +
-            "⚠️ Know before you start: it is shared hosting; it may limit outgoing connections or WebSocket, and its temporary domain may not open on your line. After installing, the app really tests it (panel, subscription, WebSocket 101) and tells you the real result. After 60 days you either buy a plan or the site is removed. Read SmarterASP's usage rules yourself; it is your responsibility.\n\n" +
+            "⚠️ Know before you start: it is shared hosting; it may limit outgoing connections or WebSocket, and its temporary domain may not open on your line. After installing, the app really tests it (panel, subscription, WebSocket 101) and tells you the real result. After 60 days you either buy a plan or the site is removed. The hosting form says «all bots and phishing sites will be deleted without notice»; read SmarterASP's usage rules yourself — the panel may be removed, and it is your responsibility.\n\n" +
             "🟢 Install (by hand, 5 minutes):\n" +
             "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed) → " + smarterAspTrialLine() + "\n   " + smarterAspCountryLine() + "\n" +
             "2) «📦 Save the files» → a zip in the Download folder (everything ready: panel, web.config, node_modules, App_Data).\n" +
@@ -631,12 +631,12 @@ class NodeHostController(
             t("آپلود و روشن کردن Node.js", "Upload and enable Node.js"),
             t(
                 "1) «🌐 کنترل‌پنل» ← سایت (site1) ← File Manager.\n" +
-                    "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید). index.js و package.json باید مستقیم در همان پوشه باشند.\n" +
+                    "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید: آدرس و نام کاربری FTP در Overview ← Server Details هست، مثل LINUX….SITE4NOW.NET و نام‌کاربری-001؛ رمز = رمز کنترل‌پنل). index.js و package.json باید مستقیم در همان پوشه باشند.\n" +
                     "3) 🐧 آزمایشی لینوکس: بخش Node.js ← برنامهٔ تازه یا ویرایش: پوشه = همان پوشه، Start command = node index.js. متغیر PORT را خودتان نسازید (هاست می‌دهد)؛ فقط اگر فرم یک پورت مشخص نشان داد، متغیر PORT را همان عدد بگذارید ← Start. لاگ برنامه باید «Cat Panel … listening» بگوید.\n" +
                     "   🪟 آزمایشی ویندوز: Hosting Manager ← Node.js ← برای همین سایت روشن کنید (web.config همراه zip است).\n" +
                     "4) آدرس موقت سایت را از صفحهٔ سایت کپی کنید.",
                 "1) «🌐 Control panel» → the site (site1) → File Manager.\n" +
-                    "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP). index.js and package.json must be directly in that folder.\n" +
+                    "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP: the FTP address and login are under Overview → Server Details, like LINUX….SITE4NOW.NET and yourname-001; password = the control-panel password). index.js and package.json must be directly in that folder.\n" +
                     "3) 🐧 Linux trial: the Node.js section → a new app or edit: folder = that folder, start command = node index.js. Do not create PORT yourself (the host gives it); only if the form shows a fixed port, set the PORT variable to that number → Start. The app log should say «Cat Panel … listening».\n" +
                     "   🪟 Windows trial: Hosting Manager → Node.js → enable it for this site (web.config comes in the zip).\n" +
                     "4) Copy the site's temporary address from the site page.",

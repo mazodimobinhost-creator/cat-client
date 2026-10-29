@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta229] — 2026-10-30 (Panel 6.79.2)
+
+### Changed — SmarterASP guide from the real control panel (owner's screenshots)
+- The country is the **«Server Location»** list of the «Create Linux Hosting Account» form (default «United States (Las Vegas)»), not the card code; the guide and «📍 Server country» say so.
+- The guide walks the form: Website / Folder Name `site1`, the password rule (8–20 characters, letter + number + one of `[]()!@$^,.~|=-_{}#`), the tick, Create.
+- FTP fallback names where the details are (Overview → Server Details: `LINUX….SITE4NOW.NET`, `<user>-001`, control-panel password).
+- The warning quotes the form's own rule: «all bots and phishing sites will be deleted without notice».
+
 ## [1.10.0-beta228] — 2026-10-30 (Panel 6.79.2)
 
 ### Added — SmarterASP Linux trial

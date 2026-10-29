@@ -6,7 +6,7 @@ package com.cat.client
  * now starts with «📍 Server country». What the app can really do differs per host (Oct 2026 sources):
  *  • Railway: 4 regions, the app sets it through the API (docs.railway.com/deployments/regions);
  *  • Shiprr: eu / us / asia / oc, picked by YOU in the «New app» form — a preference, may fall back (shiprr.app/docs/limits);
- *  • SmarterASP: the trial card's code says the location (W60-US / W60LX-US = USA); Europe only if such a card shows;
+ *  • SmarterASP: «Server Location» in the hosting-account form (default United States (Las Vegas)); Europe if listed;
  *  • KataBump: France only (OVH Gravelines, legal notice); Lucity: EU only;
  *  • Bot-Hosting: the host decides («You cannot choose where your deployment runs», legal §2) — the app shows the node.
  * Pure Kotlin (no Android) so the JVM tests can pin it.
@@ -32,11 +32,11 @@ internal object HostRegions {
             Region("asia", "🌏 آسیا", "🌏 Asia", "asia"),
             Region("oc", "🇦🇺 استرالیا / اقیانوسیه", "🇦🇺 Australia / Oceania", "oc"),
         )
-        // beta228: the trial cards in the control panel are «W60-US» (Windows) and «W60LX-US» (Linux) — the code
-        // ends with the location; Europe only when a card with a Europe code is offered.
+        // beta229: the «Create Linux Hosting Account» form (after activating a trial card) has a «Server Location»
+        // list; its default is «United States (Las Vegas)». Europe only if that list offers it.
         "smarterasp" -> listOf(
-            Region("usa", "🇺🇸 آمریکا — کارت‌های آزمایشی فعلی (W60-US و W60LX-US)", "🇺🇸 USA — the current trial cards (W60-US and W60LX-US)", "-US"),
-            Region("europe", "🇪🇺 اروپا (آمستردام) — فقط اگر کارت آزمایشی با کد اروپا دیدید", "🇪🇺 Europe (Amsterdam) — only if you see a trial card with a Europe code", "Europe"),
+            Region("usa", "🇺🇸 آمریکا (لاس‌وگاس) — پیش‌فرض فرم", "🇺🇸 USA (Las Vegas) — the form's default", "United States (Las Vegas)"),
+            Region("europe", "🇪🇺 اروپا — اگر در فهرست Server Location بود", "🇪🇺 Europe — if the Server Location list has it", "Europe"),
         )
         "katabump" -> listOf(Region("fr", "🇫🇷 فرانسه (OVH، Gravelines)", "🇫🇷 France (OVH, Gravelines)"))
         "lucity" -> listOf(Region("eu", "🇪🇺 اتحادیهٔ اروپا", "🇪🇺 European Union"))
