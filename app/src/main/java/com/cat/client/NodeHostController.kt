@@ -171,6 +171,8 @@ class NodeHostController(
         if (kind == NodeHostPanel.SMARTERASP) {
             // beta224: IIS needs web.config, a writable App_Data and node_modules/ws (no npm install there).
             out["web.config"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/web.config")
+            // beta230: the Linux trial's «Node.js App» starts server.js by default — it just starts index.js.
+            out["server.js"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/server.js")
             out["App_Data/README.txt"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/App_Data-README.txt")
             for (rel in assetTree(NodeHostPanel.SMARTERASP_WS_ASSETS)) {
                 out[NodeHostPanel.smarterAspWsEntry(rel)] = asset(NodeHostPanel.SMARTERASP_WS_ASSETS + "/" + rel)
@@ -586,7 +588,7 @@ class NodeHostController(
             "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است) ← " + smarterAspTrialLine() + "\n   " + smarterAspCountryLine() + "\n" +
             "2) «📦 ذخیرهٔ فایل‌ها» ← یک zip در پوشهٔ Download (همهٔ فایل‌ها آماده: پنل، web.config، node_modules، App_Data).\n" +
             "3) کنترل‌پنل ← سایت ← File Manager ← zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا با FTP). index.js کنار package.json و web.config باشد.\n" +
-            "4) 🐧 لینوکس: بخش Node.js ← برنامه با Start command = node index.js (متغیر PORT را خودتان نسازید، مگر فرم یک پورت مشخص بدهد؛ آن‌وقت PORT = همان عدد) ← Start. 🪟 ویندوز: Hosting Manager ← Node.js ← برای سایت روشن.\n" +
+            "4) 🐧 لینوکس: site1 ← «NodeJs» ← Startup file = server.js، Health path = /health (متغیر PORT را خودتان نسازید، مگر فرم یک پورت مشخص بدهد) ← Start. 🪟 ویندوز: Hosting Manager ← Node.js ← برای سایت روشن.\n" +
             "5) آدرس موقت سایت را کپی کنید ← «✍️ پنلم را اضافه کن». بار اول تا ۲ دقیقه طول می‌کشد چون پنل از GitHub دانلود و با SHA-256 چک می‌شود.\n\n" +
             "🔧 اگر لاگ App_Data/cat-node….log گفت Node قدیمی است: طبق راهنمای خود SmarterASP فایل node.exe نسخهٔ 22 (win-x64) را در App_Data بگذارید و در web.config به‌جای processPath=\"node\" بنویسید processPath=\".\\App_Data\\node.exe\" (دکمهٔ «📖 راهنمای نسخهٔ Node»).\n" +
             "🔒 https: اگر آدرس https دارد، کانفیگ‌ها TLS روی 443 می‌شوند؛ اگر فقط http، کانفیگ‌ها بدون TLS روی 80. با دامنهٔ خودتان پشت Cloudflare کانفیگ‌های کامل Cloudflare هم می‌گیرید.",
@@ -596,7 +598,7 @@ class NodeHostController(
             "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed) → " + smarterAspTrialLine() + "\n   " + smarterAspCountryLine() + "\n" +
             "2) «📦 Save the files» → a zip in the Download folder (everything ready: panel, web.config, node_modules, App_Data).\n" +
             "3) Control panel → the site → File Manager → upload the zip to the site's root and Extract it (or use FTP). index.js sits next to package.json and web.config.\n" +
-            "4) 🐧 Linux: the Node.js section → an app with start command = node index.js (do not create PORT yourself unless the form gives a fixed port; then PORT = that number) → Start. 🪟 Windows: Hosting Manager → Node.js → enable it for the site.\n" +
+            "4) 🐧 Linux: site1 → «NodeJs» → Startup file = server.js, Health path = /health (do not create PORT yourself unless the form gives a fixed port) → Start. 🪟 Windows: Hosting Manager → Node.js → enable it for the site.\n" +
             "5) Copy the site's temporary address → «✍️ Add my panel». The first start takes up to 2 minutes while the panel downloads from GitHub and is checked with SHA-256.\n\n" +
             "🔧 If the log App_Data/cat-node….log says Node is too old: as SmarterASP's own guide says, put node.exe version 22 (win-x64) in App_Data and in web.config replace processPath=\"node\" with processPath=\".\\App_Data\\node.exe\" («📖 Node version guide» button).\n" +
             "🔒 https: if the address has https, configs are TLS on 443; with http only, configs are without TLS on 80. With your own domain behind Cloudflare you also get the full Cloudflare set.",
@@ -632,12 +634,12 @@ class NodeHostController(
             t(
                 "1) «🌐 کنترل‌پنل» ← سایت (site1) ← File Manager.\n" +
                     "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید: آدرس و نام کاربری FTP در Overview ← Server Details هست، مثل LINUX….SITE4NOW.NET و نام‌کاربری-001؛ رمز = رمز کنترل‌پنل). index.js و package.json باید مستقیم در همان پوشه باشند.\n" +
-                    "3) 🐧 آزمایشی لینوکس: بخش Node.js ← برنامهٔ تازه یا ویرایش: پوشه = همان پوشه، Start command = node index.js. متغیر PORT را خودتان نسازید (هاست می‌دهد)؛ فقط اگر فرم یک پورت مشخص نشان داد، متغیر PORT را همان عدد بگذارید ← Start. لاگ برنامه باید «Cat Panel … listening» بگوید.\n" +
+                    "3) 🐧 آزمایشی لینوکس: site1 ← «NodeJs» ← Configuration: Node.js 24 LTS، Framework = Other، Application root = . ، Startup file = server.js (همراه zip است و index.js را اجرا می‌کند؛ index.js هم درست است)، Health path = /health ← ذخیره ← Start. متغیر PORT را خودتان نسازید؛ فقط اگر فرم یک پورت مشخص نشان داد، PORT = همان عدد. State باید Running شود.\n" +
                     "   🪟 آزمایشی ویندوز: Hosting Manager ← Node.js ← برای همین سایت روشن کنید (web.config همراه zip است).\n" +
                     "4) آدرس موقت سایت را از صفحهٔ سایت کپی کنید.",
                 "1) «🌐 Control panel» → the site (site1) → File Manager.\n" +
                     "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP: the FTP address and login are under Overview → Server Details, like LINUX….SITE4NOW.NET and yourname-001; password = the control-panel password). index.js and package.json must be directly in that folder.\n" +
-                    "3) 🐧 Linux trial: the Node.js section → a new app or edit: folder = that folder, start command = node index.js. Do not create PORT yourself (the host gives it); only if the form shows a fixed port, set the PORT variable to that number → Start. The app log should say «Cat Panel … listening».\n" +
+                    "3) 🐧 Linux trial: site1 → «NodeJs» → Configuration: Node.js 24 LTS, Framework = Other, Application root = . , Startup file = server.js (it comes in the zip and starts index.js; index.js works too), Health path = /health → save → Start. Do not create PORT yourself; only if the form shows a fixed port, PORT = that number. State must become Running.\n" +
                     "   🪟 Windows trial: Hosting Manager → Node.js → enable it for this site (web.config comes in the zip).\n" +
                     "4) Copy the site's temporary address from the site page.",
             ),

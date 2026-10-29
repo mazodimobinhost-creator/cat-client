@@ -37,3 +37,4 @@
 - 2026-10-30 beta227: HostRegions + askCountry before every host install, Railway change-region button, flags in saved names.
 - 2026-10-30 beta228: SmarterASP Linux trial guide + smarterasp-linux.test.mjs, USA default, cat-config leak check, wsClientLayer close-frame data fix (Panel 6.79.2).
 - 2026-10-30 beta229: SmarterASP guide from real panel screenshots (Server Location list, form fields, FTP, bots rule).
+- 2026-10-30 beta230: SmarterASP Linux server.js entry + /health guide from NodeJs page screenshot.

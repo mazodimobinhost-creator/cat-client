@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta230] — 2026-10-30 (Panel 6.79.2)
+
+### Changed — SmarterASP Linux «Node.js App» page (owner's screenshot)
+- The runtime's defaults are Startup file `server.js` and Health path `/`. The SmarterASP zip now carries a 3-line `server.js` that starts the same launcher, so the default works; the guide names the real fields (site1 → NodeJs → Configuration: Node.js 24 LTS, Framework Other, Application root `.`, Startup file `server.js`, Health path `/health`) and says State must become Running.
+- `/health` answers 200 (the panel's root redirects, which a health check may count as down).
+- `smarterasp-linux.test.mjs` now starts through `server.js` and checks `/health`.
+
 ## [1.10.0-beta229] — 2026-10-30 (Panel 6.79.2)
 
 ### Changed — SmarterASP guide from the real control panel (owner's screenshots)

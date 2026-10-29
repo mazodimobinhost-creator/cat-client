@@ -5,6 +5,7 @@
  *   • it starts on 0.0.0.0:$PORT without CAT_BEHIND_IIS, cat-config.json says CAT_HOST=smarterasp;
  *   • /api/version, /sub/<uuid> (configs) and a real WebSocket 101 on the first config's path;
  *   • GET /cat-config.json never returns the UUID (the launcher itself does not serve its folder).
+ * beta230: started through server.js (the runtime's default Startup file); /health = the Health path.
  * Usage: node scripts/panels/smarterasp-linux.test.mjs
  */
 import http from 'node:http';
@@ -44,6 +45,7 @@ const assets = path.join(root, 'app/src/main/assets/node-panel');
 const app = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-sa-linux-'));
 for (const f of ['index.js', 'package.json', 'README.md']) fs.copyFileSync(path.join(assets, f), path.join(app, f));
 fs.copyFileSync(path.join(assets, 'smarterasp/web.config'), path.join(app, 'web.config'));
+fs.copyFileSync(path.join(assets, 'smarterasp/server.js'), path.join(app, 'server.js'));
 fs.mkdirSync(path.join(app, 'App_Data'));
 fs.copyFileSync(path.join(assets, 'smarterasp/App_Data-README.txt'), path.join(app, 'App_Data/README.txt'));
 copyTree(path.join(assets, 'smarterasp/ws'), path.join(app, 'node_modules/ws'));
@@ -52,7 +54,7 @@ fs.writeFileSync(path.join(app, 'cat-config.json'), JSON.stringify({ UUID, TROJA
 
 const PORT = await freePort();
 const child = await new Promise((resolve, reject) => {
-  const c = spawn(process.execPath, ['index.js'], { cwd: app, env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(PORT), NODE_PATH: '', CAT_PANEL_SOURCE_DIR: src }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const c = spawn(process.execPath, ['server.js'], { cwd: app, env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(PORT), NODE_PATH: '', CAT_PANEL_SOURCE_DIR: src }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   const t = setTimeout(() => { c.kill('SIGKILL'); reject(new Error('launcher did not start: ' + out)); }, 30000);
   const on = (d) => { out += d; if (/listening on /.test(out)) { clearTimeout(t); resolve({ c, out: () => out }); } };
@@ -84,6 +86,8 @@ try {
     s.on('error', () => resolve(0)); setTimeout(() => { s.destroy(); resolve(-1); }, 8000);
   });
   check('WebSocket on the config path → 101 (vendored ws, no npm install)', status === 101, status);
+  const h = await get('/health');
+  check('started through server.js (the Linux runtime default) and /health answers 200 for its Health path', h.status === 200, h.status + ' ' + h.body.slice(0, 80));
   const leak = await get('/cat-config.json');
   check('GET /cat-config.json never returns the UUID', !leak.body.includes(UUID), leak.status + ' ' + leak.body.slice(0, 120));
 } finally {
