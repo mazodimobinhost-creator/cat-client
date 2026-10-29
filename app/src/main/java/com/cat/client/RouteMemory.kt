@@ -74,10 +74,10 @@ internal object RouteMemoryPolicy {
         bad: Set<String>,
         delayMs: Map<String, Long> = emptyMap(),
     ): String? {
-        val open = candidates.distinct().filter { it.isNotBlank() && it != current && it !in tried }
-        if (open.isEmpty()) return null
-        val notBad = open.filter { it !in bad }
-        val pool = notBad.ifEmpty { open }
+        val untried = candidates.distinct().filter { it.isNotBlank() && it != current && it !in tried }
+        if (untried.isEmpty()) return null
+        val notBad = untried.filter { it !in bad }
+        val pool = notBad.ifEmpty { untried }
         val order = candidates.withIndex().associate { it.value to it.index }
         return pool.sortedWith(
             compareBy<String> { fp -> good.indexOf(fp).takeIf { it >= 0 } ?: Int.MAX_VALUE }

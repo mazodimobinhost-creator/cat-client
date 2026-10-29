@@ -119,7 +119,7 @@ internal object RealInternetCheck {
     fun classify(probe: Probe?, download: Download?): RealInternetResult {
         val probeOk = probe?.ok == true
         val downloaded = download != null && download.bytes >= MIN_DOWNLOAD_BYTES && download.elapsedMs > 0
-        val kbps = if (downloaded) kbps(download!!.bytes, download.elapsedMs) else -1
+        val kbps = if (downloaded) kbps(download.bytes, download.elapsedMs) else -1
         val latency = probe?.takeIf { it.ok }?.latencyMs ?: -1L
         return when {
             downloaded && kbps < SLOW_KBPS -> RealInternetResult(RealInternetStatus.Slow, latency, kbps, "download ${kbps}kbps")

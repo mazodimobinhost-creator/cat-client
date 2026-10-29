@@ -413,6 +413,9 @@ class MainActivity : Activity() {
     internal lateinit var freeConfigsStatus: TextView
     internal lateinit var freeConfigsProgress: ProgressBar
     internal lateinit var homeUsageCard: LinearLayout
+    /** beta220 real internet test card (MainActivityRealInternet.kt). */
+    internal var realInternetViews: RealInternetCardViews? = null
+    internal var lastRealInternetResult: RealInternetResult? = null
     private lateinit var homeUsageBar: UsageBarView
     private lateinit var homeUsageTitle: TextView
     private lateinit var homeUsageValue: TextView
@@ -475,6 +478,7 @@ class MainActivity : Activity() {
                 Actions.CONNECTION_DELAY_TEST_CHANGED -> connectionDelayTestListener?.invoke(intent)
                 Actions.CONNECTION_SPEED_TEST_CHANGED -> connectionDelayTestListener?.invoke(intent)
                 Actions.AUTOMATIC_CONNECTION_PROGRESS -> handleAutomaticConnectionProgress(intent)
+                Actions.REAL_INTERNET_CHECK -> handleRealInternetBroadcast(intent)
             }
         }
     }
@@ -2194,6 +2198,7 @@ class MainActivity : Activity() {
             addAction(Actions.CONNECTION_DELAY_TEST_CHANGED)
             addAction(Actions.CONNECTION_SPEED_TEST_CHANGED)
             addAction(Actions.AUTOMATIC_CONNECTION_PROGRESS)
+            addAction(Actions.REAL_INTERNET_CHECK)
         }
         // Below API 33 a bare registerReceiver is implicitly exported, which would let any other
         // app broadcast STATE_CHANGED and paint a false "connected" state over the UI.
@@ -2222,6 +2227,8 @@ class MainActivity : Activity() {
             VpnRuntimeStateStore.readAlwaysOn(this),
             VpnRuntimeStateStore.readLockdown(this),
         )
+        // beta220: the last real internet test of this connection (measured by the service while we were away)
+        renderRealInternetCard(VpnRuntimeStateStore.readRealInternetResult(this))
         // Fragmenting is on → keep the recommendation fresh (one request per foreground).
         refreshPanelTuneIfNeeded()
         // The chain decides which countries the location picker may offer.
@@ -11571,7 +11578,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun isPersianUi(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    internal fun isPersianUi(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
 
     /** ZedSecure-style fault card: a failed connect keeps its reason on screen instead of looking
      * like a normal disconnect, with a plain-language "what to do" hint and the raw detail. */
@@ -11604,6 +11611,7 @@ class MainActivity : Activity() {
 
     internal fun renderState(state: VpnState) {
         val presentation = DashboardStatePresenter.forState(state)
+        if (state == VpnState.Started) renderRealInternetCard(lastRealInternetResult) else realInternetViews?.card?.visibility = View.GONE
         if (state == VpnState.Started && lastHapticState != null && lastHapticState != VpnState.Started && connectHapticEnabled()) connectHaptic()
         lastHapticState = state
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()

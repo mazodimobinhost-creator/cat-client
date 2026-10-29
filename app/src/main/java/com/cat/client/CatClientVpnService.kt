@@ -605,6 +605,8 @@ class CatClientVpnService : VpnService() {
         subscriptionRefreshJob?.cancel()
         stopNotificationTrafficUpdates()
         cancelPostConnectHealthWatchdog()
+        realCheckJob?.cancel()
+        realCheckJob = null
         aetherSession?.close()
         aetherSession = null
         aetherPsiphonChain?.close()
@@ -5888,7 +5890,7 @@ class CatClientVpnService : VpnService() {
         realCheckJob?.cancel()
         realCheckFingerprint = fingerprint.ifEmpty { "-" }
         val subscriptionId = activeSubscriptionId
-        val label = activeProfile?.let(ConnectionLabelPolicy::displayName).orEmpty()
+        val label = activeProfile?.let { ConnectionLabelPolicy.displayName(it) }.orEmpty()
         realCheckLastAtElapsedMs = SystemClock.elapsedRealtime()
         val job = scope.launch(Dispatchers.IO) {
             fun stamp(r: RealInternetResult) = r.copy(
@@ -6001,7 +6003,13 @@ class CatClientVpnService : VpnService() {
         val current = activeConnectionFingerprint
         val subscriptionId = activeSubscriptionId
         scope.launch(Dispatchers.IO) {
-            val next = runCatching { nextRouteCandidate(current, routeNetworkKey()) }.getOrNull()
+            val networkKey = routeNetworkKey()
+            val next = runCatching { nextRouteCandidate(current, networkKey) }.getOrNull()
+            if (next == null && current.isNotBlank()) {
+                // The user says this route does not work here: remember it, so the reconnect's automatic order
+                // (AutomaticConnectionCandidatePolicy networkBad) starts with another one.
+                runCatching { routeMemoryStore.record(networkKey, current, ok = false) }
+            }
             withContext(Dispatchers.Main) {
                 if (state != VpnState.Started) return@withContext
                 if (next != null) {

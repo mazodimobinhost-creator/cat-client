@@ -1037,6 +1037,7 @@ internal fun MainActivity.buildDashboard(): View {
     }
     homeLocationPill = locationPill
     locationPill.visibility = View.GONE
+    val realInternetCard = buildRealInternetCard() // beta220: «does the internet really work?» right under the config
     connectActionButton.visibility = View.GONE // Zed: the blob itself is the switch
     when (appDesign) {
         AppDesign.Portal -> {
@@ -1051,6 +1052,7 @@ internal fun MainActivity.buildDashboard(): View {
                 addView(locationPill, contentParams(dp(14)))
                 addView(trafficRow, contentParams(dp(14)))
                 addView(activeConfigCard, contentParams(dp(8)))
+                addView(realInternetCard, contentParams(dp(8)))
                 addView(connectActionButton, contentParams(dp(14)))
             }
         }
@@ -1066,6 +1068,7 @@ internal fun MainActivity.buildDashboard(): View {
                 addView(headerBlock, contentParams(dp(12)))
                 addView(signalSection, contentParams(dp(8)))
                 addView(activeConfigCard, contentParams(dp(10)))
+                addView(realInternetCard, contentParams(dp(8)))
                 addView(trafficRow, contentParams(dp(3)))
                 addView(connectActionButton, contentParams(dp(14)))
             }
@@ -1076,6 +1079,7 @@ internal fun MainActivity.buildDashboard(): View {
             addView(signalSection, contentParams(dp(4)))
             addView(trafficRow, contentParams(dp(18)))
             addView(activeConfigCard, contentParams(dp(14)))
+            addView(realInternetCard, contentParams(dp(8)))
             addView(connectActionButton, contentParams(dp(14)))
         }
     }
