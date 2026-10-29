@@ -253,30 +253,30 @@ internal object FenixHpack {
 
     /** Stateful HPACK decoder (one per connection, header blocks must be fed in order). */
     class Decoder(private var maxTableSize: Int = DEFAULT_TABLE_SIZE) {
-        private val dynamic = ArrayDeque<Pair<String, String>>() // first = newest
+        private val dynTable = ArrayDeque<Pair<String, String>>() // first = newest
         private var tableSize = 0
         private val settingsLimit = maxTableSize
 
-        fun dynamicEntries(): List<Pair<String, String>> = dynamic.toList()
+        fun dynamicEntries(): List<Pair<String, String>> = dynTable.toList()
 
         private fun entrySize(e: Pair<String, String>) =
             32 + e.first.toByteArray(Charsets.UTF_8).size + e.second.toByteArray(Charsets.UTF_8).size
 
         private fun evictTo(limit: Int) {
-            while (tableSize > limit && dynamic.isNotEmpty()) {
-                tableSize -= entrySize(dynamic.removeLast())
+            while (tableSize > limit && dynTable.isNotEmpty()) {
+                tableSize -= entrySize(dynTable.removeLast())
             }
         }
 
         private fun add(e: Pair<String, String>) {
             val size = entrySize(e)
             if (size > maxTableSize) {
-                dynamic.clear()
+                dynTable.clear()
                 tableSize = 0
                 return
             }
             evictTo(maxTableSize - size)
-            dynamic.addFirst(e)
+            dynTable.addFirst(e)
             tableSize += size
         }
 
@@ -284,8 +284,8 @@ internal object FenixHpack {
             if (index <= 0) throw IOException("hpack: index 0")
             if (index <= STATIC_TABLE.size) return STATIC_TABLE[index - 1]
             val d = index - STATIC_TABLE.size - 1
-            if (d >= dynamic.size) throw IOException("hpack: index $index out of range")
-            return dynamic.elementAt(d)
+            if (d >= dynTable.size) throw IOException("hpack: index $index out of range")
+            return dynTable.elementAt(d)
         }
 
         private class Cursor(val buf: ByteArray, var pos: Int, val end: Int) {
@@ -325,15 +325,15 @@ internal object FenixHpack {
             while (c.pos < c.end) {
                 val b = c.next()
                 when {
-                    b and 0x80 != 0 -> out += lookup(readInt(c, b, 7))
-                    b and 0x40 != 0 -> {
+                    (b and 0x80) != 0 -> { out += lookup(readInt(c, b, 7)) }
+                    (b and 0x40) != 0 -> {
                         val idx = readInt(c, b, 6)
                         val name = if (idx == 0) readString(c) else lookup(idx).first
                         val e = name to readString(c)
                         add(e)
                         out += e
                     }
-                    b and 0x20 != 0 -> {
+                    (b and 0x20) != 0 -> {
                         val newSize = readInt(c, b, 5)
                         if (newSize > settingsLimit) throw IOException("hpack: table size $newSize > $settingsLimit")
                         maxTableSize = newSize
