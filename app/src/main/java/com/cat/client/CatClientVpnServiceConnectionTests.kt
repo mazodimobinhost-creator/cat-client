@@ -238,7 +238,7 @@ internal fun CatClientVpnService.startConnectionDelayTest(
                     status = Actions.DELAY_TEST_CANCELED,
                     paused = false,
                 )
-            }?.let(this::publishConnectionDelayTest)
+            }?.let(this@startConnectionDelayTest::publishConnectionDelayTest)
             throw error
         } catch (error: Throwable) {
             DiagnosticLogger.warn(
@@ -327,7 +327,7 @@ internal fun CatClientVpnService.startConnectionSpeedTest(testId: String, subscr
                     existingRecord = record
                     ConnectionSpeedTestState.update(testId) {
                         it.copy(status = Actions.SPEED_TEST_STARTED, error = "")
-                    }?.let(this::publishConnectionSpeedTest)
+                    }?.let(this@startConnectionSpeedTest::publishConnectionSpeedTest)
                     val preferredRoots = listOfNotNull(
                         MihomoSelectionPolicy.trafficProbeGroup(snapshot.summary)?.name,
                         MihomoSelectionPolicy.mainSelectorGroup(snapshot.summary)?.name,
@@ -344,7 +344,7 @@ internal fun CatClientVpnService.startConnectionSpeedTest(testId: String, subscr
                 subscriptionStore.saveConnectionDelayRecord(record.copy(speedKbps = speedKbps))
                 ConnectionSpeedTestState.update(testId) {
                     it.copy(status = Actions.SPEED_TEST_COMPLETED, error = "")
-                }?.let(this::publishConnectionSpeedTest)
+                }?.let(this@startConnectionSpeedTest::publishConnectionSpeedTest)
             } catch (error: CancellationException) {
                 existingRecord?.copy(speedKbps = null)?.let(subscriptionStore::saveConnectionDelayRecord)
                 throw error
@@ -362,7 +362,7 @@ internal fun CatClientVpnService.startConnectionSpeedTest(testId: String, subscr
                         error = error.message?.takeIf(String::isNotBlank)
                             ?: getString(R.string.connection_speed_test_failed),
                     )
-                }?.let(this::publishConnectionSpeedTest)
+                }?.let(this@startConnectionSpeedTest::publishConnectionSpeedTest)
             }
         }
     }
@@ -371,7 +371,7 @@ internal fun CatClientVpnService.startConnectionSpeedTest(testId: String, subscr
         if (error is CancellationException) {
             ConnectionSpeedTestState.update(testId) {
                 it.copy(status = Actions.SPEED_TEST_CANCELED, error = "")
-            }?.let(this::publishConnectionSpeedTest)
+            }?.let(this@startConnectionSpeedTest::publishConnectionSpeedTest)
         }
         connectionSpeedTestJobs.remove(testId, job)
         finishConnectionTests()
@@ -588,7 +588,7 @@ internal fun CatClientVpnService.setConnectionDelayTestPaused(testId: String, pa
     connectionDelayTestPaused = paused
     ConnectionDelayTestState.update(testId) {
         it.copy(paused = paused)
-    }?.let(this::publishConnectionDelayTest)
+    }?.let(this@setConnectionDelayTestPaused::publishConnectionDelayTest)
 }
 
 internal fun CatClientVpnService.cancelConnectionDelayTest(testId: String? = null) {
