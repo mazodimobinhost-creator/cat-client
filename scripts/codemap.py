@@ -25,7 +25,7 @@ OUT = ROOT / 'docs/CODEMAP.md'
 AREAS: list[tuple[str, str]] = [
     ('Screens — MainActivity and its area files', r'^MainActivity'),
     ('VPN service, lifecycle & state', r'^(CatClientVpnService|VpnState|VpnRuntime|ConnectionLifecycle|SessionPlan|CatClientTile|QuickSettings|VpnWidget|VpnNotification|PathWatchdog|DefaultNetworkMonitor|Mihomo|RealInternetCheck|RouteMemory|ConnectionTest|ConnectionDelay|UiStall|CrashWatch|EarlyCrash)'),
-    ('Engines (Cat Warp, Cat Fox VPN, Psiphon, SSTP, Tor, DNS, paqet, relays)', r'^(Aether|Warp|Fenix|Firefox|Psiphon|Sstp|Orbot|Paqet|SlipNet|WhiteDns|Amnezia|LocalSniSpoof|DpiBypass|Mlm|VercelRelay|ConnectionChain|VerifiedTunnelChain)'),
+    ('Engines (Cat Warp, Cat Fox VPN, Psiphon, SSTP, Tor, DNS, paqet, relays)', r'^(Xray|Aether|Warp|Fenix|Firefox|Psiphon|Sstp|Orbot|Paqet|SlipNet|WhiteDns|Amnezia|LocalSniSpoof|DpiBypass|Mlm|VercelRelay|ConnectionChain|VerifiedTunnelChain)'),
     ('Subscriptions & config formats', r'^(Subscription|SubConv|UserSubscriptions|ConfigFileImport|FreeConfigs|QrCodes|CatWarpList|VerifiedConfig|VerifiedSubscription|CatClientConfig|ConnectionLabel|ConnectionDisplay|CommunitySource|DeltaKronecker)'),
     ('Scanners, probes & automatic route choice', r'(Scan|^Ip|^CleanIp|^Endpoint|^Smart|Probe|^Ping|^Speed|^Relay|^Fronting|^ProfileDelay|^AutoConnection|^NetworkGenome|^MobileCarrier|^Operator|^ProxyEgress|^CurrentEndpoint|^VerifiedEndpoint|^VerifiedRelay|^EdgeLocation|^IspProtocol|^ForeignService|^CommunityIp|^StartupScan|^ConnectionFault|^LanSharing)'),
     ('Cloud panel, deployment & reports', r'^(Panel|Worker|Cloudflare|Deploy|Vercel|NodeHost|ApiHost|TechNamooz|AppReport)'),

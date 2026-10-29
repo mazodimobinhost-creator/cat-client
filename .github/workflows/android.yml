@@ -415,6 +415,36 @@ jobs:
           fi
           rm -f app/src/main/jniLibs/SLIPNET-SOURCE.txt
 
+      - name: Cache Xray engine
+        id: xray-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libxray.so
+            app/src/main/jniLibs/armeabi-v7a/libxray.so
+            app/src/main/jniLibs/x86/libxray.so
+            app/src/main/jniLibs/x86_64/libxray.so
+          key: ${{ runner.os }}-xray-${{ hashFiles('scripts/build-xray-core.sh', 'scripts/xray-runner/main.go') }}
+
+      - name: Build Xray engine (official Xray-core, MPL-2.0, for F&F / finalMask configs)
+        if: steps.xray-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: bash scripts/build-xray-core.sh 2>&1 | tee xray-build.log
+
+      - name: Verify Xray engine packaging
+        run: |
+          missing=0
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            f="app/src/main/jniLibs/$abi/libxray.so"
+            if [[ -s "$f" ]]; then ls -la "$f"; file "$f" || true; else missing=1; fi
+          done
+          if [[ "$missing" == "1" ]]; then
+            grep -E "error|cannot|undefined|go: " xray-build.log 2>/dev/null | head -n 20 | while IFS= read -r line; do
+              printf '::warning title=Xray engine build::%s\n' "$line"
+            done
+            echo "::warning title=Xray engine::libxray.so missing; F&F configs fall back to the ByeByeDPI fragmenting proxy"
+          fi
+
       - name: Build debug APK
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865

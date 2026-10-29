@@ -74,8 +74,8 @@ android {
         applicationId = "com.cat.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 289
-        versionName = "1.10.0-beta222"
+        versionCode = 290
+        versionName = "1.10.0-beta223"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "fa")
@@ -148,6 +148,8 @@ android {
             // libslipnet.so is a static Go executable (the real DNS-tunnel engine), not a JNI
             // library; it is already built with -s -w, so skip NDK strip on it.
             keepDebugSymbols += "**/libslipnet.so"
+            // libxray.so is the same kind of static Go executable (official Xray-core + Cat's runner).
+            keepDebugSymbols += "**/libxray.so"
         }
     }
 

@@ -372,6 +372,9 @@ class CatClientVpnService : VpnService() {
     internal class DpiBypassStartupException(cause: Throwable) :
         IOException("ByeByeDPI failed to start", cause)
 
+    internal class XrayStartupException(cause: Throwable) :
+        IOException("Xray engine failed to start", cause)
+
     internal class AutomaticRoutingBridgeStartupException(cause: Throwable) :
         IOException("Bridged automatic routing failed during core startup", cause)
 
@@ -1816,10 +1819,59 @@ class CatClientVpnService : VpnService() {
         excludedProfileFingerprint: String = "",
         quickSpeedRequested: Boolean = false,
     ): StartedMihomoRuntime {
+        // beta223: proxies with Xray-only options (F&F `finalMask`) run on the real Xray-core when it is packaged
+        // and switched on; if Xray cannot start, the same attempt is repeated on the beta221 ByeByeDPI path.
+        val xrayCount = if (forcedProxyName == null && XrayEngine.isEnabled(this) && XrayEngine.isInstalled(this)) {
+            MihomoXrayPatcher.eligibleNames(snapshot.rawConfig).size
+        } else {
+            0
+        }
+        suspend fun attempt(xrayProxies: Int): StartedMihomoRuntime = startMihomoRuntimeAttemptWithEngines(
+            snapshot = snapshot,
+            splitTunnelPlan = splitTunnelPlan,
+            selectedCountryCode = selectedCountryCode,
+            topEndpoint = topEndpoint,
+            validateConnectivity = validateConnectivity,
+            forcedProxyName = forcedProxyName,
+            preferences = preferences,
+            availableProfiles = availableProfiles,
+            excludedProfileFingerprint = excludedProfileFingerprint,
+            quickSpeedRequested = quickSpeedRequested,
+            xrayProxies = xrayProxies,
+        )
+        if (xrayCount == 0) return attempt(0)
+        DiagnosticLogger.info(this, "xray.route", "proxies=$xrayCount")
+        return try {
+            attempt(xrayCount)
+        } catch (error: XrayStartupException) {
+            DiagnosticLogger.warn(this, "xray.fallback.byeDpi", "proxies=$xrayCount", error)
+            stopActiveCoreForReplacement()
+            attempt(0)
+        }
+    }
+
+    private suspend fun startMihomoRuntimeAttemptWithEngines(
+        snapshot: MihomoSubscriptionSnapshot,
+        splitTunnelPlan: SplitTunnelRuntimePlan,
+        selectedCountryCode: String?,
+        topEndpoint: CleanIpResult?,
+        validateConnectivity: Boolean,
+        forcedProxyName: String?,
+        preferences: SessionPlanPreferences,
+        availableProfiles: List<ConnectionProfile>,
+        excludedProfileFingerprint: String,
+        quickSpeedRequested: Boolean,
+        xrayProxies: Int,
+    ): StartedMihomoRuntime {
+        val xrayPorts = if (xrayProxies > 0) withContext(Dispatchers.IO) { XrayEngine.allocatePorts(xrayProxies) } else emptyList()
         // beta220: the core ignores Xray's `finalMask=tlshello…`; honour it with our fragmenting proxy for exactly
-        // those proxies, even when the user left the global DPI bypass off.
-        val finalMaskOnly = forcedProxyName == null && !preferences.dpiBypassEnabled &&
+        // those proxies, even when the user left the global DPI bypass off (beta223: only those Xray does not carry).
+        val finalMaskLeft = if (xrayPorts.isNotEmpty()) {
+            MihomoDpiBypassPatcher.hasTlsHelloFinalMask(MihomoXrayPatcher.withoutXrayProxies(snapshot.rawConfig))
+        } else {
             MihomoDpiBypassPatcher.hasTlsHelloFinalMask(snapshot.rawConfig)
+        }
+        val finalMaskOnly = forcedProxyName == null && !preferences.dpiBypassEnabled && finalMaskLeft
         if (finalMaskOnly) DiagnosticLogger.info(this, "dpiBypass.finalMask", "tlshello proxies fragmented by the local proxy")
         val dpiBypassEnabled = forcedProxyName == null && (preferences.dpiBypassEnabled || finalMaskOnly)
         val request = SessionPlanRequest(
@@ -1834,6 +1886,7 @@ class CatClientVpnService : VpnService() {
             forcedProxyName = forcedProxyName,
             excludedProfileFingerprint = excludedProfileFingerprint,
             quickSpeedRequested = quickSpeedRequested,
+            xrayPorts = xrayPorts,
         )
 
         fun plan(
@@ -1961,7 +2014,7 @@ class CatClientVpnService : VpnService() {
         val controller = MihomoControllerClient(paths.secret, port = paths.controlPort)
         try {
             val setupStartedAt = SystemClock.elapsedRealtime()
-            setupCoreRuntime(paths, dpiBypassPort)
+            setupCoreRuntime(paths, dpiBypassPort, plan.xrayConfigJson, plan.xrayRoutes.map { it.port })
             activeRuntimePaths = paths
             DiagnosticLogger.info(
                 this,
@@ -1978,6 +2031,7 @@ class CatClientVpnService : VpnService() {
         } catch (error: Throwable) {
             if (
                 error !is DpiBypassStartupException &&
+                error !is XrayStartupException &&
                 shouldRetryOriginalAfterAutomaticBridgeFailure(
                     bridgeApplied = bridgeResult.applied,
                     phase = AutomaticBridgeFailurePhase.ConfigCoreOrController,
@@ -3004,7 +3058,19 @@ class CatClientVpnService : VpnService() {
     internal suspend fun setupCoreRuntime(
         paths: MihomoRuntimePaths,
         dpiBypassPort: Int? = null,
+        xrayConfigJson: String? = null,
+        xrayPorts: List<Int> = emptyList(),
     ) {
+        // beta223: Xray first, so the core's first health checks already find its local SOCKS ports open.
+        if (xrayConfigJson != null) {
+            try {
+                startXrayEngine(xrayConfigJson, xrayPorts)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                throw XrayStartupException(error)
+            }
+        }
         setupCore(paths)
         if (dpiBypassPort != null) {
             try {
@@ -3844,6 +3910,7 @@ class CatClientVpnService : VpnService() {
         stopDpiBypassProxy()
         // beta218: stopping child engines sleeps briefly per process and deletes a file — not on the screen's thread.
         withContext(Dispatchers.IO) { runCatching { SlipNetCliEngine.stopAll() } }
+        stopXrayEngine()
         childProcessEngineActive = false
         return coreStopped
     }
@@ -3934,6 +4001,7 @@ class CatClientVpnService : VpnService() {
         }
         runCatching { ByeDpiProxy.stop() }
         runCatching { SlipNetCliEngine.stopAll() }
+        runCatching { XrayEngine.stop(this) }
         childProcessEngineActive = false
         dpiBypassJob?.cancel(CancellationException("Service destroyed"))
         dpiBypassJob = null

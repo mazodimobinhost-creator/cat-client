@@ -456,11 +456,24 @@ class AppToolsController(
 
     fun showEngineStatus() {
         val dnsEngine = SlipNetCliEngine.isInstalled(activity)
+        val xrayInstalled = XrayEngine.isInstalled(activity)
+        val xrayOn = XrayEngine.isEnabled(activity)
+        val xrayFa = when {
+            !xrayInstalled -> "⚠️ هستهٔ Xray: در این نسخه بسته‌بندی نشده؛ کانفیگ‌های F&F (finalMask) با پراکسی تکه‌تکه‌کنندهٔ داخلی وصل می‌شوند.\n\n"
+            xrayOn -> "✅ هستهٔ Xray (روشن): کانفیگ‌هایی که finalMask دارند (روش F&F ایرانسل) خودکار با هستهٔ اصلی Xray وصل می‌شوند تا تکه‌تکه کردن TLS واقعاً انجام شود. اگر Xray بالا نیاید، خودکار روش قبلی امتحان می‌شود.\n\n"
+            else -> "⏸️ هستهٔ Xray (خاموش): کانفیگ‌های F&F با پراکسی تکه‌تکه‌کنندهٔ داخلی وصل می‌شوند.\n\n"
+        }
+        val xrayEn = when {
+            !xrayInstalled -> "⚠️ Xray core: not packaged in this build; F&F (finalMask) configs use the built-in fragmenting proxy.\n\n"
+            xrayOn -> "✅ Xray core (on): configs with finalMask (the Irancell F&F method) automatically run on the real Xray-core so the TLS fragmentation really happens. If Xray does not start, the previous method is tried automatically.\n\n"
+            else -> "⏸️ Xray core (off): F&F configs use the built-in fragmenting proxy.\n\n"
+        }
         val warp = WarpRegistration.cached(activity)
         val text = t(
             "✅ پروتکل‌های عادی (VLESS، VMess، Trojan، Shadowsocks، Hysteria2، TUIC، WireGuard با کلید واقعی، AnyTLS، SOCKS/HTTP): روی هستهٔ mihomo واقعاً تونل می‌زنند.\n\n" +
                 (if (dnsEngine) "✅ تانل DNS واقعی (dnstt، NoizDNS، VayDNS و slipnet://): موتور Cat DNS داخل برنامه نصب است و واقعاً از روی DNS تونل می‌زند.\n\n"
                 else "⚠️ تانل DNS: موتور Cat DNS در این نسخه بسته‌بندی نشده؛ کانفیگ‌های DNS «در دسترس نیست» نشان داده می‌شوند (دیگر وانمود به اتصال نمی‌کنند).\n\n") +
+                xrayFa +
                 (if (warp != null) "✅ WARP / AWG خودکار: حساب واقعی WARP ثبت شده (${warp.ipv4}${warp.ipv6?.let { " · IPv6" } ?: ""}).\n\n"
                 else "ℹ️ WARP / AWG خودکار: اولین اتصال، یک حساب واقعی WARP از کلادفلر ثبت می‌کند (قبلاً کلید جعلی بود و هیچ‌وقت وصل نمی‌شد).\n\n") +
                 "❌ بدون موتور واقعی (قبلاً بی‌صدا مستقیم وصل می‌شدند و فقط ظاهر اتصال داشتند): CottenDNS، StormDNS، MasterDNS، Soar، Slipstream، QS/QQ/Spoof Tunnel، S3 Bypass، رلهٔ GAS، Phantun بدون روت. این‌ها حالا صادقانه «در دسترس نیست» می‌شوند.\n\n" +
@@ -469,6 +482,7 @@ class AppToolsController(
             "✅ Regular protocols (VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard with a real key, AnyTLS, SOCKS/HTTP) really tunnel on the mihomo core.\n\n" +
                 (if (dnsEngine) "✅ Real DNS tunnel (dnstt, NoizDNS, VayDNS, slipnet://): the Cat DNS engine is installed and really tunnels over DNS.\n\n"
                 else "⚠️ DNS tunnel: the Cat DNS engine is not packaged in this build; DNS configs show as unavailable (no more fake connections).\n\n") +
+                xrayEn +
                 (if (warp != null) "✅ WARP / AWG auto: a real WARP account is registered.\n\n"
                 else "ℹ️ WARP / AWG auto: the first connect registers a real WARP account (previously a fake key that could never connect).\n\n") +
                 "❌ No real engine (previously connected directly in silence): CottenDNS, StormDNS, MasterDNS, Soar, Slipstream, QS/QQ/Spoof tunnels, S3 bypass, GAS relay, Phantun without root.\n\n" +
@@ -480,6 +494,15 @@ class AppToolsController(
             .setMessage(text)
             .setPositiveButton(android.R.string.ok, null)
             .apply {
+                if (xrayInstalled) {
+                    setNegativeButton(if (xrayOn) t("خاموش کردن Xray", "Turn Xray off") else t("روشن کردن Xray", "Turn Xray on")) { _, _ ->
+                        XrayEngine.setEnabled(activity, !xrayOn)
+                        toast(
+                            if (!xrayOn) t("✅ Xray روشن شد؛ از اتصال بعدی", "✅ Xray on from the next connect")
+                            else t("Xray خاموش شد؛ از اتصال بعدی", "Xray off from the next connect"),
+                        )
+                    }
+                }
                 if (warp != null) setNeutralButton(t("ساخت حساب WARP جدید", "New WARP account")) { _, _ ->
                     WarpRegistration.forget(activity)
                     toast(t("در اتصال بعدی حساب جدید ثبت می‌شود", "A new account is registered on next connect"))

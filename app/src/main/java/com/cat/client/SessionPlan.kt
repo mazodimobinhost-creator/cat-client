@@ -53,6 +53,8 @@ internal data class SessionPlanRequest(
     val excludedProfileFingerprint: String = "",
     val allowAutomaticBridge: Boolean = true,
     val quickSpeedRequested: Boolean = false,
+    /** beta223: local inbound ports for the Xray engine (empty = Xray off for this attempt). */
+    val xrayPorts: List<Int> = emptyList(),
 )
 
 internal data class SessionPlan(
@@ -87,6 +89,9 @@ internal data class SessionPlan(
     val bridgeResult: MihomoAutomaticRoutingBridgeResult,
     val runtimeYaml: String,
     val selectedMap: Map<String, String>,
+    /** beta223: Xray config for the proxies [MihomoXrayPatcher] moved to Xray (null = none). */
+    val xrayConfigJson: String? = null,
+    val xrayRoutes: List<XrayRoute> = emptyList(),
 )
 
 internal object SessionPlanner {
@@ -102,8 +107,10 @@ internal object SessionPlanner {
             sniOverride = preferences.sniOverride.takeIf { it.isNotBlank() },
         )
         val optionsYaml = MihomoConnectionOptionsPatcher.patch(frontedYaml, preferences.connectionOptions)
+        // beta223: proxies with Xray-only options (finalMask) become local SOCKS entries served by Xray.
+        val xrayPatch = MihomoXrayPatcher.patch(optionsYaml, request.xrayPorts)
         val baseRuntimeYaml = MihomoDpiBypassPatcher.patch(
-            rawYaml = optionsYaml,
+            rawYaml = xrayPatch.yaml,
             enabled = request.dpiBypassEnabled,
             proxyPort = request.dpiBypassPort ?: DpiBypassDefaults.FALLBACK_PROXY_PORT,
             finalMaskOnly = request.dpiBypassFinalMaskOnly,
@@ -181,6 +188,8 @@ internal object SessionPlanner {
             bridgeResult = bridgeResult,
             runtimeYaml = bridgeResult.yaml,
             selectedMap = selectedMap,
+            xrayConfigJson = xrayPatch.configJson,
+            xrayRoutes = xrayPatch.routes,
         )
     }
 }

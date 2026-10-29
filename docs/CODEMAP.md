@@ -45,15 +45,16 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 4271 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceCatWarp.kt` | 367 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceNetworkChange.kt` | 235 | Default-network changes: quick-speed pin restore, DNS replay. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceQuickSpeed.kt` | 416 | Quick «fastest» reconnect: shortlist, pin and restore of the fastest route. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceRealInternet.kt` | 235 | Real internet check after connect, route memory and automatic next route. | 10 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceSstp.kt` | 172 | Cat SSTP engine: start, delay test, close. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnService.kt` | 4339 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceCatWarp.kt` | 367 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceNetworkChange.kt` | 235 | Default-network changes: quick-speed pin restore, DNS replay. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceQuickSpeed.kt` | 416 | Quick «fastest» reconnect: shortlist, pin and restore of the fastest route. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceRealInternet.kt` | 235 | Real internet check after connect, route memory and automatic next route. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceSstp.kt` | 172 | Cat SSTP engine: start, delay test, close. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceXray.kt` | 34 | Xray engine start/stop for the Cat core (beta223): F&F / finalMask proxies on the real Xray-core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `ConnectionDelayTestState.kt` | 112 | — | — · — |
 | `ConnectionLifecycle.kt` | 297 | Connect/disconnect state machine shared by UI, tile and widget. | — · — |
 | `ConnectionTestSettings.kt` | 63 | — | — · — |
@@ -62,15 +63,15 @@
 | `CrashWatch.kt` | 219 | Cat Client crash watchdog — turns silent launch failures into visible, copyable evidence. | — · — |
 | `DefaultNetworkMonitor.kt` | 183 | Watches the phone's default network (Wi-Fi/mobile changes). | — · — |
 | `EarlyCrashProvider.kt` | 43 | The earliest app code Android runs. | — · — |
-| `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
+| `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, Beta223XrayEngineTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
 | `MihomoCoreLifecycle.kt` | 85 | Serializes setup and cleanup of the process-wide Mihomo core. | — · — |
 | `MihomoRuntime.kt` | 2803 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
-| `MihomoShareLink.kt` | 545 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, WhiteDnsSmartScannerTest · — |
+| `MihomoShareLink.kt` | 545 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, WhiteDnsSmartScannerTest · — |
 | `PathWatchdog.kt` | 178 | The multi-path watchdog: the tiny state machine that decides *when* the app stops insisting on the normal path and takes the Tor one instead — and… | PathWatchdogTest · orbot-engine |
 | `QuickSettingsTileState.kt` | 50 | — | — · — |
 | `RealInternetCheck.kt` | 218 | beta220 «real internet test»: «connected» only means the tunnel came up (Session Readiness in CONTEXT.md); it does not prove pages load. | Beta220RealInternetJsonTest, Beta220RealInternetTest, Beta220WiringTest · — |
 | `RouteMemory.kt` | 137 | beta220 «route memory per network»: which route (connection fingerprint) really carried internet — by the [RealInternetCheck], not by a ping — on T… | Beta220RealInternetJsonTest, Beta220RealInternetTest · — |
-| `SessionPlan.kt` | 186 | Per-connection plan: DNS mode, QUIC handling, TUN options chosen before start. | — · orbot-engine |
+| `SessionPlan.kt` | 195 | Per-connection plan: DNS mode, QUIC handling, TUN options chosen before start. | Beta223XrayEngineTest · orbot-engine |
 | `UiStallWatchdog.kt` | 118 | beta217: «the app is slow when I type or pick a config» cannot be fixed from guesses alone, so the app now notices its own freezes. | — · — |
 | `VpnNotificationActionPolicy.kt` | 17 | — | — · — |
 | `VpnRuntimeStateStore.kt` | 268 | Process-wide VPN state (Started/Stopped/…) + broadcast to the UI and widgets. | Beta220WiringTest · — |
@@ -116,6 +117,8 @@
 | `WarpRegistration.kt` | 486 | Real Cloudflare WARP registration for `awg://auto@…` / `wireguard://auto@…` configs. | Beta209WarpEditorTest, Beta210WarpAutoKeyTest · — |
 | `WhiteDnsSmartScanner.kt` | 3267 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, WhiteDnsSmartScannerTest · — |
 | `WhiteDnsToolkit.kt` | 655 | Scanner toolkit inspired by the sections of WhiteDNS IP Scanner (independent implementation, no code copied): ASN → CIDR export, CIDR → IP list, op… | WhiteDnsToolkitTest · — |
+| `XrayEngine.kt` | 262 | Runs the official Xray-core (XTLS/Xray-core, MPL-2.0 — built unmodified from source in CI by `scripts/build-xray-core.sh` together with Cat's tiny… | Beta223XrayEngineTest · — |
+| `XrayRouting.kt` | 541 | beta223 — the Xray engine. | Beta223XrayEngineTest · — |
 
 ### Subscriptions & config formats
 
@@ -276,7 +279,7 @@
 | `AnalyticsEvents.kt` | 34 | AnalyticsEvents — Cat Client does NOT ship any third-party tracking. | — · — |
 | `AppLock.kt` | 100 | App lock (PIN, optionally unlocked with the phone's own fingerprint / face / pattern through the system credential screen). | WhiteDnsToolkitTest · — |
 | `AppSettingsResetter.kt` | 29 | — | — · — |
-| `AppToolsController.kt` | 873 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | — · — |
+| `AppToolsController.kt` | 896 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | — · — |
 | `AppUpdate.kt` | 411 | — | — · app-prerelease-update |
 | `AppUpdateManager.kt` | 324 | — | — · — |
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
@@ -289,7 +292,7 @@
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_231 Kotlin files, 103630 lines._
+_234 Kotlin files, 104567 lines._
 
 ## MainActivity screens — function index
 
@@ -689,6 +692,7 @@ for the dialog/button you want to change.
 | `MihomoSelectionPolicy` | `MihomoConfig.kt` |
 | `MihomoShareLink` | `MihomoShareLink.kt` |
 | `MihomoSubscriptionSnapshot` | `MihomoConfig.kt` |
+| `MihomoXrayPatcher` | `XrayRouting.kt` |
 | `MlmAndNextGenVpnHub` | `MlmAndNextGenVpnHub.kt` |
 | `MobileCarrier` | `MobileCarrier.kt` |
 | `NetworkContext` | `NetworkGenome.kt` |
@@ -970,6 +974,14 @@ for the dialog/button you want to change.
 | `WorkerStaticWarning` | `WorkerStaticAnalyzer.kt` |
 | `WorldMap` | `WorldMap.kt` |
 | `WorldMapData` | `WorldMapData.kt` |
+| `XrayConfigBuilder` | `XrayRouting.kt` |
+| `XrayEligibility` | `XrayRouting.kt` |
+| `XrayEngine` | `XrayEngine.kt` |
+| `XrayFinalMask` | `XrayRouting.kt` |
+| `XrayJson` | `XrayRouting.kt` |
+| `XrayPatchResult` | `XrayRouting.kt` |
+| `XrayProtectServer` | `XrayEngine.kt` |
+| `XrayRoute` | `XrayRouting.kt` |
 | `ZedBlobView` | `ZedBlobView.kt` |
 | `ZedDecorDrawable` | `ZedBlobView.kt` |
 | `ZedHeroArtView` | `ZedSettingsViews.kt` |

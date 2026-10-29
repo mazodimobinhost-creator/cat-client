@@ -4,6 +4,22 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta223] — 2026-10-29 (Panel 6.78.0)
+
+### Added — app (Xray engine)
+- **The real Xray-core is now inside the app, for the configs the Cat core cannot run as written.** The official XTLS/Xray-core (MPL-2.0, v26.10.21, pinned commit `1b1647c`) is compiled unmodified from source in CI (`scripts/build-xray-core.sh`) together with a small Cat runner (`scripts/xray-runner/main.go`) and shipped as `libxray.so` for arm64-v8a, armeabi-v7a, x86 and x86_64.
+- Configs with `finalMask` (the Irancell «F&F» method, e.g. `fm=tlshello-0-len`) are carried by Xray automatically: each one gets its own `127.0.0.1` SOCKS inbound and the Cat core sees a local SOCKS entry with **the same name**, so groups, the location list, latency tests and route memory work unchanged. Xray dials the server with the original VLESS / Trojan / VMess settings (TLS or REALITY, ws / httpupgrade / xhttp / grpc / raw, SNI, ALPN, fingerprint incl. `unsafe`, `cipherSuites` passed through) **plus a real `finalmask`**: `tlshello-0-len` = split the TLS ClientHello into TLS records of 100–200 bytes written at once; `tlshello-<delay>-<length>`, packet ranges (`1-3` for REALITY), Xray JSON `{"tcp":[…]}` and the legacy `{"fragment":{…}}` form are understood too.
+- Everything else stays on the Cat core. Proxies Xray cannot take as-is (`skip-cert-verify` — Xray removed `allowInsecure` —, ECH, certificate pins, chained `dialer-proxy`) keep the beta221 path (fragmenting proxy).
+- **No VPN loop:** the runner registers an Xray dialer controller that hands every new socket to the VPN service for `protect()` over a private unix socket (app-private directory, same-UID check). The runner exits when the app process dies (stdin watch); leftovers are killed by PID on the next start.
+- **Fallback:** if Xray is not packaged, switched off or does not start, the same connect attempt is repeated on the beta221 path (log `xray.fallback.byeDpi`). Xray starts before the Cat core so its first health checks already find the local ports.
+- «🧬 Real engine status» shows the Xray state and has an on/off button (default on). The firewall guide now says that F&F configs run on the built-in Xray core and that `semi-python` is not a real cipher name (Xray ignores it too).
+
+### Verified
+- The runner was built locally against Xray-core v26.10.21: the generated config (VLESS+ws+TLS F&F, Trojan+xhttp, VLESS+REALITY+Vision, VMess+grpc) passes `xray -test`; a live run protected the outbound socket through the unix socket and the ClientHello left as 11 TLS records (at most 194 bytes each); closing stdin stopped the runner.
+
+### Tests
+- `Beta223XrayEngineTest`: eligibility, YAML swap keeps names/groups, the full F&F outbound, `finalMask` forms, Xray fingerprint names, inline Trojan/xhttp entries, leftovers still go through ByeByeDPI, service order/fallback/stop wiring, pinned build + protect contract.
+
 ## [1.10.0-beta222] — 2026-10-29 (Panel 6.78.0)
 
 ### Changed — code organisation (VPN service per engine)
