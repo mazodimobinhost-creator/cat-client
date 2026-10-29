@@ -108,7 +108,7 @@ import com.cat.client.MainActivity.Companion.SCREEN_SCANNER
 
 /** Worker / Pages / Railway targets are user-owned HTTPS origins; no secret is stored here. */
 internal fun MainActivity.addDeploymentProfilesSection(body: LinearLayout) {
-    val deploymentPrefs = getSharedPreferences("deployment_profiles", MODE_PRIVATE)
+    val deploymentPrefs = getSharedPreferences("deployment_profiles", Context.MODE_PRIVATE)
     val store = DeploymentProfileStore(deploymentPrefs)
     val measurementStore = DeploymentMeasurementStore(deploymentPrefs)
     val card = LinearLayout(this).apply {

@@ -789,11 +789,11 @@ internal fun MainActivity.buildScannerScreen(): View {
     controls.addView(manualAddRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     // ⚡ Scan profile: fast (shallow + snappy) / standard / deep (wide walk +
     // long timeouts) — same engine, different depth, persisted per device.
-    scannerProfile = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString("profile", "std") ?: "std"
+    scannerProfile = getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE).getString("profile", "std") ?: "std"
     controls.addView(scannerProfileRow(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
     // 🛡️ 2026 Anti-DPI Fragmentation + Limited Network + All 13 CF Ports toggles
-    val scanPrefs = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+    val scanPrefs = getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
     val powerTogglesGroup = ChipGroup(this).apply {
         isSingleLine = false
         chipSpacingHorizontal = dp(6)
@@ -1353,7 +1353,7 @@ internal fun MainActivity.renderScannerSources() {
                 saveScannerSource(key, next)
                 if (key == "ipv6" && !next) {
                     scannerForceV6 = false
-                    getSharedPreferences("cat_client_theme", MODE_PRIVATE)
+                    getSharedPreferences("cat_client_theme", Context.MODE_PRIVATE)
                         .edit().putBoolean("scanner_force_v6", false).apply()
                 }
                 renderScannerSources()
@@ -1387,7 +1387,7 @@ internal fun MainActivity.renderScannerSources() {
         setTextColor(if (scannerForceV6) palette.onAccent else TEXT_SECONDARY)
         setOnClickListener {
             scannerForceV6 = !scannerForceV6
-            getSharedPreferences("cat_client_theme", MODE_PRIVATE)
+            getSharedPreferences("cat_client_theme", Context.MODE_PRIVATE)
                 .edit().putBoolean("scanner_force_v6", scannerForceV6).apply()
             if (scannerForceV6) saveScannerSource("ipv6", true) // forcing implies the source is on
             renderScannerSources()
@@ -1416,7 +1416,7 @@ internal fun MainActivity.startIpScanner() {
     scannerSelected.clear()
     scannerResultsList.removeAllViews()
     scannerApplyButton.isEnabled = false
-    val scanPrefs = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
+    val scanPrefs = getSharedPreferences(SCANNER_PREFERENCES, Context.MODE_PRIVATE)
     val useAntiDpi = scanPrefs.getBoolean("anti_dpi_scan", true)
     val useLimitedNet = scanPrefs.getBoolean("limited_net_scan", false)
     val useAll13Ports = scanPrefs.getBoolean("all_13_ports_scan", false)

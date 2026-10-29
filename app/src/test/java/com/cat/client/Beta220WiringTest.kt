@@ -66,6 +66,17 @@ class Beta220WiringTest {
         assertTrue(dialog.contains("copy(AppReport.preview(f, fa))"))
     }
 
+    @Test fun areaFilesQualifyContextConstants() {
+        // Extension functions do not inherit Java statics: a bare MODE_PRIVATE compiles in MainActivity.kt but not in
+        // MainActivity<Area>.kt (beta220 CI pre-check). Keep them qualified as Context.MODE_PRIVATE.
+        val bare = Regex("""(?<![\w.])(MODE_PRIVATE|CLIPBOARD_SERVICE|CONNECTIVITY_SERVICE|INPUT_METHOD_SERVICE|RESULT_OK)\b""")
+        MainActivitySources.files().filter { it.name != "MainActivity.kt" }.forEach { f ->
+            f.readLines().forEachIndexed { i, line ->
+                assertFalse("${f.name}:${i + 1} uses an unqualified Context constant: ${line.trim()}", bare.containsMatchIn(line))
+            }
+        }
+    }
+
     @Test fun panelEndpointMatchesTheAppPayload() {
         // CI runs the JVM tests against the minified worker, so only string literals are compared here;
         // scripts/panels/app-report.test.mjs drives the endpoint itself (owner gate, limits, anonymised storage).

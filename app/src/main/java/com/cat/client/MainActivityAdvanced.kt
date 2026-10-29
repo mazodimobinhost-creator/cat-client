@@ -617,7 +617,7 @@ internal fun MainActivity.buildAdvancedScreen(): View {
     val hapticSwitch = MaterialSwitch(this).apply {
         isChecked = connectHapticEnabled()
         setOnCheckedChangeListener { _, checked ->
-            getSharedPreferences("cat_client_theme", MODE_PRIVATE).edit().putBoolean("haptic_connect", checked).apply()
+            getSharedPreferences("cat_client_theme", Context.MODE_PRIVATE).edit().putBoolean("haptic_connect", checked).apply()
             if (checked) connectHaptic()
         }
     }

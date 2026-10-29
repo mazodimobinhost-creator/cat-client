@@ -1114,7 +1114,7 @@ internal fun MainActivity.showMapPage() {
     val connected = buttonModel.state == VpnState.Started
     val live = liveGeo
     val vpnOn = connected || deviceVpnActive()
-    val prefs = getSharedPreferences("cat_client_map", MODE_PRIVATE)
+    val prefs = getSharedPreferences("cat_client_map", Context.MODE_PRIVATE)
     // Origin = the real location: the panel worker's "real IP" view when available, otherwise
     // the last lookup made while NO VPN (ours or another app's) was up.
     var originCode = prefs.getString("origin_code", "").orEmpty()

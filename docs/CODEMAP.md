@@ -40,7 +40,7 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 6459 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | Beta206EngineTest, Beta210WarpAutoKeyTest, Beta211FenixHttp2Test, Beta212SstpTest, Beta214CatWarpListTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220WiringTest · chain-exit-country, chain-tunnel, orbot-engine, tune |
+| `CatClientVpnService.kt` | 6462 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | Beta206EngineTest, Beta210WarpAutoKeyTest, Beta211FenixHttp2Test, Beta212SstpTest, Beta214CatWarpListTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220WiringTest · chain-exit-country, chain-tunnel, orbot-engine, tune |
 | `ConnectionDelayTestState.kt` | 112 | — | — · — |
 | `ConnectionLifecycle.kt` | 297 | Connect/disconnect state machine shared by UI, tile and widget. | — · — |
 | `ConnectionTestSettings.kt` | 63 | — | — · — |
@@ -276,7 +276,7 @@
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_218 Kotlin files, 102644 lines._
+_218 Kotlin files, 102647 lines._
 
 ## MainActivity screens — function index
 
