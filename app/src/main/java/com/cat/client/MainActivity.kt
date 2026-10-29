@@ -17461,9 +17461,7 @@ class MainActivity : Activity() {
                             withContext(Dispatchers.IO) { FirefoxVpnEngine.startLocalBridge(this@MainActivity) }
                             val subTitle = "⭐ پیشنهادی · 🦊 Cat Fox VPN"
                             val saved = withContext(Dispatchers.IO) {
-                                val existing = userSubscriptionManager.list().firstOrNull {
-                                    it.name == subTitle || it.name == "⭐ پیشنهادی · 🦊 Firefox VPN (FENIX)"
-                                }
+                                val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
                                 if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
                                 else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
                             }
@@ -22540,10 +22538,8 @@ class MainActivity : Activity() {
                 )
 
                 val subTitle = "🦊 Cat Fox VPN (${chosenCountry.flag} ${chosenCountry.code})"
-                // Also reuse the row older builds created («🦊 فایرفاکس VPN …») instead of adding a duplicate.
                 val existing = userSubscriptionManager.list().firstOrNull {
-                    it.name.startsWith("🦊 Cat Fox VPN") || it.name.startsWith("🦊 فایرفاکس VPN") ||
-                        it.name.startsWith("🦊 Firefox VPN")
+                    it.name.startsWith("🦊 Cat Fox VPN")
                 }
                 val saved = withContext(Dispatchers.IO) {
                     if (existing != null) {

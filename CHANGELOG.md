@@ -4,6 +4,25 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta211] — 2026-10-29 (Panel 6.77.3)
+
+Cat Fox VPN rebuilt on HTTP/2 — the way Firefox itself talks to Mozilla's proxy.
+
+### Fixed — app
+- **Cat Fox VPN «pinged but never connected».** The app opened every tunnel with a plain HTTP/1.1 `CONNECT` to Mozilla's Fastly node. Firefox and every working Firefox-VPN client use **HTTP/2 `CONNECT`** (TLS ALPN `h2`), and the edge no longer serves the old form reliably. A new built-in HTTP/2 client (`FenixHttp2.kt`, HPACK with Huffman, flow control, keep-alive PING, no new libraries) now carries every tunnel as one stream over a pooled, verified TLS connection per node; up to 100 tunnels share one connection, so pages open without a new TLS handshake per request. HTTP/1.1 stays only as a fallback when a node does not offer `h2`.
+- **A dead pooled connection (network change) is replaced on the spot,** and a rejected pass (401/407/429) is refreshed or rotated to the next account once — only if the new pass is really different.
+- **Node DNS that survives a poisoned resolver.** If the line's DNS fails or answers with a private/blocked address for `*.m1.fastly-masque.net`, the app asks Cloudflare/Google DNS-over-HTTPS (by IP) instead. The country ping uses the same lookup.
+- **Clear errors instead of «connection error».** Mozilla's real answer is shown: pass rejected (401/407), location locked (403 → automatic fallback to «Recommended»), quota used up (429, with `Retry-After`), region unavailable (451), Mozilla server trouble (5xx). Targets on ports other than 80/443 (which Mozilla's edge refuses) say so instead of blaming the node.
+- **Phone clock an hour off no longer breaks the pass.** The pass expiry is anchored to this phone's clock with the JWT's own lifetime (as Firefox does), so it is neither refreshed on every tunnel nor sent after Mozilla considers it expired. `X-Quota-Reset` is read as ISO 8601 too.
+- Stopping the VPN closes the pooled HTTP/2 connections, so the next session starts clean.
+
+### Changed — app
+- **Country picker:** free (unlocked) locations first with «✅ رایگان», locked ones marked «🔒 قفل برای حساب رایگان» (they fall back to «Recommended»). «⚡ Fastest» only races free locations. The live Mozilla list's `locked` flag is kept. Wording about «35 countries» removed.
+- Fox VPN status shows the transport of the last working tunnel («✅ آخرین تونل سالم: HTTP/2 · …»).
+
+### Tests
+- `Beta211FenixHttp2Test`: RFC 7541 C.4/C.6 HPACK vectors, encode round-trip (pass header never indexed), a raw-frame HTTP/2 CONNECT server driving the real session (5 echo tunnels with half-close, 407 surfaced), error/quota/reset parsing.
+
 ## [1.10.0-beta210] — 2026-10-29 (Panel 6.77.3)
 
 WireGuard gets its WARP key by itself — nothing to press.
