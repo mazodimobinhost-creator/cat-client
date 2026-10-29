@@ -538,6 +538,8 @@ class MainActivity : Activity() {
             .onFailure { DiagnosticLogger.warn(this, "activity.locationRefresh.failed", error = it) }
         runCatching { fetchPrivateSubscriptionOnLoad() }
             .onFailure { DiagnosticLogger.warn(this, "activity.subscriptionLoad.failed", error = it) }
+        runCatching { prewarmWarpKeyInBackground() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.warpPrewarm.failed", error = it) }
         runCatching {
         if (savedInstanceState != null) {
             val restoredScreen = savedInstanceState.getInt(STATE_ACTIVE_SCREEN, SCREEN_HOME)
@@ -13785,6 +13787,34 @@ class MainActivity : Activity() {
     }
 
     /** «کلید WARP ما کجاست؟» — every key the app holds, in plain words, plus a button that makes one. */
+    /**
+     * beta210: fetches our own WARP WireGuard key in the background as soon as the user has any WARP WireGuard rows,
+     * so tapping connect just works (no button to press). Cheap checks first; rate-limited inside WarpRegistration.
+     */
+    private fun prewarmWarpKeyInBackground(force: Boolean = false) {
+        val appContext = applicationContext
+        activityScope.launch(Dispatchers.IO) {
+            runCatching {
+                if (WarpRegistration.hasUsableKey(appContext)) return@runCatching
+                val repository = ConfigRepository(appContext)
+                val hasWarpRows = force || userSubscriptionManager.list().any { sub ->
+                    val input = sub.input
+                    input.contains("auto@", ignoreCase = true) ||
+                        input.contains(WarpRegistration.WARP_PEER_PUBLIC_KEY) ||
+                        input.contains("bmXOC%2BF1FxEMF9dyiK2H5", ignoreCase = true) ||
+                        repository.readCachedMihomoConfigOrNullNow(sub.id)?.rawConfig
+                            ?.let(WarpRegistration::containsWarpPeer) == true
+                }
+                val outcome = WarpRegistration.prewarmIfUseful(appContext, hasWarpRows) ?: return@runCatching
+                DiagnosticLogger.info(
+                    appContext,
+                    "warp.prewarm",
+                    "ok=${outcome.account != null} source=${outcome.source}",
+                )
+            }.onFailure { DiagnosticLogger.warn(appContext, "warp.prewarm.failed", error = it) }
+        }
+    }
+
     private fun showWarpKeysStatusDialog() {
         val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
         fun t(fa: String, en: String) = if (isFarsi) fa else en
@@ -13814,7 +13844,24 @@ class MainActivity : Activity() {
                         "✅ از کلید WireGuard هستهٔ Cat Warp استفاده می‌شود (device ${coreWg.accountId.take(8)}…)\n",
                         "✅ uses the Cat Warp core WireGuard key (device ${coreWg.accountId.take(8)}…)\n",
                     )
-                    else -> t("❌ هنوز ساخته نشده — دکمهٔ «ساخت کلید» را بزنید.\n", "❌ not created yet — tap «Create key».\n")
+                    else -> t(
+                        "⏳ هنوز ندارید — برنامه خودش در پس‌زمینه و موقع اتصال می‌گیرد. عجله دارید؟ «ساخت کلید» را بزنید.\n",
+                        "⏳ not yet — the app gets it by itself in the background and on connect. In a hurry? Tap «Create key».\n",
+                    )
+                },
+            )
+            val adopt = WarpRegistration.adoptsWarpConfigs(this@MainActivity)
+            append(
+                if (adopt) {
+                    t(
+                        "\n🤖 خودکار: روشن — هر کانفیگ WireGuard که به WARP وصل می‌شود (حتی کانفیگ‌های فید و اشتراک) موقع اتصال با کلید خود شما اجرا می‌شود. کلید کانفیگ‌های اشتراکی معمولاً مرده یا پر است.\n",
+                        "\n🤖 Automatic: ON — every WireGuard config that goes to WARP (feeds and subscriptions too) runs with your own key on connect. Shared keys are usually dead or full.\n",
+                    )
+                } else {
+                    t(
+                        "\n🤖 خودکار: خاموش — کانفیگ‌های WARP با کلید خودشان اجرا می‌شوند (فقط ردیف‌های awg://auto کلید شما را می‌گیرند).\n",
+                        "\n🤖 Automatic: OFF — WARP configs keep their own key (only awg://auto rows get yours).\n",
+                    )
                 },
             )
             append(
@@ -13829,6 +13876,33 @@ class MainActivity : Activity() {
             .setTitle(t("🔑 کلیدهای WARP ما", "🔑 Our WARP keys"))
             .setMessage(body)
             .setPositiveButton(t("بستن", "Close"), null)
+            .setNegativeButton(
+                if (WarpRegistration.adoptsWarpConfigs(this)) t("🤖 خاموش کردن خودکار", "🤖 Turn automatic off")
+                else t("🤖 روشن کردن خودکار", "🤖 Turn automatic on"),
+            ) { _, _ ->
+                val turnOn = !WarpRegistration.adoptsWarpConfigs(this)
+                if (turnOn) {
+                    WarpRegistration.setAdoptsWarpConfigs(this, true)
+                    Toast.makeText(this, t("✅ خودکار روشن شد. از اتصال بعدی اعمال می‌شود.", "✅ Automatic is on. Applies from the next connect."), Toast.LENGTH_LONG).show()
+                    showWarpKeysStatusDialog()
+                } else {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle(t("خاموش شود؟", "Turn off?"))
+                        .setMessage(
+                            t(
+                                "فقط اگر کانفیگ WARP+ پولی یا کلید شخصی خودتان را دارید خاموش کنید؛ وگرنه کانفیگ‌های WARP اشتراکی معمولاً وصل نمی‌شوند.",
+                                "Only turn this off if you have a paid WARP+ config or your own personal key; otherwise shared WARP configs usually won't connect.",
+                            ),
+                        )
+                        .setPositiveButton(t("خاموش کن", "Turn off")) { _, _ ->
+                            WarpRegistration.setAdoptsWarpConfigs(this, false)
+                            showWarpKeysStatusDialog()
+                        }
+                        .setNegativeButton(t("لغو", "Cancel"), null)
+                        .create()
+                        .showCatClientDialog()
+                }
+            }
             .setNeutralButton(makeLabel) { _, _ ->
                 if (currentVpnServiceState != VpnState.Stopped) {
                     Toast.makeText(this, t("اول قطع کنید، بعد کلید بسازید.", "Disconnect first, then create the key."), Toast.LENGTH_LONG).show()
@@ -18686,6 +18760,7 @@ class MainActivity : Activity() {
                             val curAether = aetherPreferenceStore.read()
                             if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
                             orbotEnginePreferenceStore.setEnabled(false)
+                            prewarmWarpKeyInBackground()
                             renderSubscriptions()
                             onSubscriptionSelected()
                             renderAdvancedControls()

@@ -208,6 +208,200 @@ object WarpRegistration {
         return out.joinToString("\n")
     }
 
+    // ---- beta210: every WARP WireGuard config gets our own working key automatically ---------------------------
+
+    private const val KEY_ADOPT = "adopt_warp_configs"
+    private const val KEY_PREWARM_AT = "prewarm_at"
+    private const val PREWARM_EVERY_MS = 3L * 60 * 60 * 1000
+
+    /** ON by default: WireGuard configs that point at Cloudflare WARP run with this app's own registered key. */
+    fun adoptsWarpConfigs(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ADOPT, true)
+
+    fun setAdoptsWarpConfigs(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ADOPT, on).apply()
+    }
+
+    /** True when [yaml] holds a WARP WireGuard peer (Cloudflare's public key) or an `auto` placeholder. */
+    fun containsWarpPeer(yaml: String): Boolean =
+        yaml.contains(PLACEHOLDER_PRIVATE_KEY) || yaml.contains(WARP_PEER_PUBLIC_KEY)
+
+    private val autoLock = Any()
+    @Volatile private var lastAutoFailureAt = 0L
+    private const val AUTO_RETRY_AFTER_MS = 10L * 60 * 1000
+
+    /**
+     * Automatic (no-button) key fetch used on connect, by delay tests and by the background prewarm: one at a time,
+     * and after a failure it waits 10 minutes instead of stalling every connect / test on a blocked line.
+     */
+    fun ensureAccountAutomatic(context: Context, nowMs: Long = System.currentTimeMillis()): Outcome {
+        cached(context)?.let { return Outcome(it, Source.Cached, listOf("cached key")) }
+        synchronized(autoLock) {
+            cached(context)?.let { return Outcome(it, Source.Cached, listOf("cached key")) }
+            val since = nowMs - lastAutoFailureAt
+            if (lastAutoFailureAt > 0 && since in 0 until AUTO_RETRY_AFTER_MS) {
+                AetherIdentityStore.wireGuardAccount(java.io.File(context.filesDir, "aether.toml"))?.let {
+                    return Outcome(it, Source.CatWarpCore, listOf("Cat Warp core WireGuard key ${it.accountId.take(8)}…"))
+                }
+                return Outcome(null, Source.None, listOf("last automatic attempt failed ${since / 1000}s ago; retrying after 10 min"))
+            }
+            val outcome = ensureAccountDetailed(context)
+            lastAutoFailureAt = if (outcome.account == null) nowMs else 0L
+            return outcome
+        }
+    }
+
+    /** True when a usable key is already on the phone (no network needed). */
+    fun hasUsableKey(context: Context): Boolean =
+        cached(context) != null ||
+            AetherIdentityStore.wireGuardAccount(java.io.File(context.filesDir, "aether.toml")) != null
+
+    /**
+     * Gets the key in the background before the user ever taps connect, so WARP rows just work. Rate-limited
+     * (one attempt per 3 h) and only when the user actually has WARP rows. Blocking — call off the main thread.
+     */
+    fun prewarmIfUseful(context: Context, hasWarpRows: Boolean, nowMs: Long = System.currentTimeMillis()): Outcome? {
+        if (!hasWarpRows || hasUsableKey(context)) return null
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val last = prefs.getLong(KEY_PREWARM_AT, 0L)
+        if (last in 1..nowMs && nowMs - last < PREWARM_EVERY_MS) return null
+        prefs.edit().putLong(KEY_PREWARM_AT, nowMs).apply()
+        return ensureAccountAutomatic(context, nowMs)
+    }
+
+    private fun indentOf(line: String) = line.takeWhile { it == ' ' }.length
+    private fun unquote(v: String) = v.trim().removeSurrounding("'").removeSurrounding("\"")
+    private fun q(v: String) = "'" + v.replace("'", "''") + "'"
+
+    /**
+     * Rewrites every WARP WireGuard proxy in a Cat core YAML so it uses [account]: private key, IPv4, IPv6 and the
+     * reserved bytes (the old ones belong to someone else's account and would break the handshake). Server, port,
+     * MTU and AmneziaWG options stay as they were. Handles block-style and one-line `- {…}` items; multi-peer
+     * (`peers:`) items are left alone.
+     */
+    fun adoptWarpPeers(yaml: String, account: Account): String {
+        if (!containsWarpPeer(yaml)) return yaml
+        val lines = yaml.split('\n')
+        val out = ArrayList<String>(lines.size + 16)
+        var inProxies = false
+        var itemIndent = -1
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i]
+            val ind = indentOf(line)
+            if (line.isNotBlank() && ind == 0 && !line.startsWith("-")) {
+                inProxies = line.substringBefore(':').trim() == "proxies"
+                itemIndent = -1
+                out += line
+                i++
+                continue
+            }
+            if (inProxies && line.trimStart().startsWith("- ") && (itemIndent == -1 || ind == itemIndent)) {
+                itemIndent = ind
+                var end = i + 1
+                while (end < lines.size && lines[end].isNotBlank() && indentOf(lines[end]) > ind) end++
+                out += rewriteItem(lines.subList(i, end), ind, account)
+                i = end
+                continue
+            }
+            out += line
+            i++
+        }
+        return out.joinToString("\n")
+    }
+
+    private fun rewriteItem(block: List<String>, ind: Int, account: Account): List<String> {
+        val first = block.first().trimStart().removePrefix("- ").trimStart()
+        if (block.size == 1 && first.startsWith("{")) return listOf(rewriteFlowItem(block.first(), account))
+        val keyed = block.mapIndexed { idx, l ->
+            val body = if (idx == 0) first else l.trim()
+            body.substringBefore(':').trim().removeSurrounding("'").removeSurrounding("\"") to body.substringAfter(':', "")
+        }
+        val topLevel = block.indices.filter { it == 0 || indentOf(block[it]) == ind + 2 }.toSet()
+        val values = keyed.filterIndexed { idx, _ -> idx in topLevel }.associate { it.first to it.second }
+        val isWarp = unquote(values["type"].orEmpty()).equals("wireguard", ignoreCase = true) &&
+            "peers" !in values &&
+            (unquote(values["public-key"].orEmpty()) == WARP_PEER_PUBLIC_KEY ||
+                unquote(values["private-key"].orEmpty()) == PLACEHOLDER_PRIVATE_KEY)
+        if (!isWarp) return block
+        val child = " ".repeat(ind + 2)
+        val out = ArrayList<String>(block.size + 3)
+        var skipDeeperThan = -1
+        val seen = HashSet<String>()
+        block.forEachIndexed { idx, l ->
+            val lineIndent = if (idx == 0) ind + 2 else indentOf(l)
+            if (skipDeeperThan >= 0) {
+                if (idx > 0 && lineIndent > skipDeeperThan) return@forEachIndexed
+                skipDeeperThan = -1
+            }
+            val key = if (idx in topLevel) keyed[idx].first else ""
+            val prefix = if (idx == 0) l.substring(0, l.indexOf('-')) + "- " else " ".repeat(lineIndent)
+            when (key) {
+                "private-key" -> { out += "$prefix$key: ${q(account.privateKey)}"; seen += key }
+                "ip" -> { out += "$prefix$key: ${q(account.ipv4)}"; seen += key }
+                "ipv6", "reserved" -> {
+                    seen += key
+                    if (keyed[idx].second.isBlank()) skipDeeperThan = lineIndent
+                    val replacement = if (key == "ipv6") account.ipv6?.let { q(it) } else account.reserved?.joinToString(", ", "[", "]")
+                    if (replacement != null) {
+                        out += "$prefix$key: $replacement"
+                    } else if (idx == 0) {
+                        out += l
+                    }
+                }
+                else -> out += l
+            }
+        }
+        if ("ip" !in seen) out += "${child}ip: ${q(account.ipv4)}"
+        if ("ipv6" !in seen) account.ipv6?.let { out += "${child}ipv6: ${q(it)}" }
+        if ("reserved" !in seen) account.reserved?.let { out += "${child}reserved: ${it.joinToString(", ", "[", "]")}" }
+        return out
+    }
+
+    private fun flowKey(key: String) = Regex("""(?<=[\{,\s])(['"]?)""" + Regex.escape(key) + """\1\s*:\s*""")
+
+    private fun rewriteFlowItem(line: String, account: Account): String {
+        val open = line.indexOf('{')
+        val close = line.lastIndexOf('}')
+        if (open < 0 || close <= open) return line
+        var body = line.substring(open, close)
+        fun valueOf(key: String): String? = flowKey(key).find(body)?.let { m ->
+            body.substring(m.range.last + 1).let { rest ->
+                when {
+                    rest.startsWith("'") -> rest.drop(1).substringBefore('\'')
+                    rest.startsWith("\"") -> rest.drop(1).substringBefore('"')
+                    else -> rest.substringBefore(',').trim()
+                }
+            }
+        }
+        val isWarp = valueOf("type").equals("wireguard", ignoreCase = true) && flowKey("peers").find(body) == null &&
+            (valueOf("public-key") == WARP_PEER_PUBLIC_KEY || valueOf("private-key") == PLACEHOLDER_PRIVATE_KEY)
+        if (!isWarp) return line
+        fun put(key: String, value: String?) {
+            val m = flowKey(key).find(body)
+            if (m == null) {
+                if (value != null) body = "$body, $key: $value"
+                return
+            }
+            val start = m.range.first
+            val rest = body.substring(m.range.last + 1)
+            val valueLen = when {
+                rest.startsWith("'") -> rest.indexOf('\'', 1) + 1
+                rest.startsWith("\"") -> rest.indexOf('"', 1) + 1
+                rest.startsWith("[") -> rest.indexOf(']') + 1
+                else -> rest.indexOfFirst { it == ',' }.let { if (it < 0) rest.length else it }
+            }.coerceAtLeast(0)
+            val tail = body.substring(m.range.last + 1 + valueLen)
+            val head = body.substring(0, start).trimEnd().removeSuffix(",")
+            body = if (value == null) head + tail else body.substring(0, start) + "$key: $value" + tail
+        }
+        put("private-key", q(account.privateKey))
+        put("ip", q(account.ipv4))
+        put("ipv6", account.ipv6?.let { q(it) })
+        put("reserved", account.reserved?.joinToString(", ", "[", "]"))
+        return line.substring(0, open) + body + line.substring(close)
+    }
+
     private fun post(url: String, body: String): String? {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"

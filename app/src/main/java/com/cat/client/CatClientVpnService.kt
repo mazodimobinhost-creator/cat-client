@@ -4198,13 +4198,22 @@ class CatClientVpnService : VpnService() {
             }
 
             // 1b. awg://auto / wireguard://auto placeholders → real Cloudflare WARP account
-            if (yaml.contains(WarpRegistration.PLACEHOLDER_PRIVATE_KEY)) {
-                val account = WarpRegistration.ensureAccount(applicationContext)
+            // beta210: also every other WireGuard config that points at Cloudflare WARP (feed / shared keys are usually
+            // dead or over quota) runs with our own registered key — automatic, no button to press. Can be turned off
+            // in «🔑 کلیدهای WARP ما».
+            val adoptWarp = WarpRegistration.adoptsWarpConfigs(applicationContext)
+            if (yaml.contains(WarpRegistration.PLACEHOLDER_PRIVATE_KEY) ||
+                (adoptWarp && yaml.contains(WarpRegistration.WARP_PEER_PUBLIC_KEY))
+            ) {
+                val outcome = WarpRegistration.ensureAccountAutomatic(applicationContext)
+                val account = outcome.account
                 if (account != null) {
+                    if (adoptWarp) yaml = WarpRegistration.adoptWarpPeers(yaml, account)
                     yaml = WarpRegistration.patchYaml(yaml, account)
                     modified = true
+                    DiagnosticLogger.info(this, "warp.key.applied", "source=${outcome.source} adopt=$adoptWarp")
                 } else {
-                    DiagnosticLogger.warn(this, "warp.register.failed", "awg auto placeholders left unregistered")
+                    DiagnosticLogger.warn(this, "warp.register.failed", outcome.log.joinToString(" | ").take(400))
                 }
             }
 

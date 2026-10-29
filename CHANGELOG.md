@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta210] — 2026-10-29 (Panel 6.77.3)
+
+WireGuard gets its WARP key by itself — nothing to press.
+
+### Added — app
+- **Automatic WARP key for every WARP WireGuard config.** When you connect (and in delay tests), every WireGuard / AmneziaWG config that points at Cloudflare WARP — built-in rows, feed configs, pasted `wireguard://` links, subscriptions — runs with this phone's own registered key: private key, IPv4/IPv6 address and reserved bytes are replaced, server/port/MTU/Amnezia noise stay. Shared feed keys are usually dead or over quota; this is why they "pinged but never connected". Block-style and one-line `- {…}` YAML items are both handled; multi-peer configs and non-WARP WireGuard servers are never touched.
+- **Background key fetch.** On app start (and right after adding the free AmneziaWG rows) the app quietly gets the key if you have WARP rows and no key yet — at most once every 3 hours. On connect a failed attempt is retried after 10 minutes instead of stalling every connect / test.
+- **«🔑 کلیدهای WARP ما» → «🤖 خودکار» switch** (on by default). Turn it off only for a paid WARP+ config or your own personal key; turning it off asks for confirmation.
+
 ## [1.10.0-beta209] — 2026-10-29 (Panel 6.77.3)
 
 Cat Warp editor with «Scan for an endpoint», our WARP keys made visible, working WARP WireGuard keys, and the Psiphon chain fixed.
