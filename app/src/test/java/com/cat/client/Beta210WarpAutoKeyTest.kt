@@ -134,7 +134,7 @@ class Beta210WarpAutoKeyTest {
 
     @Test
     fun connectAndAppWiring() {
-        val svc = src("CatClientVpnService.kt")
+        val svc = VpnServiceSources.combined()
         assertTrue(svc.contains("WarpRegistration.adoptsWarpConfigs(applicationContext)"))
         assertTrue(svc.contains("WarpRegistration.adoptWarpPeers(yaml, account)"))
         assertTrue(svc.contains("WarpRegistration.ensureAccountAutomatic(applicationContext)"))

@@ -103,7 +103,7 @@ class Beta214CatWarpWiringTest {
 
     @Test
     fun serviceExplainsDeadLocalRowsInsteadOfTheCoreHealthCheck() {
-        val svc = src("CatClientVpnService.kt")
+        val svc = VpnServiceSources.combined()
         assertTrue(svc.contains("LoopbackProfileGuard.deadLocalMessage("))
         assertTrue(svc.contains("CatWarpListPolicy.isCatWarpLink(p.shareLink) || p.tag in deadLocalTags"))
         val conv = src("SubConvConverter.kt")

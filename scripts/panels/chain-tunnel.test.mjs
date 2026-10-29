@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMainActivity } from './main-activity-source.mjs';
+import { readVpnService } from './vpn-service-source.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
@@ -47,7 +48,7 @@ const planner = chain.slice(
   chain.indexOf('    private fun toRuntimePlan('),
   chain.indexOf('    private fun resolveProxyChain('),
 );
-const vpn = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'CatClientVpnService.kt');
+const vpn = readVpnService();
 const store = chain.slice(
   chain.indexOf('class ConnectionChainPreferenceStore'),
   chain.indexOf('data class ConnectionChainSource('),

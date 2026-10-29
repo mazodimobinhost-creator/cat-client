@@ -23,6 +23,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMainActivity } from './main-activity-source.mjs';
+import { readVpnService } from './vpn-service-source.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = path.join(here, '../../app/src/main');
@@ -42,7 +43,7 @@ console.log('\nOrbot / Tor engine — wiring\n');
 const engine = read('java/com/cat/client/OrbotEngine.kt');
 const runtime = read('java/com/cat/client/MihomoRuntime.kt');
 const plan = read('java/com/cat/client/SessionPlan.kt');
-const service = read('java/com/cat/client/CatClientVpnService.kt');
+const service = readVpnService();
 const activity = readMainActivity();
 const faStrings = read('res/values-fa/strings.xml');
 const enStrings = read('res/values/strings.xml');

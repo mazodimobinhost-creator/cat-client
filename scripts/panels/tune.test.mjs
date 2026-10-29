@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMainActivity } from './main-activity-source.mjs';
+import { readVpnService } from './vpn-service-source.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
@@ -30,7 +31,7 @@ const tuneKt = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'Panel
 const dpiKt = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'DpiBypass.kt');
 const carrierKt = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'MobileCarrier.kt');
 const activity = readMainActivity();
-const vpn = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'CatClientVpnService.kt');
+const vpn = readVpnService();
 const page = read('app', 'src', 'main', 'assets', 'panels', 'catclient.worker.js');
 const en = read('app', 'src', 'main', 'res', 'values', 'strings.xml');
 const fa = read('app', 'src', 'main', 'res', 'values-fa', 'strings.xml');

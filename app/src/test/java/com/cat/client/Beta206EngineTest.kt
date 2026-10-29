@@ -47,7 +47,7 @@ class Beta206EngineTest {
     }
 
     @Test fun aetherAndFenixDelayTestsAreRealNotSocketPings() {
-        val svc = src("CatClientVpnService.kt")
+        val svc = VpnServiceSources.combined()
         assertTrue(svc.contains("realAetherDelayMs(profile, rawShare, timeoutMs)"))
         assertTrue(svc.contains("realFenixDelayMs(profile, rawShare, timeoutMs)"))
         assertFalse(svc.contains("AetherOperations.probeAetherUriLatencyMs(rawShare"))
@@ -59,7 +59,7 @@ class Beta206EngineTest {
 
     @Test fun chainedCarriersKeepTheLinkTlsOptions() {
         assertTrue(src("AetherProxyCarrier.kt").contains("fingerprint = o.fingerprint.ifBlank { \"chrome\" }"))
-        assertEquals(2, Regex("linkOptions = selection,").findAll(src("CatClientVpnService.kt")).count())
+        assertEquals(2, Regex("linkOptions = selection,").findAll(VpnServiceSources.combined()).count())
     }
 
     @Test fun inlineMapRegexEscapesBracesForAndroidIcu() {

@@ -170,7 +170,7 @@ class Beta211FenixHttp2Test {
         assertTrue(engine.contains("\"proxy-authorization\" to \"Bearer \$pass\""))
         assertTrue(engine.contains("throw (statusError ?: lastError"))
         assertTrue(engine.contains("raw.connect(InetSocketAddress(resolveEdgeAddress(connectHost), connectPort), timeoutMs)"))
-        assertTrue(src("CatClientVpnService.kt").contains("FirefoxVpnEngine.resetUpstreamSessions(\"vpn stopped\")"))
+        assertTrue(VpnServiceSources.combined().contains("FirefoxVpnEngine.resetUpstreamSessions(\"vpn stopped\")"))
     }
 
     @Test

@@ -33,11 +33,11 @@
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4043 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1320 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 999 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 1000 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 3974 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivitySubscriptions.kt` | 2305 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivitySubscriptions.kt` | 2306 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityUiKit.kt` | 514 | Shared card/tile/segment widgets (zed* look) used by many screens. | 7 JVM · 9 panel (see `affected-tests.py`) |
 
 ### VPN service, lifecycle & state
@@ -45,7 +45,15 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 6468 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | Beta206EngineTest, Beta210WarpAutoKeyTest, Beta211FenixHttp2Test, Beta212SstpTest, Beta214CatWarpListTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, Beta220WiringTest · chain-exit-country, chain-tunnel, orbot-engine, tune |
+| `CatClientVpnService.kt` | 4271 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceCatWarp.kt` | 367 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceNetworkChange.kt` | 235 | Default-network changes: quick-speed pin restore, DNS replay. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceQuickSpeed.kt` | 416 | Quick «fastest» reconnect: shortlist, pin and restore of the fastest route. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceRealInternet.kt` | 235 | Real internet check after connect, route memory and automatic next route. | 10 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceSstp.kt` | 172 | Cat SSTP engine: start, delay test, close. | 10 JVM · 4 panel (see `affected-tests.py`) |
 | `ConnectionDelayTestState.kt` | 112 | — | — · — |
 | `ConnectionLifecycle.kt` | 297 | Connect/disconnect state machine shared by UI, tile and widget. | — · — |
 | `ConnectionTestSettings.kt` | 63 | — | — · — |
@@ -281,7 +289,7 @@
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_223 Kotlin files, 103235 lines._
+_231 Kotlin files, 103630 lines._
 
 ## MainActivity screens — function index
 
@@ -334,7 +342,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityGuides.kt` (9 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:349, `finderEntries`:470, `showFeatureFinderDialog`:595, `normalizeFinderText`:830, `featureFinderBar`:834, `showFirewallConnectionGuideDialog`:865, `showPrivacyPolicyIfNeeded`:918, `showPrivacyPolicyDialog`:924
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:349, `finderEntries`:470, `showFeatureFinderDialog`:595, `normalizeFinderText`:830, `featureFinderBar`:834, `showFirewallConnectionGuideDialog`:865, `showPrivacyPolicyIfNeeded`:919, `showPrivacyPolicyDialog`:925
 
 ### `MainActivityNetworkTools.kt` (24 functions)
 
@@ -350,7 +358,7 @@ for the dialog/button you want to change.
 
 ### `MainActivitySubscriptions.kt` (48 functions)
 
-`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:562, `showSubscriptionDialog`:782, `optimizeUserSubscription`:1050, `fetchFreeConfigs`:1330, `freeConfigRow`:1377, `copyFreeConfig`:1446, `addSingleConfig`:1453, `showQuickConfigMenu`:1478, `showQuickConfigDialog`:1499, `testFreeConfigs`:1537, `importFreeConfigs`:1550, `ensureFreeSubscription`:1569, `showConfigQrCodes`:1588, `subscriptionUsageLine`:1640, `openSubscriptionConnectionTesting`:1663, `startSubscriptionQrScan`:1682, `showAddSubscriptionMenu`:1692, `saveAetherConfigIntoMainSubscriptionList`:1752, `connectCatWarpAfterSave`:1796, `addSubscriptionFromClipboard`:1805, `importAndConnectAetherSelection`:1829, `showAddSubscriptionDialog`:1881, `unescapeHtmlEntities`:1885, `pushChainToPanelSuspend`:1898, `pushChainToPanelApi`:1931, `showEditSubscriptionDialog`:1951, `testSubscription`:1953, `refreshSubscription`:1960, `refreshBuiltInSubscription`:1970, `runSubscriptionAction`:1980, `collectVerifiedEndpointsForFailover`:2001, `rotateProfileRouteInSubscription`:2055, `showConnectionShareMenu`:2086, `subscriptionLink`:2158, `copySubscriptionLink`:2160, `shareSubscriptionLink`:2166, `openSubscriptionInApp`:2180, `openSubscriptionInfoPage`:2199, `confirmDeleteSubscription`:2208, `onSubscriptionSelected`:2222, `connectionCountLabel`:2261, `localizedSubscriptionError`:2264, `selectedSubscriptionName`:2269, `builtInSubscriptionName`:2275, `showSubscriptionSelectorMenu`:2283
+`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:562, `showSubscriptionDialog`:782, `optimizeUserSubscription`:1050, `fetchFreeConfigs`:1331, `freeConfigRow`:1378, `copyFreeConfig`:1447, `addSingleConfig`:1454, `showQuickConfigMenu`:1479, `showQuickConfigDialog`:1500, `testFreeConfigs`:1538, `importFreeConfigs`:1551, `ensureFreeSubscription`:1570, `showConfigQrCodes`:1589, `subscriptionUsageLine`:1641, `openSubscriptionConnectionTesting`:1664, `startSubscriptionQrScan`:1683, `showAddSubscriptionMenu`:1693, `saveAetherConfigIntoMainSubscriptionList`:1753, `connectCatWarpAfterSave`:1797, `addSubscriptionFromClipboard`:1806, `importAndConnectAetherSelection`:1830, `showAddSubscriptionDialog`:1882, `unescapeHtmlEntities`:1886, `pushChainToPanelSuspend`:1899, `pushChainToPanelApi`:1932, `showEditSubscriptionDialog`:1952, `testSubscription`:1954, `refreshSubscription`:1961, `refreshBuiltInSubscription`:1971, `runSubscriptionAction`:1981, `collectVerifiedEndpointsForFailover`:2002, `rotateProfileRouteInSubscription`:2056, `showConnectionShareMenu`:2087, `subscriptionLink`:2159, `copySubscriptionLink`:2161, `shareSubscriptionLink`:2167, `openSubscriptionInApp`:2181, `openSubscriptionInfoPage`:2200, `confirmDeleteSubscription`:2209, `onSubscriptionSelected`:2223, `connectionCountLabel`:2262, `localizedSubscriptionError`:2265, `selectedSubscriptionName`:2270, `builtInSubscriptionName`:2276, `showSubscriptionSelectorMenu`:2284
 
 ### `MainActivityUiKit.kt` (14 functions)
 

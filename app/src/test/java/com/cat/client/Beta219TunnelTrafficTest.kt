@@ -52,7 +52,7 @@ class Beta219TunnelTrafficTest {
     fun theServiceAndSessionUseTheTransportMtu() {
         val session = src("AetherSession.kt")
         assertTrue(session.contains("AetherTunPolicy.mtuForTransport(AetherTunPolicy.transportOfJson(effectiveJson))"))
-        val service = src("CatClientVpnService.kt")
+        val service = VpnServiceSources.combined()
         val fn = service.substring(service.indexOf("private fun establishAetherTun("), service.indexOf("private suspend fun establishTun("))
         assertTrue(fn.contains(".setMtu(safeMtu)"))
         assertTrue("IPv6 only when the MTU allows it", fn.contains("if (AetherTunPolicy.carriesIpv6(safeMtu))"))

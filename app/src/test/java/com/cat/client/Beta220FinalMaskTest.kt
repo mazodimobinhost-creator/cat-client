@@ -46,8 +46,7 @@ class Beta220FinalMaskTest {
     }
 
     @Test fun serviceTurnsTheLocalProxyOnForThoseProxiesOnly() {
-        val service = listOf(File("src/main/java/com/cat/client/CatClientVpnService.kt"), File("app/src/main/java/com/cat/client/CatClientVpnService.kt"))
-            .first { it.isFile }.readText()
+        val service = VpnServiceSources.combined()
         assertTrue(service.contains("MihomoDpiBypassPatcher.hasTlsHelloFinalMask(snapshot.rawConfig)"))
         assertTrue(service.contains("dpiBypassFinalMaskOnly = dpiEnabled && finalMaskOnly"))
     }

@@ -64,7 +64,7 @@ OVERRIDES = {
 
 def purpose_of(text: str, name: str = '') -> str:
     # area files carry a one-line purpose comment written by the split
-    m = re.search(r'(?m)^// (.+)\n// Moved out of MainActivity\.kt', text)
+    m = re.search(r'(?m)^// (.+)\n// Moved out of (?:MainActivity|CatClientVpnService)\.kt', text)
     if m:
         return m.group(1).strip()
     if name in OVERRIDES:
@@ -121,6 +121,7 @@ def guards() -> dict[str, tuple[list[str], list[str]]]:
     for p in srcs:
         name, stem = p.name, p.stem
         is_screen = stem.startswith('MainActivity')
+        is_service = stem.startswith('CatClientVpnService')
         names = {t for t in types[name] if len(t) > 3} - {'MainActivity'} | ({stem} if stem != 'MainActivity' else set())
         rx = re.compile(r'\b(%s)\b' % '|'.join(sorted(map(re.escape, names)))) if names else None
         j, n = [], []
@@ -128,10 +129,11 @@ def guards() -> dict[str, tuple[list[str], list[str]]]:
             if t == 'CodeMapTest':
                 continue
             if f'"{name}"' in body or f'/{name}' in body or (rx and rx.search(body)) or (
-                    is_screen and ('MainActivitySources' in body or '"MainActivity.kt"' in body)):
+                    is_screen and ('MainActivitySources' in body or '"MainActivity.kt"' in body)) or (
+                    is_service and 'VpnServiceSources' in body):
                 j.append(t)
         for t, body in panel.items():
-            if name in body or (is_screen and 'readMainActivity' in body):
+            if name in body or (is_screen and 'readMainActivity' in body) or (is_service and 'readVpnService' in body):
                 n.append(t)
         out[name] = (sorted(j), sorted(n))
     return out

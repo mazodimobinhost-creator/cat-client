@@ -36,7 +36,7 @@ class Beta218ConnectFreezeTest {
 
     @Test
     fun serviceStartupMovesFileAndNativeWorkOffMain() {
-        val s = src("CatClientVpnService.kt")
+        val s = VpnServiceSources.combined()
         assertTrue(s.contains("withContext(Dispatchers.IO) { AetherRuntimeCapabilities.detect().nativeCoreLoaded }"))
         assertTrue(s.contains("withContext(Dispatchers.IO) { aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(identityFile) }"))
         assertTrue(s.contains("withContext(Dispatchers.IO) { runCatching { SlipNetCliEngine.stopAll() } }"))

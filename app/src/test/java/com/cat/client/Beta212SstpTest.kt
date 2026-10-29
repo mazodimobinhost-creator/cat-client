@@ -376,7 +376,7 @@ class Beta212SstpWiringTest {
 
     @org.junit.Test
     fun serviceRunsSstpStraightIntoTheTunAndClosesItOnEveryStopPath() {
-        val svc = src("CatClientVpnService.kt")
+        val svc = VpnServiceSources.combined()
         org.junit.Assert.assertTrue(svc.contains("runSstpStartup(eventPrefix, selectedSubscriptionId, candidates)"))
         org.junit.Assert.assertTrue(svc.contains("SstpDialer.open("))
         org.junit.Assert.assertTrue(svc.contains("connection.startDataPlane("))

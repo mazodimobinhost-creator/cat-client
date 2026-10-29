@@ -12,7 +12,7 @@ class Beta220WiringTest {
         listOf(File("src/main/java/com/cat/client/$name"), File("app/src/main/java/com/cat/client/$name"))
             .first { it.isFile }.readText()
 
-    private val service by lazy { src("CatClientVpnService.kt") }
+    private val service by lazy { VpnServiceSources.combined() }
 
     @Test fun serviceHandlesTheTwoButtonsAndMeasuresAfterEveryStart() {
         assertTrue(service.contains("Actions.TRY_NEXT_ROUTE -> tryNextRoute()"))

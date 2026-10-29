@@ -14,7 +14,10 @@ export function mainActivityFiles() {
 }
 
 export function readMainActivity() {
-  return mainActivityFiles().map((f) => readFileSync(f, 'utf8')).join('\n')
+  const raw = mainActivityFiles().map((f) => readFileSync(f, 'utf8')).join('\n');
+  const moved = new Set([...raw.matchAll(/^internal (?:suspend )?fun MainActivity\.(\w+)\(/gm)].map((m) => m[1]));
+  return raw
+    .replace(/this@(\w+)/g, (all, n) => (moved.has(n) ? 'this@MainActivity' : all))
     .replace(/^internal (suspend )?fun MainActivity\./gm, (_, s) => `private ${s || ''}fun `)
     .replace(/^( {4}(?:@\w+ )*)internal (?!companion)/gm, '$1private ');
 }

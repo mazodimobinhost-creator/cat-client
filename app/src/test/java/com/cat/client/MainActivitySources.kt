@@ -21,10 +21,15 @@ internal object MainActivitySources {
         return listOf(File(d, "MainActivity.kt")) + parts
     }
 
-    fun combined(): String = files().joinToString("\n") { it.readText() }
+    fun combined(): String {
+        val raw = files().joinToString("\n") { it.readText() }
+        // an extension's receiver label is its own name (`this@showFoo`); show it as `this@MainActivity` again
+        val moved = Regex("(?m)^internal (?:suspend )?fun MainActivity\\.(\\w+)\\(").findAll(raw).map { it.groupValues[1] }.toSet()
+        return raw.replace(Regex("this@(\\w+)")) { if (it.groupValues[1] in moved) "this@MainActivity" else it.value }
         .replace(Regex("(?m)^internal (suspend )?fun MainActivity\\.")) { "private ${it.groupValues[1]}fun " }
         // members the area files use were widened from private to internal; contracts are visibility-insensitive
         .replace(Regex("(?m)^(    (?:@\\w+ )*)internal (?!companion)")) { "${it.groupValues[1]}private " }
+    }
 
     /** Text of one function: from its declaration to the next function declaration at member or file level. */
     fun function(name: String): String {

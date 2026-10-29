@@ -55,7 +55,7 @@ def main(argv: list[str]) -> int:
             print(f'{f}: {len(j)} JVM + {len(p)} panel guard(s)')
         elif 'assets/panels/' in f or f.startswith('dist-panel/') or f.startswith('scripts/panels/'):
             worker_changed = True
-    jvm.discard('MainActivitySources')
+    jvm.discard('MainActivitySources'); jvm.discard('VpnServiceSources')
     if any(f.startswith("app/src/main/java/") and f.endswith(".kt") for f in files):
         jvm.add('CodeMapTest')
     print()
