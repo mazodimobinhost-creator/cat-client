@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta231] — 2026-10-30 (Panel 6.79.2)
+
+### Fixed — SmarterASP Linux «Unhealthy», 6 restarts, exit code 0 (owner's screenshot)
+- The Linux runtime loads the Startup file from its own runner, so `process.argv[1]` is not `index.js`; the launcher only started when it was, so it loaded, did nothing and exited 0 — the host restarted it again and again. Reproduced (CommonJS runner `require(index.js)` → silent exit 0) and fixed: a deployed folder (a `cat-config.json` next to `index.js`) now starts anyway (`CAT_AUTOSTART=0` turns this off); the first log line says how it was started and which PORT it got. `server.js` no longer starts a second copy.
+- The SmarterASP zip now carries the panel of the app's own version in `cat-bundled/` (the release's exact files + SHA-256 list). The first start uses it with no GitHub request at all; later starts update from GitHub as before and keep the cache if that fails.
+- `smarterasp-linux.test.mjs`: a CommonJS runner loads `index.js` with GitHub unreachable → starts from `cat-bundled`, `/health` 200. New `Beta231SmarterAspRunnerTest.kt`.
+
 ## [1.10.0-beta230] — 2026-10-30 (Panel 6.79.2)
 
 ### Changed — SmarterASP Linux «Node.js App» page (owner's screenshot)

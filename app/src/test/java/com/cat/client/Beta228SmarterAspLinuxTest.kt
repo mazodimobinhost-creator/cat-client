@@ -27,7 +27,7 @@ class Beta228SmarterAspLinuxTest {
         assertTrue(c.contains("60-Day Free Linux Trial") && c.contains("W60LX-US") && c.contains("W60-US"))
         assertTrue(c.contains("Startup file = server.js") && c.contains("Health path = /health"))
         assertTrue(c.contains("out[\"server.js\"] = asset(NodeHostPanel.SMARTERASP_ASSETS + \"/server.js\")"))
-        assertTrue(read("app/src/main/assets/node-panel/smarterasp/server.js").contains("import { main } from './index.js';"))
+        assertTrue(read("app/src/main/assets/node-panel/smarterasp/server.js").contains("import { main, autostarted } from './index.js';"))
         val verify = c.substringAfter("private suspend fun verify(").substringBefore("\n    }\n")
         assertTrue(verify.indexOf("NodeHostPanel.CONFIG_FILE") in 0 until verify.indexOf("\"/sub/\" + uuid"))
         assertTrue(verify.contains("+ exposedNote, true)"))

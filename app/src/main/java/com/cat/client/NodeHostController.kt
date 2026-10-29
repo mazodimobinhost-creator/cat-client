@@ -174,6 +174,16 @@ class NodeHostController(
             // beta230: the Linux trial's «Node.js App» starts server.js by default — it just starts index.js.
             out["server.js"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/server.js")
             out["App_Data/README.txt"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/App_Data-README.txt")
+            // beta231: the panel of this app version (the same bytes as the release's) + its SHA-256 list, used on
+            // the very first start only — a host that cannot reach GitHub (or is slow to) still starts at once.
+            if (!update) {
+                val worker = asset(NodeHostPanel.BUNDLED_WORKER_ASSET)
+                val adapter = asset(NodeHostPanel.BUNDLED_ADAPTER_ASSET)
+                out["cat-bundled/catclient.worker.js"] = worker
+                out["cat-bundled/cat-panel-adapter.mjs"] = adapter
+                out["cat-bundled/cat-node-panel.sha256"] = NodeHostPanel.bundledSums(worker, adapter).toByteArray()
+                out["cat-bundled/version.txt"] = (BuildConfig.VERSION_NAME + "\n").toByteArray()
+            }
             for (rel in assetTree(NodeHostPanel.SMARTERASP_WS_ASSETS)) {
                 out[NodeHostPanel.smarterAspWsEntry(rel)] = asset(NodeHostPanel.SMARTERASP_WS_ASSETS + "/" + rel)
             }
@@ -634,12 +644,12 @@ class NodeHostController(
             t(
                 "1) «🌐 کنترل‌پنل» ← سایت (site1) ← File Manager.\n" +
                     "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید: آدرس و نام کاربری FTP در Overview ← Server Details هست، مثل LINUX….SITE4NOW.NET و نام‌کاربری-001؛ رمز = رمز کنترل‌پنل). index.js و package.json باید مستقیم در همان پوشه باشند.\n" +
-                    "3) 🐧 آزمایشی لینوکس: site1 ← «NodeJs» ← Configuration: Node.js 24 LTS، Framework = Other، Application root = . ، Startup file = server.js (همراه zip است و index.js را اجرا می‌کند؛ index.js هم درست است)، Health path = /health ← ذخیره ← Start. متغیر PORT را خودتان نسازید؛ فقط اگر فرم یک پورت مشخص نشان داد، PORT = همان عدد. State باید Running شود.\n" +
+                    "3) 🐧 آزمایشی لینوکس: site1 ← «NodeJs» ← Configuration: Node.js 24 LTS، Framework = Other، Application root = . ، Startup file = server.js یا index.js (هر دو در zip هستند)، Health path = /health ← ذخیره ← Start. متغیر PORT را خودتان نسازید؛ فقط اگر فرم یک پورت مشخص نشان داد، PORT = همان عدد. State باید Running شود؛ اگر Unhealthy ماند، zip تازهٔ همین نسخه را دوباره آپلود کنید (روی قبلی) و Restart بزنید.\n" +
                     "   🪟 آزمایشی ویندوز: Hosting Manager ← Node.js ← برای همین سایت روشن کنید (web.config همراه zip است).\n" +
                     "4) آدرس موقت سایت را از صفحهٔ سایت کپی کنید.",
                 "1) «🌐 Control panel» → the site (site1) → File Manager.\n" +
                     "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP: the FTP address and login are under Overview → Server Details, like LINUX….SITE4NOW.NET and yourname-001; password = the control-panel password). index.js and package.json must be directly in that folder.\n" +
-                    "3) 🐧 Linux trial: site1 → «NodeJs» → Configuration: Node.js 24 LTS, Framework = Other, Application root = . , Startup file = server.js (it comes in the zip and starts index.js; index.js works too), Health path = /health → save → Start. Do not create PORT yourself; only if the form shows a fixed port, PORT = that number. State must become Running.\n" +
+                    "3) 🐧 Linux trial: site1 → «NodeJs» → Configuration: Node.js 24 LTS, Framework = Other, Application root = . , Startup file = server.js or index.js (both are in the zip), Health path = /health → save → Start. Do not create PORT yourself; only if the form shows a fixed port, PORT = that number. State must become Running; if it stays Unhealthy, upload this version's fresh zip again (over the old files) and Restart.\n" +
                     "   🪟 Windows trial: Hosting Manager → Node.js → enable it for this site (web.config comes in the zip).\n" +
                     "4) Copy the site's temporary address from the site page.",
             ),

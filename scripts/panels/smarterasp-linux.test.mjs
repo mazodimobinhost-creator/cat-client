@@ -6,6 +6,8 @@
  *   • /api/version, /sub/<uuid> (configs) and a real WebSocket 101 on the first config's path;
  *   • GET /cat-config.json never returns the UUID (the launcher itself does not serve its folder).
  * beta230: started through server.js (the runtime's default Startup file); /health = the Health path.
+ * beta231: the Linux runtime loads the Startup file from its own runner (argv[1] is not index.js) — the panel must
+ *   still start; and a fresh folder with no GitHub access starts from the zip's cat-bundled/ (SHA-256 checked).
  * Usage: node scripts/panels/smarterasp-linux.test.mjs
  */
 import http from 'node:http';
@@ -92,6 +94,37 @@ try {
   check('GET /cat-config.json never returns the UUID', !leak.body.includes(UUID), leak.status + ' ' + leak.body.slice(0, 120));
 } finally {
   child.c.kill('SIGKILL');
+}
+
+// beta231 — a host runner loads the Startup file (CommonJS require of index.js, argv[1] = the runner), the folder
+// has nothing cached and GitHub is unreachable: the panel must start from cat-bundled/ (what the app zips).
+{
+  const app2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-sa-runner-'));
+  copyTree(app, app2);
+  fs.rmSync(path.join(app2, 'cat-code'), { recursive: true, force: true });
+  fs.rmSync(path.join(app2, 'cat-data'), { recursive: true, force: true });
+  fs.mkdirSync(path.join(app2, 'cat-bundled'));
+  for (const f of ['catclient.worker.js', 'cat-panel-adapter.mjs', 'cat-node-panel.sha256']) fs.copyFileSync(path.join(src, f), path.join(app2, 'cat-bundled', f));
+  fs.writeFileSync(path.join(app2, 'cat-bundled', 'version.txt'), '1.10.0-test\n');
+  const runner = path.join(os.tmpdir(), 'cat-host-runner-' + process.pid + '.cjs');
+  fs.writeFileSync(runner, "require(process.argv[2]);\n");
+  const P2 = await freePort();
+  let out2 = '';
+  const c2 = spawn(process.execPath, [runner, path.join(app2, 'index.js')], { cwd: app2, env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(P2), NODE_PATH: '', CAT_REPO: 'invalid.invalid/none', HTTPS_PROXY: 'http://127.0.0.1:9' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  c2.stdout.on('data', (d) => { out2 += d; }); c2.stderr.on('data', (d) => { out2 += d; });
+  const up = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), 30000);
+    const iv = setInterval(() => { if (/listening on /.test(out2)) { clearTimeout(t); clearInterval(iv); resolve(true); } }, 100);
+    c2.on('exit', () => { clearTimeout(t); clearInterval(iv); resolve(false); });
+  });
+  try {
+    check('loaded by a host runner (argv[1] is not index.js) → the panel still starts', up && /loaded by the host runner/.test(out2), out2);
+    check('fresh folder, no GitHub → first start uses the zip\'s cat-bundled panel (SHA-256 checked)', /first start: using the panel that came in the zip \(bundled-1\.10\.0-test\)/.test(out2) && /ready \(SHA-256 checked\)/.test(out2), out2);
+    if (up) {
+      const h2 = await new Promise((resolve) => { http.get({ host: '127.0.0.1', port: P2, path: '/health' }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', () => resolve(0)); });
+      check('the runner-started panel answers /health 200', h2 === 200, h2);
+    }
+  } finally { c2.kill('SIGKILL'); fs.rmSync(runner, { force: true }); }
 }
 console.log(failures ? 'smarterasp-linux: ' + failures + ' failed' : 'smarterasp-linux: all checks passed');
 process.exit(failures ? 1 : 0);

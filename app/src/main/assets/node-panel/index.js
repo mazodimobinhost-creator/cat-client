@@ -19,6 +19,11 @@
 //                        writes it; otherwise it is guessed (Railway's own variables, IIS → smarterasp)
 //   CAT_CF_FRONT         the name of your 🟧 Cloudflare front Worker (the app sets it) — adds its lines to the sub
 //   CAT_KEEPALIVE=0      SmarterASP/IIS: do not wake the site every 9 minutes (IIS stops an idle site)
+//   CAT_AUTOSTART=0      do not start when a host's runner loads this file (see the end of this file)
+//
+// ./cat-bundled (the app puts it in the SmarterASP zip): the panel files of the app's own version + their SHA-256
+// list. Used only on the very first start when nothing is cached yet, so a host that cannot reach GitHub (or is
+// slow to) still starts at once; later starts update from GitHub as usual and keep the cache if that fails.
 //
 // Hosts where you cannot set environment variables (KataBump) can use a `cat-config.json` next to this file
 // instead — the Cat Client app writes one for you, e.g. {"UUID":"…","TROJAN_PASS":"…"}. Real environment
@@ -217,6 +222,13 @@ export async function prepareCode(codeDir, env = process.env) {
       const sumsFile = path.join(dir, SUMS_ASSET);
       if (fs.existsSync(sumsFile)) files[SUMS_ASSET] = fs.readFileSync(sumsFile);
       tag = 'local';
+    } else if (!have && bundledReady(env)) {
+      const dir = bundledDir(env);
+      files = {};
+      for (const n of [PANEL_ASSET, ADAPTER_ASSET, SUMS_ASSET]) files[n] = fs.readFileSync(path.join(dir, n));
+      const v = path.join(dir, 'version.txt');
+      tag = 'bundled-' + (fs.existsSync(v) ? fs.readFileSync(v, 'utf8').trim() : 'app');
+      log('first start: using the panel that came in the zip (' + tag + '); later starts update from GitHub');
     } else {
       let rel;
       if (env.CAT_PANEL_TAG) {
@@ -258,6 +270,12 @@ export async function prepareCode(codeDir, env = process.env) {
   }
 }
 
+export function bundledDir(env = process.env) { return path.resolve(HERE, env.CAT_BUNDLED_DIR || 'cat-bundled'); }
+export function bundledReady(env = process.env) {
+  const dir = bundledDir(env);
+  return [PANEL_ASSET, ADAPTER_ASSET, SUMS_ASSET].every((n) => fs.existsSync(path.join(dir, n)));
+}
+
 function writable(dir) {
   try { fs.mkdirSync(dir, { recursive: true }); const f = path.join(dir, '.w'); fs.writeFileSync(f, '1'); fs.unlinkSync(f); return true; } catch (_) { return false; }
 }
@@ -297,8 +315,13 @@ export async function main(env = process.env) {
   return server;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
+const isMain = !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// Some hosts do not run `node index.js` but load the «Startup file» from their own runner (import/require), so
+// argv[1] is the runner and the check above is false: the process then idled and the host marked it «Unhealthy»
+// (SmarterASP Linux, beta231). A cat-config.json next to this file means «this folder is a deployed panel» → start.
+export const autostarted = isMain || (process.env.CAT_AUTOSTART !== '0' && fs.existsSync(path.join(HERE, 'cat-config.json')));
+if (autostarted) {
+  log('starting (Node ' + process.versions.node + ', ' + (isMain ? 'node index.js' : 'loaded by the host runner ' + path.basename(process.argv[1] || '?')) + ', PORT=' + (process.env.PORT || process.env.SERVER_PORT || '-') + ')');
   main().catch((e) => {
     console.error('[cat] could not start: ' + ((e && e.message) || e));
     console.error('[cat] the host must reach github.com once to fetch the panel (later starts reuse the cached copy).');
