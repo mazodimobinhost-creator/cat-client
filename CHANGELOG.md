@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta215] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app (Cat Warp)
+- **«Connection failed: engine is already running».** The Cat Warp native core runs one engine per app process and keeps its run slot until the blocking native run call has returned — `stop()` only asks it to stop. Starting the next engine straight after a stop failed: the WARP → Psiphon chain (e.g. «Germany») falling back to two-hop WARP closed one carrier and started the next at once, and a reconnect / config switch while connected or a superseded connect attempt did the same. Now every native run is tracked (`AetherEngineSlot`); before a new engine prepares, a leftover one is stopped and the app waits (up to 12 s) until its run has really returned; a prepare that still hears «already running» is retried after stopping it; and an older start that is still preparing is marked superseded so it can never go on to open a second TUN. If the old engine really does not let go, the error now says so in plain words (new fault «هستهٔ Cat Warp هنوز اتصال قبلی را می‌بست» — wait a few seconds and connect again).
+
+### Tests
+- `Beta215AetherEngineSlotTest` (waits for a slow-unwinding run, idle slot untouched, honest give-up, prepare retry only on «already running», superseded generations, fault text) and `Beta215AetherEngineWiringTest` (no untracked `NativeAetherBridge.run` left in the session or the carrier).
+
 ## [1.10.0-beta214] — 2026-10-29 (Panel 6.77.3)
 
 ### Fixed — app (Cat Warp)
