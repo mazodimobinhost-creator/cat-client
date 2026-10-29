@@ -42,3 +42,16 @@ shim on top of `node:net`) follows ludas114343/vercel-vless-proxy
 (https://github.com/ludas114343/vercel-vless-proxy), MIT License,
 Copyright (c) ludas114343. The adapter in Cat Client was written independently
 around the existing Cat Panel worker; the MIT notice above is kept as attribution.
+
+Cat SSTP (SstpClient.kt)
+------------------------
+The SSTP client follows the published specifications ([MS-SSTP], RFC 1661, 1332,
+1334, 1994, 2759 and 3079). The MD4 routine and the HLAK / Compound-MAC
+derivation of the SSTP crypto binding were written after Open SSTP Client by
+KOBAYASHI Ittoku (https://github.com/kittoku/Open-SSTP-Client), MIT License,
+Copyright (c) 2019 KOBAYASHI Ittoku. Permission is hereby granted, free of
+charge, to any person obtaining a copy of that software, to deal in it without
+restriction, subject to including the copyright notice and this permission
+notice; the software is provided "AS IS", without warranty of any kind.
+The public server list is read at run time from sstp.wireconf.workers.dev
+(VPN Gate servers, University of Tsukuba volunteer project); no data is bundled.

@@ -21489,6 +21489,13 @@ class MainActivity : Activity() {
               👈 می‌تونی ایمیل و رمز حساب فایرفاکست رو بزنی (حتی می‌تونی ۲ یا ۳ تا اکانت رایگان اضافه کنی تا بشه ۱۵۰ گیگ در ماه و وقتی یکی تموم شد خودش بره رو بعدی!).
 
             ────────────────────────
+            🌏 دکمه «Cat SSTP — سرورهای رایگان SSTP»
+            • این چیه؟ همون VPN استاندارد ویندوز (SSTP) روی سرورهای رایگان داوطلبانه ژاپن و کره؛ بدون حساب، با vpn / vpn.
+            • «🚀 دریافت و اتصال» رو بزنی چی میشه؟
+              👈 فهرست تازه سرورها رو می‌گیره، اشتراک «🌏 Cat SSTP» رو می‌سازه و کل گوشی رو وصل می‌کنه؛ اگه یکی جواب نداد خودش تا ۶ تای بعدی رو امتحان می‌کنه.
+            • گواهی این سرورها خودامضاست و صاحبش داوطلبه؛ برای کار حساس فقط سایت‌های https.
+
+            ────────────────────────
             🪄 ۲) دکمه «تعمیر خودکار کانفیگ من و اتصال فوری»
             • کی بزنم؟ وقتی خودت کانفیگ یا اشتراک خریدی (یا ساختی)، ولی روی همراه اول یا ایرانسل وصل نمیشه یا سرعتش صفره.
             • اینو بزنی چی میشه؟
@@ -21559,6 +21566,9 @@ class MainActivity : Activity() {
 
             1) 🦊 Cat Fox VPN (50 GB/mo Free):
                Uses Mozilla's official Fastly edge servers (which aren't blocked like Cloudflare) to connect your whole phone. You can add multiple free Firefox accounts (50 GB each) with automatic failover.
+
+            🌏 Cat SSTP (free SSTP servers):
+               The standard Windows VPN (SSTP) on free volunteer servers in Japan/Korea, no account (vpn / vpn). “🚀 Get & connect” downloads a fresh list into the “🌏 Cat SSTP” subscription and connects; if one server fails it tries up to 6 more. Certificates are self-signed — use https sites for anything sensitive.
 
             2) 🪄 1-Click Repair My Config & Connect:
                Automatically takes your existing subscription/config, wraps it in our local Anti-DPI SNI Splitter + 5 Cloudflare Spoof methods, and connects immediately.

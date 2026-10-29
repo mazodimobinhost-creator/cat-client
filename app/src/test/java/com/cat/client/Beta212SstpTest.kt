@@ -366,3 +366,38 @@ class Beta212SstpListTest {
         org.junit.Assert.assertEquals("https://sstp.wireconf.workers.dev/api?sort=site&limit=200&min_speed=50", SstpServerList.apiUrl("x", 999, 50))
     }
 }
+
+class Beta212SstpWiringTest {
+    private fun src(name: String): String =
+        listOf(java.io.File("src/main/java/com/cat/client/$name"), java.io.File("app/src/main/java/com/cat/client/$name"))
+            .first { it.isFile }.readText()
+
+    @org.junit.Test
+    fun serviceRunsSstpStraightIntoTheTunAndClosesItOnEveryStopPath() {
+        val svc = src("CatClientVpnService.kt")
+        org.junit.Assert.assertTrue(svc.contains("runSstpStartup(eventPrefix, selectedSubscriptionId, candidates)"))
+        org.junit.Assert.assertTrue(svc.contains("SstpDialer.open("))
+        org.junit.Assert.assertTrue(svc.contains("connection.startDataPlane("))
+        org.junit.Assert.assertTrue(svc.contains(".addRoute(\"::\", 0)"))
+        listOf("closeSstp(\"service destroyed\")", "closeSstp(\"disconnect\")", "closeSstp(\"failure\")").forEach {
+            org.junit.Assert.assertTrue(it, svc.contains(it))
+        }
+        org.junit.Assert.assertTrue(svc.contains("if (scheme == SstpLink.SCHEME)"))
+        org.junit.Assert.assertTrue(svc.contains("connection.switch.sstpRestart"))
+    }
+
+    @org.junit.Test
+    fun subscriptionsAndUiKnowSstp() {
+        val conv = src("SubConvConverter.kt")
+        org.junit.Assert.assertTrue(conv.contains("\"sstp://\""))
+        org.junit.Assert.assertTrue(conv.contains("SstpLink.SCHEME -> parseSstp(line, names)"))
+        org.junit.Assert.assertTrue(conv.contains(".put(\"sstp-uri\", link.toUri())"))
+        org.junit.Assert.assertTrue(src("MihomoShareLink.kt").contains("proxy.str(\"sstp-uri\")"))
+        org.junit.Assert.assertTrue(src("MihomoRuntime.kt").contains("joined.contains(\"sstp-uri:\")"))
+        org.junit.Assert.assertTrue(src("IspProtocolMatrix.kt").contains("\"sstp-uri\""))
+        val ui = src("MainActivity.kt")
+        org.junit.Assert.assertTrue(ui.contains("private fun showCatSstpDialog()"))
+        org.junit.Assert.assertTrue(ui.contains("{ showCatSstpDialog() }"))
+        org.junit.Assert.assertTrue(ui.contains("SstpServerList.fetch(sort, CAT_SSTP_LIST_LIMIT)"))
+    }
+}

@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta212] — 2026-10-29 (Panel 6.77.3)
+
+Cat SSTP — free SSTP servers (VPN Gate, user `vpn` / password `vpn`) built into the app.
+
+### Added — app
+- **Cat SSTP engine (`SstpClient.kt`, pure JVM, no new libraries).** A complete Microsoft SSTP client: TLS → `SSTP_DUPLEX_POST` → SSTP call (Connect-Request/Ack) → PPP LCP (PFC/ACFC refused, server MRU honoured, EAP answered with a NAK for MS-CHAPv2) → login with **MS-CHAPv2** (the server's `S=` authenticator is verified), CHAP-MD5 or PAP → **Call-Connected with the crypto binding** (HLAK from the MPPE master keys, SHA-256 or SHA-1 Compound MAC over the server certificate hash) → IPCP (IP address and DNS from the server, NAK/Reject handled). Then IPv4 packets go straight between the phone's TUN and the server; SSTP echo and LCP echo keep the call alive, a silent server (70 s) or LCP Terminate ends it cleanly. MD4 and the HLAK/CMAC derivation were written after Open SSTP Client (MIT, © 2019 KOBAYASHI Ittoku), credited in the source.
+- **Direct tunnel in the VPN service.** The Cat core has no SSTP outbound, so picking an `sstp://` row (or Automatic on a subscription that is all SSTP) runs the SSTP call itself: protected socket, up to **6 servers tried in turn** (the picked one first, 8 s connect + 15 s handshake each), TUN with the server-assigned IPv4 /32, DNS from IPCP (fallback 1.1.1.1 / 8.8.8.8), MTU ≤ 1400, IPv6 routed into the TUN and dropped so it cannot leak, split tunnelling respected. Disconnect, failure and service destroy close the call; picking another row while connected restarts the tunnel on that row. The home screen shows the SSTP row that is really connected.
+- **Real SSTP ping.** The delay test of an SSTP row is a full handshake up to the assigned IP address, then a hang-up — no socket «ping». SSTP rows can be tested while any tunnel is up (no temporary core needed).
+- **«🌏 Cat SSTP» card** in the anti-censorship tab (and in the feature finder): gets a fresh server list from `sstp.wireconf.workers.dev` (the VPN Gate site itself is filtered in Iran) — JSON with country, IP and the server's own speed, or the plain host list if JSON fails — in the order you choose (recommended / fastest / most stable / newest), saves it as the «🌏 Cat SSTP» subscription (created or updated) and connects. Each row dials the listed IP with the exact listed port and keeps the host for SNI. «✍️ لینک دستی» accepts `sstp://user:pass@host:port` or a bare VPN Gate host (`vpn123.opengw.net:1270`). A plain-language guide explains every button and says honestly that these certificates are self-signed and the servers are run by volunteers.
+- `sstp://` links and bare `*.opengw.net[:port]` lines are understood everywhere a config can be pasted; rows are named «🐱 Cat · Japan · SSTP 228 Mbps · 🇯🇵».
+
+### Tests
+- `Beta212SstpTest`: MD4 (RFC 1320), MS-CHAPv2 (RFC 2759 challenge, NT-response, authenticator) and MPPE (RFC 3079 master key and start key) vectors; link round-trip; a fake SSTP server driving a full call (PFC/ACFC reject, MS-CHAPv2, Compound-MAC check, IPV6CP protocol-reject, IPCP NAK/Reject, packets both ways, echo, LCP terminate); wrong password and silent-server timeouts. `Beta212SstpListTest`: mirror JSON/TXT parsing with exact ports. `Beta212SstpWiringTest`: service/converter/UI wiring.
+
 ## [1.10.0-beta211] — 2026-10-29 (Panel 6.77.3)
 
 Cat Fox VPN rebuilt on HTTP/2 — the way Firefox itself talks to Mozilla's proxy.

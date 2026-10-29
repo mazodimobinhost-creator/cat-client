@@ -1692,11 +1692,11 @@ class CatClientVpnService : VpnService() {
         val autoSstp = explicitCandidate == null && sstpProfiles.isNotEmpty() && sstpProfiles.size == allProfiles.size
         if (explicitSstp != null || autoSstp) {
             val ordered = listOfNotNull(explicitSstp) + sstpProfiles.filter { p -> p.shareLink != explicitSstp?.shareLink }
-            val links = ordered.mapNotNull { p ->
-                SstpLink.parse(p.shareLink.orEmpty())?.let { l -> l.copy(remark = l.remark.ifBlank { ConnectionLabelPolicy.displayName(p) }) }
-            }.distinctBy { it.endpoint }.take(SSTP_MAX_CANDIDATES)
-            if (links.isNotEmpty()) {
-                runSstpStartup(eventPrefix, links)
+            val candidates = ordered.mapNotNull { p ->
+                SstpLink.parse(p.shareLink.orEmpty())?.let { l -> p to l.copy(remark = l.remark.ifBlank { ConnectionLabelPolicy.displayName(p) }) }
+            }.distinctBy { it.second.endpoint }.take(SSTP_MAX_CANDIDATES)
+            if (candidates.isNotEmpty()) {
+                runSstpStartup(eventPrefix, selectedSubscriptionId, candidates)
                 return
             }
         }
@@ -4495,7 +4495,12 @@ class CatClientVpnService : VpnService() {
         }
     }
 
-    private suspend fun runSstpStartup(eventPrefix: String, links: List<SstpLink>) {
+    private suspend fun runSstpStartup(
+        eventPrefix: String,
+        subscriptionId: String,
+        candidates: List<Pair<ConnectionProfile, SstpLink>>,
+    ) {
+        val links = candidates.map { it.second }
         check(coreLifecycle.isIdle()) { "Cat core must stop before Cat SSTP starts" }
         closeSstp("restart")
         val splitPlan = resolveSplitTunnelRuntimePlan()
@@ -4555,6 +4560,15 @@ class CatClientVpnService : VpnService() {
             "$eventPrefix.sstp.ready",
             "server=${chosen.endpoint} ip=${lease.address} dns=${lease.dns.joinToString(",")} mtu=${lease.mtu}",
         )
+        // Home screen / notification show the SSTP row that is really carrying the phone.
+        candidates.firstOrNull { it.second == chosen }?.first?.let { profile ->
+            activeProfile = profile
+            activeProfileShowsServer = false
+            activeSubscriptionId = subscriptionId
+            activeConnectionTag = profile.tag
+            activeConnectionFingerprint = profile.fingerprint
+            activeConnectionCountryFlag = ConnectionLocationPolicy.countryForProfile(profile)?.flag.orEmpty()
+        }
         publishState(VpnState.Started)
         val reason = try {
             ended.await()
