@@ -1143,9 +1143,10 @@ internal fun MainActivity.optimizeUserSubscription(item: UserSubscription) {
                         "• پاک شدن echConfigList · آدرس = ${ipInput.text?.toString()?.ifBlank { FirewallBypassRecipes.IRANCELL_DEFAULT_IPV4 }}\n" +
                         "• finalMask = tlshello-0-len (F&F) · cipherSuites = semi-python (F&F)\n" +
                         "• فینگرپرینت = unsafe · ALPN = http/1.1 (برای ws) و h2,http/1.1 (برای XHTTP)\n" +
-                        "• رفع محدودیت سرعت آپلود روی فایروال ایرانسل"
+                        "• رفع محدودیت سرعت آپلود روی فایروال ایرانسل\n" +
+                        "• تکه‌کردن tlshello را برنامه خودش انجام می‌دهد؛ cipherSuites در هسته‌ی Cat اثری ندارد"
                 } else {
-                    "🟧 Irancell Firewall (CDN/WORKER with F&F): clears echConfigList; IP=${ipInput.text?.toString()?.ifBlank { FirewallBypassRecipes.IRANCELL_DEFAULT_IPV4 }}; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) / h2,http/1.1 (XHTTP)."
+                    "🟧 Irancell Firewall (CDN/WORKER with F&F): clears echConfigList; IP=${ipInput.text?.toString()?.ifBlank { FirewallBypassRecipes.IRANCELL_DEFAULT_IPV4 }}; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) / h2,http/1.1 (XHTTP). The app performs the tlshello split itself; cipherSuites has no effect in the Cat core."
                 }
             FirewallBypassProfile.NONE ->
                 if (isFarsi) {

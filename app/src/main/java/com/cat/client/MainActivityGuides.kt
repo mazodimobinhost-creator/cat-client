@@ -880,7 +880,8 @@ internal fun MainActivity.showFirewallConnectionGuideDialog() {
             "• مقدار echConfigList پاک شود و از آدرسی مانند 188.114.98.0 استفاده شود.\n" +
             "• مقدار finalMask روی tlshello-0-len (متد F&F)، مقدار cipherSuites روی semi-python (متد F&F) و فینگرپرینت روی unsafe قرار گیرد.\n" +
             "• مقدار ALPN برای ws روی http/1.1 و برای XHTTP روی h2,http/1.1 تنظیم شود.\n" +
-            "• (سایر روش‌ها روی فایروال ایرانسل با محدودیت سرعت آپلود مواجه هستند.)\n\n" +
+            "• (سایر روش‌ها روی فایروال ایرانسل با محدودیت سرعت آپلود مواجه هستند.)\n" +
+            "• در Cat: تکه‌کردن tlshello را خود برنامه با «پروکسی تکه‌کننده» انجام می‌دهد (فقط برای همین کانفیگ‌ها، خودکار). هسته‌ی Cat گزینه‌ی cipherSuites=semi-python را ندارد و با unsafe از TLS ساده استفاده می‌کند؛ اگر وصل نشد WARP یا MASQUE/H2 را امتحان کنید.\n\n" +
             "۲) WARP: همان مراحل همراه اول، با هر نوع IP (IPv4/IPv6).\n" +
             "۳) MASQUE/H2: دقیقاً همان مراحل همراه اول.\n\n" +
             "───────────────\n" +
@@ -895,7 +896,7 @@ internal fun MainActivity.showFirewallConnectionGuideDialog() {
             "2) WARP with IPv6: Add Cat Warp → WireGuard → IPv6 → Scan → Name & Save.\n" +
             "3) MASQUE/H2: Add Cat Warp → MASQUE-HTTP/2 → Scan → Name & Save.\n\n" +
             "🟧 Irancell Firewall Methods:\n" +
-            "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.0; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP).\n" +
+            "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.0; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP). In Cat the tlshello split is done by the app's own fragmenting proxy (only for these configs, automatic); the Cat core has no cipherSuites=semi-python and uses plain TLS for fingerprint=unsafe — if it does not connect, try WARP or MASQUE/H2.\n" +
             "2) WARP: Add Cat Warp → WireGuard → Any IP → Scan → Save.\n" +
             "3) MASQUE/H2: Same as MCI.\n\n" +
             "🔓 3) Sanction Bypass (warp -> psiphon/tor):\n" +

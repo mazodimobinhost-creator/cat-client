@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta221] — 2026-10-29 (Panel 6.78.0)
+
+### Fixed — app (Irancell «F&F» recipe)
+- **`finalMask=tlshello-…` now really takes effect.** Checked against the Cat core's source (mihomo v1.19.30): its proxy options have no `final-mask` and no `cipher-suites` field and unknown keys are silently dropped, so the F&F recipe's TLS-ClientHello split never happened. Configs that carry `finalMask=tlshello…` are now dialled through the app's own fragmenting proxy (the existing ByeByeDPI engine with the operator preset) — automatically and only for those configs, even when the global «DPI bypass» switch is off. Other configs are untouched; when the global switch is on everything is fragmented as before. If the fragmenting proxy cannot start, the connection falls back to the normal path (logged as `dpiBypass.fallback.direct`).
+- Honest help text: the firewall guide and the profile summary say that the split is done by the app, that `cipherSuites=semi-python` has no equivalent in the Cat core and that `fingerprint=unsafe` means plain (non-uTLS) TLS there; if it still does not connect, try WARP or MASQUE/H2.
+
+### Changed — code organisation (phase 2)
+- `MainActivity.kt` shrank from 12 364 to ≈3 660 lines: the remaining screens/dialogs moved into area files (existing ones plus new `MainActivityUiKit`, `MainActivityAntiFilterTools`, `MainActivityAmneziaSstp`, `MainActivityNetworkTools`, `MainActivityDiagnostics`). Code is unchanged apart from the mechanical extension-function rewrite (`scripts/dev/split-main-activity-2.py`); behaviour and UI are the same.
+- `CodeMapTest` now fails when `MainActivity.kt` grows past 4 200 lines or any `MainActivity*.kt` past 4 500, so it cannot turn back into a monolith.
+
+### Tests
+- `Beta220FinalMaskTest`: `final-mask` survives import, only those proxies get the fragmenting dialer, the global switch is unchanged, the service wires it.
+
 ## [1.10.0-beta220] — 2026-10-29 (Panel 6.78.0)
 
 ### Added — app
