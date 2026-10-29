@@ -58,6 +58,12 @@ const parsed = A.mod._testing.parseLinkCode(code.j.code);
 check('the code carries A’s address', parsed && parsed.u.url === 'https://a.workers.dev', JSON.stringify(parsed));
 const self = await call(A, '/api/links/join', { method: 'POST', body: { code: code.j.code } });
 check('pasting the code in the SAME panel is refused', self.status === 400, self.txt.slice(0, 160));
+// beta225: a Worker cannot fetch a bare IP or a non-80/443 port (KataBump http://IP:port) — say which way round to do it.
+const kbCode = 'CATLINK1-' + Buffer.from(JSON.stringify({ u: 'http://51.75.1.2:20123', t: 'k'.repeat(24) })).toString('base64');
+const callsBefore = calls.length;
+const kbJoin = await call(A, '/api/links/join', { method: 'POST', body: { code: kbCode } });
+check('a CF panel refuses to call a KataBump IP:port and says to make the code here', kbJoin.status === 400 && /make the code in THIS panel/.test(kbJoin.txt) && calls.length === callsBefore, kbJoin.txt.slice(0, 200));
+check('… the real tunnel probe still runs when the API of a linked IP:port panel is unreachable', /\(r\.api \|\| peer\.info\.path\) && linkExitCapable/.test(fs.readFileSync(workerPath, 'utf8')), 'check handler');
 
 const join = await call(B, '/api/links/join', { method: 'POST', body: { code: code.j.code } });
 check('B joins with A’s code', join.status === 200 && join.j && join.j.ok && join.j.peer && join.j.peer.host === 'a.workers.dev', join.txt.slice(0, 240));
