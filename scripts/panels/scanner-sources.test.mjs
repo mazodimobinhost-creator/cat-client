@@ -76,8 +76,10 @@ console.log('\nScanner sources (app)\n');
     'the only control that could force v6 disappeared with the old chip');
   ok('…and forcing it also switches the source on (no «forced but off» state)',
     /if \(scannerForceV6\) saveScannerSource\("ipv6", true\)/.test(activity));
+  // beta217: still live, but once typing pauses (DebouncedTextWatcher) instead of on every key press.
   ok('editing the range box recomputes the counts live',
-    /afterTextChanged\(editable: android\.text\.Editable\?\) \{\s*renderScannerSources\(\)/.test(activity));
+    /afterTextChanged\(editable: android\.text\.Editable\?\) \{\s*renderScannerSources\(\)/.test(activity) ||
+      /addTextChangedListener\(DebouncedTextWatcher\(this, delayMs = \d+L\) \{ renderScannerSources\(\) \}\)/.test(activity));
 }
 
 /* ---------- 3) the switches reach the scan ---------- */
