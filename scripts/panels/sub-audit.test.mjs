@@ -262,7 +262,10 @@ for (const platform of [{ label: 'cf', env: {} }, { label: 'vercel', env: { CAT_
           check('pinned 104.17.2.2:2053 present', all.includes('@104.17.2.2:2053?'));
           check('pinned 172.64.1.1:80 present as plain', /@172\.64\.1\.1:80\?[^#]*security=none/.test(all));
           check('pinned IPv6 [2606:4700::7]:8443 present', all.includes('@[2606:4700::7]:8443?'));
-          check('ip#CC tag went to the name, not the address', all.includes('@188.114.98.0:') && !all.includes('188.114.98.0#'));
+          // the sub may sample a subset of clean IPs per request — look at a few fetches before calling it missing
+          let seen = all;
+          for (let k = 0; k < 6 && !seen.includes('@188.114.98.0:'); k++) seen += decodeSub(await (await P.call(pre + q, { host })).text());
+          check('ip#CC tag went to the name, not the address', seen.includes('@188.114.98.0:') && !seen.includes('188.114.98.0#'));
           check('no TLS link on a plain port anywhere', !/:(80|8080|8880|2052|2082|2086|2095)\?[^#]*security=tls/.test(all));
         }
       }
