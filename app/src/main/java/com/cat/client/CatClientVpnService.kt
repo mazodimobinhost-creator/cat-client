@@ -5090,6 +5090,8 @@ class CatClientVpnService : VpnService() {
             aetherPsiphonChain = null
             aetherTorCarrier?.close()
             aetherTorCarrier = null
+            // beta211: pooled Cat Fox VPN HTTP/2 connections belong to this session's network; start clean next time.
+            runCatching { FirefoxVpnEngine.resetUpstreamSessions("vpn stopped") }
             val terminalState = disconnectTerminalState(
                 stopCoreService(),
                 getString(R.string.state_connection_error),

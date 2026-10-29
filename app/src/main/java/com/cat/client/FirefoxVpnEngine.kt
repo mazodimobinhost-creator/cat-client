@@ -2151,78 +2151,317 @@ internal object FirefoxVpnEngine {
             }
         }.distinct()
 
+        val authority = if (targetHost.contains(':') && !targetHost.startsWith("[")) {
+            "[$targetHost]:$targetPort"
+        } else {
+            "$targetHost:$targetPort"
+        }
         var lastError: Throwable? = null
+        var statusError: Throwable? = null // a clear answer from Mozilla (401/403/429) beats a later network error
         for ((connectHost, connectPort, nodeSni) in candidateEndpoints) {
-            try {
-                val raw = openSocketWithOptionalSniFragment(
-                    connectHost = connectHost,
-                    connectPort = connectPort,
-                    sniHost = nodeSni,
-                    fragmentTls = activeFragmentTls,
-                    timeoutMs = 10_000,
-                )
-                val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-                val ssl = (sslFactory.createSocket(raw, nodeSni, connectPort, true) as SSLSocket).apply {
-                    soTimeout = 20_000
-                    val params = sslParameters
-                    params.serverNames = listOf(SNIHostName(nodeSni))
-                    // Verify the node certificate (*.m1.fastly-masque.net) so the proxy pass is never sent to an impostor.
-                    params.endpointIdentificationAlgorithm = "HTTPS"
-                    // CRITICAL: Must only offer http/1.1 because we send an HTTP/1.1 CONNECT line!
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        params.applicationProtocols = arrayOf("http/1.1")
+            val key = "$connectHost|$connectPort|$nodeSni"
+            // Up to 3 tries per node: a stale HTTP/2 connection (network switch) is replaced once, and a rejected
+            // proxy pass (401/407/429) is refreshed/rotated once.
+            var passRetried = false
+            var sessionRetried = false
+            var attempt = 0
+            while (attempt++ < 3) {
+                var session: FenixH2Session? = null
+                try {
+                    val (h2, h1Socket) = h2SessionOrTls(key, connectHost, connectPort, nodeSni)
+                    session = h2
+                    if (h2 != null) {
+                        val stream = h2.openConnect(
+                            authority,
+                            listOf(
+                                "proxy-authorization" to "Bearer $pass",
+                                "user-agent" to FIREFOX_DESKTOP_USER_AGENT,
+                            ),
+                            timeoutMs = 12_000L,
+                        )
+                        lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
+                        lastGoodFor = sniHost
+                        lastTransport = "HTTP/2 · $connectHost:$connectPort"
+                        return H2TunnelSocket(stream)
                     }
-                    sslParameters = params
-                    startHandshake()
+                    val ssl = h1Socket ?: throw IOException("no TLS socket for $connectHost")
+                    val statusLine = http1Connect(ssl, authority, pass, connectHost, connectPort)
+                    if (CONNECT_OK.containsMatchIn(statusLine)) {
+                        lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
+                        lastGoodFor = sniHost
+                        lastTransport = "HTTP/1.1 · $connectHost:$connectPort"
+                        return ssl
+                    }
+                    runCatching { ssl.close() }
+                    val code = statusLine.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
+                    throw FenixH2StatusException(code, "Fastly node $connectHost:$connectPort returned $statusLine")
+                } catch (e: FenixH2StatusException) {
+                    lastError = IOException(fenixStatusMessage(e.status, "$connectHost:$connectPort"), e)
+                    if (statusError == null || e.status != 403) statusError = lastError
+                    if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
+                    if ((e.status == 401 || e.status == 407 || e.status == 429) && !passRetried) {
+                        passRetried = true
+                        val next = rotateOrRefreshAccountPassOnFailure()
+                        if (next.isNotBlank() && next != pass) {
+                            pass = next
+                            continue
+                        }
+                    }
+                    break // 403 (location locked for this account) and others: next node
+                } catch (e: Throwable) {
+                    lastError = e
+                    if (session != null && !sessionRetried) {
+                        // The pooled connection was dead (no CONNECT answer / reset): drop it and dial a fresh one.
+                        sessionRetried = true
+                        session.close("tunnel open failed: ${e.message}")
+                        dropH2Session(key, session)
+                        continue
+                    }
+                    if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
+                    // A saved "clean IP" that cannot even complete TLS for the node (e.g. the old generic 151.101.1.195
+                    // default) would add a 10 s stall to every new connection; skip it for the rest of this session.
+                    if (connectHost == activeCleanEdgeIp) activeCleanEdgeIp = ""
+                    break
                 }
-
-                val authority = if (targetHost.contains(':') && !targetHost.startsWith("[")) {
-                    "[$targetHost]:$targetPort"
-                } else {
-                    "$targetHost:$targetPort"
-                }
-                val connectReq = buildString {
-                    append("CONNECT $authority HTTP/1.1\r\n")
-                    append("Host: $authority\r\n")
-                    append("Proxy-Authorization: Bearer $pass\r\n")
-                    append("User-Agent: $FIREFOX_DESKTOP_USER_AGENT\r\n")
-                    append("Proxy-Connection: keep-alive\r\n\r\n")
-                }
-                val sslOut = ssl.outputStream
-                val sslIn = ssl.inputStream
-                sslOut.write(connectReq.toByteArray(StandardCharsets.UTF_8))
-                sslOut.flush()
-
-                val statusLine = readAsciiLine(sslIn) ?: run {
-                    ssl.close()
-                    throw IOException("Empty CONNECT response from $connectHost:$connectPort")
-                }
-                while (true) {
-                    val hdr = readAsciiLine(sslIn) ?: break
-                    if (hdr.isEmpty()) break
-                }
-                if (CONNECT_OK.containsMatchIn(statusLine)) {
-                    lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
-                    lastGoodFor = sniHost
-                    return ssl
-                }
-                ssl.close()
-                if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
-                // If 401/407/429, rotate or refresh account pass once
-                if (statusLine.contains(" 401 ") || statusLine.contains(" 407 ") || statusLine.contains(" 429 ")) {
-                    pass = rotateOrRefreshAccountPassOnFailure()
-                }
-                lastError = IOException("Fastly node $connectHost:$connectPort returned $statusLine")
-            } catch (e: Throwable) {
-                lastError = e
-                if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
-                // A saved "clean IP" that cannot even complete TLS for the node (e.g. the old generic 151.101.1.195
-                // default) would add a 10 s stall to every new connection; skip it for the rest of this session.
-                if (connectHost == activeCleanEdgeIp) activeCleanEdgeIp = ""
             }
         }
         // No direct fallback: if every Fastly edge failed, the tunnel is down and mihomo must know.
-        throw (lastError ?: IOException("All Cat Fox VPN (Fastly) edges failed"))
+        throw (statusError ?: lastError ?: IOException("All Cat Fox VPN (Fastly) edges failed"))
+    }
+
+    // ---- beta211: HTTP/2 transport (what Firefox and every working Firefox-VPN client use) ----------------------
+
+    /** Which transport carried the last working tunnel ("HTTP/2 · host:port"), for the status screen. */
+    @Volatile
+    var lastTransport: String = ""
+        private set
+
+    private val h2Sessions = ConcurrentHashMap<String, MutableList<FenixH2Session>>()
+    private val h2CreateLocks = ConcurrentHashMap<String, Any>()
+    private val h2DialFailures = ConcurrentHashMap<String, Pair<Long, Throwable>>()
+
+    /** Closes every pooled HTTP/2 connection (VPN stopped, network changed, account switched). */
+    fun resetUpstreamSessions(reason: String = "reset") {
+        val all = h2Sessions.values.flatMap { list -> synchronized(list) { list.toList() } }
+        h2Sessions.clear()
+        h2DialFailures.clear()
+        all.forEach { runCatching { it.close(reason) } }
+        lastGoodEndpoint = null
+    }
+
+    private fun dropH2Session(key: String, session: FenixH2Session) {
+        h2Sessions[key]?.let { list -> synchronized(list) { list.remove(session) } }
+    }
+
+    private fun pooledH2(key: String): FenixH2Session? {
+        val list = h2Sessions[key] ?: return null
+        synchronized(list) {
+            list.removeAll { it.isClosed }
+            return list.filter { it.hasCapacity }.minByOrNull { it.activeStreams }
+        }
+    }
+
+    /**
+     * Returns a pooled/new HTTP/2 connection to the node, or — only when the node does not speak HTTP/2 — a fresh
+     * TLS socket for the HTTP/1.1 CONNECT fallback. New connections to one node are dialled one at a time, so a
+     * page opening 20 tunnels at once shares one handshake instead of 20.
+     */
+    private fun h2SessionOrTls(key: String, connectHost: String, connectPort: Int, nodeSni: String): Pair<FenixH2Session?, SSLSocket?> {
+        pooledH2(key)?.let { return it to null }
+        val lock = h2CreateLocks.getOrPut(key) { Any() }
+        synchronized(lock) {
+            pooledH2(key)?.let { return it to null }
+            h2DialFailures[key]?.let { (at, error) ->
+                if (System.currentTimeMillis() - at < 4_000L) throw IOException("recent dial failure: ${error.message}", error)
+            }
+            val ssl = try {
+                openNodeTls(connectHost, connectPort, nodeSni, arrayOf("h2", "http/1.1"))
+            } catch (e: Throwable) {
+                h2DialFailures[key] = System.currentTimeMillis() to e
+                throw e
+            }
+            h2DialFailures.remove(key)
+            val alpn = negotiatedAlpn(ssl)
+            if (alpn != "h2") return null to ssl
+            ssl.soTimeout = 0 // the session pings an idle connection itself
+            val session = FenixH2Session(ssl, "$nodeSni via $connectHost:$connectPort", log = { msg ->
+                appContextRef?.let { ctx -> runCatching { DiagnosticLogger.info(ctx, "fenix.h2", msg.take(200)) } }
+            })
+            session.start(handshakeTimeoutMs = 10_000L)
+            h2Sessions.getOrPut(key) { mutableListOf() }.let { list -> synchronized(list) { list += session } }
+            return session to null
+        }
+    }
+
+    /** TLS to a Mozilla node: protected socket, optional ClientHello split, certificate check, given ALPN list. */
+    private fun openNodeTls(connectHost: String, connectPort: Int, nodeSni: String, alpn: Array<String>): SSLSocket {
+        val raw = openSocketWithOptionalSniFragment(
+            connectHost = connectHost,
+            connectPort = connectPort,
+            sniHost = nodeSni,
+            fragmentTls = activeFragmentTls,
+            timeoutMs = 10_000,
+        )
+        val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+        val ssl = sslFactory.createSocket(raw, nodeSni, connectPort, true) as SSLSocket
+        try {
+            ssl.soTimeout = 15_000
+            val params = ssl.sslParameters
+            params.serverNames = listOf(SNIHostName(nodeSni))
+            // Verify the node certificate (*.m1.fastly-masque.net) so the proxy pass is never sent to an impostor.
+            params.endpointIdentificationAlgorithm = "HTTPS"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) params.applicationProtocols = alpn
+            ssl.sslParameters = params
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) setLegacyAlpn(ssl, alpn)
+            ssl.startHandshake()
+        } catch (e: Throwable) {
+            runCatching { ssl.close() }
+            throw e
+        }
+        return ssl
+    }
+
+    /** Android 8–9: ALPN through the platform (Conscrypt) socket's own setter. */
+    private fun setLegacyAlpn(ssl: SSLSocket, protocols: Array<String>) {
+        runCatching {
+            val out = ByteArrayOutputStream()
+            protocols.forEach { p ->
+                val b = p.toByteArray(StandardCharsets.US_ASCII)
+                out.write(b.size)
+                out.write(b)
+            }
+            ssl.javaClass.getMethod("setAlpnProtocols", ByteArray::class.java).invoke(ssl, out.toByteArray())
+        }
+    }
+
+    private fun negotiatedAlpn(ssl: SSLSocket): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { ssl.applicationProtocol }.getOrNull()?.takeIf { it.isNotEmpty() }
+        } else {
+            runCatching {
+                (ssl.javaClass.getMethod("getAlpnSelectedProtocol").invoke(ssl) as? ByteArray)
+                    ?.toString(StandardCharsets.US_ASCII)
+            }.getOrNull()?.takeIf { it.isNotEmpty() }
+        }
+
+    /** HTTP/1.1 CONNECT (only for a node that does not negotiate HTTP/2). Returns the status line. */
+    private fun http1Connect(ssl: SSLSocket, authority: String, pass: String, connectHost: String, connectPort: Int): String {
+        val connectReq = buildString {
+            append("CONNECT $authority HTTP/1.1\r\n")
+            append("Host: $authority\r\n")
+            append("Proxy-Authorization: Bearer $pass\r\n")
+            append("User-Agent: $FIREFOX_DESKTOP_USER_AGENT\r\n")
+            append("Proxy-Connection: keep-alive\r\n\r\n")
+        }
+        val sslOut = ssl.outputStream
+        val sslIn = ssl.inputStream
+        sslOut.write(connectReq.toByteArray(StandardCharsets.UTF_8))
+        sslOut.flush()
+        val statusLine = readAsciiLine(sslIn) ?: run {
+            ssl.close()
+            throw IOException("Empty CONNECT response from $connectHost:$connectPort")
+        }
+        while (true) {
+            val hdr = readAsciiLine(sslIn) ?: break
+            if (hdr.isEmpty()) break
+        }
+        return statusLine
+    }
+
+    internal fun fenixStatusMessage(status: Int, node: String): String = when (status) {
+        401, 407 -> "Mozilla rejected the proxy pass ($status) at $node — sign in again or add another Firefox account"
+        403 -> "This location is locked for the account (403) at $node — pick «Recommended» or another country"
+        429 -> "Monthly 50 GB quota used up (429) at $node — add another Firefox account"
+        else -> "Fastly node $node answered $status"
+    }
+
+    /** An HTTP/2 CONNECT stream dressed as a Socket for the bridge's pipe code. */
+    private class H2TunnelSocket(private val stream: FenixH2Stream) : Socket() {
+        @Volatile private var closedFlag = false
+        override fun getInputStream(): InputStream = stream.input
+        override fun getOutputStream(): OutputStream = stream.output
+        override fun shutdownOutput() = stream.output.close()
+        override fun close() {
+            closedFlag = true
+            stream.close()
+        }
+        override fun isClosed(): Boolean = closedFlag
+        override fun isConnected(): Boolean = true
+        override fun setSoTimeout(timeout: Int) = Unit
+        override fun getSoTimeout(): Int = 0
+    }
+
+    // ---- beta211: DNS for Mozilla nodes that survives a poisoned resolver ------------------------------------------
+
+    private val dohCache = ConcurrentHashMap<String, Pair<Long, InetAddress>>()
+
+    private fun isBogon(a: InetAddress): Boolean =
+        a.isAnyLocalAddress || a.isLoopbackAddress || a.isLinkLocalAddress || a.isSiteLocalAddress ||
+            a.isMulticastAddress || (a.address.size == 4 && (a.address[0].toInt() and 0xFF) == 0)
+
+    /**
+     * Resolves a Mozilla/Fastly host for a protected socket. When the line's DNS fails or answers with a private /
+     * blocked address (Iranian resolvers answer 10.10.34.x for filtered names), asks Cloudflare and Google DNS over
+     * HTTPS by IP instead.
+     */
+    internal fun resolveEdgeAddress(host: String): InetAddress {
+        val system = runCatching { resolveForProtectedSocket(host) }
+        system.getOrNull()?.takeIf { !isBogon(it) }?.let { return it }
+        val clean = host.trim().removePrefix("[").removeSuffix("]").lowercase(Locale.US)
+        dohCache[clean]?.let { (at, addr) -> if (System.currentTimeMillis() - at < 10 * 60_000L) return addr }
+        val doh = listOf(
+            Triple("1.1.1.1", "cloudflare-dns.com", "/dns-query?name=$clean&type=A"),
+            Triple("8.8.8.8", "dns.google", "/resolve?name=$clean&type=A"),
+            Triple("1.0.0.1", "cloudflare-dns.com", "/dns-query?name=$clean&type=A"),
+        )
+        for ((ip, sni, path) in doh) {
+            val addr = runCatching { dohLookup(ip, sni, path) }.getOrNull() ?: continue
+            dohCache[clean] = System.currentTimeMillis() to addr
+            return addr
+        }
+        return system.getOrElse { throw it }
+    }
+
+    private fun dohLookup(ip: String, sni: String, path: String): InetAddress? {
+        val raw = Socket()
+        protectOutboundSocket(raw)
+        raw.soTimeout = 4_000
+        raw.connect(InetSocketAddress(InetAddress.getByName(ip), 443), 4_000)
+        val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, sni, 443, true) as SSLSocket
+        ssl.use { s ->
+            val params = s.sslParameters
+            params.serverNames = listOf(SNIHostName(sni))
+            params.endpointIdentificationAlgorithm = "HTTPS"
+            s.sslParameters = params
+            s.startHandshake()
+            s.outputStream.write(
+                "GET $path HTTP/1.1\r\nHost: $sni\r\nAccept: application/dns-json\r\nConnection: close\r\n\r\n"
+                    .toByteArray(StandardCharsets.US_ASCII),
+            )
+            s.outputStream.flush()
+            val all = s.inputStream.readBytes()
+            val text = all.toString(StandardCharsets.ISO_8859_1)
+            val split = text.indexOf("\r\n\r\n")
+            if (split < 0) return null
+            val head = text.substring(0, split)
+            val bodyBytes = all.copyOfRange(split + 4, all.size)
+            val body = if (head.contains("chunked", ignoreCase = true)) {
+                readChunkedBody(ByteArrayInputStream(bodyBytes)).toString(StandardCharsets.UTF_8)
+            } else {
+                bodyBytes.toString(StandardCharsets.UTF_8)
+            }
+            val json = body.substring(body.indexOf('{').coerceAtLeast(0), body.lastIndexOf('}') + 1)
+            val answers = JSONObject(json).optJSONArray("Answer") ?: return null
+            for (i in 0 until answers.length()) {
+                val a = answers.optJSONObject(i) ?: continue
+                if (a.optInt("type") != 1) continue
+                val data = a.optString("data")
+                if (!Regex("""^\d{1,3}(\.\d{1,3}){3}$""").matches(data)) continue
+                val addr = InetAddress.getByName(data)
+                if (!isBogon(addr)) return addr
+            }
+        }
+        return null
     }
 
     /**
@@ -2282,7 +2521,7 @@ internal object FirefoxVpnEngine {
         raw.tcpNoDelay = true
         raw.soTimeout = timeoutMs
         try {
-            raw.connect(InetSocketAddress(resolveForProtectedSocket(connectHost), connectPort), timeoutMs)
+            raw.connect(InetSocketAddress(resolveEdgeAddress(connectHost), connectPort), timeoutMs)
         } catch (e: Exception) {
             runCatching { raw.close() } // beta205: no fd leak when a probe target is down
             throw e

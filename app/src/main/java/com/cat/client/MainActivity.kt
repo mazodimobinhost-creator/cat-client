@@ -21448,6 +21448,9 @@ class MainActivity : Activity() {
                     }
                     append("🌍 کشور خروجی: $countryLabel\n")
                     append("🛡️ ضد فیلترینگ: ${if (fragOn) "برش TLS SNI روشن ✅" else "عادی"} · لبه Fastly: $cleanIp")
+                    FirefoxVpnEngine.lastTransport.takeIf { it.isNotBlank() }?.let {
+                        append("\n✅ آخرین تونل سالم: $it")
+                    }
                     FirefoxVpnEngine.lastTunnelError.takeIf { it.isNotBlank() }?.let {
                         append("\n⚠️ آخرین خطای تونل: ${it.take(160)}")
                     }
@@ -21462,6 +21465,9 @@ class MainActivity : Activity() {
                     }
                     append("🌍 Exit Country: $countryLabel\n")
                     append("🛡️ Anti-DPI: ${if (fragOn) "TLS SNI Split ON ✅" else "Standard"} · Fastly Edge: $cleanIp")
+                    FirefoxVpnEngine.lastTransport.takeIf { it.isNotBlank() }?.let {
+                        append("\n✅ Last working tunnel: $it")
+                    }
                     FirefoxVpnEngine.lastTunnelError.takeIf { it.isNotBlank() }?.let {
                         append("\n⚠️ Last tunnel error: ${it.take(160)}")
                     }
