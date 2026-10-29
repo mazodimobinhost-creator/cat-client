@@ -231,6 +231,13 @@ internal object PsiphonCarrierConfig {
         return dirs.all { it.isDirectory }
     }
 
+    /**
+     * TCP tunnel protocols Psiphon may use behind the Cat Warp SOCKS carrier (the carrier has no UDP, so no QUIC).
+     * beta216: only names psiphon-tunnel-core 2.0.42 (`ca.psiphon:psiphontunnel:2.0.42`, protocol.go) knows. The list
+     * used to contain «FRONTED-MEEK-CDN-OSSH» / «FRONTED-MEEK-CDN-HTTP-OSSH», which do not exist: the library refused
+     * the whole config at start («invalid tunnel protocol: FRONTED-MEEK-CDN-OSSH») and every WARP → Psiphon chain
+     * (any country) failed before a single connection attempt.
+     */
     internal val CHAINED_TCP_TUNNEL_PROTOCOLS: List<String> = listOf(
         "SSH",
         "OSSH",
@@ -240,9 +247,15 @@ internal object PsiphonCarrierConfig {
         "UNFRONTED-MEEK-SESSION-TICKET-OSSH",
         "SHADOWSOCKS-OSSH",
         "FRONTED-MEEK-OSSH",
-        "FRONTED-MEEK-CDN-OSSH",
         "FRONTED-MEEK-HTTP-OSSH",
-        "FRONTED-MEEK-CDN-HTTP-OSSH",
+    )
+
+    /** Every tunnel protocol name defined by psiphon-tunnel-core 2.0.42 (psiphon/common/protocol/protocol.go). */
+    internal val LIBRARY_TUNNEL_PROTOCOLS: Set<String> = setOf(
+        "SSH", "OSSH", "TLS-OSSH", "SHADOWSOCKS-OSSH",
+        "UNFRONTED-MEEK-OSSH", "UNFRONTED-MEEK-HTTPS-OSSH", "UNFRONTED-MEEK-SESSION-TICKET-OSSH",
+        "FRONTED-MEEK-OSSH", "FRONTED-MEEK-HTTP-OSSH",
+        "QUIC-OSSH", "FRONTED-MEEK-QUIC-OSSH", "TAPDANCE-OSSH", "CONJURE-OSSH",
     )
 
     internal fun render(dataRoot: File, clientVersion: Int, upstreamPort: Int, region: String): String {
@@ -263,7 +276,6 @@ internal object PsiphonCarrierConfig {
             .put("LimitTunnelProtocols", org.json.JSONArray(CHAINED_TCP_TUNNEL_PROTOCOLS))
             .put("InproxyTunnelProtocolPreferProbability", 0.0)
             .put("InproxyTunnelProtocolSelectionProbability", 0.0)
-            .put("FrontedMeekCDNScanUseBuiltInSpec", true)
             .put("EstablishTunnelTimeoutSeconds", 300)
             .put("ConnectionWorkerPoolSize", 12)
             .put("LocalSocksProxyPort", 0)

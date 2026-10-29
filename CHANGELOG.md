@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta216] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app (Cat Warp → Psiphon)
+- **«failed to start Psiphon library … invalid tunnel protocol: FRONTED-MEEK-CDN-OSSH».** The Psiphon config of the WARP → Psiphon chain listed two tunnel protocols that do not exist in the bundled psiphon-tunnel-core 2.0.42 (`FRONTED-MEEK-CDN-OSSH`, `FRONTED-MEEK-CDN-HTTP-OSSH`), so the library rejected the whole config and every country (Germany, NL, US, …) fell straight to the two-hop WARP fallback — which exits in Iran, so the connection was (correctly) refused. The list now holds only the 9 TCP protocols the library knows (checked against its `protocol.go`), and the unused `FrontedMeekCDNScanUseBuiltInSpec` key was removed.
+- After such a library error the chain no longer waits another 45 s retrying «any country» (it would fail the same way); the «exits in Iran» refusal is now also explained in Persian.
+
+### Tests
+- `PsiphonCarrierConfigTest.everyTunnelProtocolIsKnownToTheBundledLibraryAndTcpOnly`.
+
 ## [1.10.0-beta215] — 2026-10-29 (Panel 6.77.3)
 
 ### Fixed — app (Cat Warp)

@@ -15,8 +15,8 @@ class PsiphonCarrierConfigTest {
         assertEquals(0, json.getInt("LocalSocksProxyPort"))
         assertEquals(true, json.getBoolean("DisableLocalHTTPProxy"))
         assertEquals(true, json.getBoolean("DisableTactics"))
-        assertEquals(true, json.getBoolean("FrontedMeekCDNScanUseBuiltInSpec"))
-        assertEquals(11, json.getJSONArray("LimitTunnelProtocols").length())
+        assertFalse(json.has("FrontedMeekCDNScanUseBuiltInSpec"))
+        assertEquals(9, json.getJSONArray("LimitTunnelProtocols").length())
         assertFalse(json.has("VpnMode"))
     }
 
@@ -38,5 +38,15 @@ class PsiphonCarrierConfigTest {
         org.junit.Assert.assertTrue(PsiphonCarrierConfig.regionDisplayLabel("DE", true).contains("آلمان"))
         org.junit.Assert.assertTrue(PsiphonCarrierConfig.regionDisplayLabel("DE", false).contains("Germany"))
         assertEquals("🇩🇪 آلمان (DE)", PsiphonCarrierConfig.regionShortLabel("DE", true))
+    }
+
+    // beta216: the library rejects the whole config for one unknown name («invalid tunnel protocol: FRONTED-MEEK-CDN-OSSH»).
+    @Test fun everyTunnelProtocolIsKnownToTheBundledLibraryAndTcpOnly() {
+        val json = JSONObject(PsiphonCarrierConfig.render(File("/tmp/psiphon"), 185, 1819, ""))
+        val limit = json.getJSONArray("LimitTunnelProtocols")
+        val names = (0 until limit.length()).map { limit.getString(it) }
+        names.forEach { org.junit.Assert.assertTrue(it, it in PsiphonCarrierConfig.LIBRARY_TUNNEL_PROTOCOLS) }
+        names.forEach { org.junit.Assert.assertFalse(it, "QUIC" in it || "CDN" in it) }
+        assertEquals(names.size, names.toSet().size)
     }
 }

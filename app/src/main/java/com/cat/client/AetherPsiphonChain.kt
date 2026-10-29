@@ -77,7 +77,9 @@ internal class AetherPsiphonChain(
                 return AetherChainOutcome(state.socksPort, "psiphon", region, measure(state.socksPort))
             }
             runCatching { psiphon.close() }
-            if (region.isNotEmpty()) {
+            // A library start error (bad config) fails the same way for every country — retrying only costs 45 s.
+            val libraryRefused = first.exceptionOrNull()?.message.orEmpty().contains("failed to start Psiphon library", ignoreCase = true)
+            if (region.isNotEmpty() && !libraryRefused) {
                 // The requested country may have no reachable server right now: let Psiphon pick one.
                 delay(1_500L)
                 onStep("Psiphon Auto")
@@ -95,7 +97,9 @@ internal class AetherPsiphonChain(
             val trace = measure(aetherPort)
             if (trace?.isIranIp == true) {
                 throw IOException(
-                    "Psiphon did not connect (${first.exceptionOrNull()?.message ?: "timeout"}) and the two-hop WARP fallback " +
+                    "سایفون وصل نشد و WARP دولایه هم آی‌پی ایران (${trace.ip}) داد؛ چون کشور خارج خواسته بودید با آی‌پی ایران " +
+                        "وصل نمی‌کنیم. چند دقیقه بعد دوباره یا کشور دیگری را امتحان کنید. — " +
+                        "Psiphon did not connect (${first.exceptionOrNull()?.message ?: "timeout"}) and the two-hop WARP fallback " +
                         "still exits in Iran (${trace.ip}). Refusing to connect with an Iranian IP while a foreign exit was requested.",
                 )
             }
