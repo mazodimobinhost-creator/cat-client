@@ -22,6 +22,7 @@ import { strict as assert } from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readMainActivity } from './main-activity-source.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = path.join(here, '../../app/src/main');
@@ -42,7 +43,7 @@ const engine = read('java/com/cat/client/OrbotEngine.kt');
 const runtime = read('java/com/cat/client/MihomoRuntime.kt');
 const plan = read('java/com/cat/client/SessionPlan.kt');
 const service = read('java/com/cat/client/CatClientVpnService.kt');
-const activity = read('java/com/cat/client/MainActivity.kt');
+const activity = readMainActivity();
 const faStrings = read('res/values-fa/strings.xml');
 const enStrings = read('res/values/strings.xml');
 

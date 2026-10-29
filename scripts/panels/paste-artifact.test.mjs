@@ -22,6 +22,7 @@ import { strict as assert } from 'node:assert';
 import { readFileSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { readMainActivity } from './main-activity-source.mjs';
 
 const root = new URL('../../', import.meta.url);
 const assetPath = new URL('app/src/main/assets/panels/catpanel.min.js', root);
@@ -144,7 +145,7 @@ const source = readFileSync(sourcePath, 'utf8');
 /* ---------- 3) the Kotlin side prefers it, announces the fallback ---------- */
 {
   const workerKt = readFileSync(new URL('app/src/main/java/com/cat/client/CloudflareWorker.kt', root), 'utf8');
-  const activityKt = readFileSync(new URL('app/src/main/java/com/cat/client/MainActivity.kt', root), 'utf8');
+  const activityKt = readMainActivity();
 
   ok('CloudflareWorker points the paste asset at panels/catpanel.min.js',
     /PASTE_ASSET_PATH\s*=\s*"panels\/catpanel\.min\.js"/.test(workerKt));

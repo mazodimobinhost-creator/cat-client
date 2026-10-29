@@ -19,13 +19,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readMainActivity } from './main-activity-source.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const read = (...p) => readFileSync(join(root, ...p), 'utf8');
 
 const worker = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'CloudflareWorker.kt');
-const activity = read('app', 'src', 'main', 'java', 'com', 'cat', 'client', 'MainActivity.kt');
+const activity = readMainActivity();
 const en = read('app', 'src', 'main', 'res', 'values', 'strings.xml');
 const fa = read('app', 'src', 'main', 'res', 'values-fa', 'strings.xml');
 

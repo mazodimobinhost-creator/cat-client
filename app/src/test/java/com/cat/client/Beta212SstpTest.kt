@@ -22,7 +22,8 @@ class Beta212SstpTest {
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     private fun src(name: String): String =
-        listOf(File("src/main/java/com/cat/client/$name"), File("app/src/main/java/com/cat/client/$name"))
+        if (name == "MainActivity.kt") MainActivitySources.combined()
+        else listOf(File("src/main/java/com/cat/client/$name"), File("app/src/main/java/com/cat/client/$name"))
             .first { it.isFile }.readText()
 
     @Test
@@ -369,7 +370,8 @@ class Beta212SstpListTest {
 
 class Beta212SstpWiringTest {
     private fun src(name: String): String =
-        listOf(java.io.File("src/main/java/com/cat/client/$name"), java.io.File("app/src/main/java/com/cat/client/$name"))
+        if (name == "MainActivity.kt") MainActivitySources.combined()
+        else listOf(java.io.File("src/main/java/com/cat/client/$name"), java.io.File("app/src/main/java/com/cat/client/$name"))
             .first { it.isFile }.readText()
 
     @org.junit.Test

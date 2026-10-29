@@ -37,9 +37,7 @@ class CleanIpInjectTest {
 
     @Test
     fun scannerInjectFallbackHasNoPlaceholderUuid() {
-        val src = listOf(java.io.File("src/main/java/com/cat/client/MainActivity.kt"), java.io.File("app/src/main/java/com/cat/client/MainActivity.kt")).first { it.isFile }.readText()
-        val start = src.indexOf("private fun injectScannedIpsIntoActiveSubscription")
-        val body = src.substring(start, src.indexOf("private fun showWhitelistSuperScannerDialog", start))
+        val body = MainActivitySources.function("injectScannedIpsIntoActiveSubscription")
         assertTrue(!body.contains("11111111-2222-4333-8444-555555555555"))
         assertTrue(!body.contains("alpn=h2%2Chttp%2F1.1"))
         assertTrue(body.contains("results.filter { !it.verifyTls }"))

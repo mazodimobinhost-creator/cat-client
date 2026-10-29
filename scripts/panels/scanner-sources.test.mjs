@@ -19,11 +19,12 @@
  */
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
+import { readMainActivity } from './main-activity-source.mjs';
 
 const root = new URL('../../', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
 const ipScanner = read('app/src/main/java/com/cat/client/IpScanner.kt');
-const activity = read('app/src/main/java/com/cat/client/MainActivity.kt');
+const activity = readMainActivity();
 const stringsEn = read('app/src/main/res/values/strings.xml');
 const stringsFa = read('app/src/main/res/values-fa/strings.xml');
 const jvmTest = read('app/src/test/java/com/cat/client/IpScannerSourcesTest.kt');

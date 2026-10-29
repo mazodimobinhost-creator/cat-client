@@ -30,6 +30,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { readMainActivity } from './main-activity-source.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -117,7 +118,7 @@ check('normal minified artifact stays below 860 K characters', artifact.length <
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;
 const cw = read('app/src/main/java/com/cat/client/CloudflareWorker.kt');
-const ma = read('app/src/main/java/com/cat/client/MainActivity.kt');
+const ma = readMainActivity();
 check('PanelUpdate has isDowngrade()', /fun isDowngrade\(/.test(pu));
 check('PanelUpdate gates the repository fallback (acceptRepositoryFallback)', /fun acceptRepositoryFallback\(/.test(pu) && /acceptRepositoryFallback\(bundledVersion/.test(pu));
 check('PanelUpdate no longer treats source readability as an Error 1101 detector', !/looksReadable\(/.test(pu));

@@ -11,7 +11,8 @@ import java.nio.file.Files
 
 class Beta209WarpEditorTest {
     private fun src(name: String): String =
-        listOf(File("src/main/java/com/cat/client/$name"), File("app/src/main/java/com/cat/client/$name"))
+        if (name == "MainActivity.kt") MainActivitySources.combined()
+        else listOf(File("src/main/java/com/cat/client/$name"), File("app/src/main/java/com/cat/client/$name"))
             .first { it.isFile }.readText()
 
     private val key = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="

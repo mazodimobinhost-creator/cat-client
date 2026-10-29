@@ -19,6 +19,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readMainActivity } from './main-activity-source.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workerPath = process.env.CAT_PANEL_WORKER ||
@@ -164,7 +165,7 @@ function expectHostSni(label, entries) {
 // ── 6) the Android app talks to this setting: keep both sides in step ───────────
 {
   const { readFileSync } = await import('node:fs');
-  const kt = readFileSync(path.join(here, '../../app/src/main/java/com/cat/client/MainActivity.kt'), 'utf-8');
+  const kt = readMainActivity();
   check('app: «Make panel main SNI» opts in to spoofing (else a 6.54+ panel silently ignores it)', /put\("sni", sni\)\.put\("sniFront", true\)/.test(kt));
   check('app: the status dialog reads sniFront (host ✓ / spoofed ⚠️ / old panel)', /st\.has\("sniFront"\) && !st\.optBoolean\("sniFront"\)/.test(kt) && kt.includes('R.string.panel_st_sni_spoof'));
   check('app: the main-SNI dialog warns that Cloudflare rejects SNI != host', kt.includes('R.string.sni_main_warn'));
