@@ -4960,7 +4960,7 @@ class CatClientVpnService : VpnService() {
         }
         return AetherSession(
             protectSocket = { fd -> protect(fd) },
-            establishTun = { ipv4, ipv6 -> establishAetherTun(ipv4, ipv6, splitTunnelPlan) },
+            establishTun = { ipv4, ipv6, mtu -> establishAetherTun(ipv4, ipv6, splitTunnelPlan, mtu) },
             onReady = {
                 scope.launch {
                     DiagnosticLogger.info(this@CatClientVpnService, "aether.tunnel.ready")
@@ -4974,17 +4974,25 @@ class CatClientVpnService : VpnService() {
         ipv4: String,
         ipv6: String,
         splitTunnelPlan: SplitTunnelRuntimePlan,
+        mtu: Int = AETHER_TUN_MTU,
     ): Int {
         AetherTunPolicy.validatedAddresses(ipv4, ipv6)
+        val safeMtu = mtu.coerceIn(AetherTunPolicy.MASQUE_IN_MASQUE_MTU, AETHER_TUN_MTU)
         val builder = Builder()
-            .setMtu(AETHER_TUN_MTU)
+            .setMtu(safeMtu)
             .setSession("${getString(R.string.app_name)} · Cat Warp")
             .addAddress(ipv4, 32)
-            .addAddress(ipv6, 128)
             .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
             .addDnsServer("1.1.1.1")
-            .addDnsServer("2606:4700:4700::1111")
+            .addDnsServer("1.0.0.1")
+        // beta219: IPv6 needs ≥1280 and Android refuses (throws) an IPv6 interface below that, so the two-hop
+        // transports (1200/1162) run IPv4-only — exactly like the engine's own app does.
+        if (AetherTunPolicy.carriesIpv6(safeMtu)) {
+            builder.addAddress(ipv6, 128)
+                .addRoute("::", 0)
+                .addDnsServer("2606:4700:4700::1111")
+        }
+        DiagnosticLogger.info(this, "aether.tun.mtu", "mtu=$safeMtu ipv6=${AetherTunPolicy.carriesIpv6(safeMtu)}")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
             builder.setBlocking(false)

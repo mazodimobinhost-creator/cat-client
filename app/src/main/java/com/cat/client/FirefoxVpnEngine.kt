@@ -1989,8 +1989,9 @@ internal object FirefoxVpnEngine {
         ThreadPoolExecutor.AbortPolicy(),
     )
 
-    // Hard cap on concurrent upstream tunnels (2 threads each, see MAX_FENIX_THREADS)
-    private val activeTunnelSemaphore = Semaphore(MAX_FENIX_TUNNELS)
+    // Cap on concurrent upstream tunnels (2 threads each, see MAX_FENIX_THREADS); when full, the longest-idle tunnel
+    // is closed for the new one (beta219) instead of refusing every new connection.
+    private val tunnelSlots = FenixTunnelSlots(MAX_FENIX_TUNNELS)
 
     @Volatile
     private var activeUpstreamHost: String = RECOMMENDED_NODE_HOST
@@ -2086,10 +2087,12 @@ internal object FirefoxVpnEngine {
     }
 
     private fun handleFenixClient(client: Socket) {
-        if (!activeTunnelSemaphore.tryAcquire()) {
+        val slot = tunnelSlots.acquire()
+        if (slot == null) {
             runCatching { client.close() }
             return
         }
+        slot.attach(client)
         try {
             runCatching {
                 client.use { c ->
@@ -2177,6 +2180,8 @@ internal object FirefoxVpnEngine {
                     // WebSocket, a slow download pause) must not be killed after 20 s.
                     c.soTimeout = 0
                     runCatching { upstreamStream.soTimeout = 0 }
+                    slot.attach(upstreamStream)
+                    slot.touch()
                     lastTunnelError = ""
                     try {
                         if (isSocks5) {
@@ -2192,18 +2197,18 @@ internal object FirefoxVpnEngine {
 
                         fenixWorkerPool.execute {
                             runCatching {
-                                pipeBytesWithAccounting(inp, upOut)
+                                pipeBytesWithAccounting(inp, upOut, slot)
                             }
                             runCatching { upstreamStream.close() }
                         }
-                        pipeBytesWithAccounting(upIn, out)
+                        pipeBytesWithAccounting(upIn, out, slot)
                     } finally {
                         runCatching { upstreamStream.close() }
                     }
                 }
             }
         } finally {
-            activeTunnelSemaphore.release()
+            slot.close()
         }
     }
 
@@ -2336,7 +2341,7 @@ internal object FirefoxVpnEngine {
         private set
 
     private val h2Sessions = ConcurrentHashMap<String, MutableList<FenixH2Session>>()
-    private val h2CreateLocks = ConcurrentHashMap<String, Any>()
+    private val h2CreateLocks = ConcurrentHashMap<String, java.util.concurrent.locks.ReentrantLock>()
     private val h2DialFailures = ConcurrentHashMap<String, Pair<Long, Throwable>>()
 
     /** Closes every pooled HTTP/2 connection (VPN stopped, network changed, account switched). */
@@ -2352,11 +2357,19 @@ internal object FirefoxVpnEngine {
         h2Sessions[key]?.let { list -> synchronized(list) { list.remove(session) } }
     }
 
-    private fun pooledH2(key: String): FenixH2Session? {
+    /**
+     * beta219: a pooled connection for one more tunnel. With [spread] a connection only counts while it carries fewer
+     * than [FENIX_SOFT_STREAMS_PER_CONNECTION] tunnels and the pool is below [FENIX_MAX_CONNECTIONS_PER_NODE], so a
+     * busy phone uses a few TCP connections instead of one: on a lossy mobile network a single lost packet on the one
+     * shared connection used to stall every app at once (Instagram froze while its images were loading).
+     */
+    private fun pooledH2(key: String, spread: Boolean = true): FenixH2Session? {
         val list = h2Sessions[key] ?: return null
         synchronized(list) {
             list.removeAll { it.isClosed }
-            return list.filter { it.hasCapacity }.minByOrNull { it.activeStreams }
+            val open = list.filter { it.hasCapacity }
+            if (!spread || list.size >= FENIX_MAX_CONNECTIONS_PER_NODE) return open.minByOrNull { it.activeStreams }
+            return open.filter { it.activeStreams < FENIX_SOFT_STREAMS_PER_CONNECTION }.minByOrNull { it.activeStreams }
         }
     }
 
@@ -2367,28 +2380,38 @@ internal object FirefoxVpnEngine {
      */
     private fun h2SessionOrTls(key: String, connectHost: String, connectPort: Int, nodeSni: String): Pair<FenixH2Session?, SSLSocket?> {
         pooledH2(key)?.let { return it to null }
-        val lock = h2CreateLocks.getOrPut(key) { Any() }
-        synchronized(lock) {
+        val lock = h2CreateLocks.getOrPut(key) { java.util.concurrent.locks.ReentrantLock() }
+        if (!lock.tryLock()) {
+            // Another tunnel is already dialling the extra connection: ride a busy one instead of queueing behind it.
+            pooledH2(key, spread = false)?.let { return it to null }
+            lock.lock()
+        }
+        try {
             pooledH2(key)?.let { return it to null }
             h2DialFailures[key]?.let { (at, error) ->
+                // A busy but working connection beats waiting out a recent dial failure.
+                pooledH2(key, spread = false)?.let { return it to null }
                 if (System.currentTimeMillis() - at < 4_000L) throw IOException("recent dial failure: ${error.message}", error)
             }
             val ssl = try {
                 openNodeTls(connectHost, connectPort, nodeSni, arrayOf("h2", "http/1.1"))
             } catch (e: Throwable) {
                 h2DialFailures[key] = System.currentTimeMillis() to e
+                pooledH2(key, spread = false)?.let { return it to null }
                 throw e
             }
             h2DialFailures.remove(key)
             val alpn = negotiatedAlpn(ssl)
             if (alpn != "h2") return null to ssl
             ssl.soTimeout = 0 // the session pings an idle connection itself
-            val session = FenixH2Session(ssl, "$nodeSni via $connectHost:$connectPort", log = { msg ->
+            val session = FenixH2Session(ssl, "$nodeSni via $connectHost:$connectPort", pingIdleMs = 12_000L, pingTimeoutMs = 10_000L, log = { msg ->
                 appContextRef?.let { ctx -> runCatching { DiagnosticLogger.info(ctx, "fenix.h2", msg.take(200)) } }
             })
             session.start(handshakeTimeoutMs = 10_000L)
             h2Sessions.getOrPut(key) { mutableListOf() }.let { list -> synchronized(list) { list += session } }
             return session to null
+        } finally {
+            lock.unlock()
         }
     }
 
@@ -2698,14 +2721,17 @@ internal object FirefoxVpnEngine {
     private val CONNECT_OK = Regex("""^HTTP/\d(?:\.\d)?\s+200(?:\s|$)""")
     const val FASTLY_MASQUE_PORT = 2499
     const val RECOMMENDED_NODE_HOST = "p.m1.fastly-masque.net"
-    private const val MAX_FENIX_TUNNELS = 64
+    private const val MAX_FENIX_TUNNELS = 192
+    internal const val FENIX_SOFT_STREAMS_PER_CONNECTION = 24
+    internal const val FENIX_MAX_CONNECTIONS_PER_NODE = 4
     private const val MAX_FENIX_THREADS = MAX_FENIX_TUNNELS * 2 + 8
 
-    private fun pipeBytesWithAccounting(inp: InputStream, out: OutputStream) {
+    private fun pipeBytesWithAccounting(inp: InputStream, out: OutputStream, slot: FenixTunnelSlots.Lease? = null) {
         val buf = ByteArray(16_384)
         while (true) {
             val n = inp.read(buf)
             if (n <= 0) break
+            slot?.touch()
             out.write(buf, 0, n)
             out.flush()
             sessionTransferredBytes.addAndGet(n.toLong())

@@ -927,7 +927,12 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 requiredRoutingTarget
             }
             val proxySuffix = dnsProxyGroup?.let { "#$it" }.orEmpty()
-            val dnsServers = when (dnsPrivacyMode) {
+            // beta219: Cat Fox VPN only carries TCP to ports 80/443 and exits abroad. DoT (853), DoQ/DoH3 (UDP) and
+            // the Iranian resolvers cannot work through it, so its DNS uses foreign DoH on 443 only.
+            val tcpOnlyEngine = isTcpOnlyEngineConfig(rawYaml)
+            val dnsServers = if (tcpOnlyEngine) {
+                if (dnsPrivacyMode == DnsPrivacyMode.DoH) listOf(DnsPrivacyPolicy.normalizeDohUrl(dohUrl)) else TCP_ONLY_DOH_SERVERS
+            } else when (dnsPrivacyMode) {
                 DnsPrivacyMode.Automatic -> DOH_SERVERS + DOT_SERVERS
                 DnsPrivacyMode.DoH -> listOf(DnsPrivacyPolicy.normalizeDohUrl(dohUrl))
                 DnsPrivacyMode.DoT -> listOf(DnsPrivacyPolicy.normalizeDotEndpoint(dotEndpoint))
@@ -976,8 +981,11 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 // Ad blocking rides on the bundled GEOSITE.dat (category-ads-all);
                 // injected right after the measurement rules so it wins over any
                 // subscription rule but never hides the app's own probes.
-                val adBlockRules = if (adBlock) "  - 'GEOSITE,category-ads-all,REJECT'\n" else ""
-                if (measureTarget != null || adBlock) {
+                val adBlockRules = (if (adBlock) "  - 'GEOSITE,category-ads-all,REJECT'\n" else "") +
+                    // beta219: a TCP-only engine cannot carry QUIC; mihomo then sent UDP 443 DIRECT (filtered in Iran),
+                    // and apps such as Instagram waited on QUIC before falling back. Refusing it makes them use TCP.
+                    (if (tcpOnlyEngine) "  - ${yamlSingleQuoted(TCP_ONLY_QUIC_RULE)}\n" else "")
+                if (measureTarget != null || adBlock || (tcpOnlyEngine && "rules:\n" in this)) {
                     val measurementRules = if (measureTarget != null) {
                         MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
                             "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
@@ -1138,6 +1146,23 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             "https://1.1.1.1/dns-query",
             "https://8.8.8.8/dns-query",
         )
+        internal const val TCP_ONLY_QUIC_RULE = "AND,((NETWORK,UDP),(DST-PORT,443)),REJECT"
+
+        /** Foreign DoH on port 443 — the only DNS a TCP-only, web-ports-only engine (Cat Fox VPN) can carry. */
+        internal val TCP_ONLY_DOH_SERVERS = listOf(
+            "https://1.1.1.1/dns-query",
+            "https://8.8.8.8/dns-query",
+            "https://1.0.0.1/dns-query",
+        )
+
+        /** Every proxy of the runtime config is a Cat Fox VPN bridge (TCP CONNECT only, no UDP). */
+        internal fun isTcpOnlyEngineConfig(rawYaml: String): Boolean {
+            val fenix = Regex("""(?m)^\s*(?:-\s*)?fenix-uri\s*:|[{,]\s*fenix-uri\s*:""").findAll(rawYaml).count()
+            if (fenix == 0) return false
+            val proxies = runCatching { MihomoConfigParser.parseSummary(rawYaml).proxies.size }.getOrDefault(0)
+            return proxies in 1..fenix
+        }
+
         private val DOT_SERVERS = listOf(
             "tls://178.22.122.100:853",
             "tls://10.202.10.10:853",

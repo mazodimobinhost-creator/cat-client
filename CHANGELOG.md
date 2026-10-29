@@ -4,6 +4,17 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta219] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app («connected, but nothing loads / Instagram freezes»)
+- **Cat Warp: pages and Instagram hung after connecting.** The VPN interface always advertised MTU 1280, also for the two-hop transports whose inner hop only carries 1200 bytes (WARP-in-WARP, WireGuard-over-MASQUE) or 1162 (MASQUE-in-MASQUE) — the default for every «foreign exit» profile. Small packets passed, so it showed «connected», but every full-size packet was silently dropped, so pages, images and videos never finished. The interface now uses the transport's real size (from the config the engine actually runs, including after an automatic fallback); below 1280 it is IPv4-only, because Android refuses IPv6 on smaller interfaces (the same as the engine's own app).
+- **Cat Fox VPN: after a few minutes nothing new opened.** The local bridge allowed only 64 connections and hung up on any further one; idle connections (which apps keep open for minutes) were never closed, so a normal phone filled all slots and every new connection — a new Instagram image, a new page — was refused. The limit is now 192, and when it is reached the connection that has been silent the longest (≥15 s) is closed for the new one.
+- **Cat Fox VPN: one lost packet froze every app.** All connections shared one HTTP/2 connection to Mozilla; on a lossy mobile network one lost packet stalled everything at once. Busy phones now spread over up to 4 connections (24 tunnels each before another one is opened; a busy connection is still used while the next one is being dialled or if dialling fails). A dead connection is noticed faster (ping after 12 s of silence, 10 s to answer).
+- **Cat Fox VPN: QUIC and DNS.** Mozilla's proxy carries only TCP to ports 80/443, so QUIC (UDP 443) went around the tunnel, straight into the filter, and apps like Instagram waited on it before falling back. For Cat Fox VPN profiles QUIC is now refused so apps use TCP at once, and DNS uses foreign DoH on port 443 only (DoT on 853, UDP DNS and the Iranian resolvers cannot work through a foreign web-only proxy). Other configs are unchanged.
+
+### Tests
+- `Beta219TunnelTrafficTest` (MTU per transport and for «foreign exit» configs, IPv6 only at ≥1280; tunnel-slot eviction of the idle tunnel, no permit leak; Cat Fox VPN runtime refuses QUIC before `MATCH` and uses DoH only; mixed subscriptions unchanged).
+
 ## [1.10.0-beta218] — 2026-10-29 (Panel 6.77.3)
 
 ### Fixed — app (connect froze the screen)

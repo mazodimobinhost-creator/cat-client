@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class AetherSession(
     private val protectSocket: (Int) -> Boolean,
     /** Establishes a TUN and detaches its descriptor; native code becomes its owner. */
-    private val establishTun: (ipv4: String, ipv6: String) -> Int,
+    private val establishTun: (ipv4: String, ipv6: String, mtu: Int) -> Int,
     private val onReady: () -> Unit,
 ) : Closeable {
     private val active = AtomicBoolean(false)
@@ -68,7 +68,8 @@ internal class AetherSession(
             }.getOrThrow()
             AetherEngineSlot.ensureCurrent(gen)
             val (ipv4, ipv6) = AetherTunPolicy.validatedAddresses(prepared.ipv4, prepared.ipv6)
-            tunFd = establishTun(ipv4, ipv6)
+            // beta219: size the interface for the transport that really runs (a fallback may have changed it).
+            tunFd = establishTun(ipv4, ipv6, AetherTunPolicy.mtuForTransport(AetherTunPolicy.transportOfJson(effectiveJson)))
             check(tunFd >= 0) { "Could not establish Cat Warp TUN" }
             handedOff = true
             AetherOperations.withMasqueHttp2ForMim(effectiveConfig) {
