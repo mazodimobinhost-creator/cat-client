@@ -444,6 +444,28 @@ internal object FirefoxVpnEngine {
         }.getOrNull()
     }
 
+    /** `exp - nbf` (or `exp - iat`) of a JWT: how long the pass lives, independent of the phone's clock. */
+    @OptIn(ExperimentalEncodingApi::class)
+    internal fun jwtLifetimeSeconds(jwt: String): Long? {
+        val parts = jwt.trim().split('.')
+        if (parts.size < 2) return null
+        return runCatching {
+            val payloadPart = parts[1].trimEnd('=')
+            val padded = payloadPart + "=".repeat((4 - payloadPart.length % 4) % 4)
+            val json = JSONObject(Base64.UrlSafe.decode(padded).toString(StandardCharsets.UTF_8))
+            val exp = json.optLong("exp", 0L)
+            val start = json.optLong("nbf", 0L).takeIf { it > 0L } ?: json.optLong("iat", 0L)
+            (exp - start).takeIf { exp > 0L && start > 0L && it in 60L..(30L * 86_400L) }
+        }.getOrNull()
+    }
+
+    /**
+     * Pass -> expiry on THIS phone's clock. Firefox anchors a fresh pass to "now" with the JWT's own lifetime, so a
+     * phone whose clock is an hour off (common in Iran since DST was dropped) neither refreshes on every tunnel nor
+     * keeps sending a pass Mozilla already considers expired.
+     */
+    private val passLocalExpiry = ConcurrentHashMap<String, Long>()
+
     /**
      * Solves Fastly's 2-character alphanumeric SHA-256 proof-of-work challenge (`solve_pow`).
      */
@@ -1662,9 +1684,12 @@ internal object FirefoxVpnEngine {
         if (tokenResp != null && tokenResp.statusCode in 200..299) {
             val j = JSONObject(tokenResp.body)
             val passJwt = j.optString("token")
-            val expSec = j.optLong("expires_at", 0L).takeIf { it > 0L }
+            val nowSec = System.currentTimeMillis() / 1000L
+            val expSec = jwtLifetimeSeconds(passJwt)?.let { nowSec + it }
+                ?: j.optLong("expires_at", 0L).takeIf { it > 0L }
                 ?: extractJwtExpirySeconds(passJwt)
-                ?: ((System.currentTimeMillis() / 1000L) + 3600L)
+                ?: (nowSec + 3600L)
+            if (passJwt.isNotBlank()) passLocalExpiry[passJwt] = expSec
 
             val quotaLimit = tokenResp.header("X-Quota-Limit")?.toLongOrNull()
                 ?.takeIf { it > 0L } ?: account.quotaLimitBytes
@@ -2518,7 +2543,16 @@ internal object FirefoxVpnEngine {
      */
     private fun ensureValidProxyPass(): String {
         val current = activeBearerPass
-        val exp = extractJwtExpirySeconds(current)
+        val exp = passLocalExpiry[current] ?: run {
+            // After an app restart: the saved account carries the clock-anchored expiry; remember it once.
+            val saved = appContextRef?.let { ctx ->
+                runCatching { loadAccounts(ctx) }.getOrNull()
+                    ?.firstOrNull { it.proxyPassToken == current && current.isNotBlank() }?.proxyPassExpiresAtSec
+                    ?.takeIf { it > 0L }
+            }
+            if (saved != null) passLocalExpiry[current] = saved
+            saved ?: extractJwtExpirySeconds(current)
+        }
         val nowSec = System.currentTimeMillis() / 1000L
         if (current.isNotBlank() && (exp == null || exp > nowSec + 60L)) {
             return current

@@ -187,6 +187,10 @@ class Beta211FenixHttp2Test {
         assertEquals(1_798_761_600L, FirefoxVpnEngine.parseQuotaReset("2027-01-01T00:00:00Z"))
         assertEquals(1_798_761_600L, FirefoxVpnEngine.parseQuotaReset("2027-01-01T00:00:00.000+00:00"))
         assertEquals(null, FirefoxVpnEngine.parseQuotaReset("soon"))
+        // The pass lifetime comes from the JWT itself (exp - nbf), so a phone clock that is an hour off does not matter.
+        // (org.json is a stub in JVM unit tests, so the JWT decode itself is checked by source.)
+        assertTrue(src("FirefoxVpnEngine.kt").contains("val expSec = jwtLifetimeSeconds(passJwt)?.let { nowSec + it }"))
+        assertTrue(src("FirefoxVpnEngine.kt").contains("val exp = passLocalExpiry[current] ?: run {"))
         val engine = src("FirefoxVpnEngine.kt")
         assertTrue(engine.contains("only carries web ports 80/443"))
         assertTrue(engine.contains("filter { !it.locked }"))
