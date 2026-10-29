@@ -249,6 +249,8 @@ jobs:
           # ⚡ quick user, scanner → user, installable panel (driven through the real UI)
           node scripts/panels/devcop-parity.test.mjs
           node scripts/panels/bestping-custom.test.mjs
+          # beta220: opt-in «📨 report to panel» endpoint (anonymised, capped, owner-only view)
+          node scripts/panels/app-report.test.mjs
 
       # Ship the obfuscated worker inside the APK (readable source never leaves
       # the repo). The full panel suite then re-runs against the obfuscated
@@ -286,6 +288,7 @@ jobs:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/link-shape.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-integrity.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/kv-persistence.test.mjs
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/app-report.test.mjs
             # exactly the file that goes into the APK and the release assets:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-update-contract.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/panel-selfupdate.test.mjs

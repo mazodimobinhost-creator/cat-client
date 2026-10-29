@@ -39,6 +39,17 @@ object VpnRuntimeStateStore {
     private const val KEY_GAS_USAGE_DAY = "gas_usage_day"
     private const val KEY_GAS_USAGE_COUNT = "gas_usage_count"
     const val GAS_DAILY_FREE_QUOTA = 20_000
+    private const val KEY_REAL_INTERNET_RESULT = "real_internet_result"
+
+    /** beta220: last real internet test (JSON of [RealInternetResult]); cleared when the VPN stops. */
+    internal fun saveRealInternetResult(context: Context, result: RealInternetResult?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+            if (result == null) remove(KEY_REAL_INTERNET_RESULT) else putString(KEY_REAL_INTERNET_RESULT, result.toJson())
+        }.apply()
+    }
+
+    internal fun readRealInternetResult(context: Context): RealInternetResult? =
+        RealInternetResult.fromJson(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_REAL_INTERNET_RESULT, null))
 
     fun save(
         context: Context,

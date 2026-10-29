@@ -128,6 +128,10 @@ object AutomaticConnectionCandidatePolicy {
         limit: Int = Int.MAX_VALUE,
         /** Sticky location: keep the last working server first so a reconnect does not hop to another city/IP. */
         sticky: Boolean = true,
+        /** beta220 route memory: routes that passed the real internet test on this network, newest first. */
+        networkGood: List<String> = emptyList(),
+        /** beta220 route memory: routes that failed the real internet test on this network in the last 6 h. */
+        networkBad: Set<String> = emptySet(),
     ): List<ConnectionProfile> {
         val failedFingerprints = records
             .filter { it.status == ConnectionDelayStatus.Failure }
@@ -136,17 +140,23 @@ object AutomaticConnectionCandidatePolicy {
             .filter { it.status == ConnectionDelayStatus.Success && it.delayMs != null }
             .associate { it.fingerprint to it.delayMs!! }
         val originalOrder = profiles.mapIndexed { index, profile -> profile.fingerprint to index }.toMap()
-        return profiles.filterNot {
+        val eligible = profiles.filterNot {
             it.fingerprint in failedFingerprints || it.fingerprint == excludedFingerprint
-        }.sortedWith(
+        }
+        // Routes that failed the real test here are left out — unless that would leave nothing to try.
+        val remembered = eligible.filterNot { it.fingerprint in networkBad }.ifEmpty { eligible }
+        return remembered.sortedWith(
             compareBy<ConnectionProfile> { profile ->
+                val goodRank = networkGood.indexOf(profile.fingerprint)
                 when {
+                    goodRank >= 0 -> -2
                     sticky && profile.fingerprint == lastSelectedProfile?.fingerprint -> -1
                     profile.fingerprint in delayByFingerprint -> 0
                     profile.fingerprint == lastSelectedProfile?.fingerprint -> 1
                     else -> 2
                 }
-            }.thenBy { delayByFingerprint[it.fingerprint] ?: Int.MAX_VALUE }
+            }.thenBy { networkGood.indexOf(it.fingerprint).takeIf { rank -> rank >= 0 } ?: Int.MAX_VALUE }
+                .thenBy { delayByFingerprint[it.fingerprint] ?: Int.MAX_VALUE }
                 .thenBy { originalOrder[it.fingerprint] ?: Int.MAX_VALUE },
         ).take(limit.coerceAtLeast(0))
     }

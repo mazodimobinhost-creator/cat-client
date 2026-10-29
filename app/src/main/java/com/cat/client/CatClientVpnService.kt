@@ -332,6 +332,15 @@ class CatClientVpnService : VpnService() {
     private var notificationLastTxBytes: Long = TrafficStats.UNSUPPORTED.toLong()
     private var notificationLastSampleElapsedMs: Long = 0L
     private var postConnectHealthJob: Job? = null
+    /* beta220: real internet test after connect + route memory per network (RealInternetCheck.kt, RouteMemory.kt) */
+    private var realCheckJob: Job? = null
+    private var realCheckFingerprint: String = ""
+    private var realCheckHops: Int = 0
+    private var realCheckSessionAutomatic: Boolean = false
+    private val realCheckTried = linkedSetOf<String>()
+    private var realCheckHopPending: Boolean = false
+    private var realCheckLastAtElapsedMs: Long = 0L
+    private lateinit var routeMemoryStore: RouteMemoryStore
     @Volatile
     private var awaitingPreservedRuntimeHealth = false
     private var dpiBypassJob: Job? = null
@@ -479,6 +488,7 @@ class CatClientVpnService : VpnService() {
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
         orbotEnginePreferenceStore = OrbotEnginePreferenceStore(this)
         pathWatchdogStore = PathWatchdogStore(this)
+        routeMemoryStore = RouteMemoryStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
         connectionOptionsPreferenceStore = MihomoConnectionOptionsPreferenceStore(this)
         connectionModePreferenceStore = ConnectionModePreferenceStore(this)
@@ -529,7 +539,10 @@ class CatClientVpnService : VpnService() {
             Actions.DISCONNECT -> stopVpn()
             Actions.RECONNECT -> reconnectVpn()
             Actions.REFRESH -> refreshVpn(quickSpeedRequested = true)
+            Actions.TRY_NEXT_ROUTE -> tryNextRoute()
+            Actions.RECHECK_REAL_INTERNET -> if (state == VpnState.Started) scheduleRealInternetCheck(activeConnectionFingerprint)
             Actions.SWITCH_CONNECTION -> switchActiveConnection(
+                switchRequestedByUser = true,
                 subscriptionId = intent?.getStringExtra(Actions.EXTRA_SUBSCRIPTION_ID).orEmpty(),
                 fingerprint = intent?.getStringExtra(Actions.EXTRA_CONNECTION_FINGERPRINT).orEmpty(),
             )
@@ -664,8 +677,14 @@ class CatClientVpnService : VpnService() {
         launchConnectionStartup("reconnect") { stopActiveCoreForReplacement() }
     }
 
-    private fun switchActiveConnection(subscriptionId: String, fingerprint: String) {
+    private fun switchActiveConnection(
+        subscriptionId: String,
+        fingerprint: String,
+        persistSelection: Boolean = true,
+        switchRequestedByUser: Boolean = false,
+    ) {
         if (subscriptionId.isBlank() || fingerprint.isBlank()) return
+        if (switchRequestedByUser) realCheckHopPending = true // a route the user picks is always measured
         if (state != VpnState.Started) {
             DiagnosticLogger.info(this, "connection.switch.ignored", "reason=state state=${state.wireName}")
             return
@@ -770,7 +789,8 @@ class CatClientVpnService : VpnService() {
                             checkedAt = System.currentTimeMillis(),
                         )
                     }
-                    connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, profile)
+                    // beta220: an automatic «next route» hop must not turn the user's Automatic choice into a pin.
+                    if (persistSelection) connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, profile)
                     scanStateStore.saveLastSelectedProfile(
                         SelectedConnectionProfile(
                             profile = profile,
@@ -2947,6 +2967,8 @@ class CatClientVpnService : VpnService() {
                     excludedFingerprint = excludedProfileFingerprint,
                     limit = CleanIpDefaults.STARTUP_RUNTIME_ATTEMPTS.coerceAtLeast(1),
                     sticky = getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("sticky_location", true),
+                    networkGood = routeMemoryGood(),
+                    networkBad = routeMemoryBad(),
                 )
                 var lastFailure: Throwable? = null
                 for ((index, candidate) in orderedCandidates.withIndex()) {
@@ -5820,6 +5842,188 @@ class CatClientVpnService : VpnService() {
     private fun DefaultNetworkCandidate?.quickSpeedNetworkFingerprint(): String =
         "${defaultNetworkKey()}#${this?.dnsServers.orEmpty().distinct().joinToString(",")}"
 
+    /* ---- beta220: real internet test + automatic next route with memory per network ---------------------------
+     * «Connected» only proves the tunnel is up. ~2 s after every connect and every route switch we load real pages
+     * through the VPN (RealInternetCheck). In Automatic mode a route that brings no internet (checked twice) is
+     * recorded as bad for this network and the next route is switched in by itself (max 3 hops); with a route the
+     * user picked, the home screen offers «try the next route» instead. */
+    private fun onRealInternetCheckState(previous: VpnState, now: VpnState) {
+        if (now != VpnState.Started) {
+            realCheckJob?.cancel()
+            realCheckJob = null
+            if (now != VpnState.Starting) {
+                realCheckFingerprint = ""
+                realCheckHops = 0
+                realCheckTried.clear()
+                VpnRuntimeStateStore.saveRealInternetResult(this, null)
+            }
+            return
+        }
+        val fingerprint = activeConnectionFingerprint
+        if (previous == VpnState.Started) {
+            if (fingerprint.ifEmpty { "-" } == realCheckFingerprint) return // same route: notices, selector refreshes
+            // The core's own url-test may change leaves every few minutes; re-measure those at most every 5 min.
+            // Our own hops and the user's switches are always measured.
+            val ownSwitch = realCheckHopPending
+            if (!ownSwitch && SystemClock.elapsedRealtime() - realCheckLastAtElapsedMs < REAL_CHECK_PASSIVE_GAP_MS) {
+                realCheckFingerprint = fingerprint.ifEmpty { "-" }
+                return
+            }
+        }
+        realCheckHopPending = false
+        if (previous != VpnState.Started && realCheckHops == 0 && realCheckTried.isEmpty()) {
+            // A new connection (not one of our own hops): may we hop by ourselves? Only when the user left it on
+            // Automatic — a route the user picked is never replaced behind their back.
+            realCheckSessionAutomatic = activeSubscriptionId.isNotBlank() &&
+                !connectionSelectionPreferenceStore.hasSelectedProfile(activeSubscriptionId) &&
+                !activeConnectionChained
+        }
+        scheduleRealInternetCheck(fingerprint)
+    }
+
+    private fun realCheckStillOn(fingerprint: String): Boolean =
+        !destroyed && state == VpnState.Started && activeConnectionFingerprint == fingerprint
+
+    private fun scheduleRealInternetCheck(fingerprint: String) {
+        realCheckJob?.cancel()
+        realCheckFingerprint = fingerprint.ifEmpty { "-" }
+        val subscriptionId = activeSubscriptionId
+        val label = activeProfile?.let(ConnectionLabelPolicy::displayName).orEmpty()
+        realCheckLastAtElapsedMs = SystemClock.elapsedRealtime()
+        val job = scope.launch(Dispatchers.IO) {
+            fun stamp(r: RealInternetResult) = r.copy(
+                fingerprint = fingerprint,
+                routeLabel = label,
+                atMs = System.currentTimeMillis(),
+                hops = realCheckHops,
+            )
+            publishRealInternetResult(stamp(RealInternetResult(RealInternetStatus.Checking)))
+            delay(RealInternetCheck.START_DELAY_MS)
+            if (!realCheckStillOn(fingerprint)) return@launch
+            if (childProcessEngineActive) {
+                // The DNS-tunnel engine makes the app itself bypass the VPN; our own request would test the plain line.
+                publishRealInternetResult(stamp(RealInternetResult(RealInternetStatus.NotMeasurable, detail = "app bypasses the VPN for the DNS-tunnel engine")))
+                return@launch
+            }
+            var result = RealInternetCheck.run()
+            if (result.status == RealInternetStatus.NoInternet && realCheckStillOn(fingerprint)) {
+                delay(RealInternetCheck.RECHECK_DELAY_MS)
+                if (!realCheckStillOn(fingerprint)) return@launch
+                result = RealInternetCheck.run()
+            }
+            if (!realCheckStillOn(fingerprint)) return@launch
+            val networkKey = routeNetworkKey()
+            when (result.status) {
+                RealInternetStatus.Works -> routeMemoryStore.record(networkKey, fingerprint, ok = true)
+                RealInternetStatus.NoInternet -> routeMemoryStore.record(networkKey, fingerprint, ok = false)
+                else -> Unit
+            }
+            val next = if (result.status.isProblem) runCatching { nextRouteCandidate(fingerprint, networkKey) }.getOrNull() else null
+            val autoHop = result.status == RealInternetStatus.NoInternet && realCheckSessionAutomatic &&
+                realCheckHops < RealInternetCheck.MAX_AUTO_HOPS && next != null
+            DiagnosticLogger.info(
+                this@CatClientVpnService,
+                "realCheck.result",
+                "status=${result.status.wire} latencyMs=${result.latencyMs} kbps=${result.kbps} hops=$realCheckHops " +
+                    "network=$networkKey automatic=$realCheckSessionAutomatic next=${next != null} autoHop=$autoHop detail=${result.detail}",
+            )
+            publishRealInternetResult(
+                stamp(result).copy(
+                    canTryNext = result.status.isProblem && (next != null || state == VpnState.Started),
+                    autoHopping = autoHop,
+                ),
+            )
+            if (autoHop && next != null) {
+                withContext(Dispatchers.Main) {
+                    if (realCheckStillOn(fingerprint)) hopToRoute(subscriptionId, next, automatic = true)
+                }
+            }
+        }
+        realCheckJob = job
+        job.invokeOnCompletion { if (realCheckJob === job) realCheckJob = null }
+    }
+
+    private fun routeNetworkKey(): String {
+        val n = runCatching { networkMonitor.currentDefaultNetwork() }.getOrNull()
+        val cellular = n?.isCellular == true
+        return RouteMemoryPolicy.networkKey(
+            isCellular = cellular,
+            isWifi = n?.isWifi == true,
+            isEthernet = n?.isEthernet == true,
+            operatorCode = if (cellular) CarrierDetector.rawOperatorCode(this) else null,
+        )
+    }
+
+    private fun routeMemoryGood(): List<String> = runCatching {
+        RouteMemoryPolicy.good(routeMemoryStore.entries(routeNetworkKey()), System.currentTimeMillis())
+    }.getOrDefault(emptyList())
+
+    private fun routeMemoryBad(): Set<String> = runCatching {
+        RouteMemoryPolicy.bad(routeMemoryStore.entries(routeNetworkKey()), System.currentTimeMillis())
+    }.getOrDefault(emptySet())
+
+    /** Another route of the running Cat core that can be switched in live, or null (chain, SSTP, Cat Warp, …). */
+    private fun nextRouteCandidate(current: String, networkKey: String): String? {
+        if (activeConnectionChained || activeRuntimePaths == null || !activeSelectorReady || sstpConnection != null) return null
+        val selectable = activeSelectableConnectionFingerprints
+        val profiles = activeAvailableProfiles.filter { p ->
+            p.fingerprint in selectable && p.shareLink?.trim()?.startsWith("sstp://", ignoreCase = true) != true
+        }
+        if (profiles.size < 2) return null
+        val now = System.currentTimeMillis()
+        val entries = routeMemoryStore.entries(networkKey)
+        val delays = runCatching {
+            subscriptionStore.readConnectionDelayRecords(subscriptionId = activeSubscriptionId, profiles = profiles)
+        }.getOrDefault(emptyList())
+            .filter { it.status == ConnectionDelayStatus.Success && it.delayMs != null }
+            .associate { it.fingerprint to it.delayMs!!.toLong() }
+        return RouteMemoryPolicy.nextCandidate(
+            candidates = profiles.map(ConnectionProfile::fingerprint),
+            current = current,
+            tried = realCheckTried + current,
+            good = RouteMemoryPolicy.good(entries, now),
+            bad = RouteMemoryPolicy.bad(entries, now),
+            delayMs = delays,
+        )
+    }
+
+    private fun hopToRoute(subscriptionId: String, fingerprint: String, automatic: Boolean) {
+        activeConnectionFingerprint.takeIf(String::isNotBlank)?.let(realCheckTried::add)
+        if (automatic) realCheckHops += 1
+        realCheckHopPending = true
+        DiagnosticLogger.info(this, "realCheck.hop", "automatic=$automatic hop=$realCheckHops tried=${realCheckTried.size}")
+        switchActiveConnection(subscriptionId, fingerprint, persistSelection = false)
+    }
+
+    /** «Try the next route» button: live switch when the core has another route, otherwise restart without this one. */
+    private fun tryNextRoute() {
+        if (state != VpnState.Started) return
+        val current = activeConnectionFingerprint
+        val subscriptionId = activeSubscriptionId
+        scope.launch(Dispatchers.IO) {
+            val next = runCatching { nextRouteCandidate(current, routeNetworkKey()) }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (state != VpnState.Started) return@withContext
+                if (next != null) {
+                    hopToRoute(subscriptionId, next, automatic = false)
+                } else {
+                    current.takeIf(String::isNotBlank)?.let(realCheckTried::add)
+                    DiagnosticLogger.info(this@CatClientVpnService, "realCheck.next.restart")
+                    refreshVpn(eventPrefix = "realCheckNext")
+                }
+            }
+        }
+    }
+
+    private fun publishRealInternetResult(result: RealInternetResult) {
+        VpnRuntimeStateStore.saveRealInternetResult(this, result)
+        sendBroadcast(
+            Intent(Actions.REAL_INTERNET_CHECK)
+                .setPackage(packageName)
+                .putExtra(Actions.EXTRA_REAL_INTERNET_RESULT, result.toJson()),
+        )
+    }
+
     private fun cancelPostConnectHealthWatchdog() {
         val job = postConnectHealthJob
         postConnectHealthJob = null
@@ -5956,8 +6160,11 @@ class CatClientVpnService : VpnService() {
     }
 
     private fun publishState(newState: VpnState, notice: String? = null) {
+        val previousState = state
         state = newState
         currentVpnServiceState = newState
+        runCatching { onRealInternetCheckState(previousState, newState) }
+            .onFailure { DiagnosticLogger.warn(this, "realCheck.state.failed", error = it) }
         if (newState == VpnState.Started) {
             startNotificationTrafficUpdates()
             LocalSniSpoofProxy.loadPersistedPowerSettings(this)
@@ -6217,6 +6424,7 @@ class CatClientVpnService : VpnService() {
         const val CONTROLLER_LOG_TAIL_CHARS = 4_000
         const val RUNTIME_HEALTH_TIMEOUT_MS = 20_000L
         const val FALLBACK_RUNTIME_HEALTH_TIMEOUT_MS = 5_000L
+        private const val REAL_CHECK_PASSIVE_GAP_MS = 5 * 60_000L
         const val RUNTIME_HEALTH_POLL_INTERVAL_MS = 500L
         const val QUICK_SPEED_SHORTLIST_TIMEOUT_MS = 2_000L
         const val QUICK_SPEED_DOWNLOAD_TIMEOUT_MS = 10_000
