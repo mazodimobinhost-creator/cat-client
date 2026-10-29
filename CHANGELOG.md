@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta218] — 2026-10-29 (Panel 6.77.3)
+
+### Fixed — app (connect froze the screen)
+- **Pressing «Connect» froze the app.** The VPN service runs its startup steps on the main thread, which it shares with the screen. With the WARP → Psiphon (or WARP → Tor, or the two-hop WARP fallback) route, the Cat Warp carrier ran its blocking native preparation — endpoint scan, WARP provisioning and a «busy engine» retry that sleeps — right on that thread, so the screen stopped responding for seconds to minutes and even «Disconnect» could not be pressed. Validation and preparation (including both fallbacks) now run on a background thread; «Disconnect» works during the whole start and cancels a running preparation, and a failed preparation frees the carrier for the next try.
+- **Smaller blocking steps moved off the screen's thread too:** the first load of the Cat Warp native library, writing the saved WARP key into the identity file, writing the Psiphon/Tor carrier config file, and stopping Cat DNS helper engines before a new start (a short wait per engine).
+
+### Tests
+- `Beta218ConnectFreezeTest` (no native validate/prepare left in the carrier's `start()`, preparation on IO, every carrier config write on IO, the service's native-library check and key file write on IO).
+
 ## [1.10.0-beta217] — 2026-10-29 (Panel 6.77.3)
 
 ### Fixed — app (speed)

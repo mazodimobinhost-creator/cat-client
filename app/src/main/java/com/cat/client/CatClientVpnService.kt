@@ -4651,7 +4651,10 @@ class CatClientVpnService : VpnService() {
     }
 
     private suspend fun runAetherStartup(eventPrefix: String, selection: AetherSelection) {
-        check(AetherRuntimeCapabilities.detect().nativeCoreLoaded) { "Cat Warp native core is not packaged" }
+        // beta218: the first touch of the native bridge loads the (large) Cat Warp library — off the main thread,
+        // which this service shares with the screen.
+        val nativeLoaded = withContext(Dispatchers.IO) { AetherRuntimeCapabilities.detect().nativeCoreLoaded }
+        check(nativeLoaded) { "Cat Warp native core is not packaged" }
         check(coreLifecycle.isIdle()) { "Cat core must stop before Cat Warp starts" }
         val networkKey = AetherPreferenceStore.underlyingNetworkKey(this)
         VpnRuntimeStateStore.saveLiveConnectStep(this, "۱/۴: شناسایی شبکه ($networkKey) و انتخاب سریع‌ترین Endpoint")
@@ -4661,7 +4664,7 @@ class CatClientVpnService : VpnService() {
             aetherPreferenceStore.rememberEndpointForNetwork(networkKey, selection.mode, selection.ipScan, effectiveEndpoint)
         }
         val identityFile = File(filesDir, "aether.toml")
-        aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(identityFile)
+        withContext(Dispatchers.IO) { aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(identityFile) }
         val effectiveSelection = if (effectiveEndpoint != null && selection.endpoint == null) {
             selection.copy(endpoint = effectiveEndpoint, endpointScannedAt = System.currentTimeMillis())
         } else selection
@@ -4834,11 +4837,13 @@ class CatClientVpnService : VpnService() {
                 doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
                 doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
             )
-            val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
-                rawYaml = PsiphonTunPlan.yaml(carrier.socksPort),
-                splitTunnelPlan = splitPlan,
-                dns = dns,
-            )
+            val paths = withContext(Dispatchers.IO) {
+                MihomoRuntimeConfigBuilder(this@CatClientVpnService).writeCarrier(
+                    rawYaml = PsiphonTunPlan.yaml(carrier.socksPort),
+                    splitTunnelPlan = splitPlan,
+                    dns = dns,
+                )
+            }
             setupCoreRuntime(paths)
             startCoreTun(paths, splitPlan)
             activeRuntimePaths = paths
@@ -4923,15 +4928,17 @@ class CatClientVpnService : VpnService() {
                 doqEndpoint = dnsPrivacyPreferenceStore.readDoqEndpoint(),
                 doh3Url = dnsPrivacyPreferenceStore.readDoh3Url(),
             )
-            val paths = MihomoRuntimeConfigBuilder(this).writeCarrier(
-                rawYaml = PsiphonTunPlan.torChainYaml(
-                    aetherSocksPort = carrier.port,
-                    torSocksPort = orbotPort,
-                    torReachable = torReachable,
-                ),
-                splitTunnelPlan = splitPlan,
-                dns = dns,
-            )
+            val paths = withContext(Dispatchers.IO) {
+                MihomoRuntimeConfigBuilder(this@CatClientVpnService).writeCarrier(
+                    rawYaml = PsiphonTunPlan.torChainYaml(
+                        aetherSocksPort = carrier.port,
+                        torSocksPort = orbotPort,
+                        torReachable = torReachable,
+                    ),
+                    splitTunnelPlan = splitPlan,
+                    dns = dns,
+                )
+            }
             setupCoreRuntime(paths)
             startCoreTun(paths, splitPlan)
             activeRuntimePaths = paths
@@ -5474,7 +5481,8 @@ class CatClientVpnService : VpnService() {
             MihomoCoreCleanupRequest.AlreadyIdle -> true
         }
         stopDpiBypassProxy()
-        runCatching { SlipNetCliEngine.stopAll() }
+        // beta218: stopping child engines sleeps briefly per process and deletes a file — not on the screen's thread.
+        withContext(Dispatchers.IO) { runCatching { SlipNetCliEngine.stopAll() } }
         childProcessEngineActive = false
         return coreStopped
     }

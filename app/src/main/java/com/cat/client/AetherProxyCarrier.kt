@@ -37,7 +37,11 @@ internal class AetherProxyCarrier(
 
     suspend fun start(timeoutMs: Long = 300_000) {
         check(active.compareAndSet(false, true)) { "Cat Warp proxy carrier is already active" }
-        check(NativeAetherBridge.isLoaded) { "Cat Warp native core is unavailable" }
+        val loaded = withContext(Dispatchers.IO) { NativeAetherBridge.isLoaded }
+        if (!loaded) {
+            active.set(false)
+            throw IllegalStateException("Cat Warp native core is unavailable")
+        }
         ready = CompletableDeferred()
         val requestedMode = when (carrierMode) {
             AetherMode.MasquePsiphon -> AetherMode.MasqueHttp2
@@ -76,6 +80,49 @@ internal class AetherProxyCarrier(
             active.set(false)
             throw IOException(AetherEngineSlot.BUSY_MESSAGE)
         }
+        // beta218: everything from here to the end of prepare is blocking native work (endpoint scan, WARP
+        // provisioning, a busy-engine retry with Thread.sleep) that can take many seconds. The VPN service calls
+        // start() from its main-thread scope, which is also the screen's thread, so the whole app froze after
+        // «Connect» on the WARP → Psiphon / WARP → Tor chains — even «Disconnect» could not be pressed. It now runs
+        // on an IO thread; cancelPrepare() from close() (main thread) can interrupt it.
+        val (prepared, effectiveConfig, effectiveJson) = try {
+            withContext(Dispatchers.IO) { prepareBlocking(config, requestedMode, gen) }
+        } catch (error: Throwable) {
+            active.set(false)
+            throw error
+        }
+        if (!AetherEngineSlot.isCurrent(gen)) {
+            active.set(false)
+            throw IOException("Cat Warp start superseded by a newer connection")
+        }
+        val runCfg = effectiveConfig
+        val runJson = effectiveJson
+        job = scope.launch(Dispatchers.IO) {
+            val result = AetherOperations.withMasqueHttp2ForMim(runCfg) {
+                AetherEngineSlot.track {
+                    NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
+                        ready.complete(Unit)
+                    })
+                }
+            }
+            if (!result.ok && !ready.isCompleted) {
+                ready.completeExceptionally(IOException(result.error ?: "Cat Warp proxy stopped"))
+            }
+            active.set(false)
+        }
+        try {
+            withTimeout(timeoutMs) { ready.await() }
+        } catch (error: Throwable) {
+            close()
+            throw error
+        }
+    }
+
+    private fun prepareBlocking(
+        config: AetherRuntimeConfig,
+        requestedMode: AetherMode,
+        gen: Long,
+    ): Triple<PreparedHolder, AetherRuntimeConfig, String> {
         val primaryJson = config.toNativeJson()
         val validation = NativeAetherBridge.validate(primaryJson)
         check(validation.ok) { validation.error ?: "Invalid Cat Warp proxy configuration" }
@@ -113,32 +160,10 @@ internal class AetherProxyCarrier(
                 }.getOrElse { throw firstError }
             }.getOrThrow()
         }.getOrThrow()
-        if (!AetherEngineSlot.isCurrent(gen)) {
-            active.set(false)
-            throw IOException("Cat Warp start superseded by a newer connection")
-        }
-        val runCfg = effectiveConfig
-        val runJson = effectiveJson
-        job = scope.launch(Dispatchers.IO) {
-            val result = AetherOperations.withMasqueHttp2ForMim(runCfg) {
-                AetherEngineSlot.track {
-                    NativeAetherBridge.run(runJson, prepared.peer, -1, NativeEngineListener {
-                        ready.complete(Unit)
-                    })
-                }
-            }
-            if (!result.ok && !ready.isCompleted) {
-                ready.completeExceptionally(IOException(result.error ?: "Cat Warp proxy stopped"))
-            }
-            active.set(false)
-        }
-        try {
-            withTimeout(timeoutMs) { ready.await() }
-        } catch (error: Throwable) {
-            close()
-            throw error
-        }
+        return Triple(PreparedHolder(prepared.peer), effectiveConfig, effectiveJson)
     }
+
+    private class PreparedHolder(val peer: String)
 
     override fun close() {
         NativeAetherBridge.cancelPrepare()
