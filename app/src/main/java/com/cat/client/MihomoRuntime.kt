@@ -927,8 +927,9 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 requiredRoutingTarget
             }
             val proxySuffix = dnsProxyGroup?.let { "#$it" }.orEmpty()
-            // beta219: Cat Fox VPN only carries TCP to ports 80/443 and exits abroad. DoT (853), DoQ/DoH3 (UDP) and
-            // the Iranian resolvers cannot work through it, so its DNS uses foreign DoH on 443 only.
+            // beta219: Cat Fox VPN only carries TCP to the web ports (beta224 FoxPortPolicy: 80/443/8080/8443) and
+            // exits abroad. DoT (853), DoQ/DoH3 (UDP) and the Iranian resolvers cannot work through it, so its DNS
+            // uses foreign DoH on 443 only.
             val tcpOnlyEngine = isTcpOnlyEngineConfig(rawYaml)
             val dnsServers = if (tcpOnlyEngine) {
                 if (dnsPrivacyMode == DnsPrivacyMode.DoH) listOf(DnsPrivacyPolicy.normalizeDohUrl(dohUrl)) else TCP_ONLY_DOH_SERVERS

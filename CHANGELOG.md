@@ -4,6 +4,26 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta224] — 2026-10-29 (Panel 6.78.0)
+
+### Added — Cat panel on SmarterASP.NET (60-day free trial, Windows/IIS)
+- New «🪟 SmarterASP.NET» card in the Cloud tab (start-from-zero steps, guide, «📦 Save the files», «✍️ Add my panel», my panels). No ⚡ automatic install and no 🔁 renew there: SmarterASP has no API for it, so the card only shows buttons that really work.
+- The app's zip is ready for IIS, where nothing can run `npm install`: the launcher, `web.config` (Node through `httpPlatformHandler`, the port IIS gives in `PORT`, up to 2 min first start, log in `App_Data/cat-node*.log`), a writable `App_Data` (users in `App_Data/cat-data`, panel cache in `App_Data/cat-code`), the `ws` 8.22.0 library in `node_modules/ws` (MIT, unmodified) and this phone's `cat-config.json`. Releases also carry `cat-node-panel-smarterasp.zip` (without `cat-config.json`).
+- Launcher IIS mode (`CAT_BEHIND_IIS=1`): it listens on `127.0.0.1` only; the `web.config` rewrite adds a `/__cat_edge/<on|off>/<client IP>` tag that the launcher turns back into the original URL + `X-Forwarded-Proto/For`, so the subscription gives TLS on the site:443 for https and site:80 without TLS for http — never IIS's private port — and the login lockout counts the real client IP (a forged `X-Forwarded-For` or a second tag cannot change it).
+- Adding the panel waits up to 120 s (the first start downloads and SHA-256-checks the panel) and, when an https temp address does not answer, tries the same address once over http. The real test (panel, subscription, WebSocket 101) decides; shared-hosting limits are explained in the guide and in the failure text (Node enabled, files in the root, the log lines to look for).
+- «📦 Fresh files to upload again» in a saved SmarterASP panel gives a zip **without** `cat-config.json`, so uploading it over the site keeps the panel's UUID and configs.
+
+### Changed — Cat Fox VPN
+- Only the web ports Mozilla's proxy carries (80, 443, 8080, 8443) are asked for; other ports are refused locally at once (SOCKS «not allowed» / HTTP 403, logged once per port as `fenix.port.refused`), so apps switch to their 443 fallback instead of waiting. `github.com:22` goes to `ssh.github.com:443`.
+- A 400/502/504 for one destination is that site's problem: the node, its session and the remembered good node stay. Only when 3 different destinations fail like that within 30 s is the node suspected and the next one tried (ideas from an independent GPL-3 client; no code taken). 8080/8443 were wrongly treated as non-web before.
+- The Fox card says in plain words that it is web-only (calls and games do not pass).
+
+### Added — crash reports
+- On Android 11+ CrashWatch reads Android's own exit records once per new entry: an ANR (with the first 120 lines of its thread dump), a native crash, excessive resource use or a start-up failure becomes the crash report (notification + diagnostics panel + Downloads copy) instead of «closed unexpectedly»; low-memory and user/system stops go to the diagnostics log only and no longer raise the «closed unexpectedly» notice. The first run only records history.
+
+### Tests
+- `Beta224HostFoxCrashTest` (port policy, target-failure window, Fox wiring, SmarterASP host/fallback/files/card, CrashWatch exit reasons); `node-host.test.mjs` runs the launcher exactly as IIS does (127.0.0.1, tagged https/http/untagged subscriptions, WebSocket through the tag, lockout by tagged IP, `iisEdge`/`codeDirOf`).
+
 ## [1.10.0-beta223] — 2026-10-29 (Panel 6.78.0)
 
 ### Added — app (Xray engine)

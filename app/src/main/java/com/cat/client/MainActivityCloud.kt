@@ -320,6 +320,7 @@ internal fun MainActivity.buildCloudScreen(): View {
         Triple(NodeHostPanel.SHIPRR, R.string.cloud_shiprr_title, R.string.cloud_shiprr_desc),
         Triple(NodeHostPanel.BOTHOSTING, R.string.cloud_bothosting_title, R.string.cloud_bothosting_desc),
         Triple(NodeHostPanel.RAILWAY, R.string.cloud_railway_title, R.string.cloud_railway_desc),
+        Triple(NodeHostPanel.SMARTERASP, R.string.cloud_smarterasp_title, R.string.cloud_smarterasp_desc),
     )) {
         body.addView(nodeHostCard(kind, titleRes, descRes), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     }

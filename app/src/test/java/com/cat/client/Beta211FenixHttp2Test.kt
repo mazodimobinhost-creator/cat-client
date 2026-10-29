@@ -192,7 +192,7 @@ class Beta211FenixHttp2Test {
         assertTrue(src("FirefoxVpnEngine.kt").contains("val expSec = jwtLifetimeSeconds(passJwt)?.let { nowSec + it }"))
         assertTrue(src("FirefoxVpnEngine.kt").contains("val exp = passLocalExpiry[current] ?: run {"))
         val engine = src("FirefoxVpnEngine.kt")
-        assertTrue(engine.contains("only carries web ports 80/443"))
+        assertTrue(engine.contains("only carries web ports \${FoxPortPolicy.WEB_PORTS_TEXT}"))
         assertTrue(engine.contains("filter { !it.locked }"))
     }
 }

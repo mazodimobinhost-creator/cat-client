@@ -1342,6 +1342,8 @@
     <string name="cloud_bothosting_desc">هاست رایگان ۲۵۶ مگ با API رسمی. یک کلید (bhk_…) بچسبانید؛ برنامه دیپلوی را می‌سازد، فایل‌ها را می‌گذارد، دامنهٔ HTTPS رایگان را روشن می‌کند، اجرا و واقعاً تست می‌کند. هر ۴ روز یک کلیک تمدید (برنامه یادآوری می‌کند).</string>
     <string name="cloud_railway_title">🚂 Railway — خودکار (بعد از دورهٔ آزمایشی پولی)</string>
     <string name="cloud_railway_desc">توکن حساب Railway را بچسبانید: برنامه پروژه، سرویس (node:22-alpine)، دامنهٔ *.up.railway.app و Deploy را می‌سازد و تست می‌کند. بعد از اعتبار آزمایشی رایگان نیست و قوانین Railway پروکسی را سوءاستفاده می‌داند — اول هشدار را بخوانید.</string>
+    <string name="cloud_smarterasp_title">🪟 SmarterASP.NET — ۶۰ روز رایگان (بدون کارت)</string>
+    <string name="cloud_smarterasp_desc">هاست ویندوزی با Node.js و دامنهٔ موقت. «📦 ذخیرهٔ فایل‌ها» ← آپلود و Extract در File Manager ← روشن کردن Node.js ← «✍️ پنلم را اضافه کن». برنامه واقعاً تست می‌کند WebSocket روی این هاست اشتراکی رد می‌شود یا نه.</string>
     <string name="cloud_node_auto">⚡ نصب خودکار</string>
     <string name="cloud_node_auto_git">⚡ ساخت خودکار (GitHub)</string>
     <string name="cloud_node_zip">📦 ذخیرهٔ فایل‌ها (zip) برای آپلود دستی</string>

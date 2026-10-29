@@ -154,13 +154,35 @@ class NodeHostController(
     /** A fresh identity for the next panel of this kind (after one was added, a second server must not share it). */
     private fun rotateIdentity(kind: String) = store.setPending(kind, NodeHostPanel.newUuid(), NodeHostPanel.newTrojanPass())
 
-    private fun files(kind: String): Map<String, ByteArray> {
-        val (uuid, pass) = identity(kind)
+    /** [update] = files to upload over a running panel: no cat-config.json, so the panel keeps its own UUID. */
+    private fun files(kind: String, update: Boolean = false): Map<String, ByteArray> {
         val out = LinkedHashMap<String, ByteArray>()
-        for (f in NodeHostPanel.LAUNCHER_FILES) out[f] = activity.assets.open("node-panel/$f").use { it.readBytes() }
-        // KataBump keeps a disk; Lucity / Shiprr containers start empty after every deploy.
-        out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = kind != NodeHostPanel.KATABUMP && kind != NodeHostPanel.BOTHOSTING).toByteArray()
+        for (f in NodeHostPanel.LAUNCHER_FILES) out[f] = asset("node-panel/$f")
+        // KataBump / SmarterASP keep a disk; Lucity / Shiprr containers start empty after every deploy.
+        val keepsDisk = kind == NodeHostPanel.KATABUMP || kind == NodeHostPanel.BOTHOSTING || kind == NodeHostPanel.SMARTERASP
+        if (!update) {
+            val (uuid, pass) = identity(kind)
+            out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = !keepsDisk).toByteArray()
+        }
+        if (kind == NodeHostPanel.SMARTERASP) {
+            // beta224: IIS needs web.config, a writable App_Data and node_modules/ws (no npm install there).
+            out["web.config"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/web.config")
+            out["App_Data/README.txt"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/App_Data-README.txt")
+            for (rel in assetTree(NodeHostPanel.SMARTERASP_WS_ASSETS)) {
+                out[NodeHostPanel.smarterAspWsEntry(rel)] = asset(NodeHostPanel.SMARTERASP_WS_ASSETS + "/" + rel)
+            }
+        }
         return out
+    }
+
+    private fun asset(path: String): ByteArray = activity.assets.open(path).use { it.readBytes() }
+
+    /** Every file under an asset folder, as paths relative to it (folders have children, files have none). */
+    private fun assetTree(root: String, prefix: String = ""): List<String> {
+        val here = if (prefix.isEmpty()) root else "$root/$prefix"
+        val names = activity.assets.list(here).orEmpty()
+        if (names.isEmpty()) return if (prefix.isEmpty()) emptyList() else listOf(prefix)
+        return names.sorted().flatMap { child -> assetTree(root, if (prefix.isEmpty()) child else "$prefix/$child") }
     }
 
     // ------------------------------------------------------------------------------------
@@ -279,6 +301,7 @@ class NodeHostController(
                     "🟢 Install: «⚡ Install automatically» → «👤 Log in to Railway» → «🔑 Token page» → Create token (no project) → copy → «📋 Paste» → Continue → tick → Install. The app waits until the deploy is green and runs a real test (panel, subscription, WebSocket 101).\n\n" +
                     "🔄 «🔁 Update» deploys the same service again. Railway has no permanent disk: the main UUID is fixed (it is in the variables) but users you create in the panel vanish on each deploy unless you add Upstash (KV_REST_API_URL/TOKEN) to Variables.",
             )
+            NodeHostPanel.SMARTERASP -> smarterAspGuide()
             NodeHostPanel.LUCITY -> t(
                 "Lucity یک هاست اروپایی است که برنامه را از یک مخزن GitHub می‌سازد. ۱۴ روز (۵ یورو اعتبار) رایگان، بعد پولی. کانفیگ‌ها TLS روی 443 هستند.\n\n" +
                     "1) اگر GitHub ندارید: «⚡ ساخت خودکار» ← «ثبت‌نام GitHub».\n" +
@@ -449,6 +472,84 @@ class NodeHostController(
         ),
     )
 
+    // ------------------------------------------------------------------------------------
+    // beta224 SmarterASP.NET — 60-day free trial, Windows/IIS, Node.js through httpPlatformHandler
+    // ------------------------------------------------------------------------------------
+
+    private fun smarterAspGuide(): String = t(
+        "SmarterASP.NET یک هاست ویندوزی است که ۶۰ روز آزمایشی رایگان می‌دهد، بدون کارت بانکی، با Node.js و یک دامنهٔ موقت. پنل Cat روی آن بالا می‌آید و کانفیگ VLESS/Trojan روی WebSocket همان دامنه می‌دهد.\n\n" +
+            "⚠️ پیش از استفاده بدانید: هاست اشتراکی است؛ ممکن است اتصال‌های بیرونی یا WebSocket را محدود کند و دامنهٔ موقتش روی اینترنت شما باز نباشد. برنامه بعد از نصب واقعاً تست می‌کند (پنل، اشتراک، WebSocket 101) و نتیجهٔ واقعی را می‌گوید. بعد از ۶۰ روز یا باید پلن بخرید یا سایت پاک می‌شود. قوانین استفادهٔ SmarterASP را خودتان بخوانید؛ مسئولیت با شماست.\n\n" +
+            "🟢 نصب (دستی، ۵ دقیقه):\n" +
+            "1) «🧭 از صفر شروع کن» ← ثبت‌نام آزمایشی رایگان (ایمیل لازم است).\n" +
+            "2) «📦 ذخیرهٔ فایل‌ها» ← یک zip در پوشهٔ Download (همهٔ فایل‌ها آماده: پنل، web.config، node_modules، App_Data).\n" +
+            "3) کنترل‌پنل ← سایت ← File Manager ← zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا با FTP). web.config باید کنار index.js باشد.\n" +
+            "4) Node.js را برای سایت روشن کنید (Hosting Manager ← Node.js).\n" +
+            "5) آدرس موقت سایت را کپی کنید ← «✍️ پنلم را اضافه کن». بار اول تا ۲ دقیقه طول می‌کشد چون پنل از GitHub دانلود و با SHA-256 چک می‌شود.\n\n" +
+            "🔧 اگر لاگ App_Data/cat-node….log گفت Node قدیمی است: طبق راهنمای خود SmarterASP فایل node.exe نسخهٔ 22 (win-x64) را در App_Data بگذارید و در web.config به‌جای processPath=\"node\" بنویسید processPath=\".\\App_Data\\node.exe\" (دکمهٔ «📖 راهنمای نسخهٔ Node»).\n" +
+            "🔒 https: اگر آدرس https دارد، کانفیگ‌ها TLS روی 443 می‌شوند؛ اگر فقط http، کانفیگ‌ها بدون TLS روی 80. با دامنهٔ خودتان پشت Cloudflare کانفیگ‌های کامل Cloudflare هم می‌گیرید.",
+        "SmarterASP.NET is a Windows host with a 60-day free trial, no card, Node.js and a temporary domain. The Cat panel runs on it and gives VLESS/Trojan configs over WebSocket on that domain.\n\n" +
+            "⚠️ Know before you start: it is shared hosting; it may limit outgoing connections or WebSocket, and its temporary domain may not open on your line. After installing, the app really tests it (panel, subscription, WebSocket 101) and tells you the real result. After 60 days you either buy a plan or the site is removed. Read SmarterASP's usage rules yourself; it is your responsibility.\n\n" +
+            "🟢 Install (by hand, 5 minutes):\n" +
+            "1) «🧭 Start from zero» → free trial sign-up (an e-mail is needed).\n" +
+            "2) «📦 Save the files» → a zip in the Download folder (everything ready: panel, web.config, node_modules, App_Data).\n" +
+            "3) Control panel → the site → File Manager → upload the zip to the site's root and Extract it (or use FTP). web.config must sit next to index.js.\n" +
+            "4) Enable Node.js for the site (Hosting Manager → Node.js).\n" +
+            "5) Copy the site's temporary address → «✍️ Add my panel». The first start takes up to 2 minutes while the panel downloads from GitHub and is checked with SHA-256.\n\n" +
+            "🔧 If the log App_Data/cat-node….log says Node is too old: as SmarterASP's own guide says, put node.exe version 22 (win-x64) in App_Data and in web.config replace processPath=\"node\" with processPath=\".\\App_Data\\node.exe\" («📖 Node version guide» button).\n" +
+            "🔒 https: if the address has https, configs are TLS on 443; with http only, configs are without TLS on 80. With your own domain behind Cloudflare you also get the full Cloudflare set.",
+    )
+
+    private fun smarterAspSteps(): List<Step> = listOf(
+        Step(
+            t("ثبت‌نام آزمایشی رایگان ۶۰ روزه", "60-day free trial sign-up"),
+            t(
+                "1) «🌐 ثبت‌نام SmarterASP» را بزنید (صفحهٔ پلن رایگان باز می‌شود).\n" +
+                    "2) ایمیل واقعی، نام کاربری و رمز ← ثبت‌نام. کارت بانکی نمی‌خواهد.\n" +
+                    "3) ایمیل فعال‌سازی را باز کنید (Spam را هم ببینید) و وارد کنترل‌پنل شوید.\n\n" +
+                    "اگر سایت روی اینترنت شما باز نمی‌شود، اول یک کانفیگ را وصل کنید.",
+                "1) Tap «🌐 SmarterASP sign-up» (the free plan page opens).\n" +
+                    "2) A real e-mail, a username and a password → sign up. No card needed.\n" +
+                    "3) Open the activation e-mail (check Spam) and sign in to the control panel.\n\n" +
+                    "If the site does not open on your line, connect a config first.",
+            ),
+            listOf(t("🌐 ثبت‌نام SmarterASP", "🌐 SmarterASP sign-up") to { open(NodeHostPanel.SMARTERASP_SIGNUP) }),
+        ),
+        Step(
+            t("ذخیرهٔ فایل‌های پنل", "Save the panel files"),
+            t(
+                "«📦 ذخیرهٔ فایل‌ها» را بزنید. یک zip با همهٔ فایل‌های لازم (پنل، web.config، node_modules/ws، App_Data و شناسهٔ کانفیگ همین گوشی) در پوشهٔ Download ذخیره می‌شود.",
+                "Tap «📦 Save the files». A zip with everything needed (panel, web.config, node_modules/ws, App_Data and this phone's config identity) is saved to the Download folder.",
+            ),
+            listOf(t("📦 ذخیرهٔ فایل‌ها", "📦 Save the files") to { saveFiles(NodeHostPanel.SMARTERASP) }),
+        ),
+        Step(
+            t("آپلود و روشن کردن Node.js", "Upload and enable Node.js"),
+            t(
+                "1) «🌐 کنترل‌پنل» ← سایت (site1) ← File Manager.\n" +
+                    "2) zip را در پوشهٔ اصلی سایت آپلود کنید ← Extract (اگر Extract نبود، محتوای zip را با FTP بگذارید). index.js و web.config باید مستقیم در پوشهٔ اصلی باشند.\n" +
+                    "3) Hosting Manager ← Node.js ← برای همین سایت روشن کنید.\n" +
+                    "4) آدرس موقت سایت را از صفحهٔ سایت کپی کنید.",
+                "1) «🌐 Control panel» → the site (site1) → File Manager.\n" +
+                    "2) Upload the zip to the site's root → Extract (no Extract? put the zip's contents there by FTP). index.js and web.config must be directly in the root.\n" +
+                    "3) Hosting Manager → Node.js → enable it for this site.\n" +
+                    "4) Copy the site's temporary address from the site page.",
+            ),
+            listOf(
+                t("🌐 کنترل‌پنل", "🌐 Control panel") to { open(NodeHostPanel.SMARTERASP_CONTROL) },
+                t("📖 راهنمای Node در SmarterASP", "📖 SmarterASP Node guide") to { open(NodeHostPanel.SMARTERASP_NODE_KB) },
+                t("📖 راهنمای نسخهٔ Node", "📖 Node version guide") to { open(NodeHostPanel.SMARTERASP_NODE_VERSION_KB) },
+            ),
+        ),
+        Step(
+            t("افزودن و تست واقعی", "Add and really test"),
+            t(
+                "«✍️ پنلم را اضافه کن» ← آدرس را بچسبانید ← تست و اضافه. برنامه تا ۲ دقیقه صبر می‌کند (بار اول پنل دانلود می‌شود)، بعد پنل، لینک اشتراک و WebSocket 101 را از همین گوشی تست می‌کند. اگر WebSocket رد نشد، یعنی این هاست تونل را نمی‌گذارد و برنامه همین را صادقانه می‌گوید.",
+                "«✍️ Add my panel» → paste the address → Test and add. The app waits up to 2 minutes (the first start downloads the panel), then tests the panel, the subscription link and WebSocket 101 from this phone. If WebSocket does not pass, this host does not allow the tunnel and the app says exactly that.",
+            ),
+            listOf(t("✍️ پنلم را اضافه کن", "✍️ Add my panel") to { registerManual(NodeHostPanel.SMARTERASP) }),
+        ),
+    )
+
     private fun kataBumpSteps(): List<Step> = listOf(
         Step(
             t("ساخت حساب KataBump", "Create a KataBump account"),
@@ -532,7 +633,11 @@ class NodeHostController(
 
     fun showStart(kind: String, startAt: Int = 0) {
         if (NodeHostPanel.isApiHost(kind)) { autoInstall(kind); return }
-        val steps = if (kind == NodeHostPanel.KATABUMP) kataBumpSteps() else githubSteps(kind)
+        val steps = when (kind) {
+            NodeHostPanel.KATABUMP -> kataBumpSteps()
+            NodeHostPanel.SMARTERASP -> smarterAspSteps()
+            else -> githubSteps(kind)
+        }
         wizard("🧭 " + name(kind) + t(" — از صفر", " — from zero"), steps, startAt)
     }
 
@@ -865,14 +970,14 @@ class NodeHostController(
     // 📦 save the files: one zip in Download/ (and a share sheet), ready for «Upload → Unarchive»
     // ------------------------------------------------------------------------------------
 
-    fun saveFiles(kind: String) {
-        if (kind == NodeHostPanel.KATABUMP) confirmKataBumpRules { writeZip(kind) } else writeZip(kind)
+    fun saveFiles(kind: String, update: Boolean = false) {
+        if (kind == NodeHostPanel.KATABUMP) confirmKataBumpRules { writeZip(kind, update) } else writeZip(kind, update)
     }
 
-    private fun writeZip(kind: String) {
-        val fileName = "cat-node-panel-$kind.zip"
+    private fun writeZip(kind: String, update: Boolean = false) {
+        val fileName = "cat-node-panel-$kind" + (if (update) "-update" else "") + ".zip"
         val result = runCatching {
-            val bytes = NodeHostPanel.zip(files(kind))
+            val bytes = NodeHostPanel.zip(files(kind, update))
             val dir = File(activity.filesDir, "node-panel").apply { mkdirs() }
             val local = File(dir, fileName).apply { writeBytes(bytes) }
             var inDownloads = false
@@ -899,10 +1004,16 @@ class NodeHostController(
                 t("✅ ذخیره شد: پوشهٔ Download ← ", "✅ Saved: Download folder → ") + fileName
             } else {
                 t("✅ آماده شد. با «اشتراک‌گذاری» آن را در Files/Telegram/Drive ذخیره کنید.", "✅ Ready. Use «Share» to save it to Files/Telegram/Drive.")
-            }) + "\n\n" + t(
+            }) + "\n\n" + (if (update) t(
+                "این zip برای آپلود روی همان پنل است: cat-config.json داخلش نیست تا پنل همان UUID و کانفیگ‌ها را نگه دارد. روی فایل‌های قبلی آپلود و Extract کنید (Overwrite) و سایت را Restart کنید؛ App_Data دست نمی‌خورد.",
+                "This zip is for uploading over the same panel: it has no cat-config.json, so the panel keeps its UUID and configs. Upload and Extract it over the old files (Overwrite) and restart the site; App_Data is not touched.",
+            ) else if (kind == NodeHostPanel.SMARTERASP) t(
+                "داخلش: index.js و package.json (خود پنل)، web.config (تنظیم IIS برای Node و WebSocket)، پوشهٔ node_modules (کتابخانهٔ ws)، پوشهٔ App_Data (جای ذخیرهٔ کاربرها) و cat-config.json (شناسهٔ کانفیگ همین گوشی).",
+                "Inside: index.js and package.json (the panel), web.config (IIS settings for Node and WebSocket), a node_modules folder (the ws library), an App_Data folder (where users are stored) and cat-config.json (this phone's config identity).",
+            ) else t(
                 "داخلش ۴ فایل است: index.js و package.json (خود پنل)، README.md (راهنما) و cat-config.json (شناسهٔ کانفیگ همین گوشی، تا بعداً برنامه آدرس اشتراک را خودش بسازد).",
                 "It holds 4 files: index.js and package.json (the panel), README.md (guide) and cat-config.json (this phone's config identity, so the app can build the subscription address itself).",
-            ) + "\n\n" + nextStepsAfterZip(kind),
+            )) + "\n\n" + nextStepsAfterZip(kind),
             13f, palette.textPrimary, 2,
         ).apply { setTextIsSelectable(true) })
         box.addView(button(t("📤 اشتراک‌گذاری فایل", "📤 Share the file"), filled = true) { share(local) }, lp(10))
@@ -918,6 +1029,10 @@ class NodeHostController(
     }
 
     private fun nextStepsAfterZip(kind: String): String = when (kind) {
+        NodeHostPanel.SMARTERASP -> t(
+            "حالا: کنترل‌پنل SmarterASP ← سایت (site1) ← File Manager ← همین zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (یا محتوایش را با FTP بگذارید؛ web.config باید کنار index.js باشد) ← Node.js را برای سایت روشن کنید ← آدرس موقت سایت را کپی کنید ← «✍️ پنلم را اضافه کن». بار اول تا ۲ دقیقه طول می‌کشد چون پنل دانلود می‌شود.",
+            "Now: SmarterASP control panel → the site (site1) → File Manager → upload this zip to the site's root and Extract it (or put its contents there by FTP; web.config must sit next to index.js) → enable Node.js for the site → copy the site's temporary address → «✍️ Add my panel». The first start takes up to 2 minutes while the panel downloads.",
+        )
         NodeHostPanel.BOTHOSTING -> t(
             "حالا: bot-hosting.net ← دیپلوی Node.js ← Files ← Upload ← همین zip ← Unarchive ← Settings ← Startup: فایل اصلی index.js ← Domains ← Activate ← Start ← آدرس را کپی کنید ← «✍️ پنلم را اضافه کن». راه سریع‌تر: «⚡ نصب خودکار».",
             "Now: bot-hosting.net → a Node.js deployment → Files → Upload → this zip → Unarchive → Settings → Startup: entry file index.js → Domains → Activate → Start → copy the address → «✍️ Add my panel». Faster: «⚡ Install automatically».",
@@ -937,6 +1052,7 @@ class NodeHostController(
         NodeHostPanel.LUCITY -> NodeHostPanel.LUCITY_LOGIN
         NodeHostPanel.BOTHOSTING -> ApiHostPlan.BOTHOSTING_DASHBOARD
         NodeHostPanel.RAILWAY -> ApiHostPlan.RAILWAY_DASHBOARD
+        NodeHostPanel.SMARTERASP -> NodeHostPanel.SMARTERASP_CONTROL
         else -> NodeHostPanel.SHIPRR_SIGNUP
     }
 
@@ -1190,7 +1306,10 @@ class NodeHostController(
             }
         }
         if (!answered) {
-            val why = if (kind == NodeHostPanel.KATABUMP) t(
+            val why = if (kind == NodeHostPanel.SMARTERASP) t(
+                "پنل روی " + base + " جواب نداد. در کنترل‌پنل SmarterASP: ۱) Node.js برای همین سایت روشن باشد. ۲) web.config و index.js در پوشهٔ اصلی سایت باشند (نه داخل یک پوشهٔ دیگر). ۳) فایل App_Data/cat-node….log را باز کنید: «Node … please pick Node 20» یعنی Node قدیمی است (راهنما ← نسخهٔ Node)، «not writable» یعنی به سایت اجازهٔ Write بدهید، «could not start» یعنی سرور به github.com نرسید. بعد سایت را Restart کنید و دوباره تست بزنید.",
+                "The panel did not answer at " + base + ". In the SmarterASP control panel: 1) Node.js must be enabled for this site. 2) web.config and index.js must be in the site's root (not inside another folder). 3) Open App_Data/cat-node….log: «Node … please pick Node 20» means Node is too old (guide → Node version), «not writable» means give the site Write permission, «could not start» means the server could not reach github.com. Then restart the site and test again.",
+            ) else if (kind == NodeHostPanel.KATABUMP) t(
                 "پنل روی " + base + " جواب نداد. در KataBump ← Console ببینید خطایی هست یا نه (مثلاً Node قدیمی، فایل شروع اشتباه). اگر Console می‌گوید «listening» ولی اینجا جواب نمی‌دهد، این آی‌پی:پورت روی اینترنت شما بسته است؛ با VPN دوباره «🔎 تست» را بزنید تا مطمئن شوید.",
                 "The panel did not answer at " + base + ". On KataBump → Console, look for an error (old Node, wrong start file). If the Console says «listening» but it does not answer here, this IP:port is blocked on your line; tap «🔎 Check» again with a VPN to be sure.",
             ) else t(
@@ -1241,13 +1360,23 @@ class NodeHostController(
             if (kind == NodeHostPanel.KATABUMP) t(
                 "آدرس سرور را بنویسید: همان آی‌پی:پورت بالای صفحهٔ سرور در control.katabump.com (مثل 1.2.3.4:25565)، یا دامنهٔ https خودتان اگر پشت Cloudflare گذاشته‌اید.",
                 "Type the server address: the IP:port at the top of the server page on control.katabump.com (like 1.2.3.4:25565), or your own https domain if it is behind Cloudflare.",
+            ) else if (kind == NodeHostPanel.SMARTERASP) t(
+                "آدرس موقت سایت را از کنترل‌پنل SmarterASP بچسبانید (همان‌طور که نوشته، با http:// یا https://)، یا دامنهٔ خودتان. اگر https جواب ندهد، برنامه خودش http را هم امتحان می‌کند.",
+                "Paste the site's temporary address from the SmarterASP control panel (as written, with http:// or https://), or your own domain. If https does not answer, the app also tries http.",
             ) else t(
                 "آدرس برنامه را بنویسید (مثل https://نام.shiprr.dev یا دامنه‌ای که Lucity ساخت).",
                 "Type the app address (like https://name.shiprr.dev or the domain Lucity generated).",
             ),
             13f, palette.textPrimary, 2,
         ))
-        val address = input(if (kind == NodeHostPanel.KATABUMP) "1.2.3.4:25565" else "https://….shiprr.dev", addressPrefill)
+        val address = input(
+            when (kind) {
+                NodeHostPanel.KATABUMP -> "1.2.3.4:25565"
+                NodeHostPanel.SMARTERASP -> "http://name-001-site1.….com"
+                else -> "https://….shiprr.dev"
+            },
+            addressPrefill,
+        )
         box.addView(address, lp(6))
         box.addView(button(t("📋 چسباندن", "📋 Paste")) { address.setText(clipboardText().trim()) }, lp(4))
         box.addView(label(t(
@@ -1277,16 +1406,25 @@ class NodeHostController(
     private fun addChecked(kind: String, base: String, uuid: String) {
         runSteps<Outcome>(t("🔎 تست ", "🔎 Testing ") + base, { step ->
             step(t("تست از همین گوشی…", "Testing from this phone…"))
-            val check = verify(kind, base, uuid, step, 30)
+            // beta224: IIS starts the panel on the first request and it downloads itself first (up to 2 min).
+            val wait = if (kind == NodeHostPanel.SMARTERASP) 120 else 30
+            var check = verify(kind, base, uuid, step, wait)
+            var where = base
+            val plainHttp = NodeHostPanel.smarterAspHttpFallback(kind, base)
+            if (!check.answered && plainHttp != null) {
+                step(t("https جواب نداد؛ امتحان ", "https did not answer; trying ") + plainHttp)
+                val second = verify(kind, plainHttp, uuid, step, 20)
+                if (second.answered) { check = second; where = plainHttp }
+            }
             if (!check.answered) {
                 Outcome(null, emptyList(), false, check.headline)
             } else {
                 val pending = store.pending(kind)
                 val pass = if (pending != null && pending.first == uuid) pending.second else ""
                 val now = System.currentTimeMillis()
-                val existing = store.list().firstOrNull { it.kind == kind && it.base == base }
+                val existing = store.list().firstOrNull { it.kind == kind && it.base == where }
                 val saved = existing?.copy(uuid = uuid, trojanPass = pass.ifBlank { existing.trojanPass })
-                    ?: SavedNodeHost(kind + "-" + Integer.toHexString(base.hashCode()), kind, NodeHostPanel.hostPort(base).first, base, uuid, "", now, now, pass)
+                    ?: SavedNodeHost(kind + "-" + Integer.toHexString(where.hashCode()), kind, NodeHostPanel.hostPort(where).first, where, uuid, "", now, now, pass)
                 store.save(saved)
                 Outcome(saved, check.links, check.ok, check.headline)
             }
@@ -1805,6 +1943,10 @@ class NodeHostController(
         } else if (NodeHostPanel.isApiHost(item.kind)) {
             if (item.kind == NodeHostPanel.BOTHOSTING) box.addView(button(t("🔁 تمدید", "🔁 Renew")) { showRenew(item) }, lp(6))
             box.addView(button(t("🔁 به‌روزرسانی (نصب دوباره با API)", "🔁 Update (reinstall through the API)")) { updateApiHost(item) }, lp(6))
+        } else if (NodeHostPanel.isUploadOnlyHost(item.kind)) {
+            // beta224 SmarterASP: the launcher fetches each new panel release itself on restart; an update of the
+            // launcher is just a new zip uploaded over the old files (App_Data keeps users and settings).
+            box.addView(button(t("📦 فایل‌های تازه برای آپلود دوباره", "📦 Fresh files to upload again")) { saveFiles(item.kind, update = true) }, lp(6))
         } else {
             box.addView(button(t("🔁 به‌روزرسانی", "🔁 Update")) { redeploy(item.kind) }, lp(6))
         }

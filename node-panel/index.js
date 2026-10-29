@@ -1,4 +1,4 @@
-// Cat Panel on any Node.js host — KataBump, Lucity, Shiprr, Railway, a VPS… (Cat Client, GPL-3.0).
+// Cat Panel on any Node.js host — KataBump, Lucity, Shiprr, Railway, SmarterASP (IIS), a VPS… (Cat Client, GPL-3.0).
 //
 // This launcher is ALL you upload (plus package.json). On start it fetches the newest Cat Panel release
 // from GitHub (the panel + its Node adapter), checks both against the release's SHA-256 list, caches them
@@ -13,6 +13,8 @@
 //   KV_REST_API_URL + KV_REST_API_TOKEN   Upstash Redis instead of the disk (works everywhere)
 //   UUID / TROJAN_PASS   fixed main identity (otherwise the panel makes one and stores it)
 //   CAT_PANEL_SOURCE_DIR a folder that already holds catclient.worker.js + cat-panel-adapter.mjs (offline)
+//   CAT_BEHIND_IIS=1     Windows/IIS (SmarterASP): listen on 127.0.0.1, read the web.config edge tag
+//   CAT_CODE_DIR         where the downloaded panel is cached (inside this folder; default ./cat-code)
 //
 // Hosts where you cannot set environment variables (KataBump) can use a `cat-config.json` next to this file
 // instead — the Cat Client app writes one for you, e.g. {"UUID":"…","TROJAN_PASS":"…"}. Real environment
@@ -69,6 +71,47 @@ export function pickRelease(list, tag) {
 export function portOf(env) {
   for (const k of ['SERVER_PORT', 'PORT']) { const p = Number(env[k]); if (Number.isInteger(p) && p > 0 && p < 65536) return p; }
   return 8080;
+}
+
+/**
+ * Windows / IIS hosts (SmarterASP.NET): IIS starts this launcher through httpPlatformHandler and forwards each
+ * request to 127.0.0.1:PORT, so the socket says nothing about how the phone came in. The web.config the app ships
+ * rewrites every URL to `/__cat_edge/<on|off>/<client IP><original URL>` ({HTTPS}, {REMOTE_ADDR},
+ * {UNENCODED_URL}); this puts the original URL back and turns the tag into x-forwarded-proto / x-forwarded-for,
+ * so the panel builds TLS-on-443 configs for https and plain ones for http, and login limits see the real client.
+ * Without the tag (rewrite module missing) the request is treated as plain http behind a proxy. A forged tag
+ * cannot help a client: IIS adds its own in front, so a second one is just an unknown path.
+ */
+export const IIS_EDGE = /^\/__cat_edge\/(on|off)\/([0-9A-Fa-f.:]{2,45})(\/.*)?$/i;
+export function iisEdge(req) {
+  const m = IIS_EDGE.exec(String(req.url || ''));
+  if (m) {
+    req.url = m[3] || '/';
+    req.headers['x-forwarded-proto'] = m[1].toLowerCase() === 'on' ? 'https' : 'http';
+    req.headers['x-forwarded-for'] = m[2];
+    // IIS sets neither; a client-sent one must not steer the host/port written into the configs
+    delete req.headers['x-forwarded-host'];
+    delete req.headers['x-forwarded-port'];
+    return true;
+  }
+  if (!req.headers['x-forwarded-proto']) req.headers['x-forwarded-proto'] = 'http';
+  return false;
+}
+/** Runs [iisEdge] before the adapter sees any request or WebSocket upgrade. */
+export function attachIisEdge(server) {
+  server.prependListener('request', (req) => { iisEdge(req); });
+  server.prependListener('upgrade', (req) => { iisEdge(req); });
+}
+
+/**
+ * Where the downloaded panel is cached. CAT_CODE_DIR (SmarterASP: App_Data\cat-code, the folder IIS lets the site
+ * write) is used only inside this folder, so the adapter still finds ./node_modules/ws; otherwise ./cat-code.
+ */
+export function codeDirOf(here, env) {
+  const base = path.resolve(here);
+  const want = env.CAT_CODE_DIR ? path.resolve(base, env.CAT_CODE_DIR) : '';
+  if (want && want.startsWith(base + path.sep) && writable(want)) return want;
+  return path.join(base, 'cat-code');
 }
 
 /** Keys cat-config.json may set (never anything else — e.g. not PATH / NODE_OPTIONS). */
@@ -170,11 +213,13 @@ export async function main(env = process.env) {
   if (!globalThis.crypto) globalThis.crypto = crypto.webcrypto;
   applyConfigFile(HERE, env);
   const port = portOf(env);
-  // The code cache must sit next to this file: the adapter imports `ws` from ./node_modules.
-  const codeDir = path.join(HERE, 'cat-code');
+  const iis = env.CAT_BEHIND_IIS === '1';
+  // The code cache must sit inside this folder: the adapter imports `ws` from ./node_modules.
+  const codeDir = codeDirOf(HERE, env);
   const tag = await prepareCode(codeDir, env);
   env.CAT_PLATFORM = 'node';
-  env.CAT_PUBLIC_PORT = env.CAT_PUBLIC_PORT || String(port);
+  // behind IIS the port is IIS's private one, never the address a phone uses
+  if (!iis) env.CAT_PUBLIC_PORT = env.CAT_PUBLIC_PORT || String(port);
   if (!env.DATA_PLANE_ENABLED) env.DATA_PLANE_ENABLED = 'true';
   const hasRedis = !!((env.KV_REST_API_URL || env.UPSTASH_REDIS_REST_URL) && (env.KV_REST_API_TOKEN || env.UPSTASH_REDIS_REST_TOKEN));
   if (!hasRedis && env.CAT_NO_DISK !== '1') {
@@ -184,8 +229,10 @@ export async function main(env = process.env) {
   } else log('storage: ' + (hasRedis ? 'Upstash Redis' : 'none (CAT_NO_DISK=1) — users vanish on restart'));
   const { default: server } = await import(pathToFileURL(path.join(codeDir, 'api', 'index.mjs')).href);
   server.keepAliveTimeout = 65000;
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '0.0.0.0', resolve); });
-  log('Cat Panel ' + tag + ' listening on 0.0.0.0:' + port);
+  if (iis) attachIisEdge(server);
+  const bind = iis ? '127.0.0.1' : '0.0.0.0';
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, bind, resolve); });
+  log('Cat Panel ' + tag + ' listening on ' + bind + ':' + port + (iis ? ' (behind IIS — open your site address + /panel)' : ''));
   log('open  http://<this server address>:' + port + '/panel   (or your https domain + /panel) — sign in admin / admin and change it');
   return server;
 }

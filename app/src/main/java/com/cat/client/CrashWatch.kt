@@ -43,6 +43,8 @@ object CrashWatch {
     private const val CRASH_FILE = "cat_crash_last.txt"
     private const val SESSION_FILE = "cat_session_open"
     private const val ANNOUNCED_FILE = "cat_crash_announced"
+    private const val EXIT_SEEN_FILE = "cat_exit_seen"
+    private const val ANR_TRACE_LINES = 120
     private const val CHANNEL = "crash_report"
     private const val NOTIFY_ID = 4243
     private const val MAX_NOTIFY_CHARS = 1500
@@ -79,6 +81,9 @@ object CrashWatch {
     fun install(app: Application) {
         runCatching {
             installEarly(app)
+            // beta224: ANRs, native crashes and system kills leave no Java stack; Android 11+ keeps the real
+            // reason (and the ANR thread dump), so the report says what happened instead of "closed unexpectedly".
+            readExitReasons(app)
             announceCrash(app, force = false)
             checkPreviousSession(app)
             markSessionOpen(app)
@@ -100,6 +105,96 @@ object CrashWatch {
         }
         publish(context, context.getString(R.string.crash_title), readCrash(context))
         runCatching { announcedFile(context).writeText(crash.lastModified().toString()) }
+    }
+
+    /**
+     * beta224: reads ActivityManager's historical exit reasons (API 30+) once per new entry (timestamp kept in
+     * cat_exit_seen; the very first run only records the newest timestamp so old history is not reported).
+     *  - ANR / native crash / excessive resource use / start-up failure → written as the crash text (with the
+     *    first lines of the ANR thread dump), so the normal notification + diagnostics panel show it;
+     *  - low-memory or user/system stops → diagnostics log only, and the session marker is cleared because the
+     *    run did not crash (no misleading "closed unexpectedly");
+     *  - a Java crash (REASON_CRASH) is skipped — the uncaught handler already saved the full stack.
+     */
+    private fun readExitReasons(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        runCatching {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return
+            val all = am.getHistoricalProcessExitReasons(context.packageName, 0, 5)
+            if (all.isEmpty()) return
+            val seenFile = File(context.filesDir, EXIT_SEEN_FILE)
+            val seen = runCatching { seenFile.readText().trim().toLongOrNull() }.getOrNull()
+            runCatching { seenFile.writeText(all.maxOf { it.timestamp }.toString()) }
+            if (seen == null) return
+            val fresh = all.filter { it.timestamp > seen }.sortedBy { it.timestamp }
+            var report: String? = null
+            var notACrash = false
+            for (info in fresh) {
+                val kind = exitReasonName(info.reason)
+                val line = kind + " process=" + info.processName + " importance=" + info.importance +
+                    " pss=" + info.pss + "KB status=" + info.status + " " + info.description.orEmpty()
+                runCatching { DiagnosticLogger.info(context, "exit.reason", line.take(400)) }
+                when (info.reason) {
+                    android.app.ApplicationExitInfo.REASON_ANR,
+                    android.app.ApplicationExitInfo.REASON_CRASH_NATIVE,
+                    android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE,
+                    android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE,
+                    -> report = buildString {
+                        append(kind).append(" (Android exit record)\n")
+                        append("version=").append(BuildConfig.VERSION_NAME).append(" code=").append(BuildConfig.VERSION_CODE).append('\n')
+                        append(Build.FINGERPRINT).append('\n')
+                        append("time=").append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(info.timestamp))).append('\n')
+                        append(line).append('\n')
+                        if (info.reason == android.app.ApplicationExitInfo.REASON_ANR) {
+                            val trace = runCatching {
+                                info.traceInputStream?.bufferedReader()?.use { r -> r.lineSequence().take(ANR_TRACE_LINES).joinToString("\n") }
+                            }.getOrNull()
+                            if (!trace.isNullOrBlank()) append('\n').append(trace)
+                        }
+                    }
+                    android.app.ApplicationExitInfo.REASON_LOW_MEMORY,
+                    android.app.ApplicationExitInfo.REASON_USER_REQUESTED,
+                    android.app.ApplicationExitInfo.REASON_USER_STOPPED,
+                    16, // REASON_PACKAGE_UPDATED (API 33 constant; the value is fixed)
+                    android.app.ApplicationExitInfo.REASON_EXIT_SELF,
+                    -> notACrash = true
+                    else -> Unit
+                }
+            }
+            val text = report
+            val crash = crashFile(context)
+            if (text != null) {
+                // A newer Java stack (same death) is richer than the exit record — keep it.
+                val latest = fresh.last().timestamp
+                if (!(crash.isFile && crash.length() > 0L && crash.lastModified() >= latest)) {
+                    runCatching { crash.writeText(text.take(20_000)) }
+                    runCatching { DiagnosticLogger.error(context, "crash.exitRecord", text.take(400)) }
+                }
+                runCatching { sessionFile(context).delete() }
+            } else if (notACrash) {
+                runCatching { sessionFile(context).delete() }
+            }
+        }
+    }
+
+    internal fun exitReasonName(reason: Int): String = when (reason) {
+        1 -> "EXIT_SELF"
+        2 -> "SIGNALED"
+        3 -> "LOW_MEMORY"
+        4 -> "CRASH"
+        5 -> "CRASH_NATIVE"
+        6 -> "ANR"
+        7 -> "INITIALIZATION_FAILURE"
+        8 -> "PERMISSION_CHANGE"
+        9 -> "EXCESSIVE_RESOURCE_USAGE"
+        10 -> "USER_REQUESTED"
+        11 -> "USER_STOPPED"
+        12 -> "DEPENDENCY_DIED"
+        13 -> "OTHER"
+        14 -> "FREEZER"
+        15 -> "PACKAGE_STATE_CHANGE"
+        16 -> "PACKAGE_UPDATED"
+        else -> "UNKNOWN($reason)"
     }
 
     private fun checkPreviousSession(context: Context) {

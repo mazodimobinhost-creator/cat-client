@@ -454,12 +454,14 @@ internal fun MainActivity.nodeHostCard(kind: String, @StringRes titleRes: Int, @
     // Bot-Hosting / Railway are driven end-to-end by their API: «⚡» IS the from-zero path (no 🧭 wizard, and
     // Railway has no files to upload, so no 📦 zip there).
     val api = NodeHostPanel.isApiHost(kind)
+    // beta224 SmarterASP: upload-only (no API, no GitHub build, nothing to renew) — no ⚡ and no 🔁 buttons.
+    val uploadOnly = NodeHostPanel.isUploadOnlyHost(kind)
     val buttons = listOfNotNull<Pair<Int, () -> Unit>>(
         if (api) null else Pair(R.string.cloud_node_start, { nodeHosts.showStart(kind) }),
-        Pair(if (git) R.string.cloud_node_auto_git else R.string.cloud_node_auto, { nodeHosts.autoInstall(kind) }),
+        if (uploadOnly) null else Pair(if (git) R.string.cloud_node_auto_git else R.string.cloud_node_auto, { nodeHosts.autoInstall(kind) }),
         if (kind == NodeHostPanel.RAILWAY) null else Pair(R.string.cloud_node_zip, { nodeHosts.saveFiles(kind) }),
         Pair(R.string.cloud_node_register, { nodeHosts.registerManual(kind) }),
-        Pair(if (git || kind == NodeHostPanel.RAILWAY) R.string.cloud_node_redeploy else R.string.cloud_node_renew, { nodeHosts.renew(kind) }),
+        if (uploadOnly) null else Pair(if (git || kind == NodeHostPanel.RAILWAY) R.string.cloud_node_redeploy else R.string.cloud_node_renew, { nodeHosts.renew(kind) }),
         Pair(R.string.cloud_node_mine, { nodeHosts.showMine(kind) }),
         Pair(R.string.cloud_node_guide, { nodeHosts.showGuide(kind) }),
     )

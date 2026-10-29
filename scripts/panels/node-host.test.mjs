@@ -62,6 +62,22 @@ for (const f of ['index.js', 'package.json', 'README.md']) {
   const b = fs.existsSync(path.join(root, 'app/src/main/assets/node-panel', f)) ? fs.readFileSync(path.join(root, 'app/src/main/assets/node-panel', f)) : Buffer.alloc(0);
   check('app asset node-panel/' + f + ' is identical to node-panel/' + f, a.equals(b));
 }
+// beta224 SmarterASP (IIS): the web.config edge tag → original URL + forwarded headers
+{
+  const r1 = { url: '/__cat_edge/on/2001:db8::7/sub/x?y=1', headers: { 'x-forwarded-host': 'evil.example', 'x-forwarded-port': '9' } };
+  check('iisEdge: tag on → https, client IP, original URL, forged x-forwarded-host/port dropped', L.iisEdge(r1) === true && r1.url === '/sub/x?y=1' && r1.headers['x-forwarded-proto'] === 'https' && r1.headers['x-forwarded-for'] === '2001:db8::7' && !('x-forwarded-host' in r1.headers) && !('x-forwarded-port' in r1.headers), JSON.stringify(r1));
+  const r2 = { url: '/__cat_edge/OFF/198.51.100.4', headers: {} };
+  check('iisEdge: tag off → http, bare tag → /', L.iisEdge(r2) && r2.url === '/' && r2.headers['x-forwarded-proto'] === 'http');
+  const r3 = { url: '/__cat_edge/off/198.51.100.4/__cat_edge/on/9.9.9.9/sub/x', headers: {} };
+  L.iisEdge(r3);
+  check('iisEdge: a client-forged second tag stays an unknown path (cannot claim https or another IP)', r3.url === '/__cat_edge/on/9.9.9.9/sub/x' && r3.headers['x-forwarded-proto'] === 'http' && r3.headers['x-forwarded-for'] === '198.51.100.4');
+  const r4 = { url: '/panel', headers: {} };
+  check('iisEdge: no tag (rewrite missing) → plain http behind a proxy', L.iisEdge(r4) === false && r4.url === '/panel' && r4.headers['x-forwarded-proto'] === 'http');
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-node-codedir-'));
+  check('codeDirOf: CAT_CODE_DIR inside the folder is used', L.codeDirOf(here, { CAT_CODE_DIR: 'App_Data/cat-code' }) === path.join(here, 'App_Data', 'cat-code'));
+  check('codeDirOf: outside the folder (node_modules unreachable) → ./cat-code', L.codeDirOf(here, { CAT_CODE_DIR: '../elsewhere' }) === path.join(here, 'cat-code') && L.codeDirOf(here, {}) === path.join(here, 'cat-code'));
+  fs.rmSync(here, { recursive: true, force: true });
+}
 check('portOf: SERVER_PORT (KataBump) > PORT > 8080', L.portOf({ SERVER_PORT: '25565', PORT: '3000' }) === 25565 && L.portOf({ PORT: '3000' }) === 3000 && L.portOf({ PORT: 'x' }) === 8080);
 
 // ---- lay out what a host gets: the 2 files (+ node_modules from npm install) and a release source ----
@@ -212,6 +228,72 @@ for (let i = 1; i <= 12; i++) {
 check('direct mode: forged X-Forwarded-For does not dodge the login lockout', lockedAt > 0, 'never locked');
 
 await stop(proc);
+
+// ---- beta224 SmarterASP.NET: what IIS runs (httpPlatformHandler → node index.js on 127.0.0.1:PORT) ----
+const iisApp = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-node-iis-'));
+for (const f of ['index.js', 'package.json']) fs.copyFileSync(path.join(root, 'node-panel', f), path.join(iisApp, f));
+fs.symlinkSync(path.join(root, 'node_modules'), path.join(iisApp, 'node_modules'), 'dir');
+const webConfig = fs.readFileSync(path.join(root, 'app/src/main/assets/node-panel/smarterasp/web.config'), 'utf8');
+const envOf = (name) => (new RegExp('name="' + name + '" value="([^"]*)"').exec(webConfig) || [])[1];
+check('web.config: httpPlatformHandler runs index.js with PORT from IIS and the IIS mode on', /modules="httpPlatformHandler"/.test(webConfig) && /arguments="index\.js"/.test(webConfig) && envOf('PORT') === '%HTTP_PLATFORM_PORT%' && envOf('CAT_BEHIND_IIS') === '1');
+check('web.config: the edge tag is exactly what iisEdge reads ({HTTPS}/{REMOTE_ADDR}{UNENCODED_URL})', webConfig.includes('url="/__cat_edge/{HTTPS}/{REMOTE_ADDR}{UNENCODED_URL}" appendQueryString="false"'));
+const IPORT = await freePort();
+const iisProc = await new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, ['index.js'], {
+    cwd: iisApp,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(IPORT), CAT_PANEL_SOURCE_DIR: src, UUID, TROJAN_PASS: TPASS, CAT_BEHIND_IIS: envOf('CAT_BEHIND_IIS'), CAT_DATA_DIR: envOf('CAT_DATA_DIR').replace(/\\/g, '/'), CAT_CODE_DIR: envOf('CAT_CODE_DIR').replace(/\\/g, '/') },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  const t = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('IIS launcher did not start: ' + out)); }, 30000);
+  const on = (d) => { out += d; if (/listening on 127\.0\.0\.1:/.test(out)) { clearTimeout(t); resolve({ child, out: () => out }); } };
+  child.stdout.on('data', on); child.stderr.on('data', on);
+  child.on('exit', (c) => { clearTimeout(t); reject(new Error('IIS launcher exited ' + c + ': ' + out)); });
+});
+check('IIS mode: listens on 127.0.0.1 only, panel cached in App_Data/cat-code, users in App_Data/cat-data', /behind IIS/.test(iisProc.out()) && fs.existsSync(path.join(iisApp, 'App_Data', 'cat-code', 'api', 'index.mjs')) && /storage: .*App_Data[\\/]cat-data/.test(iisProc.out()), iisProc.out());
+const iisBase = 'http://127.0.0.1:' + IPORT;
+const iisSub = async (p, headers) => {
+  const r = await new Promise((resolve, reject) => {
+    const req = http.request(iisBase + p, { headers }, (res) => { let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; }); res.on('end', () => resolve(b)); });
+    req.on('error', reject); req.end();
+  });
+  const text = r.includes('://') ? r : Buffer.from(r, 'base64').toString('utf8');
+  return text.split('\n').filter((l) => /^(vless|trojan):\/\//.test(l)).map(parse);
+};
+const siteHost = 'catuser-001-site1.example-tempurl.com';
+// parse() reads the link as http://, where :80 is the default and URL.port is empty
+const webPort80 = (p) => p.port === 80 || p.port === 0;
+const iisTls = await iisSub('/__cat_edge/on/203.0.113.9/sub/' + UUID, { host: siteHost, 'x-forwarded-host': 'evil.example' });
+check('IIS https: one VLESS + one Trojan on site:443 TLS, SNI = Host = the site (forged x-forwarded-host ignored)', iisTls.length === 2 && iisTls.every((p) => p.host === siteHost && p.port === 443 && p.q.get('security') === 'tls' && p.q.get('sni') === siteHost && p.q.get('host') === siteHost), JSON.stringify(iisTls.map((p) => [p.host, p.port, p.q.get('security')])));
+const iisHttp = await iisSub('/__cat_edge/off/203.0.113.9/sub/' + UUID, { host: siteHost });
+check('IIS http: configs on site:80 without TLS (never IIS\'s private port)', iisHttp.length === 2 && iisHttp.every((p) => p.host === siteHost && webPort80(p) && p.q.get('security') === 'none'), JSON.stringify(iisHttp.map((p) => [p.host, p.port, p.q.get('security')])));
+const iisBare = await iisSub('/sub/' + UUID, { host: siteHost });
+check('IIS without the rewrite tag: still site:80, never the private port ' + IPORT, iisBare.length === 2 && iisBare.every((p) => p.host === siteHost && webPort80(p)), JSON.stringify(iisBare.map((p) => [p.host, p.port])));
+const iisVPath = iisHttp.find((p) => p.scheme === 'vless').q.get('path');
+const viaIis = await new Promise((resolve) => {
+  const ws = new WebSocket('ws://127.0.0.1:' + IPORT + '/__cat_edge/on/203.0.113.9' + iisVPath);
+  ws.binaryType = 'arraybuffer';
+  let buf = Buffer.alloc(0);
+  const t = setTimeout(() => { try { ws.close(); } catch (_) { } resolve('TIMEOUT'); }, 8000);
+  ws.onopen = () => ws.send(vlessFrame);
+  ws.onmessage = (e) => { buf = Buffer.concat([buf, Buffer.from(e.data)]); if (buf.includes('TARGET-OK')) { clearTimeout(t); ws.close(); resolve(buf.toString('latin1')); } };
+  ws.onclose = (e) => { clearTimeout(t); resolve(buf.length ? buf.toString('latin1') : 'CLOSED ' + e.code); };
+  ws.onerror = () => { };
+});
+check('IIS: VLESS over WebSocket through the tagged URL reaches the target', /TARGET-OK \/hello/.test(viaIis), viaIis.slice(0, 120));
+let iisLockedAt = 0;
+for (let i = 1; i <= 12; i++) {
+  const r = await new Promise((resolve, reject) => {
+    const data = JSON.stringify({ username: 'admin', password: 'wrong-' + i });
+    const req = http.request(iisBase + '/__cat_edge/on/203.0.113.77/api/login', { method: 'POST', headers: { host: siteHost, 'content-type': 'application/json', 'content-length': Buffer.byteLength(data), 'x-forwarded-for': '10.9.' + i + '.1' } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject); req.end(data);
+  });
+  if (r === 429) { iisLockedAt = i; break; }
+}
+check('IIS: the login lockout counts the real client IP from the tag, not a forged X-Forwarded-For', iisLockedAt > 0, 'never locked');
+await stop(iisProc);
+fs.rmSync(iisApp, { recursive: true, force: true });
+
 target.close();
 for (const d of [src, app, bad, badDir]) fs.rmSync(d, { recursive: true, force: true });
 if (failures) { console.log(failures + ' failure(s)'); process.exit(1); }

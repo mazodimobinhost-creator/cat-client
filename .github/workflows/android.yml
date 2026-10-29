@@ -893,6 +893,14 @@ jobs:
           node --check node-panel/index.js
           (cd node-panel && zip -q -X ../cat-node-panel.zip index.js package.json README.md)
           unzip -l cat-node-panel.zip
+          # SmarterASP.NET (IIS, no npm install): launcher + web.config + App_Data + node_modules/ws. No
+          # cat-config.json, so the panel makes its own UUID (the app's zip carries one).
+          rm -rf /tmp/cat-sasp && mkdir -p /tmp/cat-sasp/App_Data /tmp/cat-sasp/node_modules
+          cp node-panel/index.js node-panel/package.json node-panel/README.md app/src/main/assets/node-panel/smarterasp/web.config /tmp/cat-sasp/
+          cp app/src/main/assets/node-panel/smarterasp/App_Data-README.txt /tmp/cat-sasp/App_Data/README.txt
+          cp -r app/src/main/assets/node-panel/smarterasp/ws /tmp/cat-sasp/node_modules/ws
+          (cd /tmp/cat-sasp && zip -q -X -r "$GITHUB_WORKSPACE/cat-node-panel-smarterasp.zip" .)
+          unzip -l cat-node-panel-smarterasp.zip
           # Panel HTML snapshot generated from THIS commit's worker (6.44.0+):
           # a ready cat-panel.html rides every release for preview/backup.
           node --input-type=module -e "import { _testing as T } from './app/src/main/assets/panels/catclient.worker.js'; const html = T.panelPage({}, { lang: 'fa' }, 'your-worker.workers.dev', 'MASTER-UUID'); (await import('fs/promises')).writeFile('cat-panel.html', html); console.log('cat-panel.html', html.length, 'B @', T.CAT_PANEL_VERSION);"
@@ -907,6 +915,7 @@ jobs:
             cat-panel-adapter.mjs
             cat-node-panel.sha256
             cat-node-panel.zip
+            cat-node-panel-smarterasp.zip
           )
           # Google-Doc bundle(s), if present in this branch's docs/
           for d in docs/CatPanel-*-GoogleDoc.docx; do [[ -e "$d" ]] && release_assets+=("$d"); done

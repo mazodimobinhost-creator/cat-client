@@ -2075,6 +2075,12 @@ internal object FirefoxVpnEngine {
         localProxyServer = null
     }
 
+    /** beta224: destination ports already reported as not carried (one log line per port and run). */
+    private val refusedPortsLogged: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+
+    /** beta224: recent destination-level CONNECT failures (see [FoxPortPolicy.TargetFailures]). */
+    private val targetFailures = FoxPortPolicy.TargetFailures()
+
     private fun isLoopbackOrSelfTarget(host: String, port: Int): Boolean {
         val h = host.trim().removePrefix("[").removeSuffix("]").lowercase(Locale.US)
         if (h == "127.0.0.1" || h == "localhost" || h == "::1" || h == "0.0.0.0" || h.startsWith("127.")) {
@@ -2161,8 +2167,24 @@ internal object FirefoxVpnEngine {
                         return@use
                     }
 
+                    // beta224: Mozilla only carries web ports — refuse the rest here, at once, so apps fall back to
+                    // 443 immediately (FoxPortPolicy); github.com:22 goes to GitHub's SSH server on 443.
+                    val route = FoxPortPolicy.route(targetHost, targetPort)
+                    if (route is FoxPortPolicy.Route.Refuse) {
+                        if (refusedPortsLogged.add(targetPort)) {
+                            appContextRef?.let { ctx -> runCatching { DiagnosticLogger.info(ctx, "fenix.port.refused", route.reason) } }
+                        }
+                        runCatching {
+                            if (isSocks5) out.write(byteArrayOf(0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                            else out.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+                            out.flush()
+                        }
+                        return@use
+                    }
+                    val tunnelTarget = route as FoxPortPolicy.Route.Tunnel
+
                     val upstreamStream = try {
-                        openUpstreamTunnelStream(targetHost, targetPort)
+                        openUpstreamTunnelStream(tunnelTarget.host, tunnelTarget.port)
                     } catch (error: Throwable) {
                         val reason = error.message.orEmpty().take(200).ifEmpty { error.javaClass.simpleName }
                         if (reason != lastTunnelError) {
@@ -2278,6 +2300,7 @@ internal object FirefoxVpnEngine {
                         lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
                         lastGoodFor = sniHost
                         lastTransport = "HTTP/2 · $connectHost:$connectPort"
+                        targetFailures.success()
                         return H2TunnelSocket(stream)
                     }
                     val ssl = h1Socket ?: throw IOException("no TLS socket for $connectHost")
@@ -2286,19 +2309,25 @@ internal object FirefoxVpnEngine {
                         lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
                         lastGoodFor = sniHost
                         lastTransport = "HTTP/1.1 · $connectHost:$connectPort"
+                        targetFailures.success()
                         return ssl
                     }
                     runCatching { ssl.close() }
                     val code = statusLine.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
                     throw FenixH2StatusException(code, "Fastly node $connectHost:$connectPort returned $statusLine")
                 } catch (e: FenixH2StatusException) {
-                    if (targetPort != 80 && targetPort != 443 && e.status in setOf(400, 403, 405, 502)) {
-                        // Mozilla's edge only tunnels web ports (80/443); this is about the target, not the node or
-                        // the account, so do not try other nodes or blame the location.
+                    if (targetPort !in FoxPortPolicy.WEB_PORTS && e.status in setOf(400, 403, 405, 502)) {
+                        // Mozilla's edge only tunnels web ports (80, 443, 8080, 8443); this is about the target, not
+                        // the node or the account, so do not try other nodes or blame the location.
                         throw IOException(
-                            "Cat Fox VPN (Mozilla) only carries web ports 80/443 — $targetHost:$targetPort was refused (${e.status})",
+                            "Cat Fox VPN (Mozilla) only carries web ports ${FoxPortPolicy.WEB_PORTS_TEXT} — $targetHost:$targetPort was refused (${e.status})",
                             e,
                         )
+                    }
+                    // beta224: a dead website (502/504) is not a dead node: keep the node and its session, unless
+                    // several different destinations failed like this within half a minute.
+                    if (FoxPortPolicy.isTargetStatus(e.status) && !targetFailures.failed(authority, System.currentTimeMillis())) {
+                        throw IOException("$authority did not answer through Mozilla (${e.status}) — the site, not the Fox node", e)
                     }
                     lastError = IOException(fenixStatusMessage(e.status, "$connectHost:$connectPort"), e)
                     if (statusError == null || e.status != 403) statusError = lastError
@@ -2494,6 +2523,7 @@ internal object FirefoxVpnEngine {
         401, 407 -> "Mozilla rejected the proxy pass ($status) at $node — sign in again or add another Firefox account"
         403 -> "This location is locked for the account (403) at $node — pick «Recommended» or another country"
         429 -> "Monthly 50 GB quota used up (429) at $node — add another Firefox account"
+        502, 504 -> "Mozilla could not reach the destination ($status) through $node — the site may be down"
         else -> "Fastly node $node answered $status"
     }
 

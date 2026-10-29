@@ -53,6 +53,7 @@ object NodeHostPanel {
     const val SHIPRR = "shiprr"
     const val BOTHOSTING = "bothosting"
     const val RAILWAY = "railway"
+    const val SMARTERASP = "smarterasp"
 
     /** Hosts the app drives end-to-end through their own REST/GraphQL API (no GitHub repo, no zip). */
     fun isApiHost(kind: String): Boolean = kind == BOTHOSTING || kind == RAILWAY
@@ -67,6 +68,13 @@ object NodeHostPanel {
     const val KATABUMP_RULES = "https://legal.katabump.com/acceptable-use/"
     const val LUCITY_LOGIN = "https://lucity.cloud/app/login"
     const val SHIPRR_SIGNUP = "https://shiprr.app/registration"
+    const val SMARTERASP_SIGNUP = "https://www.smarterasp.net/signup?plantype=FREE"
+    const val SMARTERASP_CONTROL = "https://member.smarterasp.net/"
+    const val SMARTERASP_NODE_KB = "https://www.smarterasp.net/support/kb/a1970/quick-start-node_js.aspx"
+    const val SMARTERASP_NODE_VERSION_KB = "https://www.smarterasp.net/support/kb/a2205/how-to-custom-nodejs-version-with-our-server.aspx"
+
+    /** beta224: SmarterASP free trial length; the app reminds a few days before it ends. */
+    const val SMARTERASP_TRIAL_MS = 60L * 24 * 60 * 60 * 1000
     const val CLOUDFLARE_DASH = "https://dash.cloudflare.com"
     const val GITHUB_SIGNUP = "https://github.com/signup"
     const val GITHUB_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo&description=Cat%20Client%20panel"
@@ -76,6 +84,31 @@ object NodeHostPanel {
     const val REMIND_AFTER_MS = 3L * 24 * 60 * 60 * 1000
 
     val LAUNCHER_FILES = listOf("index.js", "package.json", "README.md")
+
+    /**
+     * beta224 SmarterASP.NET (Windows / IIS): besides the launcher, `web.config` (httpPlatformHandler + the edge
+     * tag), an `App_Data` folder (the only place IIS lets the site write) and `node_modules/ws` — SmarterASP runs no
+     * `npm install` for uploaded files («Node Modules have to be uploaded»), so the one dependency rides along.
+     */
+    const val SMARTERASP_ASSETS = "node-panel/smarterasp"
+    const val SMARTERASP_WS_ASSETS = "node-panel/smarterasp/ws"
+
+    /** Zip path for one vendored `ws` file (asset path relative to [SMARTERASP_WS_ASSETS]). */
+    fun smarterAspWsEntry(relative: String): String = "node_modules/ws/" + relative.trimStart('/')
+
+    /**
+     * SmarterASP: whether the free temporary address has https is not documented, so an https address that does
+     * not answer is tried once more as plain http (same host). Null for other hosts or non-default ports.
+     */
+    fun smarterAspHttpFallback(kind: String, base: String): String? {
+        if (kind != SMARTERASP || !base.startsWith("https://")) return null
+        val rest = base.removePrefix("https://")
+        if (rest.contains(':') || rest.contains('/')) return null
+        return "http://$rest"
+    }
+
+    /** Hosts where the user uploads the zip by hand and nothing renews itself (no API, no GitHub build). */
+    fun isUploadOnlyHost(kind: String): Boolean = kind == SMARTERASP
     const val CONFIG_FILE = "cat-config.json"
 
     data class Host(val id: String, val name: String, val url: String, val free: Boolean)
@@ -86,6 +119,7 @@ object NodeHostPanel {
         Host(SHIPRR, "Shiprr", "https://shiprr.app", free = false),
         Host(BOTHOSTING, "Bot-Hosting.net", "https://bot-hosting.net", free = true),
         Host(RAILWAY, "Railway", "https://railway.com", free = false),
+        Host(SMARTERASP, "SmarterASP.NET", "https://www.smarterasp.net", free = true),
     )
 
     fun hostName(kind: String): String = HOSTS.firstOrNull { it.id == kind }?.name ?: kind

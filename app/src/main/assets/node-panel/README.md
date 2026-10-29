@@ -1,4 +1,4 @@
-# 🐱 پنل Cat روی هاست‌های Node (KataBump · Lucity · Shiprr · Railway · VPS)
+# 🐱 پنل Cat روی هاست‌های Node (KataBump · Lucity · Shiprr · Railway · SmarterASP · VPS)
 
 این پوشه فقط **۲ فایل** دارد: `index.js` و `package.json`. همین‌ها را روی هاست بگذارید و روشن کنید؛
 بقیه کار خودکار است: آخرین نسخهٔ پنل Cat از صفحهٔ Release همین پروژه دانلود می‌شود، با فهرست SHA-256
@@ -79,6 +79,21 @@
    - ساده: `UUID` و `TROJAN_PASS` ثابت (در `cat-config.json` یا متغیرها؛ لینک اصلی ثابت می‌ماند) و `CAT_NO_DISK=1`.
    - کامل: یک Upstash Redis رایگان بسازید و `KV_REST_API_URL` و `KV_REST_API_TOKEN` را بگذارید.
 3. آدرس `*.shiprr.dev` را با `/panel` باز کنید. مستندات Shiprr دربارهٔ WebSocket چیزی نمی‌گوید؛ «✍️ پنلم را اضافه کن» در برنامه آن را واقعاً تست می‌کند.
+
+## ۴) SmarterASP.NET — ۶۰ روز آزمایشی رایگان (ویندوز / IIS)
+
+SmarterASP Node.js را با `httpPlatformHandler` در IIS اجرا می‌کند و `npm install` نمی‌زند؛ پس از داخل برنامه
+(کارت SmarterASP ← «📦 ذخیرهٔ فایل‌ها») zip مخصوص آن را بگیرید: علاوه بر این فایل‌ها `web.config`، پوشهٔ
+`node_modules/ws` و پوشهٔ `App_Data` (تنها جای قابل‌نوشتن) دارد.
+
+1. در کنترل‌پنل ← سایت ← File Manager، zip را در پوشهٔ اصلی سایت آپلود و Extract کنید (`web.config` کنار `index.js`).
+2. Node.js را برای سایت روشن کنید. آدرس موقت سایت + `/panel` را باز کنید (بار اول تا ۲ دقیقه).
+3. لاگ در `App_Data/cat-node*.log` است. Node قدیمی؟ `node.exe` نسخهٔ 22 را در `App_Data` بگذارید و در `web.config`
+   `processPath=".\App_Data\node.exe"` بنویسید.
+
+`web.config` هر آدرس را به `/__cat_edge/<on|off>/<IP>/…` بازنویسی می‌کند تا launcher بفهمد گوشی با https آمده یا http
+(`CAT_BEHIND_IIS=1`)؛ کاربرها در `App_Data/cat-data` می‌مانند. هاست اشتراکی است و ممکن است WebSocket یا اتصال بیرونی را
+محدود کند — برنامه بعد از افزودن واقعاً تست می‌کند.
 
 ## متغیرهای اختیاری
 

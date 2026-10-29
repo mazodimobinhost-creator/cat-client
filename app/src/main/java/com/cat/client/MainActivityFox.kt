@@ -131,9 +131,9 @@ internal fun MainActivity.buildFirefoxVpnFenixCard(): View {
     card.addView(
         TextView(this).apply {
             text = if (isFarsi) {
-                "ترافیک کل گوشی روی سرورهای Fastly مرورگر فایرفاکس (غیرکلادفلر و باز در ایران) — سرور پیشنهادی و کشورهای رایگان + پشتیبانی از چند اکانت همزمان با چرخش خودکار ۵۰ گیگابایت و برش بسته TLS ضد فیلترینگ."
+                "ترافیک کل گوشی روی سرورهای Fastly مرورگر فایرفاکس (غیرکلادفلر و باز در ایران) — سرور پیشنهادی و کشورهای رایگان + پشتیبانی از چند اکانت همزمان با چرخش خودکار ۵۰ گیگابایت و برش بسته TLS ضد فیلترینگ.\nفقط وب (پورت‌های 80، 443، 8080، 8443): تماس صوتی/تصویری و بازی آنلاین از این راه رد نمی‌شود."
             } else {
-                "Full-device VPN over Mozilla's Fastly edge (Recommended + free countries) — 50 GB/month per free Firefox account with multi-account auto-failover and Anti-DPI TLS splitting."
+                "Full-device VPN over Mozilla's Fastly edge (Recommended + free countries) — 50 GB/month per free Firefox account with multi-account auto-failover and Anti-DPI TLS splitting.\nWeb only (ports 80, 443, 8080, 8443): voice/video calls and online games do not go through it."
             }
             textSize = 12f
             setTextColor(TEXT_SECONDARY)
