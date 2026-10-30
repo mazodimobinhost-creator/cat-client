@@ -885,14 +885,15 @@ class MainActivity : Activity() {
         setStroke(dp(1), withAlpha(palette.outline, 150))
     }
 
-    /** Dock opens (labels spring in) only while the tunnel is up; collapsed icon-only otherwise. */
+    /** The dock height state (kept for the Old design); the active tab always shows its label (beta236). */
     private var dockExpanded = false
     private var dockActiveIndex = 0
 
+    @Suppress("UNUSED_PARAMETER")
     private fun setDockExpanded(requested: Boolean) {
         if (!::appTabsPending.isInitialized) return
-        // Pixel/Portal (ZedSecure 3.1.6): the active tab always carries its label, the bar never jumps.
-        val expanded = requested || appDesign != AppDesign.Old
+        // beta236: every design — the tapped tab always carries its label next to the icon (owner's request).
+        val expanded = true
         if (dockExpanded == expanded) return
         dockExpanded = expanded
         appTabsPending.let { bar ->
@@ -930,7 +931,7 @@ class MainActivity : Activity() {
             tab.pill.background = dockPillBackground(active)
             tab.icon.setColorFilter(if (active) palette.onAccent else TEXT_SECONDARY)
             tab.label.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
-            val showLabel = active && dockExpanded
+            val showLabel = active
             if (showLabel) {
                 tab.label.visibility = View.VISIBLE
                 tab.label.animate().cancel()
@@ -946,6 +947,56 @@ class MainActivity : Activity() {
             }
             val vPad = if (dockExpanded) 10 else 7
             tab.pill.setPadding(dp(10), dp(vPad), dp(10), dp(vPad))
+        }
+        layoutDockWidths(activeIndex, animate = true)
+    }
+
+    private var dockWidthAnimator: ValueAnimator? = null
+    private var dockWidthListener = false
+
+    /**
+     * beta236: the five cells are no longer equal — the active one grows to fit «icon + label» (so «ضدسانسور» or
+     * «تنظیمات» is never cut to «…»), the others shrink to icon-only cells; animated with a small spring.
+     */
+    private fun layoutDockWidths(activeIndex: Int, animate: Boolean) {
+        if (!::appTabsPending.isInitialized || dockTabs.isEmpty()) return
+        val bar = appTabsPending
+        if (!dockWidthListener) {
+            dockWidthListener = true
+            bar.addOnLayoutChangeListener { _, l, _, r, _, oldL, _, oldR, _ ->
+                if (r - l != oldR - oldL && r - l > 0) bar.post { layoutDockWidths(dockActiveIndex, animate = false) }
+            }
+        }
+        val inner = bar.width - bar.paddingLeft - bar.paddingRight
+        if (inner <= 0) { bar.post { layoutDockWidths(activeIndex, animate) }; return }
+        val n = dockTabs.size
+        val views = (0 until n).map { bar.getTabAt(it)?.view }
+        if (views.any { it == null }) return
+        val label = dockTabs[activeIndex].label
+        val want = dp(22) + dp(6) + kotlin.math.ceil(label.paint.measureText(label.text.toString())).toInt() + dp(20) + dp(12)
+        val minOther = dp(44)
+        val active = want.coerceAtMost(inner - minOther * (n - 1)).coerceAtLeast(inner / n)
+        val other = (inner - active).toFloat() / (n - 1)
+        val target = FloatArray(n) { if (it == activeIndex) active.toFloat() else other }
+        val raw = FloatArray(n) { i -> (views[i]!!.layoutParams as? LinearLayout.LayoutParams)?.weight?.takeIf { it > 0f } ?: 1f }
+        val sum = raw.sum()
+        val start = FloatArray(n) { raw[it] * inner / sum }
+        fun apply(f: Float) {
+            for (i in 0 until n) {
+                val v = views[i]!!
+                val lp = (v.layoutParams as? LinearLayout.LayoutParams) ?: continue
+                lp.width = 0
+                lp.weight = (start[i] + (target[i] - start[i]) * f).coerceAtLeast(1f)
+                v.layoutParams = lp
+            }
+        }
+        dockWidthAnimator?.cancel()
+        if (!animate) { apply(1f); return }
+        dockWidthAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 340
+            interpolator = OvershootInterpolator(1.1f)
+            addUpdateListener { apply(it.animatedValue as Float) }
+            start()
         }
     }
 

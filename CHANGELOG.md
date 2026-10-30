@@ -4,6 +4,12 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta236] — 2026-10-30 (Panel 6.80.0)
+
+### Changed — bottom dock (owner's screenshots)
+- **The tapped dock tab always shows its name next to the icon**, in every design (before: only in Pixel/Portal, or in the Old design only while connected).
+- **The active cell grows to fit «icon + name»** and the other cells shrink to icon-only (animated, small spring) — the five cells were equal, so longer names such as «ضدسانسور» / «تنظیمات» were cut to «…». Re-measured when the bar width changes (rotation, split screen).
+
 ## [1.10.0-beta235] — 2026-10-30 (Panel 6.80.0)
 
 ### Added — the four owner requests
