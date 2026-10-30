@@ -40,3 +40,4 @@
 - 2026-10-30 beta230: SmarterASP Linux server.js entry + /health guide from NodeJs page screenshot.
 - 2026-10-30 beta231: SmarterASP Linux runner-load fix (autostarted) + cat-bundled first-start panel.
 - 2026-10-30 beta232: SmarterASP Linux read-only site files — prebuilt cat-code in zip, temp code/data fallback.
+- 2026-10-30 beta233 (Panel 6.79.3): node hosts — auto server IPs in configs, Clean IP page for nodes, exits on nodes (SOCKS all sites, ProxyIP CF names by DNS).

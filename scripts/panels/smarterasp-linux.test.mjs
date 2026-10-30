@@ -133,8 +133,8 @@ for (const mode of ['prebuilt', 'bundled']) {
   try {
     const roOk = (() => { try { fs.writeFileSync(path.join(app2, '.probe'), '1'); return false; } catch (_) { return true; } })();
     check(mode + ': read-only folder, loaded by a host runner, no GitHub → the panel starts', up && roOk && /loaded by the host runner/.test(out2) && !/could not start/.test(out2), out2);
-    if (mode === 'prebuilt') check('prebuilt: runs the zip\'s cat-code as is (update skipped, nothing written)', /running the cached panel bundled-1\.10\.0-test/.test(out2) && !/read-only — panel code goes to/.test(out2), out2);
-    else check('bundled: code goes to a temp folder (node_modules linked) and is SHA-256 checked', /read-only — panel code goes to /.test(out2) && /first start: using the panel that came in the zip/.test(out2) && /ready \(SHA-256 checked\)/.test(out2), out2);
+    if (mode === 'prebuilt') check('prebuilt: runs the zip\'s cat-code as is (update skipped, nothing written)', /running the panel that came in the zip bundled-1\.10\.0-test/.test(out2), out2);
+    else check('bundled: code goes to a temp folder (node_modules linked) and is SHA-256 checked', /read-only — panel updates go to /.test(out2) && /first start: using the panel that came in the zip/.test(out2) && /ready \(SHA-256 checked\)/.test(out2), out2);
     check(mode + ': storage falls back to a temp folder, not «none»', /is not writable — storage: /.test(out2), out2);
     if (up) {
       const h2 = await new Promise((resolve) => { http.get({ host: '127.0.0.1', port: P2, path: '/health' }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', () => resolve(0)); });

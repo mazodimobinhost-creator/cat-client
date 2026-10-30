@@ -90,6 +90,8 @@ function connect(address, options = {}) {
   return webSocketFromNode(sock, opened);
 }
 globalThis.__catSockets = { connect };
+// 6.79.3: the host's own resolver for the panel (its server IPs in the configs; Cloudflare-hosted names for 🎯 ProxyIP)
+globalThis.__catResolve4 = (name) => dns.promises.resolve4(String(name)).catch(() => dns.promises.lookup(String(name), { family: 4, all: true }).then((r) => r.map((x) => x.address)));
 
 /* --------------------------- WebSocketPair --------------------------- */
 // The panel does: pair = new WebSocketPair(); server.accept(); ...; return new Response(null, {status: 101, webSocket: client}).

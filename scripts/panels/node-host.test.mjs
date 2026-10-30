@@ -157,7 +157,8 @@ check('plain host: ?addr= / ?port= cannot turn it into a Cloudflare line', pinLi
 // tls (Lucity / Shiprr)
 const tlsHost = 'cat-x.shiprr.dev';
 const tls = (await subLines({ 'x-forwarded-proto': 'https', 'x-forwarded-host': tlsHost, 'x-forwarded-for': '203.0.113.9' })).map(parse);
-check('HTTPS edge: one VLESS + one Trojan on host:443 TLS, SNI = Host = host', tls.length === 2 && tls.every((p) => p.host === tlsHost && p.port === 443 && p.q.get('security') === 'tls' && p.q.get('sni') === tlsHost && p.q.get('host') === tlsHost && p.q.get('type') === 'ws'), JSON.stringify(tls.map((p) => [p.host, p.port, p.q.get('sni')])));
+// 6.79.3: the host's own IPv4s (if its name resolves on this machine) may add «🏠 Server IP» lines — same SNI/Host.
+check('HTTPS edge: one VLESS + one Trojan on host:443 TLS, SNI = Host = host', tls.filter((p) => p.host === tlsHost).length === 2 && tls.every((p) => (p.host === tlsHost || /^\d+\.\d+\.\d+\.\d+$/.test(p.host)) && p.port === 443 && p.q.get('security') === 'tls' && p.q.get('sni') === tlsHost && p.q.get('host') === tlsHost && p.q.get('type') === 'ws'), JSON.stringify(tls.map((p) => [p.host, p.port, p.q.get('sni')])));
 
 // cf (kdns.fr on Cloudflare)
 const cfHost = 'cat.kdns.fr';
@@ -239,10 +240,10 @@ check('HTTPS host + front: the host\'s own TLS lines stay (host:443, SNI = host)
 check('front lines keep the panel path / identity (same ws path as the host lines)', frontLines.every((f) => viaRail.some((h) => h.host === railHost && h.scheme === f.scheme && h.q.get('path') === f.q.get('path'))));
 // the front's own subrequest: Cloudflare may add cf-ray on the way out — it must not turn into the clean-IP set
 const viaFront = (await subLines({ 'x-cat-front': FRONT, 'cf-ray': '8f00bb-FRA', 'cf-worker': 'someone.workers.dev', 'x-forwarded-proto': 'https', 'x-forwarded-host': railHost })).map(parse);
-check('request through our front (x-cat-front + cf-ray): host TLS lines + 🟧 lines, never the Cloudflare clean-IP set', viaFront.length === 4 && viaFront.every((p) => p.host === FRONT || p.host === railHost) && viaFront.every((p) => p.port === 443), JSON.stringify(viaFront.map((p) => [p.host, p.port])));
+check('request through our front (x-cat-front + cf-ray): host TLS lines + 🟧 lines, never the Cloudflare clean-IP set', viaFront.filter((p) => !/^\d+\.\d+\.\d+\.\d+$/.test(p.host)).length === 4 && viaFront.every((p) => p.host === FRONT || p.host === railHost || (/^\d+\.\d+\.\d+\.\d+$/.test(p.host) && p.q.get('sni') === railHost)) && viaFront.every((p) => p.port === 443), JSON.stringify(viaFront.map((p) => [p.host, p.port])));
 const tlsPanel = await get('/panel', { cookie: cookie2, 'x-forwarded-proto': 'https', 'x-forwarded-host': railHost });
 check('HTTPS host panel: says the front is active (name shown)', tlsPanel.body.includes(FRONT) && tlsPanel.body.includes('🟧'), tlsPanel.status);
-check('direct Node panel: <body data-plat="node"> + the CSS that hides the Cloudflare-only sections', /<body data-plat="node">/.test(tlsPanel.body) && /\[data-plat=node\] :is\(#v-scan,#v-nodes,#fSpoof,#v-addrtab\)\{display:none!important\}/.test(tlsPanel.body) && /\[data-plat\] :is\(#v-loc,#v-loc-cards,#v-socks\)/.test(tlsPanel.body));
+check('direct Node panel: <body data-plat="node"> + the CSS that hides the Cloudflare-only sections, shows «server IPs» (6.79.3: Locations stay)', /<body data-plat="node">/.test(tlsPanel.body) && /\[data-plat=node\] :is\(#v-scan,#v-nodes,#fSpoof,#v-addrtab\),body:not\(\[data-plat=node\]\) #v-nodeips\{display:none!important\}/.test(tlsPanel.body) && /\[data-plat=vercel\] :is\(#v-loc,#v-loc-cards,#v-socks\)/.test(tlsPanel.body) && tlsPanel.body.includes('id="v-nodeips"'));
 check('…but the hidden sections stay in the page and 🔗 Link panels is never hidden', tlsPanel.body.includes('id="v-scan"') && tlsPanel.body.includes('id="v-link"') && !/data-plat[^{]*#v-link/.test(tlsPanel.body));
 const cfPanel = await get('/panel', { cookie: cookie2, 'cf-ray': '8f00aa-FRA', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'cat.kdns.fr' });
 check('Node host behind Cloudflare: no data-plat (all Cloudflare features stay)', cfPanel.status === 200 && /<body>/.test(cfPanel.body) && !/<body data-plat/.test(cfPanel.body));

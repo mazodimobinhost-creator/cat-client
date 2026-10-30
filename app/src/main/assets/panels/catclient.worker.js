@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.79.2';
+const CAT_PANEL_VERSION = '6.79.3';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -3378,7 +3378,10 @@ function relayAttempts(targetIsCf, proxyOverride, cfList, socksList, host, port)
 async function dialTarget(host, port, env, settings, log, proxyOverride, socketsIn) {
   const sockets = socketsIn || await loadSockets();
   if (!sockets) throw new Error('cloudflare:sockets unavailable');
-  const targetIsCf = isCloudflareIp(host);
+  let targetIsCf = isCloudflareIp(host);
+  if (!targetIsCf && isNodePlatform(env) && proxyOverride && !/^socks5h?:\/\//i.test(proxyOverride) && !isIpv4(host) && String(host).indexOf(':') < 0) {
+    try { targetIsCf = await cfHostedName(host); } catch (e) { targetIsCf = false; }
+  }
   const chain = parseChain((settings && settings.chain) || env.CHAIN || '');
   const useChain = chain && ((settings && settings.chainMode === 'cf') ? targetIsCf : true);
   let lastError = null;
@@ -4840,6 +4843,48 @@ function nodeLinkSettings(settings, env) {
     echList: '', fmLinks: false, finalMaskProfile: '', finalMaskCipherSuites: '', cipherSuites: '',
   });
 }
+/* 6.79.3 node hosts — the host's OWN IPv4 addresses (its name resolved; on Node the host's resolver through the
+ * adapter's globalThis.__catResolve4, else DoH) ride next to the name in every config: DNS-free lines for networks
+ * that block or poison the host name, found automatically (nothing typed by hand). Cached 10 min per name. */
+const NODE_IPS = new Map();
+const NODE_IPS_TTL = 10 * 60 * 1000;
+async function resolve4(name, ms) {
+  const n = String(name || '').toLowerCase();
+  if (!n || isIpv4(n) || n.indexOf(':') >= 0 || !/\./.test(n)) return [];
+  const r = globalThis.__catResolve4;
+  if (typeof r === 'function') {
+    try { const a = await withTimeout(Promise.resolve(r(n)), ms || 3000, 'dns-timeout'); if (Array.isArray(a)) return uniq(a.map(String).filter(isIpv4)); } catch (e) { /* DoH below */ }
+  }
+  try {
+    const res = await fetchTimed('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(n) + '&type=A', { headers: { accept: 'application/dns-json' } }, ms || 3000);
+    const j = await res.json();
+    return uniq(((j && j.Answer) || []).filter((a) => a && a.type === 1).map((a) => String(a.data)).filter(isIpv4));
+  } catch (e) { return []; }
+}
+function nodeHostIpsCached(host) { const c = NODE_IPS.get(String(host || '').toLowerCase()); return c ? c.ips : []; }
+/** Waits only when nothing is known yet; a stale entry is refreshed in the background. */
+async function nodeHostIps(host, force) {
+  const h = String(host || '').toLowerCase();
+  if (!h || isIpv4(h) || h.indexOf(':') >= 0) return [];
+  const c = NODE_IPS.get(h);
+  const load = () => resolve4(h, 3000).then((ips) => { NODE_IPS.set(h, { at: Date.now(), ips: ips.filter((ip) => !isCloudflareIp(ip)).slice(0, 4) }); if (NODE_IPS.size > 16) NODE_IPS.delete(NODE_IPS.keys().next().value); return nodeHostIpsCached(h); });
+  if (!c || force) return load();
+  if (Date.now() - c.at > NODE_IPS_TTL) load().catch(() => {});
+  return c.ips;
+}
+/* 6.79.3 a node host dials every site itself, so a pinned 🎯 ProxyIP changes the exit only when Cloudflare-hosted
+ * NAMES are recognised (on Cloudflare the direct dial to them fails by itself and falls to the ProxyIP). */
+const CF_NAME = new Map();
+async function cfHostedName(name) {
+  const n = String(name || '').toLowerCase();
+  const c = CF_NAME.get(n);
+  if (c && Date.now() - c.at < NODE_IPS_TTL) return c.cf;
+  const ips = await resolve4(n, 2000);
+  const cf = ips.some((ip) => isCloudflareIp(ip));
+  CF_NAME.set(n, { at: Date.now(), cf });
+  if (CF_NAME.size > 2048) CF_NAME.delete(CF_NAME.keys().next().value);
+  return cf;
+}
 const NODE_NO_STORE = 'No permanent storage on this host: a new user would vanish on restart. Give the host a disk (CAT_DATA_DIR on a volume) or add Upstash Redis (KV_REST_API_URL + KV_REST_API_TOKEN).';
 function noStoreError(env) { return isVercelPlatform(env) ? VERCEL_NO_STORE : NODE_NO_STORE; }
 // Vercel's own IPv4 edge networks (AS922). A Cloudflare clean IP can never reach a Vercel project,
@@ -4940,7 +4985,12 @@ async function vercelEdgeProbe(sockets, c, wsPath) {
 }
 
 function addressList(host, env, settings) {
-  if (nodeDirect(env)) return [String(host)];
+  if (nodeDirect(env)) {
+    // the name + its own IPs (auto) + any IP the owner / this user typed — never a Cloudflare IP (it cannot reach a
+    // host that is not behind Cloudflare). SNI / Host stay the host's name, so every one of them is the same server.
+    const typed = (settings.ips || []).map((r) => splitAddrTag(r).addr).filter((a) => a && !isCloudflareIp(a));
+    return uniq([String(host)].concat(nodeHostIpsCached(host), typed));
+  }
   const vercel = isVercelPlatform(env);
   const own = (settings.ips || []).filter((a) => !vercel || vercelDialable(a));
   const fromEnv = splitCsv(env.CF_IPS).map((r) => splitAddrTag(r).addr).filter((a) => a && (!vercel || vercelDialable(a)));
@@ -4959,9 +5009,10 @@ function configName(proto, addr, port, tls, cc, host, index) {
   const protoName = proto === 'vless' ? 'VLESS' : 'TROJAN';
   const isWorker = !!host && String(addr).toLowerCase().replace(/^\[/, '').replace(/\]$/, '') === String(host).toLowerCase();
   const isVercelEdge = !isWorker && VERCEL_EDGE_NAMES.includes(String(addr).toLowerCase());
-  const label = (isWorker ? 'WorkerOnly' : (isVercelEdge ? 'Vercel Edge' : 'Clean IP')) + (tls ? ' TLS' : '');
+  const isHostIp = !isWorker && !isVercelEdge && !!host && nodeHostIpsCached(host).includes(String(addr));
+  const label = (isWorker ? 'WorkerOnly' : (isVercelEdge ? 'Vercel Edge' : (isHostIp ? 'Server IP' : 'Clean IP'))) + (tls ? ' TLS' : '');
   const n = index ? index + '. ' : '';
-  return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : (isVercelEdge ? '▲ ' : '💦 ')) + n + protoName + ' - ' + label + ' : ' + port;
+  return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : (isVercelEdge ? '▲ ' : (isHostIp ? '🏠 ' : '💦 '))) + n + protoName + ' - ' + label + ' : ' + port;
 }
 
 function wsParams(hostHeader, path, sni, fp, tls, ech, alpn) {
@@ -5287,13 +5338,16 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   const PIN_LIMIT = 2;
   const limited = !!q.limit;
   // Vercel dials every destination directly: 🎯 ProxyIP / 🧦 SOCKS / 🧬 SNI entries would only be duplicates.
-  if (!isVercelPlatform(env) && !nodeDirect(env) && !(q.addr && q.addr.length) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
+  // 6.79.3 node hosts: 🧦 SOCKS really moves every site's exit and 🎯 ProxyIP the Cloudflare-hosted ones (dialTarget
+  // recognises them by name), so the owner's / this user's OWN exits are listed (never the built-in defaults, no 🧬).
+  const nodeEx = nodeDirect(env);
+  if (!isVercelPlatform(env) && !(q.addr && q.addr.length && !nodeEx) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
     const cleanCount = entries.length;
     const tlsPort = (settings.tlsPorts && settings.tlsPorts[0]) || 443;
     // 🎯/🧦 ride the ports the link asked for: TLS when any TLS port is selected, else the first plain port.
     const pxTls = (settings.tlsPorts || []).length > 0 || !(settings.plainEnabled && (settings.plainPorts || []).length);
     const pxPort = pxTls ? tlsPort : Number(settings.plainPorts[0]);
-    for (const sniHost of (limited ? [] : (settings.extraSnis || []))) {
+    for (const sniHost of (limited || nodeEx ? [] : (settings.extraSnis || []))) {
       if (entries.length >= 200) break;
       if (!sniHost || sniHost === ctx.sni) continue;
       const sctx = Object.assign({}, ctx, { sni: sniHost });
@@ -5303,7 +5357,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
     }
     const faUi = settings.lang !== 'en';
     let pxi = 0;
-    for (const px of proxyIpList(env, settings, { explicitOnly: limited })) {
+    for (const px of proxyIpList(env, settings, { explicitOnly: limited || nodeEx })) {
       if (entries.length >= 224) break;
       pxi++;
       const pxcc = (settings.proxyCountries || {})[px] || '';
@@ -7869,7 +7923,15 @@ async function handleApi(request, url, env, ctx) {
     const avail = {};
     for (const p of await proxyRepoHealthyPool(env, 400)) if (p.cc) avail[p.cc] = (avail[p.cc] || 0) + 1;
     return json({ ok: true, pool: settings.locPool || [], countries: locSummary(settings, await readUsers(env)), avail,
-      choices: LOC_CHOICES.map((cc) => ({ cc, flag: flagOf(cc), fa: PX_FA_NAMES[cc] || cc, en: COUNTRY_NAMES[cc] || cc })), vercel: isVercelPlatform(env) || nodeDirect(env) });
+      choices: LOC_CHOICES.map((cc) => ({ cc, flag: flagOf(cc), fa: PX_FA_NAMES[cc] || cc, en: COUNTRY_NAMES[cc] || cc })), vercel: isVercelPlatform(env), node: nodeDirect(env) });
+  }
+  /* 6.79.3 node hosts: the server's own IPs (found automatically, already in every config) */
+  if (path === '/api/node/ips' && method === 'GET') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    if (!nodeDirect(env)) return json({ ok: true, node: false, host, ips: [] });
+    const ips = await nodeHostIps(host, url.searchParams.get('refresh') === '1');
+    const typed = (settings.ips || []).map((r) => splitAddrTag(r).addr).filter((a) => a && !isCloudflareIp(a) && ips.indexOf(a) < 0);
+    return json({ ok: true, node: true, host, ips, typed, port: nodePort(env), tls: nodeEdge(env) === 'tls', platform: String(env.CAT_HOST || '') });
   }
   if (path === '/api/locations/fetch' && method === 'POST') {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
@@ -8046,6 +8108,8 @@ async function handleRequest(request, env, ctx) {
     return new Response(null, { status: 101, webSocket: client, headers });
   }
 
+  // 6.79.3 node hosts: learn the host's own IPv4s (10 min cache) before any sub / panel answer lists addresses
+  if (nodeDirect(env) && path !== '/health') { try { await nodeHostIps(host); } catch (e) { /* the name alone still works */ } }
   if (path === '/dns-query') return handleDoh(request, env);
   if (path === '/robots.txt') return text('User-agent: *\nDisallow: /\n');
   if (path === '/app.webmanifest') {
@@ -9163,7 +9227,8 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 .pbar-track{height:6px;border-radius:999px;background:rgba(148,163,184,.22);overflow:hidden}
 .pbar-fill{height:100%;width:0%;background:linear-gradient(90deg,#14b8a6,#38bdf8);transition:width .25s ease}
 ${CLEAN_CSS}
-[data-plat] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab){display:none!important}
+[data-plat=vercel] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab),body:not([data-plat=node]) #v-nodeips{display:none!important}
+#nipList{display:flex;flex-direction:column;gap:8px;margin:10px 0}#nipList .lrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px}
 </style></head><body${nodeDirect(env) ? ' data-plat="node"' : isVercelPlatform(env) ? ' data-plat="vercel"' : ''}>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -9439,6 +9504,14 @@ ${(() => {
  </div>
 </section>
 
+<section class="view" id="v-nodeips" data-sec="addr" data-in="scan">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(16,185,129,.40))">🏠</span><div><h1>${tr2('آی‌پی‌های همین سرور', 'This server’s IPs')}</h1><p>${tr2('پنل روی هاست است (نه کلودفلر)؛ آی‌پی سرور خودکار در همهٔ کانفیگ‌ها کنار دامنه است.', 'The panel runs on a host (not Cloudflare); the server IP is added to every config automatically.')}</p></div></div>
+ <div class="card sec">
+  <h2><span class="ic">🏠</span><span>${tr2('در کانفیگ‌ها', 'In the configs')}</span><button class="btn sm" type="button" id="nipRefresh" style="margin-inline-start:auto">🔄 ${tr2('دوباره پیدا کن', 'Find again')}</button></h2>
+  <div id="nipList"><div class="small dim">⏳</div></div>
+  <div class="note i small">${tr2('اگر دامنه باز نشد، کانفیگ «🏠 Server IP» همان سرور را بدون DNS می‌زند.', 'If the name is blocked, the «🏠 Server IP» config reaches the same server without DNS.')}</div>
+ </div>
+</section>
 <section class="view" id="v-addrtab" data-sec="addr">
  <div class="addrtabs" role="tablist">
   <button type="button" role="tab" data-atab-go="ip" aria-current="true" data-i="at_ip"></button>
@@ -10492,7 +10565,7 @@ function show(v){var ptk='';if(typeof PT_AL!=='undefined'&&PT_AL[v]){ptk=PT_AL[v
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan'){poolsList();if(document.body.getAttribute('data-plat')==='node')nipLoad(false)}else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -11529,7 +11602,7 @@ function goSec(sec){
     if(b.getAttribute('data-sec')===sec)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   if(sec==='home'){renderHome();loadErrors();}
   if(sec==='users'){renderSubLinks();}
-  if(sec==='addr'){setAddrTab(document.body.getAttribute('data-atab')||'ip');}
+  if(sec==='addr'){setAddrTab(document.body.getAttribute('data-atab')||'ip');if(document.body.getAttribute('data-plat')==='node')nipLoad(false);}
   if(sec==='loc'){renderLocPath();}
   // scrollTop, not window.scrollTo: keeps the jsdom click audit free of noise.
   document.documentElement.scrollTop=0;
@@ -11567,6 +11640,13 @@ function renderSubLinks(){
 }
 
 /* ---------- address section: three tabs ---------- */
+/* 6.79.3 node hosts: the server's own IPs (auto, already in every config) */
+function nipLoad(refresh){var box=$('#nipList');if(!box)return Promise.resolve();box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال پیدا کردن…','Looking up…'))+'</div>';
+ return api('/api/node/ips'+(refresh?'?refresh=1':'')).then(function(j){if(!j||!j.ok){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag((j&&j.error)||'?'))+'</div>';return}
+  var row=function(ic,a,k){return '<div class="lrow"><span>'+ic+'</span><span class="mono" dir="ltr">'+esc(a)+(j.port&&j.port!==443?':'+j.port:'')+'</span><span class="chip" style="margin-inline-start:auto">'+esc(k)+'</span></div>'};
+  box.innerHTML=row('🔌',j.host,tx('دامنه','name'))+(j.ips||[]).map(function(a){return row('🏠',a,tx('آی‌پی سرور · خودکار','server IP · auto'))}).join('')+(j.typed||[]).map(function(a){return row('✍️',a,tx('نوشتهٔ تو','typed by you'))}).join('')+
+   ((j.ips||[]).length?'':'<div class="small dim">'+esc(tx('آی‌پی پیدا نشد؛ خود دامنه کار می‌کند.','No IP found; the name itself works.'))+'</div>')}).catch(function(e){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'})}
+if($('#nipRefresh'))$('#nipRefresh').addEventListener('click',function(){var b=this;b.disabled=true;nipLoad(true).then(function(){b.disabled=false;toast(tx('به‌روز شد؛ اشتراک را در اپ آپدیت کن','Updated; update the sub in your app'))})});
 function setAddrTab(tab){
   document.body.setAttribute('data-atab',tab);
   [].forEach.call(document.querySelectorAll('[data-atab]'),function(el){
@@ -12020,6 +12100,7 @@ function uLocRender(){var g=$('#uLocGrid');if(!g)return;var C=(LOC&&LOC.countrie
   C.map(function(c){return '<button type="button" class="locc'+(UL.cc===c.cc?' on':'')+(c.ok?'':' dead')+'" data-uloc="'+c.cc+'"><span class="fl">'+c.flag+'</span><b>'+esc(lang==='fa'?c.fa:c.en)+'</b><small>'+(c.ok?c.ok+' ✓'+(c.best?' · '+c.best+'ms':''):esc(tx('خراب — پینگ کن','dead — ping'))) +'</small></button>'}).join('')+
   (C.length?'':'<div class="small dim" style="grid-column:1/-1">'+esc(tx('هنوز کشوری در کتابخانه نیست. پایین یک کشور انتخاب کن و «پیدا کن» را بزن.','No country in the library yet. Pick one below and press «Find».'))+'</div>');
  var now=$('#uLocNow');if(now){var px=UL.exits.filter(function(a){return !/^socks/i.test(a)}).length,sx=UL.exits.length-px;now.innerHTML=UL.cc?'✅ '+esc(tx('این کاربر از','This user exits via'))+' '+locFlag(UL.cc)+' <b>'+esc(locName(UL.cc))+'</b> — '+px+' ProxyIP'+(sx?' · '+sx+' SOCKS':'')+(UL.exits.length?'':' <span style="color:var(--red)">'+esc(tx('(خروجی سالمی ندارد؛ «پینگ همه» یا «پیدا کن»)','(no healthy exit; «Ping all» or «Find»)'))+'</span>'):'<span class="mute">'+esc(tx('این کاربر از خروجی‌های عمومی پنل استفاده می‌کند.','This user uses the panel’s shared exits.'))+'</span>'}
+ if(LOC&&LOC.node&&now)now.innerHTML+='<div class="small" style="color:var(--amber)">'+esc(tx('روی هاست: 🧦 SOCKS همهٔ سایت‌ها، 🎯 ProxyIP فقط سایت‌های کلودفلری را از این کشور بیرون می‌برد.','On a host: 🧦 SOCKS moves every site, 🎯 ProxyIP only Cloudflare-hosted ones.'))+'</div>';
  if(LOC&&LOC.vercel&&now)now.innerHTML+='<div class="small" style="color:var(--amber)">'+esc(tx('این پنل روی Vercel/نود است و خودش مستقیم وصل می‌شود؛ ProxyIP/SOCKS اینجا کاربرد ندارد.','This panel runs on Vercel/a node and dials directly; ProxyIP/SOCKS are not used here.'))+'</div>'}
 function locLibRender(){var g=$('#locGrid');if(!g||!LOC)return;var C=LOC.countries||[],P=LOC.pool||[];$('#locState').textContent=P.length?(P.filter(function(p){return p.ok}).length+' / '+P.length+' ✓'):'';
  g.innerHTML=C.length?C.map(function(c){var rows=P.filter(function(p){return p.cc===c.cc});return '<div class="lcc"><div class="lhd"><span class="fl">'+c.flag+'</span><b>'+esc(lang==='fa'?c.fa:c.en)+'</b><span class="chip">'+c.ok+' / '+rows.length+' ✓</span>'+(c.users?'<span class="chip v">👤 '+c.users+'</span>':'')+'<button class="btn sm" type="button" data-locping="'+c.cc+'" style="margin-inline-start:auto">📡</button></div>'+
@@ -12291,6 +12372,7 @@ export default {
 };
 
 export const _testing = {
+  nodeHostIps, nodeHostIpsCached, cfHostedName, withUserExits, configName,
   dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS, DEFAULT_PROXY_IPS,
   linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,
   admitLimitedUser, startFirstUseClock, subResponse,

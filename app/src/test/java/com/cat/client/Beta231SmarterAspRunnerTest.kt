@@ -34,7 +34,7 @@ class Beta231SmarterAspRunnerTest {
         assertTrue(File(root, "app/src/main/assets/" + NodeHostPanel.BUNDLED_WORKER_ASSET).exists())
         assertTrue(File(root, "app/src/main/assets/" + NodeHostPanel.BUNDLED_ADAPTER_ASSET).exists())
         val l = read("node-panel/index.js")
-        assertTrue(l.contains("if (!hasCode(codeDir) && !writable(codeDir)) {"))
+        assertTrue(l.contains("if (!writable(codeDir)) {") && l.contains("running the panel that came in the zip"))
         assertTrue(read("app/src/main/assets/node-panel/smarterasp/server.js").contains("import * as cat from './index.js';"))
     }
 

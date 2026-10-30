@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta233] — 2026-10-30 (Panel 6.79.3)
+
+### Fixed — a panel on a Node host (owner's SmarterASP screenshots: the panel is up, v6.79.2)
+- **The server's own IP is now in the configs automatically.** On a Node host the sub listed only the host name. The panel now resolves its own name (the host's resolver through the adapter, else DoH; cached 10 min, never a Cloudflare IP) and adds «🏠 Server IP» lines next to the name — same SNI/Host, same port — so a network that blocks or poisons the name still reaches the server. IPs the owner or a user typed are used too (Cloudflare IPs dropped: they cannot reach a host that is not behind Cloudflare).
+- **«Clean IP» was a blank page on a Node host** (its Cloudflare-only views were hidden, nothing replaced them). It now shows «🏠 This server's IPs»: the name, the auto-found IPs and typed ones, with «🔄 Find again» (`GET /api/node/ips`).
+- **Exit location works on a Node host.** The «Locations & exits» page was hidden and a user's exits were dropped with «ProxyIP/SOCKS are not used here». Now a user's (or the owner's) own 🧦 SOCKS exits move every site to that country, and 🎯 ProxyIP exits carry the Cloudflare-hosted sites: the data plane recognises Cloudflare-hosted NAMES by DNS (on Cloudflare the direct dial to them fails by itself). Never the built-in default ProxyIPs, no 🧬 SNI lines on a node. The note says plainly which kind moves what.
+- Launcher: with read-only site files, a newer panel release goes to a temp folder (linked to ./node_modules); with no GitHub the panel that came in the zip keeps running.
+- New `scripts/panels/node-server-ips.test.mjs` (8 tests, also against the minified build); `node-host.test.mjs` accepts the server-IP lines; jsdom check: the Clean IP page shows the server-IP list on a node.
+
 ## [1.10.0-beta232] — 2026-10-30 (Panel 6.79.2)
 
 ### Fixed — SmarterASP Linux «Failed», exit code 1 (owner's screenshot)

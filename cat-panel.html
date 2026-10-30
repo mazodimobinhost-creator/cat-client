@@ -631,7 +631,8 @@ html[data-theme=clean] .side button.on{background:var(--nav-bg);border-color:var
 .main .ncard{margin:0 0 14px}
 html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 
-[data-plat] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab){display:none!important}
+[data-plat=vercel] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab),body:not([data-plat=node]) #v-nodeips{display:none!important}
+#nipList{display:flex;flex-direction:column;gap:8px;margin:10px 0}#nipList .lrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px}
 </style></head><body>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -645,7 +646,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 <div class="mwrap" id="menu">
  <div class="mbg" data-mclose></div>
  <div class="mpanel">
-  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.79.2</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
+  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.79.3</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
   <div class="mlist">
    <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
    <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
@@ -664,7 +665,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 </div>
 
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.79.2</small></div></div>
+ <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.79.3</small></div></div>
  <div class="sb-nav">
   <button type="button" data-view="dash"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="lbl" data-i="n_dash"></span></button>
   <button type="button" data-view="clients"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="lbl" data-i="n_clients"></span></button>
@@ -687,7 +688,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 </div>
 <div class="top"><div class="topin">
  <button class="ib sbtog" type="button" id="btnSbToggle" title="جمع/باز کردن منو" aria-label="جمع/باز کردن منو"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg></button>
- <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.79.2</span></div>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.79.3</span></div>
  <div class="pgt"><b id="pgTitle">داشبورد</b><small id="pgSub"></small></div>
  <button class="tnew" type="button" id="btnTopNew"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">کاربر جدید</span></button>
  <div class="tools">
@@ -772,7 +773,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
    <div><span data-i="ov_seen"></span><span id="ovSeen">…</span></div>
    <div class="small mute" style="margin-top:-6px" data-i="ov_seen_hint"></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.79.2</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.79.3</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -895,6 +896,14 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
  </div>
 </section>
 
+<section class="view" id="v-nodeips" data-sec="addr" data-in="scan">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(16,185,129,.40))">🏠</span><div><h1>آی‌پی‌های همین سرور</h1><p>پنل روی هاست است (نه کلودفلر)؛ آی‌پی سرور خودکار در همهٔ کانفیگ‌ها کنار دامنه است.</p></div></div>
+ <div class="card sec">
+  <h2><span class="ic">🏠</span><span>در کانفیگ‌ها</span><button class="btn sm" type="button" id="nipRefresh" style="margin-inline-start:auto">🔄 دوباره پیدا کن</button></h2>
+  <div id="nipList"><div class="small dim">⏳</div></div>
+  <div class="note i small">اگر دامنه باز نشد، کانفیگ «🏠 Server IP» همان سرور را بدون DNS می‌زند.</div>
+ </div>
+</section>
 <section class="view" id="v-addrtab" data-sec="addr">
  <div class="addrtabs" role="tablist">
   <button type="button" role="tab" data-atab-go="ip" aria-current="true" data-i="at_ip"></button>
@@ -1726,7 +1735,7 @@ x.com</textarea>
 <section class="view" id="v-about" data-sec="set">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><div><h1 data-i="n_about"></h1><p data-i="d_about"></p></div></div>
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.79.2</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.79.3</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -1861,7 +1870,7 @@ x.com</textarea>
    only matters on KV-less panels, where settings cannot persist — the cookie keeps the
    owner's choice instead of resetting to the default skin on every reload. */
 try{var tm=document.cookie.match(/(?:^|;\s*)catTheme=([a-z]+)/);if(tm&&["clean","aurora","nebula","ocean","ember","forest","steel","turquoise","cyberpunk","gold","amoled","nord","daylight"].indexOf(tm[1])>=0){document.documentElement.setAttribute('data-theme',tm[1])}}catch(e){}
-var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.79.2";
+var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.79.3";
 var FIREWALL_PRESETS_UI={"mci-ech":{"address":"188.114.97.6","fingerprint":"chrome","ech":true,"note":"b_fw_mci_ech_n","finalMask":false},"mci-ipv6":{"address":"2a06:98c1:3101::6812:202f","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ipv6_n","finalMask":false},"mci-ipv6-ff":{"address":"2a06:98c1:3121::7","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ff_n","finalMask":true},"irancell-ff":{"address":"188.114.97.6","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true},"irancell-ff-98":{"address":"188.114.98.0","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true}};
 var I18N={
 fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_clean:'تمیز روشن',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
@@ -1948,7 +1957,7 @@ function show(v){var ptk='';if(typeof PT_AL!=='undefined'&&PT_AL[v]){ptk=PT_AL[v
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan')poolsList();else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan'){poolsList();if(document.body.getAttribute('data-plat')==='node')nipLoad(false)}else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -2985,7 +2994,7 @@ function goSec(sec){
     if(b.getAttribute('data-sec')===sec)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   if(sec==='home'){renderHome();loadErrors();}
   if(sec==='users'){renderSubLinks();}
-  if(sec==='addr'){setAddrTab(document.body.getAttribute('data-atab')||'ip');}
+  if(sec==='addr'){setAddrTab(document.body.getAttribute('data-atab')||'ip');if(document.body.getAttribute('data-plat')==='node')nipLoad(false);}
   if(sec==='loc'){renderLocPath();}
   // scrollTop, not window.scrollTo: keeps the jsdom click audit free of noise.
   document.documentElement.scrollTop=0;
@@ -3023,6 +3032,13 @@ function renderSubLinks(){
 }
 
 /* ---------- address section: three tabs ---------- */
+/* 6.79.3 node hosts: the server's own IPs (auto, already in every config) */
+function nipLoad(refresh){var box=$('#nipList');if(!box)return Promise.resolve();box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال پیدا کردن…','Looking up…'))+'</div>';
+ return api('/api/node/ips'+(refresh?'?refresh=1':'')).then(function(j){if(!j||!j.ok){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag((j&&j.error)||'?'))+'</div>';return}
+  var row=function(ic,a,k){return '<div class="lrow"><span>'+ic+'</span><span class="mono" dir="ltr">'+esc(a)+(j.port&&j.port!==443?':'+j.port:'')+'</span><span class="chip" style="margin-inline-start:auto">'+esc(k)+'</span></div>'};
+  box.innerHTML=row('🔌',j.host,tx('دامنه','name'))+(j.ips||[]).map(function(a){return row('🏠',a,tx('آی‌پی سرور · خودکار','server IP · auto'))}).join('')+(j.typed||[]).map(function(a){return row('✍️',a,tx('نوشتهٔ تو','typed by you'))}).join('')+
+   ((j.ips||[]).length?'':'<div class="small dim">'+esc(tx('آی‌پی پیدا نشد؛ خود دامنه کار می‌کند.','No IP found; the name itself works.'))+'</div>')}).catch(function(e){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'})}
+if($('#nipRefresh'))$('#nipRefresh').addEventListener('click',function(){var b=this;b.disabled=true;nipLoad(true).then(function(){b.disabled=false;toast(tx('به‌روز شد؛ اشتراک را در اپ آپدیت کن','Updated; update the sub in your app'))})});
 function setAddrTab(tab){
   document.body.setAttribute('data-atab',tab);
   [].forEach.call(document.querySelectorAll('[data-atab]'),function(el){
@@ -3476,6 +3492,7 @@ function uLocRender(){var g=$('#uLocGrid');if(!g)return;var C=(LOC&&LOC.countrie
   C.map(function(c){return '<button type="button" class="locc'+(UL.cc===c.cc?' on':'')+(c.ok?'':' dead')+'" data-uloc="'+c.cc+'"><span class="fl">'+c.flag+'</span><b>'+esc(lang==='fa'?c.fa:c.en)+'</b><small>'+(c.ok?c.ok+' ✓'+(c.best?' · '+c.best+'ms':''):esc(tx('خراب — پینگ کن','dead — ping'))) +'</small></button>'}).join('')+
   (C.length?'':'<div class="small dim" style="grid-column:1/-1">'+esc(tx('هنوز کشوری در کتابخانه نیست. پایین یک کشور انتخاب کن و «پیدا کن» را بزن.','No country in the library yet. Pick one below and press «Find».'))+'</div>');
  var now=$('#uLocNow');if(now){var px=UL.exits.filter(function(a){return !/^socks/i.test(a)}).length,sx=UL.exits.length-px;now.innerHTML=UL.cc?'✅ '+esc(tx('این کاربر از','This user exits via'))+' '+locFlag(UL.cc)+' <b>'+esc(locName(UL.cc))+'</b> — '+px+' ProxyIP'+(sx?' · '+sx+' SOCKS':'')+(UL.exits.length?'':' <span style="color:var(--red)">'+esc(tx('(خروجی سالمی ندارد؛ «پینگ همه» یا «پیدا کن»)','(no healthy exit; «Ping all» or «Find»)'))+'</span>'):'<span class="mute">'+esc(tx('این کاربر از خروجی‌های عمومی پنل استفاده می‌کند.','This user uses the panel’s shared exits.'))+'</span>'}
+ if(LOC&&LOC.node&&now)now.innerHTML+='<div class="small" style="color:var(--amber)">'+esc(tx('روی هاست: 🧦 SOCKS همهٔ سایت‌ها، 🎯 ProxyIP فقط سایت‌های کلودفلری را از این کشور بیرون می‌برد.','On a host: 🧦 SOCKS moves every site, 🎯 ProxyIP only Cloudflare-hosted ones.'))+'</div>';
  if(LOC&&LOC.vercel&&now)now.innerHTML+='<div class="small" style="color:var(--amber)">'+esc(tx('این پنل روی Vercel/نود است و خودش مستقیم وصل می‌شود؛ ProxyIP/SOCKS اینجا کاربرد ندارد.','This panel runs on Vercel/a node and dials directly; ProxyIP/SOCKS are not used here.'))+'</div>'}
 function locLibRender(){var g=$('#locGrid');if(!g||!LOC)return;var C=LOC.countries||[],P=LOC.pool||[];$('#locState').textContent=P.length?(P.filter(function(p){return p.ok}).length+' / '+P.length+' ✓'):'';
  g.innerHTML=C.length?C.map(function(c){var rows=P.filter(function(p){return p.cc===c.cc});return '<div class="lcc"><div class="lhd"><span class="fl">'+c.flag+'</span><b>'+esc(lang==='fa'?c.fa:c.en)+'</b><span class="chip">'+c.ok+' / '+rows.length+' ✓</span>'+(c.users?'<span class="chip v">👤 '+c.users+'</span>':'')+'<button class="btn sm" type="button" data-locping="'+c.cc+'" style="margin-inline-start:auto">📡</button></div>'+

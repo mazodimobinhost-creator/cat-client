@@ -311,6 +311,8 @@ jobs:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/katabump-cf-link.test.mjs
             # beta228 SmarterASP Linux trial: the same zip as a plain Node app (PORT from the host, vendored ws)
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/smarterasp-linux.test.mjs
+            # 6.79.3 node hosts: server IPs in the configs, exits on a node, the Clean IP page
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node --test scripts/panels/node-server-ips.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/tunnel-grain.test.mjs
             # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
             # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here

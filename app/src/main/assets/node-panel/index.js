@@ -307,11 +307,19 @@ export async function main(env = process.env) {
   const iis = env.CAT_BEHIND_IIS === '1';
   // The code cache must sit inside this folder: the adapter imports `ws` from ./node_modules.
   let codeDir = codeDirOf(HERE, env);
-  if (!hasCode(codeDir) && !writable(codeDir)) {
-    codeDir = tempCodeDir(HERE);
-    log('⚠ this folder is read-only — panel code goes to ' + codeDir);
-  }
-  const tag = await prepareCode(codeDir, env);
+  let tag;
+  if (!writable(codeDir)) {
+    // read-only site files (SmarterASP Linux): updates go to a temp folder linked to ./node_modules; when that
+    // fails (no GitHub) the panel that came in the zip (./cat-code, prebuilt by the app) runs as it is
+    const tmp = tempCodeDir(HERE);
+    log('⚠ this folder is read-only — panel updates go to ' + tmp);
+    try { tag = await prepareCode(tmp, env); codeDir = tmp; } catch (e) {
+      if (!hasCode(codeDir)) throw e;
+      const st = path.join(codeDir, 'version.txt');
+      tag = fs.existsSync(st) ? fs.readFileSync(st, 'utf8').trim() : 'zip';
+      log('update skipped (' + e.message + '); running the panel that came in the zip ' + tag);
+    }
+  } else tag = await prepareCode(codeDir, env);
   env.CAT_PLATFORM = 'node';
   const host = hostOf(env);
   if (host) env.CAT_HOST = host;
