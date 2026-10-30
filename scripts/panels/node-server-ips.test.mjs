@@ -50,6 +50,20 @@ test('typed IPs (owner / this user) are used on a node too — Cloudflare IPs dr
   assert.deepEqual(T.addressList(HOST, ENV, s), [HOST, '203.0.113.7', '198.51.100.44']);
 });
 
+test('the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)', async () => {
+  await T.nodeHostIps(HOST, true);
+  const s = Object.assign(settings(), {
+    ips: ['104.19.150.96:443', '198.51.100.44:2053', '203.0.113.9', '45.85.118.5:443'],
+    repoIps: ['104.19.150.96:443', '45.85.118.5:443'],
+    proxyIps: ['198.51.100.20:443', 'socks5://198.51.100.30:1080'], proxyRepoAuto: true,
+  });
+  assert.deepEqual(T.addressList(HOST, ENV, s), [HOST, '203.0.113.7', '198.51.100.44', '203.0.113.9']);
+  const { entries } = T.buildConfigEntries(HOST, ENV, s, UUID, null, {});
+  assert.deepEqual([...new Set(entries.map((e) => e.addr))].sort(), [HOST, '198.51.100.44', '203.0.113.7', '203.0.113.9'].sort(), entries.map((e) => e.name + ' ' + e.addr + ':' + e.port).join(' | '));
+  assert.ok(entries.every((e) => e.port === 443), 'a node answers on its one port — a typed :2053 is not advertised');
+  assert.ok(!entries.some((e) => /^🎯|^🧦/.test(e.name)), 'panel-wide / feed exits are not listed on a node — only a pinned user\'s');
+});
+
 test('a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node', async () => {
   await T.nodeHostIps(HOST, true);
   const user = { id: 'u1', exits: ['198.51.100.20:443', 'socks5://u:p@198.51.100.30:1080'], exitCc: 'DE' };

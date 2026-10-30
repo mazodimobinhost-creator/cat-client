@@ -3034,7 +3034,7 @@ function withUserExits(settings, user) {
     const cc = (hit && hit.cc) || user.exitCc;
     if (cc) tags[a] = cc;
   }
-  return Object.assign({}, settings, { [PXIPS_KEY]: user.exits.slice(), proxyCountries: tags, proxyRepoAuto: false, proxyVip: '', country: '' });
+  return Object.assign({}, settings, { [PXIPS_KEY]: user.exits.slice(), proxyCountries: tags, proxyRepoAuto: false, proxyVip: '', country: '', userExits: true });
 }
 /** ProxyIP check that PROVES the exit country: TCP → TLS(speed.cloudflare.com) → GET /cdn-cgi/trace through the
  * ProxyIP. Cloudflare answers with «loc=XX» = the country it sees the connection coming from, i.e. the exit. */
@@ -4861,6 +4861,14 @@ async function resolve4(name, ms) {
     return uniq(((j && j.Answer) || []).filter((a) => a && a.type === 1).map((a) => String(a.data)).filter(isIpv4));
   } catch (e) { return []; }
 }
+/** IPs the owner / a user typed, bare (a node answers on its one port) — never the free clean-IP library or a
+ * Cloudflare IP (neither can reach a host that is not behind Cloudflare). */
+function nodeTypedIps(settings) {
+  const repo = new Set(((settings && settings.repoIps) || []).map(String));
+  return uniq(((settings && settings.ips) || []).filter((r) => !repo.has(String(r)))
+    .map((r) => splitHostPort(splitAddrTag(r).addr, 0).hostname)
+    .filter((a) => a && !isCloudflareIp(a)));
+}
 function nodeHostIpsCached(host) { const c = NODE_IPS.get(String(host || '').toLowerCase()); return c ? c.ips : []; }
 /** Waits only when nothing is known yet; a stale entry is refreshed in the background. */
 async function nodeHostIps(host, force) {
@@ -4988,8 +4996,7 @@ function addressList(host, env, settings) {
   if (nodeDirect(env)) {
     // the name + its own IPs (auto) + any IP the owner / this user typed — never a Cloudflare IP (it cannot reach a
     // host that is not behind Cloudflare). SNI / Host stay the host's name, so every one of them is the same server.
-    const typed = (settings.ips || []).map((r) => splitAddrTag(r).addr).filter((a) => a && !isCloudflareIp(a));
-    return uniq([String(host)].concat(nodeHostIpsCached(host), typed));
+    return uniq([String(host)].concat(nodeHostIpsCached(host), nodeTypedIps(settings)));
   }
   const vercel = isVercelPlatform(env);
   const own = (settings.ips || []).filter((a) => !vercel || vercelDialable(a));
@@ -5341,7 +5348,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   // 6.79.3 node hosts: 🧦 SOCKS really moves every site's exit and 🎯 ProxyIP the Cloudflare-hosted ones (dialTarget
   // recognises them by name), so the owner's / this user's OWN exits are listed (never the built-in defaults, no 🧬).
   const nodeEx = nodeDirect(env);
-  if (!isVercelPlatform(env) && !(q.addr && q.addr.length && !nodeEx) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
+  if (!isVercelPlatform(env) && (!nodeEx || settings.userExits === true) && !(q.addr && q.addr.length && !nodeEx) && !(limited && q.limit <= PIN_LIMIT) && !(strict && wantCc)) {
     const cleanCount = entries.length;
     const tlsPort = (settings.tlsPorts && settings.tlsPorts[0]) || 443;
     // 🎯/🧦 ride the ports the link asked for: TLS when any TLS port is selected, else the first plain port.
@@ -7930,7 +7937,7 @@ async function handleApi(request, url, env, ctx) {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
     if (!nodeDirect(env)) return json({ ok: true, node: false, host, ips: [] });
     const ips = await nodeHostIps(host, url.searchParams.get('refresh') === '1');
-    const typed = (settings.ips || []).map((r) => splitAddrTag(r).addr).filter((a) => a && !isCloudflareIp(a) && ips.indexOf(a) < 0);
+    const typed = nodeTypedIps(settings).filter((a) => ips.indexOf(a) < 0);
     return json({ ok: true, node: true, host, ips, typed, port: nodePort(env), tls: nodeEdge(env) === 'tls', platform: String(env.CAT_HOST || '') });
   }
   if (path === '/api/locations/fetch' && method === 'POST') {

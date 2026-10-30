@@ -11,7 +11,8 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 - **«Clean IP» was a blank page on a Node host** (its Cloudflare-only views were hidden, nothing replaced them). It now shows «🏠 This server's IPs»: the name, the auto-found IPs and typed ones, with «🔄 Find again» (`GET /api/node/ips`).
 - **Exit location works on a Node host.** The «Locations & exits» page was hidden and a user's exits were dropped with «ProxyIP/SOCKS are not used here». Now a user's (or the owner's) own 🧦 SOCKS exits move every site to that country, and 🎯 ProxyIP exits carry the Cloudflare-hosted sites: the data plane recognises Cloudflare-hosted NAMES by DNS (on Cloudflare the direct dial to them fails by itself). Never the built-in default ProxyIPs, no 🧬 SNI lines on a node. The note says plainly which kind moves what.
 - Launcher: with read-only site files, a newer panel release goes to a temp folder (linked to ./node_modules); with no GitHub the panel that came in the zip keeps running.
-- New `scripts/panels/node-server-ips.test.mjs` (8 tests, also against the minified build); `node-host.test.mjs` accepts the server-IP lines; jsdom check: the Clean IP page shows the server-IP list on a node.
+- A node never lists the free clean-IP library (its «IP:443» feed entries slipped past the Cloudflare filter in CI, where the feeds load) nor panel-wide feed exits — only the owner's/user's typed IPs (bare, on the node's one port) and a pinned user's exits.
+- New `scripts/panels/node-server-ips.test.mjs` (9 tests, also against the minified build); `node-host.test.mjs` accepts the server-IP lines; jsdom check: the Clean IP page shows the server-IP list on a node.
 
 ## [1.10.0-beta232] — 2026-10-30 (Panel 6.79.2)
 
