@@ -49,7 +49,7 @@
 | `CatClientVpnServiceCatWarp.kt` | 367 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceNetworkChange.kt` | 235 | Default-network changes: quick-speed pin restore, DNS replay. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceQuickSpeed.kt` | 416 | Quick «fastest» reconnect: shortlist, pin and restore of the fastest route. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceRealInternet.kt` | 235 | Real internet check after connect, route memory and automatic next route. | 11 JVM · 4 panel (see `affected-tests.py`) |
@@ -99,8 +99,9 @@
 | `ConnectionChain.kt` | 905 | — | ConnectionChainTunnelTest · chain-exit-country, chain-tunnel |
 | `DpiBypass.kt` | 140 | — | PanelTuneTest · tune |
 | `FenixHttp2.kt` | 925 | beta211: a small, dependency-free HTTP/2 client for Cat Fox VPN (RFC 9113 + HPACK RFC 7541). | Beta211FenixHttp2Test · — |
+| `FenixPassPolicy.kt` | 77 | beta237: when Cat Fox VPN renews its Mozilla ProxyPass, and what to do with each Guardian answer — the same rules Firefox's own IP Protection uses… | Beta237FoxPassTest · — |
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
-| `FirefoxVpnEngine.kt` | 2953 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, WhiteDnsSmartScannerTest · — |
+| `FirefoxVpnEngine.kt` | 3115 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3424 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
 | `MlmAndNextGenVpnHub.kt` | 1272 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
@@ -289,12 +290,12 @@
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
-| `FoxPortPolicy.kt` | 55 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest · — |
+| `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
 | `HostRegions.kt` | 65 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_236 Kotlin files, 105471 lines._
+_237 Kotlin files, 105775 lines._
 
 ## MainActivity screens — function index
 
@@ -604,6 +605,7 @@ for the dialog/button you want to change.
 | `FenixH2StatusException` | `FenixHttp2.kt` |
 | `FenixH2Stream` | `FenixHttp2.kt` |
 | `FenixHpack` | `FenixHttp2.kt` |
+| `FenixPassPolicy` | `FenixPassPolicy.kt` |
 | `FenixTunnelSlots` | `FenixTunnelSlots.kt` |
 | `FirefoxVpnEngine` | `FirefoxVpnEngine.kt` |
 | `FirewallBypassProfile` | `SubscriptionOptimizer.kt` |
@@ -615,6 +617,8 @@ for the dialog/button you want to change.
 | `ForeignServiceProbeResult` | `ForeignServiceProbe.kt` |
 | `ForeignServiceStatus` | `ForeignServiceProbe.kt` |
 | `ForeignServiceTarget` | `ForeignServiceProbe.kt` |
+| `FoxHttpProxyRequest` | `FoxPortPolicy.kt` |
+| `FoxNetworkReset` | `FenixPassPolicy.kt` |
 | `FoxPortPolicy` | `FoxPortPolicy.kt` |
 | `FreeConfigs` | `FreeConfigs.kt` |
 | `FrontingEndpoint` | `FrontingIp.kt` |

@@ -59,6 +59,13 @@ internal fun CatClientVpnService.handleDefaultNetworkChanged(candidate: DefaultN
     )
     pendingDefaultNetworkDnsReplay = !applyDefaultNetworkDns(candidate, force)
     if (networkChanged) {
+        // beta237: Cat Fox VPN keeps a few HTTP/2 connections to Mozilla open; after Wi-Fi ⇄ mobile they are dead but
+        // look open, and every new page waited on one (12 s, then a ping timeout) before a fresh one was dialled.
+        val foxPrevious = FirefoxVpnEngine.networkWatch.lastRealKey
+        if (FirefoxVpnEngine.networkWatch.onNetwork(candidate.defaultNetworkKey(), FirefoxVpnEngine.isLocalProxyRunning())) {
+            runCatching { FirefoxVpnEngine.resetUpstreamSessions("network changed") }
+            DiagnosticLogger.info(this, "fenix.network.reset", "from=$foxPrevious to=${candidate.defaultNetworkKey()}")
+        }
         if (aetherSession != null && candidate != null) {
             val migrated = AetherOperations.migrateRunningTunnel()
             DiagnosticLogger.info(this, "aether.network.migrate", "migrated=$migrated")

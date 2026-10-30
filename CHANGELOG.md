@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta237] — 2026-10-30 (Panel 6.80.0)
+
+### Fixed — Cat Fox VPN, checked line by line against Firefox's own IP Protection code
+- **«Works for a while, then nothing opens until I reconnect».** The Mozilla ProxyPass was renewed only inside a tunnel, in its last 60 seconds: every connection opened in that minute started its own renewal at once, all of them waited for vpn.mozilla.org, and when the renewal had to fall back to a normal request it went through the VPN — into the Fox bridge, which needed the very pass it was fetching. Now, as in Firefox (`ProxyPass.rotationTimePoint`), one background renewer replaces the pass 5 minutes before it ends while the old one still works (Firefox: 2 minutes); every tunnel uses the result of that one renewal, a tunnel never starts a second one, and a 401/407/429 from Mozilla's node triggers one shared renewal / account switch instead of one per connection. Only while the bridge is in use (no renewals with the VPN off).
+- **Reconnecting after an hour hung the first pages.** An expired pass is now renewed when the bridge starts — before the VPN is up, on a protected socket — not inside the first tunnel.
+- **Phones on Android 8–10: Fox pinged fine but never connected.** With «split ClientHello» on (the default) the node handshake went through a socket wrapper that the platform TLS on these versions bypasses (it writes to the wrapped socket's descriptor), so every tunnel failed while the ping (which never splits) looked healthy. A split handshake that fails at once is now retried unsplit and that node stays unsplit for the session; timeouts are not retried (that is the line, not the wrapper). The same retry runs for sign-in / Guardian requests on a protected socket before the unprotected fallback.
+- **Guardian answers handled like Firefox (`GuardianClient.toError`):** 401 → get a fresh sign-in token and ask again; 403 → enroll (`/api/v1/fpn/activate`) and ask again; each once. (A 401 used to be answered with «activate», which cannot help a rejected token.) Enrollment uses `experiment=alpha`, Firefox's own value; `ip-protection` is not one the server knows.
+- **Wi-Fi ⇄ mobile:** the pooled HTTP/2 connections to Mozilla are dropped as soon as the phone is on another network (a «no network» moment in between is skipped), instead of every new page waiting on a dead connection first.
+- **Sign-in and Guardian requests now check the certificate's host name** (the layered TLS socket only checked the chain) — passwords, sign-in tokens and the pass travel there.
+- **Plain-HTTP proxy requests** (`GET http://host/…` sent to the bridge as an HTTP proxy) are forwarded to port 80 in origin form; they were tunnelled to 443 and answered «200 Connection Established».
+- The browser identity sent to Mozilla is Firefox 152 (was 138; the live server list already serves Firefox ≥ 151 a different US node).
+
+### Tests
+- New `Beta237FoxPassTest` (pass states and the 5-minute window, Guardian 401/403 steps, split-retry rule, network-switch rule incl. «none» in between, HTTP-proxy request parsing / origin form, engine wiring). `Beta211FenixHttp2Test` follows the renamed expiry lookup.
+
 ## [1.10.0-beta236] — 2026-10-30 (Panel 6.80.0)
 
 ### Changed — bottom dock (owner's screenshots)

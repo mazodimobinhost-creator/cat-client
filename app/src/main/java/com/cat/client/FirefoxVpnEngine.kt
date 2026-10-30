@@ -60,11 +60,14 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  *      and `totp-2fa` (`/session/verify/totp`).
  *    - Supports 1-click official Mozilla WebView Sign-In (including "Continue with Google" & CAPTCHA)
  *      by extracting `sessionToken` from `localStorage["__fxa_storage.accounts"]`.
- *    - Enrolls new accounts via both `POST /api/v1/fpn/activate` and `/api/v1/fpn/auth?experiment=ip-protection`.
- * 3. **Bounded Thread Pool (`256KB` stack) + `VpnService.protect` + Loopback Guard**:
+ *    - Enrolls new accounts via `POST /api/v1/fpn/activate`, then `/api/v1/fpn/auth?experiment=alpha` (Firefox's
+ *      own `GUARDIAN_EXPERIMENT_TYPE`).
+ * 3. **Protected sockets + loopback guard + HTTP/2**:
  *    Protects all outbound sockets via `protectOutboundSocket(socket)` so traffic never loops back
- *    into `tun0`, enforces a strict concurrency cap (`Semaphore(24)` + bounded `ThreadPoolExecutor`),
- *    and negotiates strict `http/1.1` ALPN on Fastly `CONNECT` tunnels.
+ *    into `tun0`, caps tunnels with [FenixTunnelSlots], and carries every tunnel as an HTTP/2 `CONNECT` stream
+ *    (ALPN `h2`, HTTP/1.1 only when a node does not offer it) to `<node>.m1.fastly-masque.net:2499`.
+ * 4. **ProxyPass renewal like Firefox** ([FenixPassPolicy], beta237): one background renewal a few minutes before
+ *    the pass ends, never a renewal per tunnel.
  */
 internal object FirefoxVpnEngine {
 
@@ -80,12 +83,14 @@ internal object FirefoxVpnEngine {
     const val FXA_OAUTH_SERVER = "https://oauth.accounts.firefox.com/v1"
     const val FXA_WEB_ORIGIN = "https://accounts.firefox.com"
     const val GUARDIAN_ENDPOINT = "https://vpn.mozilla.org"
+    /** Firefox `GuardianClient.GUARDIAN_EXPERIMENT_TYPE`. */
+    const val GUARDIAN_EXPERIMENT = "alpha"
     const val REMOTE_SETTINGS_URL =
         "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/vpn-serverlist/records"
     const val FIREFOX_CLIENT_ID = "5882386c6d801776"
     const val OAUTH_SCOPE = "profile https://identity.mozilla.com/apps/vpn"
     const val FIREFOX_DESKTOP_USER_AGENT =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"
     const val FASTLY_SOLVER_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
     const val MOZILLA_VPN_USER_AGENT = FIREFOX_DESKTOP_USER_AGENT
@@ -773,6 +778,9 @@ internal object FirefoxVpnEngine {
         headers.forEach { (k, v) -> mergedHeaders[k] = v }
 
         // 1. Try Anti-DPI TLS fragmented socket first (bypasses MCI/Irancell SNI filtering on *.firefox.com / *.mozilla.org)
+        // beta237: if the split itself breaks the handshake (Android 8–10, see FenixPassPolicy.retryWithoutSplit), try
+        // the same protected socket unsplit before the plain HttpURLConnection — that one is not protected, so with
+        // the VPN up it would run through the Fox bridge, which may be waiting for exactly this answer.
         val rawSocketResp = runCatching {
             executeOverFragmentedTlsSocket(
                 method = method,
@@ -780,6 +788,16 @@ internal object FirefoxVpnEngine {
                 headers = mergedHeaders,
                 bodyBytes = bodyBytes,
                 timeoutMs = timeoutMs,
+            )
+        }.recoverCatching { first ->
+            if (!FenixPassPolicy.retryWithoutSplit(true, first)) throw first
+            executeOverFragmentedTlsSocket(
+                method = method,
+                urlStr = urlStr,
+                headers = mergedHeaders,
+                bodyBytes = bodyBytes,
+                timeoutMs = timeoutMs,
+                fragmentTls = false,
             )
         }.getOrNull()
 
@@ -831,6 +849,7 @@ internal object FirefoxVpnEngine {
         headers: Map<String, String>,
         bodyBytes: ByteArray?,
         timeoutMs: Int,
+        fragmentTls: Boolean = true,
     ): RawHttpResponse {
         val uri = URI(urlStr)
         val host = uri.host ?: throw IOException("Missing host in $urlStr")
@@ -842,7 +861,7 @@ internal object FirefoxVpnEngine {
             connectHost = host,
             connectPort = port,
             sniHost = host,
-            fragmentTls = true,
+            fragmentTls = fragmentTls,
             timeoutMs = timeoutMs,
         )
         val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
@@ -850,6 +869,9 @@ internal object FirefoxVpnEngine {
             soTimeout = timeoutMs
             val params = sslParameters
             params.serverNames = listOf(SNIHostName(host))
+            // beta237: passwords, sign-in tokens and the proxy pass travel here — check the name on the certificate
+            // too (a layered TLS socket only checks the chain unless asked).
+            params.endpointIdentificationAlgorithm = "HTTPS"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 params.applicationProtocols = arrayOf("http/1.1")
             }
@@ -1537,7 +1559,7 @@ internal object FirefoxVpnEngine {
     }.getOrNull()
 
     /**
-     * Enrolls a newly created Firefox Account into Mozilla IP Protection (`experiment=ip-protection`)
+     * Enrolls a newly created Firefox Account into Mozilla IP Protection (`experiment=alpha`, as Firefox does)
      * via both `POST /api/v1/fpn/activate` and the Guardian OAuth enrollment redirect flow.
      */
     private fun enrollAccountInGuardianIfNeeded(sessionTokenHex: String, accessToken: String) {
@@ -1545,10 +1567,11 @@ internal object FirefoxVpnEngine {
         val activateResp = guardianRequest("POST", "/api/v1/fpn/activate", accessToken, "{}")
         if (activateResp.statusCode in 200..299) return
 
-        // 2. Try full Guardian OAuth enrollment flow (/api/v1/fpn/auth?experiment=ip-protection)
+        // 2. Guardian OAuth enrollment flow. beta237: `experiment=alpha` — Firefox's GUARDIAN_EXPERIMENT_TYPE (the
+        //    server knows alpha/beta/delta/gamma); the old `ip-protection` value is not one of them.
         val startResp = fxaDoWithChallengeRetry(
             method = "GET",
-            url = "$GUARDIAN_ENDPOINT/api/v1/fpn/auth?experiment=ip-protection",
+            url = "$GUARDIAN_ENDPOINT/api/v1/fpn/auth?experiment=$GUARDIAN_EXPERIMENT",
             headers = mapOf("Authorization" to "Bearer $accessToken"),
             followRedirects = false,
         )
@@ -1655,7 +1678,8 @@ internal object FirefoxVpnEngine {
         var currentRefresh = account.refreshToken
 
         // 1. Refresh OAuth access_token if refresh_token is available
-        if (currentRefresh.isNotBlank()) {
+        fun renewLogin(): Boolean {
+            if (currentRefresh.isBlank()) return false
             val refreshBody = JSONObject()
                 .put("client_id", FIREFOX_CLIENT_ID)
                 .put("grant_type", "refresh_token")
@@ -1672,14 +1696,15 @@ internal object FirefoxVpnEngine {
                     bodyBytes = refreshBody,
                 )
             }.getOrNull()
-            if (r != null && r.statusCode in 200..299) {
-                val j = JSONObject(r.body)
-                val newAccess = j.optString("access_token")
-                val newRefresh = j.optString("refresh_token")
-                if (newAccess.isNotBlank()) currentAccess = newAccess
-                if (newRefresh.isNotBlank()) currentRefresh = newRefresh
-            }
+            if (r == null || r.statusCode !in 200..299) return false
+            val j = runCatching { JSONObject(r.body) }.getOrNull() ?: return false
+            val newAccess = j.optString("access_token")
+            val newRefresh = j.optString("refresh_token")
+            if (newAccess.isNotBlank()) currentAccess = newAccess
+            if (newRefresh.isNotBlank()) currentRefresh = newRefresh
+            return newAccess.isNotBlank()
         }
+        var renewedLogin = renewLogin()
 
         if (currentAccess.isBlank()) {
             lastPassStatus = 401 // no usable sign-in left: the user has to log in again
@@ -1689,18 +1714,28 @@ internal object FirefoxVpnEngine {
         }
 
         // 2. Fetch ProxyPass JWT & Quota Headers: GET https://vpn.mozilla.org/api/v1/fpn/token
-        var tokenResp = runCatching {
+        fun fetchPass() = runCatching {
             guardianRequest("GET", "/api/v1/fpn/token", currentAccess, null)
         }.getOrNull()
+        var tokenResp = fetchPass()
 
-        // If HTTP 403 (not entitled yet), activate entitlement and retry
-        if (tokenResp != null && (tokenResp.statusCode == 403 || tokenResp.statusCode == 401)) {
-            runCatching {
-                guardianRequest("POST", "/api/v1/fpn/activate", currentAccess, "{}")
+        // beta237: Firefox's rules (GuardianClient.toError): 401 = the sign-in token was rejected → a fresh one, then
+        // ask again; 403 = signed in but not enrolled → enroll (activate), then ask again. Each step once. (Earlier
+        // builds answered a 401 with «activate», which cannot help a rejected token.)
+        var enrolled = false
+        while (tokenResp != null) {
+            when (FenixPassPolicy.afterTokenStatus(tokenResp.statusCode, renewedLogin, enrolled)) {
+                FenixPassPolicy.Next.RENEW_LOGIN -> {
+                    renewedLogin = true
+                    if (!renewLogin()) break
+                }
+                FenixPassPolicy.Next.ENROLL -> {
+                    enrolled = true
+                    runCatching { guardianRequest("POST", "/api/v1/fpn/activate", currentAccess, "{}") }
+                }
+                FenixPassPolicy.Next.USE, FenixPassPolicy.Next.STOP -> break
             }
-            tokenResp = runCatching {
-                guardianRequest("GET", "/api/v1/fpn/token", currentAccess, null)
-            }.getOrNull()
+            tokenResp = fetchPass()
         }
 
         lastPassStatus = tokenResp?.statusCode ?: 0
@@ -2037,6 +2072,7 @@ internal object FirefoxVpnEngine {
 
         val existing = localProxyServer
         if (existing != null && !existing.isClosed && localProxyRunning.get()) {
+            startPassRenewer()
             return existing.localPort
         }
 
@@ -2065,6 +2101,7 @@ internal object FirefoxVpnEngine {
                 isDaemon = true
                 start()
             }
+            startPassRenewer()
             server.localPort
         }.getOrDefault(preferredPort)
     }
@@ -2114,6 +2151,10 @@ internal object FirefoxVpnEngine {
                     val targetHost: String
                     val targetPort: Int
                     val isSocks5 = (firstByte == 0x05)
+                    // beta237: a plain-HTTP proxy request (`GET http://host/path`, not CONNECT) is forwarded to port
+                    // 80 as an origin-form request; it used to be tunnelled to 443 and answered «200 Connection
+                    // Established», which no HTTP client expects.
+                    var forwardRequest: ByteArray? = null
 
                     if (isSocks5) {
                         val nMethods = inp.read().coerceAtLeast(0)
@@ -2146,19 +2187,17 @@ internal object FirefoxVpnEngine {
                         val reqLine = readAsciiLine(inp) ?: return@use
                         val parts = reqLine.split(' ')
                         if (parts.size < 2) return@use
-                        val hostPort = parts[1].removePrefix("http://").removePrefix("https://").substringBefore('/')
-                        // Drain remaining HTTP request headers
+                        val plan = FoxHttpProxyRequest.parse(parts[0], parts[1]) ?: return@use
+                        val headerLines = ArrayList<String>()
                         while (true) {
                             val line = readAsciiLine(inp) ?: break
                             if (line.isEmpty()) break
+                            headerLines += line
                         }
-                        val colonIdx = hostPort.lastIndexOf(':')
-                        if (colonIdx > 0) {
-                            targetHost = hostPort.substring(0, colonIdx).removePrefix("[").removeSuffix("]")
-                            targetPort = hostPort.substring(colonIdx + 1).toIntOrNull() ?: 443
-                        } else {
-                            targetHost = hostPort
-                            targetPort = 443
+                        targetHost = plan.host
+                        targetPort = plan.port
+                        if (!plan.isConnect) {
+                            forwardRequest = FoxHttpProxyRequest.originRequest(parts[0], plan.path, parts.getOrNull(2) ?: "HTTP/1.1", headerLines)
                         }
                     }
 
@@ -2206,16 +2245,19 @@ internal object FirefoxVpnEngine {
                     slot.touch()
                     lastTunnelError = ""
                     try {
+                        val upIn = upstreamStream.getInputStream()
+                        val upOut = upstreamStream.getOutputStream()
+                        val pending = forwardRequest
                         if (isSocks5) {
                             out.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
                             out.flush()
+                        } else if (pending != null) {
+                            upOut.write(pending)
+                            upOut.flush()
                         } else {
                             out.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
                             out.flush()
                         }
-
-                        val upIn = upstreamStream.getInputStream()
-                        val upOut = upstreamStream.getOutputStream()
 
                         fenixWorkerPool.execute {
                             runCatching {
@@ -2245,6 +2287,7 @@ internal object FirefoxVpnEngine {
         }
 
         val sniHost = activeUpstreamHost
+        lastTunnelRequestAt = System.currentTimeMillis()
         var pass = ensureValidProxyPass()
         if (pass.isBlank()) {
             // Honest failure: without a signed-in Firefox Account there is no Mozilla proxy pass, so
@@ -2334,7 +2377,7 @@ internal object FirefoxVpnEngine {
                     if (lastGoodEndpoint?.first == connectHost) lastGoodEndpoint = null
                     if ((e.status == 401 || e.status == 407 || e.status == 429) && !passRetried) {
                         passRetried = true
-                        val next = rotateOrRefreshAccountPassOnFailure()
+                        val next = rotateOrRefreshAccountPassOnFailure(pass, e.status)
                         if (next.isNotBlank() && next != pass) {
                             pass = next
                             continue
@@ -2372,6 +2415,9 @@ internal object FirefoxVpnEngine {
     private val h2Sessions = ConcurrentHashMap<String, MutableList<FenixH2Session>>()
     private val h2CreateLocks = ConcurrentHashMap<String, java.util.concurrent.locks.ReentrantLock>()
     private val h2DialFailures = ConcurrentHashMap<String, Pair<Long, Throwable>>()
+
+    /** Which network the pooled connections were made on (beta237: a switch drops them, see [FoxNetworkReset]). */
+    internal val networkWatch = FoxNetworkReset()
 
     /** Closes every pooled HTTP/2 connection (VPN stopped, network changed, account switched). */
     fun resetUpstreamSessions(reason: String = "reset") {
@@ -2444,32 +2490,67 @@ internal object FirefoxVpnEngine {
         }
     }
 
-    /** TLS to a Mozilla node: protected socket, optional ClientHello split, certificate check, given ALPN list. */
+    /** Nodes where the split ClientHello broke the handshake on this phone; dialled unsplit for the session. */
+    private val unsplitTlsNodes: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * TLS to a Mozilla node: protected socket, optional ClientHello split, certificate check, given ALPN list.
+     * beta237: when the split handshake fails at once (Android 8–10 write to the wrapped socket's descriptor and
+     * bypass the split — see [FenixPassPolicy.retryWithoutSplit]) the node is dialled again without it, instead of
+     * every tunnel failing with the split on (the default).
+     */
     private fun openNodeTls(connectHost: String, connectPort: Int, nodeSni: String, alpn: Array<String>): SSLSocket {
+        val key = "$connectHost:$connectPort"
+        val split = activeFragmentTls && key !in unsplitTlsNodes
+        return try {
+            openNodeTlsOnce(connectHost, connectPort, nodeSni, alpn, split)
+        } catch (e: NodeTlsHandshakeException) {
+            val cause = e.cause ?: e
+            if (!FenixPassPolicy.retryWithoutSplit(split, cause)) throw cause
+            val plain = try {
+                openNodeTlsOnce(connectHost, connectPort, nodeSni, alpn, false)
+            } catch (second: NodeTlsHandshakeException) {
+                throw second.cause ?: second
+            }
+            unsplitTlsNodes += key
+            appContextRef?.let { ctx ->
+                runCatching { DiagnosticLogger.info(ctx, "fenix.tls.unsplit", "$key split handshake failed: ${cause.javaClass.simpleName} ${cause.message.orEmpty().take(120)}") }
+            }
+            plain
+        }
+    }
+
+    /** The TCP connect worked but TLS did not ([cause] is the real error). */
+    private class NodeTlsHandshakeException(cause: Throwable) : IOException(cause.message, cause)
+
+    private fun openNodeTlsOnce(connectHost: String, connectPort: Int, nodeSni: String, alpn: Array<String>, split: Boolean): SSLSocket {
         val raw = openSocketWithOptionalSniFragment(
             connectHost = connectHost,
             connectPort = connectPort,
             sniHost = nodeSni,
-            fragmentTls = activeFragmentTls,
+            fragmentTls = split,
             timeoutMs = 10_000,
         )
-        val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-        val ssl = sslFactory.createSocket(raw, nodeSni, connectPort, true) as SSLSocket
+        var ssl: SSLSocket? = null
         try {
-            ssl.soTimeout = 15_000
-            val params = ssl.sslParameters
+            val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            val s = sslFactory.createSocket(raw, nodeSni, connectPort, true) as SSLSocket
+            ssl = s
+            s.soTimeout = 15_000
+            val params = s.sslParameters
             params.serverNames = listOf(SNIHostName(nodeSni))
             // Verify the node certificate (*.m1.fastly-masque.net) so the proxy pass is never sent to an impostor.
             params.endpointIdentificationAlgorithm = "HTTPS"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) params.applicationProtocols = alpn
-            ssl.sslParameters = params
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) setLegacyAlpn(ssl, alpn)
-            ssl.startHandshake()
+            s.sslParameters = params
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) setLegacyAlpn(s, alpn)
+            s.startHandshake()
+            return s
         } catch (e: Throwable) {
-            runCatching { ssl.close() }
-            throw e
+            runCatching { ssl?.close() }
+            runCatching { raw.close() }
+            throw NodeTlsHandshakeException(e)
         }
-        return ssl
     }
 
     /** Android 8–9: ALPN through the platform (Conscrypt) socket's own setter. */
@@ -2616,53 +2697,127 @@ internal object FirefoxVpnEngine {
         return null
     }
 
+    /** Expiry (this phone's clock) of [pass]: remembered at renewal, else the saved account, else the JWT `exp`. */
+    private fun localPassExpiry(pass: String): Long? {
+        if (pass.isBlank()) return null
+        passLocalExpiry[pass]?.let { return it }
+        // After an app restart: the saved account carries the clock-anchored expiry; remember it once.
+        val saved = appContextRef?.let { ctx ->
+            runCatching { loadAccounts(ctx) }.getOrNull()
+                ?.firstOrNull { it.proxyPassToken == pass }?.proxyPassExpiresAtSec
+                ?.takeIf { it > 0L }
+        }
+        if (saved != null) passLocalExpiry[pass] = saved
+        return saved ?: extractJwtExpirySeconds(pass)
+    }
+
+    private fun passState(pass: String): FenixPassPolicy.State =
+        FenixPassPolicy.state(pass, localPassExpiry(pass), System.currentTimeMillis() / 1000L)
+
+    /** One renewal at a time (beta237): every other caller uses its result instead of starting its own. */
+    private val passRenewLock = java.util.concurrent.locks.ReentrantLock()
+    private val passRenewerRunning = AtomicBoolean(false)
+    @Volatile private var lastTunnelRequestAt = 0L
+
     /**
-     * Ensures the active account has a non-expired `ProxyPass` token, or refreshes/rotates it.
+     * Renews the active pass (or switches account when [rotateAccount]) — only one thread at a time. A caller that
+     * finds a renewal already running waits up to [waitMs] for it and takes its result; it never starts a second
+     * one. A renewal can itself fall back to a request through the VPN, i.e. through this bridge: such a nested
+     * tunnel must not wait for the renewal it is part of, so it gives up after the short wait.
      */
-    private fun ensureValidProxyPass(): String {
-        val current = activeBearerPass
-        val exp = passLocalExpiry[current] ?: run {
-            // After an app restart: the saved account carries the clock-anchored expiry; remember it once.
-            val saved = appContextRef?.let { ctx ->
-                runCatching { loadAccounts(ctx) }.getOrNull()
-                    ?.firstOrNull { it.proxyPassToken == current && current.isNotBlank() }?.proxyPassExpiresAtSec
-                    ?.takeIf { it > 0L }
+    private fun renewPassOnce(reason: String, rotateAccount: Boolean = false, waitMs: Long = FenixPassPolicy.WAIT_FOR_RENEWAL_MS): String {
+        val before = activeBearerPass
+        if (!passRenewLock.tryLock(waitMs, TimeUnit.MILLISECONDS)) return activeBearerPass
+        try {
+            val now = activeBearerPass
+            // Someone renewed while we waited: use that pass.
+            if (now != before && FenixPassPolicy.usable(passState(now))) return now
+            if (!rotateAccount && passState(now) == FenixPassPolicy.State.FRESH) return now
+            val ctx = appContextRef ?: return now
+            val accounts = loadAccounts(ctx)
+            if (accounts.isEmpty()) return now
+            val candidate = if (rotateAccount) {
+                accounts.firstOrNull { it.enabled && it.proxyPassToken != now && !it.isQuotaExhaustedOrNearLimit }
+                    ?: selectBestActiveAccount(accounts)
+            } else {
+                accounts.firstOrNull { it.enabled && it.proxyPassToken == now && now.isNotBlank() }
+                    ?: selectBestActiveAccount(accounts)
+            } ?: return now
+            val renewed = runCatching { refreshAndActivateAccountPass(ctx, candidate) }.getOrDefault(candidate)
+            appContextRef?.let { c ->
+                runCatching {
+                    DiagnosticLogger.info(
+                        c, "fenix.pass.renew",
+                        "reason=$reason status=$lastPassStatus new=${renewed.proxyPassToken.isNotBlank() && renewed.proxyPassToken != now}",
+                    )
+                }
             }
-            if (saved != null) passLocalExpiry[current] = saved
-            saved ?: extractJwtExpirySeconds(current)
+            if (renewed.proxyPassToken.isNotBlank() && FenixPassPolicy.usable(passState(renewed.proxyPassToken))) {
+                activeBearerPass = renewed.proxyPassToken
+            }
+            return activeBearerPass
+        } finally {
+            passRenewLock.unlock()
         }
-        val nowSec = System.currentTimeMillis() / 1000L
-        if (current.isNotBlank() && (exp == null || exp > nowSec + 60L)) {
-            return current
-        }
-        val ctx = appContextRef ?: return current
-        val accounts = loadAccounts(ctx)
-        val best = selectBestActiveAccount(accounts) ?: return current
-        val refreshed = runCatching { refreshAndActivateAccountPass(ctx, best) }.getOrDefault(best)
-        if (refreshed.proxyPassToken.isNotBlank()) {
-            activeBearerPass = refreshed.proxyPassToken
-            return refreshed.proxyPassToken
-        }
-        return current
     }
 
     /**
-     * Called when Fastly returns HTTP 401/429 (quota exhausted or token expired): rotates to the
-     * next enabled Firefox Account in the pool and updates [activeBearerPass].
+     * Firefox renews its pass on a timer before it ends, while the old one still works (ProxyPass.rotationTimePoint).
+     * This loop does the same for as long as the bridge runs, so tunnels never have to renew in their own path.
      */
-    private fun rotateOrRefreshAccountPassOnFailure(): String {
-        val ctx = appContextRef ?: return activeBearerPass
-        val accounts = loadAccounts(ctx)
-        if (accounts.isEmpty()) return activeBearerPass
-        val nextCandidate = accounts.firstOrNull {
-            it.enabled && it.proxyPassToken != activeBearerPass && !it.isQuotaExhaustedOrNearLimit
-        } ?: selectBestActiveAccount(accounts) ?: return activeBearerPass
+    private fun startPassRenewer() {
+        if (!passRenewerRunning.compareAndSet(false, true)) return
+        Thread(null, Runnable {
+            try {
+                while (localProxyRunning.get()) {
+                    runCatching {
+                        val st = passState(activeBearerPass)
+                        // Only while the bridge is in use (a tunnel in the last 10 min): no renewals with the VPN off.
+                        val inUse = System.currentTimeMillis() - lastTunnelRequestAt < 10 * 60_000L
+                        if (inUse && (st == FenixPassPolicy.State.ROTATE_SOON || st == FenixPassPolicy.State.EXPIRED)) {
+                            renewPassOnce("scheduled", waitMs = 0L)
+                        }
+                    }
+                    try {
+                        Thread.sleep(FenixPassPolicy.CHECK_INTERVAL_MS)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                }
+            } finally {
+                passRenewerRunning.set(false)
+            }
+        }, "fenix-pass-renewer", 256 * 1024L).apply {
+            isDaemon = true
+            start()
+        }
+    }
 
-        val refreshed = runCatching {
-            refreshAndActivateAccountPass(ctx, nextCandidate)
-        }.getOrDefault(nextCandidate)
-        activeBearerPass = refreshed.proxyPassToken
-        return refreshed.proxyPassToken
+    /**
+     * The pass for a new tunnel. A fresh pass is used as it is; one that is due for renewal is still used while the
+     * background renewer replaces it; only an expired (or missing) pass is renewed here — once, shared by all tunnels.
+     */
+    private fun ensureValidProxyPass(): String {
+        val current = activeBearerPass
+        return when (passState(current)) {
+            FenixPassPolicy.State.FRESH -> current
+            FenixPassPolicy.State.ROTATE_SOON -> {
+                startPassRenewer()
+                current
+            }
+            FenixPassPolicy.State.EXPIRED, FenixPassPolicy.State.NONE -> renewPassOnce("expired")
+        }
+    }
+
+    /**
+     * Called when Fastly returns HTTP 401/407/429 (pass rejected or quota used up): renews the pass or switches to
+     * the next enabled Firefox Account — once for all the tunnels that got the same answer.
+     */
+    private fun rotateOrRefreshAccountPassOnFailure(failedPass: String, status: Int): String {
+        if (activeBearerPass != failedPass && activeBearerPass.isNotBlank()) return activeBearerPass
+        // A rejected pass is treated as expired from now on, so the renewal below really asks for a new one.
+        if (status != 429 && failedPass.isNotBlank()) passLocalExpiry[failedPass] = System.currentTimeMillis() / 1000L
+        return renewPassOnce("proxy-$status", rotateAccount = status == 429)
     }
 
     /**
@@ -2924,7 +3079,14 @@ internal object FirefoxVpnEngine {
 
     fun startLocalBridge(context: Context, preferredCountryCode: String? = null): Int {
         val accounts = loadAccounts(context)
-        val activeAcc = selectBestActiveAccount(accounts)
+        // beta237: renew a pass that has run out (or is about to) HERE, before the VPN is up and on a protected
+        // socket — not later inside the first tunnel, where a fallback request would have to go through this very
+        // bridge (that needs the pass it is fetching) and the first pages hung for half a minute after a reconnect.
+        val activeAcc = selectBestActiveAccount(accounts)?.let { acc ->
+            val st = FenixPassPolicy.state(acc.proxyPassToken, acc.proxyPassExpiresAtSec.takeIf { it > 0L }, System.currentTimeMillis() / 1000L)
+            if (st == FenixPassPolicy.State.FRESH) acc
+            else runCatching { refreshAndActivateAccountPass(context, acc) }.getOrDefault(acc)
+        }
         val selCode = preferredCountryCode?.trim()?.uppercase(Locale.US)?.takeIf { it.matches(Regex("[A-Z]{2,3}")) }
             ?: readSelectedCountryCode(context)
         val countries = getAvailableCountries(context)

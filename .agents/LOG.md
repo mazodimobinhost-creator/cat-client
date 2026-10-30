@@ -48,3 +48,8 @@
 - Adapter: Reality module (Xray v26.10.21 download + SHA2-256 check, X25519, per-operator inbounds on 127.0.0.1, SNI mux on the public port, verify through the public port, restart with backoff, state in `<CAT_KV_DIR>/reality/reality.json`), active only with `CAT_HOST_DIRECT=1`.
 - Tests: `panel-680.test.mjs`, `node-reality.test.mjs` (fake Xray via `CAT_XRAY_BIN`, openssl test CA via `NODE_EXTRA_CA_CERTS`), panel-dom additions. Budgets raised (raw 930 000 / guard 940 000 / gzip 278 000). The cat-panel.html one-liner is now at android.yml line 331.
 
+
+## 2026-10-30 — beta237 (Cat Fox VPN vs Firefox IP Protection)
+- Compared FirefoxVpnEngine with Firefox `toolkit/components/ipprotection` (GuardianClient, GuardianTypes ProxyPass, IPPChannelFilter, server list; MPL-2.0, rules only). New `FenixPassPolicy.kt` (pass states, 5-min rotation, Guardian 401/403 steps, split-retry rule, `FoxNetworkReset`), `FoxHttpProxyRequest` in `FoxPortPolicy.kt`.
+- Engine: single-flight `renewPassOnce` + `startPassRenewer`, expired pass renewed in `startLocalBridge`, `openNodeTls` unsplit retry (`unsplitTlsNodes`), API requests unsplit protected retry + host-name check, `experiment=alpha`, UA Firefox 152, HTTP-proxy forwarding. Service: `networkWatch.onNetwork` → `resetUpstreamSessions("network changed")`.
+- Local: pure policies checked with a kotlinc 2.4.21 harness; engine parse-checked (only Android/org.json unresolved). `Beta237FoxPassTest` added.
