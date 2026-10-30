@@ -113,45 +113,71 @@ object FreeConfigs {
         }
         return FreeSource(
             id = "freevlessnode",
-            nameEn = "FreeVlessNode (daily)",
-            nameFa = "FreeVlessNode (روزانه)",
+            nameEn = "🐱 Cat Feed · Daily",
+            nameFa = "🐱 Cat Feed · روزانه",
             urls = urls,
             limit = 400,
         )
     }
 
     /** Sources that were reachable at the time of writing (verified against the GitHub API). */
-    fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = listOf(
-        freevlessnodeSource(baseUrl),
-        githubSource(
-            "morpheusadam", "Morpheus measured set", "مورفیوس (تست‌شده)",
-            "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
-        ),
-        githubSource(
-            "morpheusadam-iran", "Morpheus Iran bundle", "مورفیوس (ویژهٔ ایران)",
-            "morpheusadam", "v2ray-config", "main", "subs/bundles/iran.txt", limit = 300,
-        ),
-        githubSource(
-            "radikal", "0xRadikal VLESS", "رادیکال VLESS",
-            "0xRadikal", "Free-v2ray-Configs", "main", "protocols/vless.txt", limit = 220,
-        ),
-        githubSource(
-            "epodonios", "Epodonios collector", "اپودونیوس",
-            "Epodonios", "v2ray-configs", "main", "All_Configs_Sub.txt", limit = 220,
-        ),
-        githubSource(
-            "aliilapro", "ALIILAPRO v2rayNG", "علی‌ال‌آپرو",
-            "ALIILAPRO", "v2rayNG-Config", "main", "server.txt", limit = 200,
-        ),
-        githubSource(
-            "mahdibland", "MahdiBland Eternity", "مهدی‌بلند",
-            "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
-        ),
-        githubSource(
-            "aras-free-warp", "Aras free WARP", "آراس (وارپ رایگان)",
-            "ArasTey", "ArasClient", "main", "free-sub-list.txt", limit = 20,
-        ),
-    )
+    fun sources(baseUrl: String = DEFAULT_FREEVLESSNODE_BASE): List<FreeSource> = buildList {
+        add(freevlessnodeSource(baseUrl))
+        for ((n, community) in CommunitySourceRegistry.sources.mapNotNull(CommunitySourceRegistry::validate).withIndex()) {
+            add(
+                FreeSource(
+                    id = community.id,
+                    // Only Cat names on screen; the source and its license stay recorded in CommunitySourceRegistry.
+                    nameEn = "🐱 Cat Feed · Community ${n + 1}",
+                    nameFa = "🐱 Cat Feed · جامعه ${n + 1}",
+                    urls = listOf(community.url),
+                    limit = 250,
+                ),
+            )
+        }
+        add(
+            githubSource(
+                "morpheusadam", "🐱 Cat Feed · Measured", "🐱 Cat Feed · تست‌شده",
+                "morpheusadam", "v2ray-config", "main", "subs/bundles/mini.txt", limit = 200,
+            ),
+        )
+        add(
+            githubSource(
+                "morpheusadam-iran", "🐱 Cat Feed · Iran", "🐱 Cat Feed · ویژهٔ ایران",
+                "morpheusadam", "v2ray-config", "main", "subs/bundles/iran.txt", limit = 300,
+            ),
+        )
+        add(
+            githubSource(
+                "radikal", "🐱 Cat Feed · VLESS", "🐱 Cat Feed · VLESS",
+                "0xRadikal", "Free-v2ray-Configs", "main", "protocols/vless.txt", limit = 220,
+            ),
+        )
+        add(
+            githubSource(
+                "epodonios", "🐱 Cat Feed · Collector", "🐱 Cat Feed · مجموعه",
+                "Epodonios", "v2ray-configs", "main", "All_Configs_Sub.txt", limit = 220,
+            ),
+        )
+        add(
+            githubSource(
+                "aliilapro", "🐱 Cat Feed · Mixed", "🐱 Cat Feed · ترکیبی",
+                "ALIILAPRO", "v2rayNG-Config", "main", "server.txt", limit = 200,
+            ),
+        )
+        add(
+            githubSource(
+                "mahdibland", "🐱 Cat Feed · Shadowsocks", "🐱 Cat Feed · شدوساکس",
+                "mahdibland", "ShadowsocksAggregator", "master", "Eternity.txt", limit = 150,
+            ),
+        )
+        add(
+            githubSource(
+                "aras-free-warp", "🐱 Cat Feed · WARP", "🐱 Cat Feed · وارپ رایگان",
+                "ArasTey", "ArasClient", "main", "free-sub-list.txt", limit = 20,
+            ),
+        )
+    }
 
     const val DEFAULT_FREEVLESSNODE_BASE = "https://freevlessnode.github.io"
 
@@ -166,13 +192,28 @@ object FreeConfigs {
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): FetchReport = withContext(Dispatchers.IO) {
         val list = sources(baseUrl)
+        val communityById = CommunitySourceRegistry.sources.associateBy { it.id }
+        val communityFetcher = CommunitySourceFetcher()
         val done = java.util.concurrent.atomic.AtomicInteger(0)
         onProgress?.invoke(list.firstOrNull()?.nameFa.orEmpty(), 0, list.size)
         // All sources in parallel; inside each source the mirrors race (first body wins).
         val results = list.map { source ->
             async {
-                val text = withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
-                val links = text?.let { extractLinks(it).take(source.limit) }.orEmpty()
+                val communitySource = if (!useTunnel) communityById[source.id] else null
+                val links = if (communitySource != null) {
+                    val fetched = withTimeoutOrNull(SOURCE_BUDGET_MS) {
+                        when (val res = communityFetcher.fetch(communitySource)) {
+                            is CommunityFetchResult.Success -> res.links.take(source.limit)
+                            is CommunityFetchResult.Failure -> null
+                        }
+                    }
+                    fetched ?: withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
+                        ?.let { extractLinks(it).take(source.limit) }
+                        .orEmpty()
+                } else {
+                    val text = withTimeoutOrNull(SOURCE_BUDGET_MS) { fetchFirstWorkingRaced(source.urls, useTunnel) }
+                    text?.let { extractLinks(it).take(source.limit) }.orEmpty()
+                }
                 val finished = done.incrementAndGet()
                 onProgress?.invoke(source.nameFa, finished, list.size)
                 source to links
@@ -255,7 +296,7 @@ object FreeConfigs {
                     host = item.optString("host"),
                 )
             }
-            FetchReport(list.filter { it.link.isNotBlank() }, emptyList(), emptyList())
+            FetchReport(list.filter { it.link.isNotBlank() && isSafePublicLink(it.link) }, emptyList(), emptyList())
         }.getOrNull()
     }
 
@@ -305,7 +346,22 @@ object FreeConfigs {
             .map { it.trim().trimStart('\uFEFF') }
             .filter { line -> SHARE_PREFIXES.any { line.startsWith(it, ignoreCase = true) } }
             .filter { it.length in 12..4096 }
+            .filter(::isSafePublicLink)
             .toList()
+
+    internal fun isSafePublicLink(link: String): Boolean {
+        var host = hostOf(link).trim().removePrefix("[").removeSuffix("]").lowercase(Locale.US)
+        if (host.isBlank() || host == protocolOf(link) || host == "localhost" || host == "::" || host == "::1") return false
+        if (host.startsWith("fc") || host.startsWith("fd") || Regex("^fe[89ab]").containsMatchIn(host)) return false
+        val parts = host.split('.')
+        if (parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 }) {
+            val a = parts[0].toInt(); val b = parts[1].toInt()
+            if (a == 0 || a == 10 || a == 127 || a >= 224 || (a == 100 && b in 64..127) ||
+                (a == 169 && b == 254) || (a == 172 && b in 16..31) || (a == 192 && b == 168) ||
+                (a == 198 && b in 18..19)) return false
+        }
+        return true
+    }
 
     internal fun protocolOf(link: String): String =
         link.substringBefore("://").lowercase(Locale.US)

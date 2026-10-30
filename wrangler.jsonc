@@ -1,18 +1,94 @@
 // Cat Panel — one-file Cloudflare Worker.
-// This config powers the official "Deploy to Cloudflare" button (README):
-// anyone can deploy their own panel on their own account in one click,
-// no app required. KV is auto-provisioned and bound as CAT_KV.
+//
+// This config is the single source of truth for every deploy path:
+//   • the README «Deploy to Cloudflare» button,
+//   • `.github/workflows/deploy-worker.yml` (npx wrangler deploy),
+//   • Cloudflare Workers Builds (GitHub integration — Workers & Pages →
+//     your Worker → Settings → Build).
+//
+// main = the normal minified ESM build. This matches established Worker panels
+// and avoids the much larger RC4/control-flow-obfuscated artifact that passed
+// Node mocks but produced Error 1101 in the reported Cloudflare runtime.
+// CI rebuilds it from source on every push (scripts/panels/minify.mjs).
+//
+// Deploy command for Workers Builds (Settings → Build → Deploy command):
+//     npx --yes wrangler@latest deploy --no-bundle
+// `--no-bundle` uploads the artifact byte for byte. Without it
+// Wrangler runs it through esbuild, which escapes every non-ASCII character
+// (the panel is full of Persian text and emoji) and turns a 458 KiB upload into
+// a much larger upload (the stealth build is full of escapes).
+// Verified with `wrangler deploy --dry-run` (wrangler 4.149.0), not on a live
+// account.
 {
-  "name": "cat-panel",
-  "main": "app/src/main/assets/panels/catclient.worker.js",
+  // The Worker name. ⚠ Workers Builds REQUIRES this to equal the name of the
+  // Worker in the Cloudflare dashboard — the build fails otherwise with
+  // «The name in your Wrangler configuration file (X) must match the name of
+  // your Worker». Wrangler deploys to THIS name, so a mismatch either fails the
+  // build or publishes a second Worker instead of updating the one you opened.
+  // Set to the worker being deployed while testing; change it to your own name
+  // before connecting Workers Builds.
+  "name": "empty-wave-5d02",
+  "main": "dist-panel/catpanel.min.js",
+  "no_bundle": true,
+  // A snapshot date, not a version. It MUST equal the date the Wizard and the app
+  // upload with (catclient.wizard.js COMPAT_DATE, CloudflareWorker.kt) so that every
+  // deploy path runs the Worker with the same runtime behaviour;
+  // scripts/panels/compat-consistency.test.mjs fails when they drift. Keep it at or
+  // below today's date. Changing it opts the Worker into newer runtime behaviour:
+  // change it in all three places together and test it on a real Cloudflare account.
+  // This value has NOT been verified against a live Cloudflare runtime.
   "compatibility_date": "2026-09-01",
+  // No flags: the Worker uses no Node API (checked by the consistency test), so
+  // nodejs_compat is not enabled. Wizard and app upload an empty flag list too.
+  "compatibility_flags": [],
   "workers_dev": true,
+  // Workers Logs for the deployed panel (dashboards → your Worker → Logs).
+  // Free-plan sampling applies; this only turns collection on.
+  "observability": {
+    "enabled": true
+  },
+  // ⚠️ A deploy is DECLARATIVE. The binding list of the uploaded version is exactly
+  // what this file says: a KV namespace (or variable, or D1) that exists in the
+  // dashboard but is NOT listed here is REMOVED by `wrangler deploy`. CAT_KV is
+  // therefore declared below even though the app's own deploy path passes a real
+  // namespace id through the API — keep every binding you rely on in this file.
+  //
+  // With no `id`, wrangler 4.135+ matches an existing binding named CAT_KV and keeps
+  // its namespace; when there is none it provisions one (automatic provisioning).
+  // Pinning the id removes that inference — see the commented line below.
   "kv_namespaces": [
-    { "binding": "CAT_KV", "name": "cat-panel-kv" }
+    {
+      // ─────────────────────────────────────────────────────────────────────
+      // WHERE THE REAL KV ID GOES, if you want the binding pinned by id.
+      //
+      // Get it from: Cloudflare dashboard → Storage & Databases → KV →
+      //              your namespace → the ID field (32 hex characters), or
+      //              `npx wrangler kv namespace list`.
+      // Then uncomment the line below and paste it between the quotes:
+      //
+      // "id": "0123456789abcdef0123456789abcdef",
+      //
+      // Leave it commented and Wrangler provisions/keeps the namespace itself
+      // (automatic provisioning: a KV binding declared without an id is created
+      // on first deploy, and stays linked across later deploys — Cloudflare
+      // docs, «Automatic provisioning»).
+      //
+      // ⚠ Do NOT commit a made-up id. A placeholder string in an ACTIVE "id"
+      // field is not a placeholder to Wrangler, it is a binding that cannot
+      // resolve, and the deploy fails instead of provisioning. That is why this
+      // one sits behind a comment. scripts/panels/wrangler-config.test.mjs
+      // enforces the rule: a committed id must be 32 hex characters.
+      // ─────────────────────────────────────────────────────────────────────
+      "binding": "CAT_KV"
+    }
   ],
+  "triggers": {
+    // Repo library feeds refresh themselves every 12 hours (plus lazy refresh on panel open).
+    "crons": ["0 */12 * * *"]
+  },
   "vars": {
-    // Fresh installs start open; set a panel password in Tools → settings.
-    "OPEN_PANEL": "true",
-    "OPEN_SUB": "true"
+    // Keep management locked: fresh installs use admin/admin and must change it in settings.
+    "OPEN_PANEL": "false",
+    "OPEN_SUB": "false"
   }
 }

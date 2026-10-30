@@ -17,6 +17,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.TrafficStats
 import android.net.Uri
 import android.net.VpnService
@@ -39,6 +41,8 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.BaseAdapter
@@ -47,6 +51,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.ProgressBar
@@ -79,12 +84,21 @@ import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import com.journeyapps.barcodescanner.Size
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import java.text.DateFormat
 
@@ -109,12 +123,72 @@ class SubscriptionQrCaptureActivity : CaptureActivity() {
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app · tone: utilitarian · anchor hue: violet (purple / black / white) */
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 · contrast: pass (40–41) · slop: pass */
 class MainActivity : Activity() {
-    private val palette: CatClientPalette by lazy { CatClientDesignTokens.forContext(this) }
-    private val buttonModel = ConnectButtonModel()
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var updateSettingsBadge: TextView? = null
-    private val appUpdateUi by lazy {
+    internal val palette: CatClientPalette by lazy { CatClientDesignTokens.forContext(this) }
+    internal val buttonModel = ConnectButtonModel()
+    internal val mainHandler = Handler(Looper.getMainLooper())
+    private val activityCoroutineExceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+        runCatching {
+            DiagnosticLogger.warn(this@MainActivity, "activity.coroutine.uncaught", error = throwable)
+        }
+    }
+    internal val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + activityCoroutineExceptionHandler)
+    internal val appTools: AppToolsController by lazy {
+        AppToolsController(
+            activity = this,
+            scope = activityScope,
+            isFarsi = { appLanguagePreferenceStore.read() == AppLanguage.Persian },
+            subscriptions = { userSubscriptionManager },
+            addSubscription = { content, name ->
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(content, name)
+            },
+            sendRangesToScanner = { ranges ->
+                saveScannerRanges(ranges)
+                if (::scannerSubnetsInput.isInitialized) scannerSubnetsInput.setText(ranges)
+                openScreen(SCREEN_SCANNER)
+            },
+            afterSubscriptionsChanged = { runCatching { renderSubscriptions() } },
+            showDialog = { dialog -> dialog.showCatClientDialog() },
+        )
+    }
+    internal val vercelRelay: VercelRelayController by lazy {
+        VercelRelayController(
+            activity = this,
+            scope = activityScope,
+            isFarsi = { appLanguagePreferenceStore.read() == AppLanguage.Persian },
+            subscriptions = { userSubscriptionManager },
+            addSubscription = { content, name ->
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(content, name)
+            },
+            showQr = { links, title -> showConfigQrCodes(links, title) },
+            showDialog = { dialog -> dialog.showCatClientDialog() },
+        )
+    }
+    // 6.69.45 the Cat panel on KataBump / Lucity / Shiprr — one card per host on the Cloud tab.
+    internal val nodeHosts: NodeHostController by lazy {
+        NodeHostController(
+            activity = this,
+            scope = activityScope,
+            isFarsi = { appLanguagePreferenceStore.read() == AppLanguage.Persian },
+            addSubscription = { content, name ->
+                openScreen(SCREEN_SERVERS)
+                showAddSubscriptionDialog(content, name)
+            },
+            showDialog = { dialog -> dialog.showCatClientDialog() },
+            requestNotifications = {
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NODE_RENEW_NOTIFICATION)
+                }
+            },
+        )
+    }
+    internal var aetherOperationJob: Job? = null
+    internal var updateSettingsBadge: TextView? = null
+    internal val appUpdateUi by lazy {
         AppUpdateUi(this, activityScope, palette) { available ->
             updateSettingsBadge?.let { badge ->
                 badge.visibility = if (available) View.VISIBLE else View.GONE
@@ -122,7 +196,7 @@ class MainActivity : Activity() {
                     if (available) ", ${getString(R.string.update_available_title)}" else ""
             }
             if (::appTabs.isInitialized) {
-                appTabs.getTabAt(0)?.let { tab ->
+                appTabs.getTabAt(DOCK_SETTINGS)?.let { tab ->
                     tab.contentDescription = getString(R.string.tab_settings)
                     if (available) {
                         tab.orCreateBadge.apply {
@@ -136,193 +210,249 @@ class MainActivity : Activity() {
             }
         }
     }
-    private lateinit var privacyPolicyStore: PrivacyPolicyAcceptanceStore
-    private lateinit var appLanguagePreferenceStore: AppLanguagePreferenceStore
-    private lateinit var appThemePreferenceStore: AppThemePreferenceStore
-    private lateinit var locationPreferenceStore: ConnectionLocationPreferenceStore
-    private lateinit var splitTunnelPreferenceStore: SplitTunnelPreferenceStore
-    private lateinit var frontingIpPreferenceStore: FrontingIpPreferenceStore
-    private lateinit var routingModePreferenceStore: RoutingModePreferenceStore
-    private lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
-    private lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
-    private lateinit var dpiBypassPreferenceStore: DpiBypassPreferenceStore
-    private lateinit var connectionOptionsPreferenceStore: MihomoConnectionOptionsPreferenceStore
-    private lateinit var connectionModePreferenceStore: ConnectionModePreferenceStore
-    private lateinit var lanSharingPreferenceStore: LanSharingPreferenceStore
-    private lateinit var connectionSelectionPreferenceStore: ConnectionSelectionPreferenceStore
-    private lateinit var connectionTestSettingsPreferenceStore: ConnectionTestSettingsPreferenceStore
-    private lateinit var connectionChainPreferenceStore: ConnectionChainPreferenceStore
-    private lateinit var installedAppRepository: InstalledAppRepository
-    private lateinit var userSubscriptionManager: UserSubscriptionManager
-    private var privacyPolicyDialog: AlertDialog? = null
-    private var connectionDelayTestListener: ((Intent) -> Unit)? = null
+    internal lateinit var privacyPolicyStore: PrivacyPolicyAcceptanceStore
+    internal lateinit var appLanguagePreferenceStore: AppLanguagePreferenceStore
+    internal lateinit var appThemePreferenceStore: AppThemePreferenceStore
+    internal lateinit var locationPreferenceStore: ConnectionLocationPreferenceStore
+    internal lateinit var splitTunnelPreferenceStore: SplitTunnelPreferenceStore
+    internal lateinit var frontingIpPreferenceStore: FrontingIpPreferenceStore
+    internal lateinit var routingModePreferenceStore: RoutingModePreferenceStore
+    internal lateinit var dnsPrivacyPreferenceStore: DnsPrivacyPreferenceStore
+    /** Orbot / Tor engine switch + the multi-path watchdog that may take it over. */
+    internal lateinit var orbotEnginePreferenceStore: OrbotEnginePreferenceStore
+    internal lateinit var pathWatchdogStore: PathWatchdogStore
+    internal lateinit var tlsIntegrityPreferenceStore: TlsIntegrityPreferenceStore
+    internal lateinit var dpiBypassPreferenceStore: DpiBypassPreferenceStore
+    internal lateinit var panelTuneStore: PanelTuneStore
+    internal lateinit var connectionOptionsPreferenceStore: MihomoConnectionOptionsPreferenceStore
+    internal lateinit var connectionModePreferenceStore: ConnectionModePreferenceStore
+    internal lateinit var lanSharingPreferenceStore: LanSharingPreferenceStore
+    internal lateinit var connectionSelectionPreferenceStore: ConnectionSelectionPreferenceStore
+    internal lateinit var connectionTestSettingsPreferenceStore: ConnectionTestSettingsPreferenceStore
+    internal lateinit var connectionChainPreferenceStore: ConnectionChainPreferenceStore
+    internal lateinit var aetherPreferenceStore: AetherPreferenceStore
+    internal lateinit var installedAppRepository: InstalledAppRepository
+    internal lateinit var userSubscriptionManager: UserSubscriptionManager
+    internal var privacyPolicyDialog: AlertDialog? = null
+    internal var connectionDelayTestListener: ((Intent) -> Unit)? = null
     private lateinit var appShellView: View
     private lateinit var appTabs: TabLayout
-    private lateinit var connectionTestingPageHost: ConnectionTestingPage
-    private var connectionTestingPageVisible: Boolean = false
-    private var activeChainPickerSlot: ConnectionChainSlot? = null
-    private var activeChainPickerSubscriptionId: String? = null
-    private var renderChainSettingsPage: (() -> Unit)? = null
-    private var connectionChainCompatibilityIssue: ConnectionChainCompatibilityIssue? = null
-    private var connectionChainCompatibilityMessage: String? = null
-    private var pendingConnectionChainAccessibilityAnnouncement: String? = null
-    private var openConnectionChainSettingsPage: (() -> Unit)? = null
-    private var advancedSettingsBackAction: (() -> Unit)? = null
+    internal lateinit var connectionTestingPageHost: ConnectionTestingPage
+    internal var connectionTestingPageVisible: Boolean = false
+    internal var activeChainPickerSlot: ConnectionChainSlot? = null
+    internal var activeChainPickerSubscriptionId: String? = null
+    internal var renderChainSettingsPage: (() -> Unit)? = null
+    internal var connectionChainCompatibilityIssue: ConnectionChainCompatibilityIssue? = null
+    internal var connectionChainCompatibilityMessage: String? = null
+    internal var pendingConnectionChainAccessibilityAnnouncement: String? = null
+    internal var openConnectionChainSettingsPage: (() -> Unit)? = null
+    internal var advancedSettingsBackAction: (() -> Unit)? = null
+    private var currentActiveScreen: Int = SCREEN_HOME
+    internal var activeSettingsCategoryTitleRes: Int = 0
+    internal val settingsCategoryOpeners: MutableMap<Int, () -> Unit> = mutableMapOf()
+    internal var refreshAetherEngineSummary: (() -> Unit)? = null
     private var sessionStartedAtElapsedMs: Long = 0L
     private var connectFlowPending: Boolean = false
     private var connectFlowAction: String = Actions.CONNECT
     private var disconnectAnalyticsPending: Boolean = false
     private var locationOptions: List<LocationSelectorOption> = emptyList()
-    private var connectionProfiles: List<ConnectionProfile> = emptyList()
-    private var connectionDelayRecords: Map<String, ConnectionDelayRecord> = emptyMap()
-    private var activeRuntimeSubscriptionId: String = ""
-    private var activeConnectionTag: String = ""
-    private var activeConnectionFingerprint: String = ""
-    private var activeChainHopCount: Int = 0
-    private var liveSelectorReady: Boolean = false
-    private var liveSelectableConnectionFingerprints: Set<String> = emptySet()
+    internal var connectionProfiles: List<ConnectionProfile> = emptyList()
+    internal var connectionDelayRecords: Map<String, ConnectionDelayRecord> = emptyMap()
+    internal var activeRuntimeSubscriptionId: String = ""
+    internal var activeConnectionTag: String = ""
+    internal var activeConnectionFingerprint: String = ""
+    internal var activeChainHopCount: Int = 0
+    internal var liveSelectorReady: Boolean = false
+    internal var liveSelectableConnectionFingerprints: Set<String> = emptySet()
 
-    private lateinit var connectionGlobe: ConnectionGlobeView
-    private lateinit var connectionRealIpText: TextView
-    @Volatile private var liveGeoTunneled: Boolean = false
+    internal lateinit var connectionGlobe: ConnectionGlobeView
+    internal lateinit var connectionRealIpText: TextView
+    @Volatile internal var liveGeoTunneled: Boolean = false
     private var liveGeoDirectAttempted: Boolean = false
-    private lateinit var connectionV6Text: TextView
+    internal lateinit var connectionV6Text: TextView
     private var tunnelPingRunning: Boolean = false
     private var pingAllRunning: Boolean = false
-    private lateinit var connectActionButton: MaterialButton
-    private lateinit var statusDot: View
-    private lateinit var statusText: TextView
-    private lateinit var publicServerNotice: TextView
-    private lateinit var connectionDetailsText: TextView
-    private lateinit var timerText: TextView
-    private lateinit var downloadSpeedText: TextView
-    private lateinit var uploadSpeedText: TextView
+    internal lateinit var connectActionButton: MaterialButton
+    internal lateinit var statusDot: View
+    internal lateinit var statusText: TextView
+    internal lateinit var publicServerNotice: TextView
+    internal lateinit var connectionDetailsText: TextView
+    private var automaticConnectionProgress: String = ""
+    internal lateinit var timerText: TextView
+    internal lateinit var downloadSpeedText: TextView
+    internal lateinit var uploadSpeedText: TextView
     private lateinit var downloadArrowIcon: AnimatedArrowIcon
     private lateinit var uploadArrowIcon: AnimatedArrowIcon
-    private lateinit var connectionCountryText: TextView
-    private lateinit var locationSelectorRow: DashboardDataRowView
-    private lateinit var connectionSelectorRow: DashboardDataRowView
-    private lateinit var homeChainAfterSelectorRow: DashboardDataRowView
-    private lateinit var homeChainSelectorRows: LinearLayout
-    private lateinit var homeSubscriptionSelectorRow: DashboardDataRowView
-    private lateinit var settingsSubscriptionSelectorRow: DashboardDataRowView
-    private var updateSplitTunnelControlsEnabled: ((Boolean) -> Unit)? = null
-    private lateinit var connectionModeGroup: MaterialButtonToggleGroup
-    private lateinit var vpnModeButton: MaterialButton
-    private lateinit var proxyModeButton: MaterialButton
-    private lateinit var dashboardLocalEndpointText: TextView
-    private lateinit var dashboardChainText: TextView
-    private lateinit var dashboardConnectionMetadataSection: View
-    private lateinit var tlsIntegrityCheckbox: MaterialSwitch
-    private lateinit var tlsFragmentCheckbox: MaterialSwitch
-    private lateinit var alwaysOnStatusText: TextView
-    private lateinit var amneziaNoiseCheckbox: MaterialSwitch
-    private lateinit var amneziaNoiseFields: LinearLayout
-    private lateinit var amneziaNoiseCountInput: EditText
-    private lateinit var amneziaNoiseMinSizeInput: EditText
-    private lateinit var amneziaNoiseMaxSizeInput: EditText
-    private lateinit var amneziaNoiseTtlInput: EditText
-    private lateinit var amneziaNoiseVersionInput: EditText
-    private lateinit var amneziaNoiseIpStackInput: EditText
-    private lateinit var amneziaNoiseCongestionInput: EditText
-    private lateinit var amneziaNoiseHeaderProtectionKeyInput: EditText
-    private lateinit var amneziaNoiseContentPaddingInput: EditText
-    private lateinit var amneziaNoiseRekeyAfterInput: EditText
-    private lateinit var amneziaNoiseRekeyTimeoutInput: EditText
-    private lateinit var amneziaNoiseRejectAfterInput: EditText
-    private lateinit var amneziaNoiseKeepaliveTimeoutInput: EditText
-    private lateinit var amneziaNoiseMaxHandshakeAttemptsInput: EditText
-    private lateinit var amneziaNoiseRandomTrailersInput: EditText
-    private lateinit var amneziaNoiseDisableCookiesInput: EditText
-    private lateinit var amneziaNoiseApplyButton: MaterialButton
-    private lateinit var amneziaNoiseErrorText: TextView
-    private lateinit var lanSharingCheckbox: MaterialSwitch
-    private lateinit var lanSharingPasswordCheckbox: MaterialSwitch
-    private lateinit var lanSharingDetailsText: TextView
-    private lateinit var lanSharingRegenerateButton: MaterialButton
-    private lateinit var routingModeRow: LinearLayout
-    private lateinit var routingModeValueText: TextView
-    private lateinit var routingModeDetailText: TextView
-    private lateinit var dnsPrivacyRow: LinearLayout
-    private lateinit var dnsPrivacyValueText: TextView
-    private lateinit var dnsPrivacyDetailText: TextView
-    private lateinit var dnsPrivacyEndpointInput: EditText
-    private lateinit var dnsPrivacyEndpointLayout: TextInputLayout
-    private lateinit var dnsPrivacyErrorText: TextView
-    private lateinit var frontingIpChipGroup: ChipGroup
-    private lateinit var frontingIpInput: EditText
-    private lateinit var frontingIpInputLayout: TextInputLayout
-    private lateinit var frontingIpErrorText: TextView
-    private lateinit var refreshActionButton: MaterialButton
-    private lateinit var subscriptionsList: LinearLayout
+    internal lateinit var connectionCountryText: TextView
+    internal lateinit var locationSelectorRow: DashboardDataRowView
+    internal lateinit var connectionSelectorRow: DashboardDataRowView
+    internal lateinit var homeChainAfterSelectorRow: DashboardDataRowView
+    internal lateinit var homeChainSelectorRows: LinearLayout
+    internal lateinit var homeSubscriptionSelectorRow: DashboardDataRowView
+    internal lateinit var settingsSubscriptionSelectorRow: DashboardDataRowView
+    internal var updateSplitTunnelControlsEnabled: ((Boolean) -> Unit)? = null
+    internal lateinit var connectionModeGroup: MaterialButtonToggleGroup
+    internal lateinit var vpnModeButton: MaterialButton
+    internal lateinit var proxyModeButton: MaterialButton
+    internal lateinit var dashboardLocalEndpointText: TextView
+    internal lateinit var dashboardChainText: TextView
+    internal lateinit var dashboardConnectionMetadataSection: View
+    internal lateinit var tlsIntegrityCheckbox: MaterialSwitch
+    internal lateinit var tlsFragmentCheckbox: MaterialSwitch
+    internal lateinit var adBlockCheckbox: MaterialSwitch
+    internal lateinit var alwaysOnStatusText: TextView
+    internal lateinit var amneziaNoiseCheckbox: MaterialSwitch
+    internal lateinit var amneziaNoiseFields: LinearLayout
+    internal lateinit var amneziaNoiseCountInput: EditText
+    internal lateinit var amneziaNoiseMinSizeInput: EditText
+    internal lateinit var amneziaNoiseMaxSizeInput: EditText
+    internal lateinit var amneziaNoiseTtlInput: EditText
+    internal lateinit var amneziaNoiseVersionInput: EditText
+    internal lateinit var amneziaNoiseIpStackInput: EditText
+    internal lateinit var amneziaNoiseCongestionInput: EditText
+    internal lateinit var amneziaNoiseHeaderProtectionKeyInput: EditText
+    internal lateinit var amneziaNoiseContentPaddingInput: EditText
+    internal lateinit var amneziaNoiseRekeyAfterInput: EditText
+    internal lateinit var amneziaNoiseRekeyTimeoutInput: EditText
+    internal lateinit var amneziaNoiseRejectAfterInput: EditText
+    internal lateinit var amneziaNoiseKeepaliveTimeoutInput: EditText
+    internal lateinit var amneziaNoiseMaxHandshakeAttemptsInput: EditText
+    internal lateinit var amneziaNoiseRandomTrailersInput: EditText
+    internal lateinit var amneziaNoiseDisableCookiesInput: EditText
+    internal lateinit var amneziaNoiseApplyButton: MaterialButton
+    internal lateinit var amneziaNoiseErrorText: TextView
+    internal lateinit var lanSharingCheckbox: MaterialSwitch
+    internal lateinit var lanSharingPasswordCheckbox: MaterialSwitch
+    internal lateinit var lanSharingDetailsText: TextView
+    internal lateinit var lanSharingRegenerateButton: MaterialButton
+    internal lateinit var routingModeRow: LinearLayout
+    internal lateinit var routingModeValueText: TextView
+    internal lateinit var routingModeDetailText: TextView
+    internal lateinit var dnsPrivacyRow: LinearLayout
+    /** Orbot / Tor engine: the switch, its live verdict line and the probe button. */
+    internal var orbotEngineCheckbox: MaterialSwitch? = null
+    internal var orbotStatusText: TextView? = null
+    internal var orbotProbeButton: MaterialButton? = null
+    internal var lastOrbotProbe: OrbotProbeResult? = null
+    internal var watchdogToggle: MaterialSwitch? = null
+    internal var watchdogStatusText: TextView? = null
+    internal lateinit var dnsPrivacyValueText: TextView
+    internal lateinit var dnsPrivacyDetailText: TextView
+    internal lateinit var dnsPrivacyEndpointInput: EditText
+    internal lateinit var dnsPrivacyEndpointLayout: TextInputLayout
+    internal lateinit var dnsPrivacyErrorText: TextView
+    internal lateinit var frontingIpChipGroup: ChipGroup
+    internal lateinit var frontingIpInput: EditText
+    internal lateinit var frontingIpInputLayout: TextInputLayout
+    internal lateinit var frontingIpErrorText: TextView
+    internal lateinit var refreshActionButton: MaterialButton
+    internal lateinit var connectionBlob: ZedBlobView
+    internal lateinit var activeConfigTitle: TextView
+    internal lateinit var homeLocationPill: View
+    internal lateinit var heroPingAction: View
+    internal var homeHeroFrame: FrameLayout? = null
+    internal var heroClusterParams: FrameLayout.LayoutParams? = null
+    private var homeStageFitting = false
+    @Volatile internal var livePingMs: Long? = null
+    private var lastQuietPingAtMs: Long = 0L
+    private var liveBackdrop: ZedLiveBackdropDrawable? = null
+    internal lateinit var homeFlagBadge: FlagBadgeView
+    internal var homeExtrasSection: View? = null
+    internal lateinit var serversCountText: TextView
+    internal lateinit var heroStateText: TextView
+    private var lastShownConnectionFault: String? = null
+    /** ZedSecure 3.1.6 App design (Pixel / Portal / Old) and Material 3 roles derived from the palette. */
+    internal val appDesign: AppDesign by lazy { AppDesignPreferenceStore(this).design() }
+    internal val zedScheme: ZedScheme by lazy { ZedScheme.from(palette) }
+    internal var portalView: ZedPortalView? = null
+    internal var pixelCore: ZedPortalView? = null
+    internal var pixelCard: LinearLayout? = null
+    internal var pixelCardColor: Int = 0
+    internal var homeHintText: TextView? = null
+    internal var flowBadges: List<Pair<ZedShapeIconView, Boolean>> = emptyList()
+    internal lateinit var downloadBarFill: ZedWavyProgressView
+    internal lateinit var uploadBarFill: ZedWavyProgressView
+    internal lateinit var downloadTotalText: TextView
+    internal lateinit var uploadTotalText: TextView
+    internal var homeBackdrop: View? = null
+    private var appRootView: FrameLayout? = null
+    private var sessionRxStartBytes = -1L
+    private var sessionTxStartBytes = -1L
+    internal lateinit var subscriptionsList: LinearLayout
     private lateinit var vpnTabContent: View
     private lateinit var subscriptionsTabContent: View
     private lateinit var advancedTabContent: View
     private lateinit var cloudTabContent: View
-    private var cloudDeploymentHistoryHost: LinearLayout? = null
+    private lateinit var aetherTabContent: View
+    internal var cloudDeploymentHistoryHost: LinearLayout? = null
 
     /* IP scanner tab (clean Cloudflare IPs with SNI + fronting) */
     private lateinit var scannerTabContent: View
-    private lateinit var scannerSniInput: TextInputEditText
-    private lateinit var scannerPortGroup: ChipGroup
-    private lateinit var scannerSubnetsInput: TextInputEditText
-    private lateinit var scannerStartButton: MaterialButton
-    private lateinit var scannerStopButton: MaterialButton
-    private lateinit var scannerProgressBar: ProgressBar
-    private lateinit var scannerStatusText: TextView
-    private lateinit var scannerResultsList: LinearLayout
-    private lateinit var scannerApplyButton: MaterialButton
-    private lateinit var scannerBuildButton: MaterialButton
-    private var scannerResults: List<IpScanner.ScanResult> = emptyList()
-    private val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
-    private var scannerPort: Int = 443
-    private var scannerRunning: Boolean = false
-    private var scannerJob: Job? = null
+    internal lateinit var scannerSniInput: TextInputEditText
+    internal lateinit var scannerPortGroup: ChipGroup
+    internal lateinit var scannerSubnetsInput: TextInputEditText
+    internal lateinit var scannerStartButton: MaterialButton
+    internal lateinit var scannerStopButton: MaterialButton
+    internal lateinit var scannerProgressBar: ProgressBar
+    internal lateinit var scannerStatusText: TextView
+    internal lateinit var scannerResultsList: LinearLayout
+    internal lateinit var scannerApplyButton: MaterialButton
+    internal lateinit var scannerBuildButton: MaterialButton
+    internal var scannerResults: List<IpScanner.ScanResult> = emptyList()
+    internal var scannerSpeedTestButton: MaterialButton? = null
+    internal var scannerSpeedTestRunning = false
+    internal val scannerLiveResults = mutableListOf<IpScanner.ScanResult>()
+    internal var scannerPort: Int = 443
+    internal var scannerRunning: Boolean = false
+    internal var scannerJob: Job? = null
     private val dockTabs = mutableListOf<DockTab>()
-    private lateinit var pingValueText: TextView
-    private lateinit var uptimeValueText: TextView
+    internal lateinit var pingValueText: TextView
+    internal lateinit var uptimeValueText: TextView
 
     /* Free configs (community sources, fetched + ping-tested in-app) */
-    private lateinit var freeConfigsStatus: TextView
-    private lateinit var freeConfigsProgress: ProgressBar
-    private lateinit var homeUsageCard: LinearLayout
+    internal lateinit var freeConfigsStatus: TextView
+    internal lateinit var freeConfigsProgress: ProgressBar
+    internal lateinit var homeUsageCard: LinearLayout
+    /** beta220 real internet test card (MainActivityRealInternet.kt). */
+    internal var realInternetViews: RealInternetCardViews? = null
+    internal var lastRealInternetResult: RealInternetResult? = null
     private lateinit var homeUsageBar: UsageBarView
     private lateinit var homeUsageTitle: TextView
     private lateinit var homeUsageValue: TextView
     private lateinit var homeUsageLegend: TextView
     private lateinit var homeUsageHint: TextView
-    private lateinit var freeConfigsList: LinearLayout
-    private lateinit var freeConfigsFetchButton: MaterialButton
-    private lateinit var freeConfigsTestButton: MaterialButton
-    private lateinit var freeConfigsImportButton: MaterialButton
-    private var freeConfigEntries: List<FreeConfigs.FreeEntry> = emptyList()
-    private var freeConfigsFetching = false
-    private var freeConfigsJob: Job? = null
+    internal lateinit var freeConfigsList: LinearLayout
+    internal lateinit var freeConfigsFetchButton: MaterialButton
+    internal lateinit var freeConfigsTestButton: MaterialButton
+    internal lateinit var freeConfigsImportButton: MaterialButton
+    internal var freeConfigEntries: List<FreeConfigs.FreeEntry> = emptyList()
+    internal var freeConfigsFetching = false
+    internal var freeConfigsJob: Job? = null
     private var connectionCountryFlag: String = ""
     private var debugFrontingIp: String = ""
-    private var liveGeo: IpGeolocation.Info? = null
-    private var liveGeoAtMs: Long = 0L
+    internal var liveGeo: IpGeolocation.Info? = null
+    internal var liveGeoAtMs: Long = 0L
     private var liveGeoJob: Job? = null
     private var vpnCurrentlyStarted = false
     private var connectionDetails: String = ""
     private var alwaysOnMode: Boolean = false
     private var lockdownMode: Boolean = false
-    private var frontingIps: List<String> = emptyList()
-    private var frontingIpInputUpdating: Boolean = false
-    private var dnsPrivacyInputUpdating: Boolean = false
+    internal var frontingIps: List<String> = emptyList()
+    internal var frontingIpInputUpdating: Boolean = false
+    internal var dnsPrivacyInputUpdating: Boolean = false
     private var lastTransferRxBytes: Long = TrafficStats.UNSUPPORTED.toLong()
     private var lastTransferTxBytes: Long = TrafficStats.UNSUPPORTED.toLong()
     private var lastTransferSampleElapsedMs: Long = 0L
 
-    private val BACKGROUND: Int get() = palette.background
-    private val SURFACE: Int get() = palette.surface
-    private val OUTLINE: Int get() = palette.outline
-    private val TEXT_PRIMARY: Int get() = palette.textPrimary
-    private val TEXT_SECONDARY: Int get() = palette.textSecondary
+    internal val BACKGROUND: Int get() = palette.background
+    internal val SURFACE: Int get() = palette.surface
+    internal val OUTLINE: Int get() = palette.outline
+    internal val TEXT_PRIMARY: Int get() = palette.textPrimary
+    internal val TEXT_SECONDARY: Int get() = palette.textSecondary
     private val TIMER_MUTED: Int get() = palette.textSecondary
-    private val TEAL: Int get() = palette.teal
-    private val AMBER: Int get() = palette.amber
-    private val ERROR: Int get() = palette.red
+    internal val TEAL: Int get() = palette.teal
+    internal val AMBER: Int get() = palette.amber
+    internal val ERROR: Int get() = palette.red
 
     private val timerRunnable = object : Runnable {
         override fun run() {
@@ -336,7 +466,9 @@ class MainActivity : Activity() {
     }
 
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(AppLocale.wrap(AppTheme.wrap(newBase)))
+        val wrapped = AppLocale.wrap(AppTheme.wrap(newBase))
+        super.attachBaseContext(wrapped)
+        runCatching { applyOverrideConfiguration(android.content.res.Configuration(wrapped.resources.configuration)) }
     }
 
     private val stateReceiver = object : BroadcastReceiver() {
@@ -345,31 +477,45 @@ class MainActivity : Activity() {
                 Actions.STATE_CHANGED -> handleStateChanged(context, intent)
                 Actions.CONNECTION_DELAY_TEST_CHANGED -> connectionDelayTestListener?.invoke(intent)
                 Actions.CONNECTION_SPEED_TEST_CHANGED -> connectionDelayTestListener?.invoke(intent)
+                Actions.AUTOMATIC_CONNECTION_PROGRESS -> handleAutomaticConnectionProgress(intent)
+                Actions.REAL_INTERNET_CHECK -> handleRealInternetBroadcast(intent)
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        runCatching { theme.applyStyle(AppAccentPreferenceStore(this).read().overlayStyleRes, true) }
+            .onFailure { DiagnosticLogger.warn(this, "activity.themeOverlay.failed", error = it) }
         super.onCreate(savedInstanceState)
         appLanguagePreferenceStore = AppLanguagePreferenceStore(this)
         appThemePreferenceStore = AppThemePreferenceStore(this)
         if (savedInstanceState == null) {
             AnalyticsEvents.appOpened(this)
         }
+        runCatching { PanelMonitor.sync(this) } // outward panel health monitor (30min)
+        // Fields must not touch Context in their initializers (constructor phase);
+        // persisted scanner preferences load here instead.
+        scannerForceV6 = runCatching {
+            getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("scanner_force_v6", false)
+        }.getOrDefault(false)
         privacyPolicyStore = PrivacyPolicyAcceptanceStore(this)
         locationPreferenceStore = ConnectionLocationPreferenceStore(this)
         splitTunnelPreferenceStore = SplitTunnelPreferenceStore(this)
         frontingIpPreferenceStore = FrontingIpPreferenceStore(this)
         routingModePreferenceStore = RoutingModePreferenceStore(this)
         dnsPrivacyPreferenceStore = DnsPrivacyPreferenceStore(this)
+        orbotEnginePreferenceStore = OrbotEnginePreferenceStore(this)
+        pathWatchdogStore = PathWatchdogStore(this)
         tlsIntegrityPreferenceStore = TlsIntegrityPreferenceStore(this)
         dpiBypassPreferenceStore = DpiBypassPreferenceStore(this)
+        panelTuneStore = PanelTuneStore(this)
         connectionOptionsPreferenceStore = MihomoConnectionOptionsPreferenceStore(this)
         connectionModePreferenceStore = ConnectionModePreferenceStore(this)
         lanSharingPreferenceStore = LanSharingPreferenceStore(this)
         connectionSelectionPreferenceStore = ConnectionSelectionPreferenceStore(this)
         connectionTestSettingsPreferenceStore = ConnectionTestSettingsPreferenceStore(this)
         connectionChainPreferenceStore = ConnectionChainPreferenceStore(this)
+        aetherPreferenceStore = AetherPreferenceStore(this)
         installedAppRepository = InstalledAppRepository(this)
         userSubscriptionManager = UserSubscriptionManager(this)
         connectFlowPending = savedInstanceState?.getBoolean(STATE_CONNECT_FLOW_PENDING) == true
@@ -379,34 +525,68 @@ class MainActivity : Activity() {
             "activity.onCreate",
             "restored=${savedInstanceState != null} connectPending=$connectFlowPending action=$connectFlowAction",
         )
-        configureSystemBars()
-        setContentView(buildAppShell())
-        renderState(VpnState.Stopped)
-        refreshLocationOptions()
-        fetchPrivateSubscriptionOnLoad()
+        runCatching { configureSystemBars() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.systemBars.failed", error = it) }
+        // Build the shell defensively: a failure anywhere in the UI construction
+        // must degrade to a readable message — never to a silent close. The rest
+        // of startup is skipped in that case because the views do not exist.
+        val shellError = runCatching { setContentView(buildAppShell()) }.exceptionOrNull()
+        if (shellError != null) {
+            DiagnosticLogger.warn(this, "activity.shell.failed", error = shellError)
+            runCatching { setContentView(CrashWatch.fallbackView(this, shellError.toString())) }
+            return
+        }
+        runCatching { renderState(VpnState.Stopped) }
+            .onFailure { DiagnosticLogger.warn(this, "activity.render.failed", error = it) }
+        runCatching { refreshLocationOptions() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.locationRefresh.failed", error = it) }
+        runCatching { fetchPrivateSubscriptionOnLoad() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.subscriptionLoad.failed", error = it) }
+        runCatching { prewarmWarpKeyInBackground() }
+            .onFailure { DiagnosticLogger.warn(this, "activity.warpPrewarm.failed", error = it) }
+        runCatching {
+        if (savedInstanceState != null) {
+            val restoredScreen = savedInstanceState.getInt(STATE_ACTIVE_SCREEN, SCREEN_HOME)
+            val restoredCategoryRes = savedInstanceState.getInt(STATE_SETTINGS_CATEGORY_RES, 0)
+            if (restoredScreen != SCREEN_HOME) {
+                openScreen(restoredScreen)
+            }
+            if (restoredScreen == SCREEN_SETTINGS && restoredCategoryRes != 0) {
+                settingsCategoryOpeners[restoredCategoryRes]?.invoke()
+            }
+        }
         if (savedInstanceState?.getBoolean(STATE_CONNECTION_TESTING_PAGE) == true) {
             val chainSlot = ConnectionChainSlot.fromWireName(
                 savedInstanceState.getString(STATE_CHAIN_PICKER_SLOT),
             )
-            if (chainSlot != ConnectionChainSlot.Before) {
-                if (chainSlot != null) {
-                    appTabs.getTabAt(0)?.select()
-                    openConnectionChainSettingsPage?.invoke()
-                }
-                mainHandler.post {
-                    showConnectionTestingPage(
-                        animate = false,
-                        chainSlot = chainSlot,
-                        pickerSubscriptionId = savedInstanceState.getString(STATE_CHAIN_PICKER_SUBSCRIPTION),
-                    )
-                }
+            if (chainSlot != null) {
+                openScreen(SCREEN_SETTINGS)
+                openConnectionChainSettingsPage?.invoke()
+            }
+            mainHandler.post {
+                showConnectionTestingPage(
+                    animate = false,
+                    chainSlot = chainSlot,
+                    pickerSubscriptionId = savedInstanceState.getString(STATE_CHAIN_PICKER_SUBSCRIPTION),
+                )
             }
         }
+        }.onFailure { DiagnosticLogger.warn(this, "activity.restore.failed", error = it) }
         mainHandler.post {
-            val checkUpdatesAfterStartup = { if (savedInstanceState == null) checkForUpdates() }
-            if (!showPrivacyPolicyIfNeeded(checkUpdatesAfterStartup)) checkUpdatesAfterStartup()
+            runCatching {
+                val checkUpdatesAfterStartup = { if (savedInstanceState == null) checkForUpdates() }
+                if (!showPrivacyPolicyIfNeeded(checkUpdatesAfterStartup)) checkUpdatesAfterStartup()
+            }.onFailure { DiagnosticLogger.warn(this, "activity.startupTasks.failed", error = it) }
         }
-        handleCatClientDeepLink(intent)
+        runCatching {
+            SlipNetCliEngine.attach(this)
+            appTools.onCreate(coldStart = savedInstanceState == null)
+        }.onFailure { DiagnosticLogger.warn(this, "activity.appTools.failed", error = it) }
+        // Only on a fresh start: a rotation must not re-open the same shared link / file.
+        if (savedInstanceState == null) {
+            runCatching { handleCatClientDeepLink(intent) }
+                .onFailure { DiagnosticLogger.warn(this, "activity.deepLink.failed", error = it) }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -422,7 +602,24 @@ class MainActivity : Activity() {
      *   catclient://scan?sni=…&ip=<clean ip,ip,…>    → opens and applies clean IPs
      */
     private fun handleCatClientDeepLink(intent: Intent?) {
+        // Config links (vless://, slipnet://, clash://install-config?url=…), shared text and
+        // opened / shared files all land in the normal "add subscription" dialog.
+        val schemeLower = intent?.data?.scheme?.lowercase(java.util.Locale.US)
+        if (schemeLower != "catclient" && schemeLower != "aether") {
+            IncomingConfigIntents.extract(this, intent)?.let { incoming ->
+                mainHandler.post {
+                    openScreen(SCREEN_SERVERS)
+                    showAddSubscriptionDialog(incoming.content, incoming.name)
+                }
+                return
+            }
+        }
         val data = intent?.data ?: return
+        if (data.scheme.equals("aether", ignoreCase = true)) {
+            val parsed = AetherSelection.fromAetherUri(data.toString()) ?: return
+            mainHandler.post { importAndConnectAetherSelection(parsed) }
+            return
+        }
         if (data.scheme != "catclient") return
         when (data.host) {
             "add-sub" -> {
@@ -430,7 +627,7 @@ class MainActivity : Activity() {
                 if (source.isEmpty()) return
                 val name = data.getQueryParameter("name")?.trim().orEmpty().ifEmpty { "Cat Panel" }
                 mainHandler.post {
-                    showAppTab(0)
+                    openScreen(SCREEN_SERVERS)
                     showAddSubscriptionDialog(source, name)
                 }
             }
@@ -442,13 +639,11 @@ class MainActivity : Activity() {
                         scannerSniInput.setText(sni)
                         saveScannerSni(sni)
                     }
-                    showAppTab(4)
+                    openScreen(SCREEN_SCANNER)
                     val tokens = ips.split(',', ';', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
                     if (tokens.isNotEmpty()) {
                         val previousValue = frontingIpPreferenceStore.readFrontingIp()
-                        frontingIps = runCatching {
-                            FrontingIpPolicy.normalizeIps((frontingIps + tokens).joinToString(","))
-                        }.getOrDefault(frontingIps)
+                        frontingIps = FrontingIpPolicy.mergeNewestFirst(tokens, frontingIps)
                         renderFrontingIpChips()
                         saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
                         Toast.makeText(
@@ -473,6 +668,7 @@ class MainActivity : Activity() {
             setBackgroundColor(BACKGROUND)
             setPadding(tvInsetX, tvInsetY, tvInsetX, tvInsetY)
         }
+        appRootView = root
 
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -483,12 +679,14 @@ class MainActivity : Activity() {
         advancedTabContent = buildAdvancedScreen().apply { visibility = View.GONE }
         cloudTabContent = buildCloudScreen().apply { visibility = View.GONE }
         scannerTabContent = buildScannerScreen().apply { visibility = View.GONE }
+        aetherTabContent = buildAetherScreen().apply { visibility = View.GONE }
         val content = FrameLayout(this).apply {
             addView(vpnTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(subscriptionsTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(advancedTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(cloudTabContent, FrameLayout.LayoutParams(-1, -1))
             addView(scannerTabContent, FrameLayout.LayoutParams(-1, -1))
+            addView(aetherTabContent, FrameLayout.LayoutParams(-1, -1))
         }
         shell.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -496,14 +694,10 @@ class MainActivity : Activity() {
         val tabs = TabLayout(this).apply {
             appTabsPending = this
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            minimumHeight = dp(72)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(24).toFloat()
-                setColor(withAlpha(SURFACE, 220))
-            }
-            elevation = 0f
-            setSelectedTabIndicatorHeight(dp(3))
+            minimumHeight = dp(64)
+            background = glassDockBackground()
+            elevation = dp(6).toFloat()
+            setSelectedTabIndicatorHeight(0)
             setSelectedTabIndicatorColor(TEAL)
             setSelectedTabIndicatorGravity(TabLayout.INDICATOR_GRAVITY_BOTTOM)
             setTabIndicatorFullWidth(false)
@@ -515,29 +709,28 @@ class MainActivity : Activity() {
             )
             tabMode = TabLayout.MODE_FIXED
             tabGravity = TabLayout.GRAVITY_FILL
-            // Dock style: each tab is a custom icon+label cell that paints itself as a
-            // filled violet pill when selected (v2box-style bottom dock).
-            // Tab order (visual): settings, VPN (center), subscriptions, cloud panel, IP scanner
-            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
-            addDockTab(R.string.tab_vpn, R.drawable.ic_vpn_tab, selected = true)
-            addDockTab(R.string.tab_subscriptions, R.drawable.ic_subscriptions_tab, selected = false)
-            addDockTab(R.string.tab_scanner, R.drawable.ic_speedometer, selected = false)
+            // ZedSecure-style floating capsule: five cells, the active one expands into a
+            // lime pill with icon + label, inactive cells show the icon only.
+            // Visual order: Home, Servers, Aether (Anti-Censorship), Cloud (panel + IP scanner), Settings.
+            layoutDirection = View.LAYOUT_DIRECTION_LTR // Zed keeps the dock order fixed in RTL too
+            addDockTab(R.string.dock_home, R.drawable.ic_vpn_tab, selected = true)
+            addDockTab(R.string.dock_servers, R.drawable.ic_subscriptions_tab, selected = false)
+            addDockTab(R.string.tab_aether, R.drawable.ic_aether_tab, selected = false)
             addDockTab(R.string.tab_cloud, R.drawable.ic_cloud_tab, selected = false)
-            post { renderDockSelection(1) }
+            addDockTab(R.string.tab_settings, R.drawable.ic_advanced_tab, selected = false)
+            post { renderDockSelection(DOCK_HOME) }
             addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab) {
-                    // Visual order maps onto the content screens:
-                    // 0=Settings(2) 1=VPN(1) 2=Subscriptions(0) 3=Scanner(4) 4=Cloud(3)
-                    // Keep these explicit: the old mapping swapped Settings and Cloud.
-                    val mappedPosition = when (tab.position) {
-                        0 -> 2  // Settings
-                        1 -> 1  // VPN
-                        2 -> 0  // Subscriptions
-                        3 -> 4  // IP scanner
-                        4 -> 3  // Cloud panel
-                        else -> tab.position
-                    }
-                    showAppTab(mappedPosition)
+                    showAppTab(
+                        when (tab.position) {
+                            DOCK_HOME -> SCREEN_HOME
+                            DOCK_SERVERS -> SCREEN_SERVERS
+                            DOCK_AETHER -> SCREEN_AETHER
+                            DOCK_CLOUD -> if (cloudDockShowsScanner) SCREEN_SCANNER else SCREEN_CLOUD
+                            DOCK_SETTINGS -> SCREEN_SETTINGS
+                            else -> SCREEN_HOME
+                        },
+                    )
                     renderDockSelection(tab.position)
                 }
 
@@ -550,11 +743,11 @@ class MainActivity : Activity() {
         val tabsHost = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(dp(18), 0, dp(18), dp(18))
-            addView(tabs, FrameLayout.LayoutParams(-1, dp(72)))
+            addView(tabs, FrameLayout.LayoutParams(-1, dp(64)).apply { gravity = Gravity.CENTER_HORIZONTAL })
         }
         ViewCompat.setOnApplyWindowInsetsListener(tabsHost) { view, insets ->
             val navigationBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(dp(18), 0, dp(18), navigationBottom + dp(18))
+            view.setPadding(dp(28), 0, dp(28), navigationBottom + dp(14))
             insets
         }
         shell.addView(tabsHost, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -578,7 +771,7 @@ class MainActivity : Activity() {
         return root
     }
 
-    private fun setConnectionTestingPageVisible(visible: Boolean, animate: Boolean) {
+    internal fun setConnectionTestingPageVisible(visible: Boolean, animate: Boolean) {
         connectionTestingPageVisible = visible
         connectionTestingPageHost.animate().cancel()
         appShellView.animate().cancel()
@@ -639,7 +832,7 @@ class MainActivity : Activity() {
             .start()
     }
 
-    private fun closeConnectionTestingPage(animate: Boolean = true) {
+    internal fun closeConnectionTestingPage(animate: Boolean = true) {
         if (!connectionTestingPageVisible) return
         setConnectionTestingPageVisible(visible = false, animate = animate)
         activeChainPickerSlot = null
@@ -655,169 +848,243 @@ class MainActivity : Activity() {
         }
         val label = TextView(context).apply {
             setText(labelRes)
-            textSize = 10f
+            textSize = 13f
             typeface = CatClientBodyBoldTypeface
-            setTextColor(if (selected) TEAL else TEXT_SECONDARY)
+            setTextColor(if (selected) palette.onAccent else TEXT_SECONDARY)
             gravity = Gravity.CENTER
             includeFontPadding = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
+            visibility = View.GONE
         }
         val pill = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(7), dp(6), dp(7))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             background = dockPillBackground(selected)
             addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
-            addView(label, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
+            addView(label, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         }
+        icon.setColorFilter(if (selected) palette.onAccent else TEXT_SECONDARY)
+        ZedIosMotion.press(pill)
         dockTabs += DockTab(pill, icon, label)
         val tab = appTabsPending.newTab()
         tab.customView = pill
+        tab.view.setPadding(dp(2), 0, dp(2), 0)
+        tab.view.minimumWidth = 0
         appTabsPending.addTab(tab, selected)
+    }
+
+    /** Telegram-iOS style frosted glass dock: translucent gradient fill + hairline. */
+    private fun glassDockBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(32).toFloat()
+        orientation = GradientDrawable.Orientation.TL_BR
+        colors = intArrayOf(withAlpha(palette.surfaceElevated1, 214), withAlpha(palette.surface, 182))
+        setStroke(dp(1), withAlpha(palette.outline, 150))
+    }
+
+    /** The dock height state (kept for the Old design); the active tab always shows its label (beta236). */
+    private var dockExpanded = false
+    private var dockActiveIndex = 0
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun setDockExpanded(requested: Boolean) {
+        if (!::appTabsPending.isInitialized) return
+        // beta236: every design — the tapped tab always carries its label next to the icon (owner's request).
+        val expanded = true
+        if (dockExpanded == expanded) return
+        dockExpanded = expanded
+        appTabsPending.let { bar ->
+            bar.animate().cancel()
+            bar.minimumHeight = dp(if (expanded) 64 else 52) // collapsed bar is genuinely shorter
+            bar.requestLayout()
+            bar.scaleX = 0.97f
+            bar.scaleY = 0.97f
+            bar.animate().scaleX(1f).scaleY(1f).setDuration(340)
+                .setInterpolator(OvershootInterpolator(1.7f))
+                .start()
+        }
+        renderDockSelection(dockActiveIndex)
     }
 
     private fun dockPillBackground(selected: Boolean): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(16).toFloat()
-        setColor(if (selected) withAlpha(TEAL, if (palette.isDark) 52 else 32) else Color.TRANSPARENT)
-        if (selected) setStroke(dp(1), withAlpha(TEAL, 90))
-    }
-
-    /** Repaints every dock cell so only the active one is filled. */
-    private fun renderDockSelection(activeIndex: Int) {
-        dockTabs.forEachIndexed { index, tab ->
-            val active = index == activeIndex
-            tab.pill.background = dockPillBackground(active)
-            tab.icon.setColorFilter(if (active) TEAL else TEXT_SECONDARY)
-            tab.label.setTextColor(if (active) TEAL else TEXT_SECONDARY)
+        cornerRadius = dp(24).toFloat()
+        if (selected && appDesign != AppDesign.Old) {
+            setColor(palette.teal)
+        } else if (selected) {
+            // iOS-flavored capsule: accent gradient instead of a flat fill
+            orientation = GradientDrawable.Orientation.TL_BR
+            colors = intArrayOf(palette.tealGradientStart, palette.secondary)
+        } else {
+            setColor(Color.TRANSPARENT)
         }
     }
 
-    private class DockTab(val pill: LinearLayout, val icon: ImageView, val label: TextView)
+    /** Repaints every dock cell so only the active one is the filled lime pill with a label. */
+    private fun renderDockSelection(activeIndex: Int) {
+        dockActiveIndex = activeIndex
+        dockTabs.forEachIndexed { index, tab ->
+            val active = index == activeIndex
+            tab.pill.background = dockPillBackground(active)
+            tab.icon.setColorFilter(if (active) palette.onAccent else TEXT_SECONDARY)
+            tab.label.setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            val showLabel = active
+            if (showLabel) {
+                tab.label.visibility = View.VISIBLE
+                tab.label.animate().cancel()
+                tab.label.alpha = 0f
+                tab.label.scaleX = 0.4f
+                tab.label.scaleY = 0.4f
+                tab.label.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320)
+                    .setInterpolator(OvershootInterpolator(2f))
+                    .start()
+            } else {
+                tab.label.animate().cancel()
+                tab.label.visibility = View.GONE
+            }
+            val vPad = if (dockExpanded) 10 else 7
+            tab.pill.setPadding(dp(10), dp(vPad), dp(10), dp(vPad))
+        }
+        layoutDockWidths(activeIndex, animate = true)
+    }
+
+    private var dockWidthAnimator: ValueAnimator? = null
+    private var dockWidthListener = false
+
+    /**
+     * beta236: the five cells are no longer equal — the active one grows to fit «icon + label» (so «ضدسانسور» or
+     * «تنظیمات» is never cut to «…»), the others shrink to icon-only cells; animated with a small spring.
+     */
+    private fun layoutDockWidths(activeIndex: Int, animate: Boolean) {
+        if (!::appTabsPending.isInitialized || dockTabs.isEmpty()) return
+        val bar = appTabsPending
+        if (!dockWidthListener) {
+            dockWidthListener = true
+            bar.addOnLayoutChangeListener { _, l, _, r, _, oldL, _, oldR, _ ->
+                if (r - l != oldR - oldL && r - l > 0) bar.post { layoutDockWidths(dockActiveIndex, animate = false) }
+            }
+        }
+        val inner = bar.width - bar.paddingLeft - bar.paddingRight
+        if (inner <= 0) { bar.post { layoutDockWidths(activeIndex, animate) }; return }
+        val n = dockTabs.size
+        val views = (0 until n).map { bar.getTabAt(it)?.view }
+        if (views.any { it == null }) return
+        val label = dockTabs[activeIndex].label
+        val want = dp(22) + dp(6) + kotlin.math.ceil(label.paint.measureText(label.text.toString())).toInt() + dp(20) + dp(12)
+        val minOther = dp(44)
+        val active = want.coerceAtMost(inner - minOther * (n - 1)).coerceAtLeast(inner / n)
+        val other = (inner - active).toFloat() / (n - 1)
+        val target = FloatArray(n) { if (it == activeIndex) active.toFloat() else other }
+        val raw = FloatArray(n) { i -> (views[i]!!.layoutParams as? LinearLayout.LayoutParams)?.weight?.takeIf { it > 0f } ?: 1f }
+        val sum = raw.sum()
+        val start = FloatArray(n) { raw[it] * inner / sum }
+        fun apply(f: Float) {
+            for (i in 0 until n) {
+                val v = views[i]!!
+                val lp = (v.layoutParams as? LinearLayout.LayoutParams) ?: continue
+                lp.width = 0
+                lp.weight = (start[i] + (target[i] - start[i]) * f).coerceAtLeast(1f)
+                v.layoutParams = lp
+            }
+        }
+        dockWidthAnimator?.cancel()
+        if (!animate) { apply(1f); return }
+        dockWidthAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 340
+            interpolator = OvershootInterpolator(1.1f)
+            addUpdateListener { apply(it.animatedValue as Float) }
+            start()
+        }
+    }
+
+    /** Remembers whether the Cloud dock cell last showed the panel or the IP scanner. */
+    private var cloudDockShowsScanner = false
+
+    /** Jump to a content screen and keep the dock in sync (Cloud cell covers panel + scanner). */
+    internal fun openScreen(screen: Int) {
+        if (screen == SCREEN_SCANNER || screen == SCREEN_CLOUD) cloudDockShowsScanner = screen == SCREEN_SCANNER
+        val dockIndex = when (screen) {
+            SCREEN_HOME -> DOCK_HOME
+            SCREEN_SERVERS -> DOCK_SERVERS
+            SCREEN_AETHER -> DOCK_AETHER
+            SCREEN_SETTINGS -> DOCK_SETTINGS
+            else -> DOCK_CLOUD
+        }
+        showAppTab(screen)
+        if (::appTabs.isInitialized) {
+            val tab = appTabs.getTabAt(dockIndex)
+            if (tab != null && !tab.isSelected) tab.select() else renderDockSelection(dockIndex)
+        }
+    }
+
+    /** Segmented header shared by the Cloud and Scanner screens (ZedSecure-style pill switch). */
+    internal fun cloudScannerSwitch(scannerActive: Boolean): View {
+        fun chip(@StringRes labelRes: Int, active: Boolean, onClick: () -> Unit) = TextView(this).apply {
+            setText(labelRes)
+            textSize = 13f
+            typeface = CatClientBodyBoldTypeface
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(9), dp(16), dp(9))
+            setTextColor(if (active) palette.onAccent else TEXT_SECONDARY)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(if (active) TEAL else Color.TRANSPARENT)
+            }
+            setOnClickListener { onClick() }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(24).toFloat()
+                setColor(palette.surfaceElevated1)
+            }
+            addView(chip(R.string.tab_cloud, !scannerActive) { openScreen(SCREEN_CLOUD) }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(chip(R.string.tab_scanner, scannerActive) { openScreen(SCREEN_SCANNER) }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+    }
+
+    /* `::x.isInitialized` only compiles where x is declared, so the extension files (MainActivity*.kt) ask here. */
+    internal val dnsPrivacyErrorTextReady: Boolean get() = ::dnsPrivacyErrorText.isInitialized
+    internal val scannerSniInputReady: Boolean get() = ::scannerSniInput.isInitialized
+    internal val subscriptionsListReady: Boolean get() = ::subscriptionsList.isInitialized
+    internal val settingsSubscriptionSelectorRowReady: Boolean get() = ::settingsSubscriptionSelectorRow.isInitialized
+    internal val serversCountTextReady: Boolean get() = ::serversCountText.isInitialized
+
+    internal class DockTab(val pill: LinearLayout, val icon: ImageView, val label: TextView)
 
     private lateinit var appTabsPending: TabLayout
 
     private fun showAppTab(position: Int) {
+        currentActiveScreen = position
         if (position != 2) advancedSettingsBackAction?.invoke()
         vpnTabContent.visibility = if (position == 1) View.VISIBLE else View.GONE
         subscriptionsTabContent.visibility = if (position == 0) View.VISIBLE else View.GONE
         advancedTabContent.visibility = if (position == 2) View.VISIBLE else View.GONE
         cloudTabContent.visibility = if (position == 3) View.VISIBLE else View.GONE
         scannerTabContent.visibility = if (position == 4) View.VISIBLE else View.GONE
+        aetherTabContent.visibility = if (position == 5) View.VISIBLE else View.GONE
         if (position == 0) renderSubscriptions()
         if (position == 1) {
             renderConnectionSelection()
             renderHomeUsageCard()
         }
+        syncShellBackdrop()
         if (position == 2) renderAdvancedControls()
-    }
-
-    private fun buildSubscriptionsScreen(): View {
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-            setBackgroundColor(withAlpha(BACKGROUND, 0))
-        }
-        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
-            val topInset = insets.getInsets(
-                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
-            ).top
-            view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
-            insets
-        }
-        val content = MaxWidthLinearLayout(this).apply {
-            maxWidthPx = dp(520)
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(34), dp(24), dp(104))
-        }
-        val subscriptionsHeaderCopy = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(TextView(this@MainActivity).apply {
-                setText(R.string.subscriptions_title)
-                textSize = 28f
-                typeface = CatClientDisplayTypeface
-                setTextColor(TEXT_PRIMARY)
-                includeFontPadding = false
-                gravity = Gravity.START
-            })
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.subscriptions_description)
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    gravity = Gravity.START
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
-            )
-        }
-        val addSubscriptionButton = MaterialButton(this).apply {
-            setText(R.string.subscription_add)
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-            setAllCaps(false)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            isSingleLine = true
-            setPadding(dp(8), 0, dp(8), 0)
-            minWidth = 0
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(TEAL)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 24))
-            setTextColor(TEAL)
-            setOnClickListener { showAddSubscriptionMenu(this) }
-        }
-        val compactHeader = resources.configuration.screenWidthDp < 360
-        content.addView(LinearLayout(this).apply {
-            orientation = if (compactHeader) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = if (compactHeader) Gravity.START else Gravity.CENTER_VERTICAL
-            if (compactHeader) {
-                addView(
-                    subscriptionsHeaderCopy,
-                    LinearLayout.LayoutParams(-1, -2),
-                )
-                addView(
-                    addSubscriptionButton,
-                    LinearLayout.LayoutParams(-2, dp(44)).apply { topMargin = dp(16) },
-                )
-            } else {
-                addView(
-                    subscriptionsHeaderCopy,
-                    LinearLayout.LayoutParams(0, -2, 1f),
-                )
-                addView(
-                    addSubscriptionButton,
-                    LinearLayout.LayoutParams(dp(84), dp(44)).apply { marginStart = dp(16) },
-                )
-            }
-        })
-        subscriptionsList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        content.addView(subscriptionsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
-        content.addView(
-            buildFreeConfigsSection(),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28) },
-        )
-        scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
-        renderSubscriptions()
-        return scroll
+        if (position == 5) refreshAetherEngineSummary?.invoke()
     }
 
     /* ------------------------------------------------------------------ */
     /* Home usage graph (quota reported by the panel)                       */
     /* ------------------------------------------------------------------ */
 
-    private fun buildHomeUsageCard(): LinearLayout {
+    internal fun buildHomeUsageCard(): LinearLayout {
         homeUsageBar = UsageBarView(this).apply {
             configureColors(
                 download = TEAL,
@@ -882,7 +1149,7 @@ class MainActivity : Activity() {
     }
 
     /** Reads the last usage snapshot of the selected subscription and redraws the bar. */
-    private fun renderHomeUsageCard() {
+    internal fun renderHomeUsageCard() {
         if (!::homeUsageCard.isInitialized) return
         val store = SubscriptionStore(this)
         val subscription = store.readUserSubscription(store.readSelectedSubscriptionId())
@@ -932,168 +1199,11 @@ class MainActivity : Activity() {
     /* Free configs (community sources) + single-config quick add           */
     /* ------------------------------------------------------------------ */
 
-    private fun buildFreeConfigsSection(): View {
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        column.addView(
-            TextView(this).apply {
-                setText(R.string.free_title)
-                textSize = 20f
-                typeface = CatClientDisplayTypeface
-                setTextColor(TEXT_PRIMARY)
-                includeFontPadding = false
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        column.addView(
-            advancedSectionDetail(getString(R.string.free_description)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-        )
-        column.addView(
-            advancedSectionDetail(getString(R.string.free_sources_hint, FreeConfigs.sources().size)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-        )
-
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        fun freeButton(labelRes: Int, accent: Boolean, click: (View) -> Unit): MaterialButton =
-            MaterialButton(this).apply {
-                setText(labelRes)
-                textSize = 12.5f
-                typeface = CatClientBodyBoldTypeface
-                isAllCaps = false
-                isSingleLine = true
-                ellipsize = TextUtils.TruncateAt.END
-                cornerRadius = dp(10)
-                minWidth = 0
-                minimumWidth = 0
-                insetTop = 0
-                insetBottom = 0
-                setPaddingRelative(dp(8), 0, dp(8), 0)
-                backgroundTintList = ColorStateList.valueOf(if (accent) TEAL else withAlpha(TEXT_SECONDARY, 40))
-                setTextColor(if (accent) palette.onAccent else TEXT_PRIMARY)
-                setOnClickListener(click)
-            }
-        freeConfigsFetchButton = freeButton(R.string.free_fetch, true) { fetchFreeConfigs() }
-        buttons.addView(freeConfigsFetchButton, LinearLayout.LayoutParams(0, dp(46), 1f))
-        freeConfigsTestButton = freeButton(R.string.free_test_ping, false) { testFreeConfigs() }
-        buttons.addView(
-            freeConfigsTestButton,
-            LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) },
-        )
-        freeConfigsImportButton = freeButton(R.string.free_import_all, false) { importFreeConfigs() }
-        buttons.addView(
-            freeConfigsImportButton,
-            LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(8) },
-        )
-        column.addView(buttons, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
-
-        freeConfigsProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            visibility = View.GONE
-            progressTintList = ColorStateList.valueOf(TEAL)
-            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 120))
-        }
-        column.addView(freeConfigsProgress, LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(12) })
-
-        freeConfigsStatus = TextView(this).apply {
-            setText(R.string.free_idle)
-            textSize = 12.5f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setLineSpacing(dp(2).toFloat(), 1f)
-            setPadding(0, dp(8), 0, 0)
-        }
-        column.addView(freeConfigsStatus, LinearLayout.LayoutParams(-1, -2))
-
-        freeConfigsList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        column.addView(freeConfigsList, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        FreeConfigs.loadCache(this)?.takeIf { it.entries.isNotEmpty() }?.let { cached ->
-            freeConfigEntries = cached.entries
-            freeConfigsStatus.setText(R.string.free_from_cache)
-            renderFreeConfigs()
-        }
-
-        column.addView(
-            MaterialButton(this).apply {
-                setText(R.string.free_quick_add)
-                textSize = 13f
-                typeface = CatClientBodyBoldTypeface
-                isAllCaps = false
-                cornerRadius = dp(10)
-                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 40))
-                setTextColor(TEAL)
-                insetTop = 0
-                insetBottom = 0
-                setOnClickListener { showQuickConfigMenu(this) }
-            },
-            LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(14) },
-        )
-        return column
-    }
-
     /** True when the core reports a live session (used to route fetches). */
-    private fun vpnStateEqualsStarted(): Boolean =
+    internal fun vpnStateEqualsStarted(): Boolean =
         buttonModel.state == VpnState.Started || VpnRuntimeStateStore.read(this) == VpnState.Started
 
-    private fun fetchFreeConfigs() {
-        if (freeConfigsFetching) return
-        // If a tunnel is up we fetch *through* it: inside Iran most of the mirrors
-        // are unreachable directly but answer fine once anything is connected.
-        val useTunnel = vpnStateEqualsStarted()
-        freeConfigsFetching = true
-        freeConfigsFetchButton.isEnabled = false
-        freeConfigsProgress.visibility = View.VISIBLE
-        freeConfigsProgress.progress = 0
-        freeConfigsStatus.text = getString(if (useTunnel) R.string.free_loading_tunnel else R.string.free_loading)
-        freeConfigsList.removeAllViews()
-        freeConfigsJob = activityScope.launch {
-            val report = runCatching {
-                FreeConfigs.fetchAll(this@MainActivity, useTunnel = useTunnel) { name, done, total ->
-                    mainHandler.post {
-                        freeConfigsProgress.progress = (done * 100) / total.coerceAtLeast(1)
-                        if (name.isNotEmpty()) {
-                            freeConfigsStatus.text = getString(R.string.free_progress, name, done, total)
-                        }
-                    }
-                }
-            }.getOrNull()
-            freeConfigsFetching = false
-            freeConfigsFetchButton.isEnabled = true
-            freeConfigsProgress.visibility = View.GONE
-            if (report == null || report.entries.isEmpty()) {
-                val cached = FreeConfigs.loadCache(this@MainActivity)
-                if (cached != null && cached.entries.isNotEmpty()) {
-                    freeConfigEntries = cached.entries
-                    freeConfigsStatus.setText(R.string.free_from_cache)
-                    renderFreeConfigs()
-                } else {
-                    freeConfigsStatus.setText(R.string.free_empty)
-                }
-                return@launch
-            }
-            FreeConfigs.saveCache(this@MainActivity, report)
-            freeConfigEntries = report.entries
-            freeConfigsStatus.text = buildString {
-                append(getString(R.string.free_loaded, report.entries.size))
-                if (report.sourcesOk.isNotEmpty()) append("\n✓ ").append(report.sourcesOk.joinToString(" · "))
-                if (report.sourcesFailed.isNotEmpty()) append("\n✗ ").append(report.sourcesFailed.joinToString(" · "))
-            }
-            renderFreeConfigs()
-        }
-    }
-
-    private fun renderFreeConfigs() {
+    internal fun renderFreeConfigs() {
         if (!::freeConfigsList.isInitialized) return
         freeConfigsList.removeAllViews()
         val preview = freeConfigEntries.take(FREE_PREVIEW_ROWS)
@@ -1117,959 +1227,17 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun freeConfigRow(entry: FreeConfigs.FreeEntry): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            background = glassSurfaceDrawable(radiusDp = 12)
-            clipToOutline = true
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-        }
-        row.addView(
-            TextView(this).apply {
-                text = entry.tag
-                textSize = 13f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(TEXT_PRIMARY)
-                includeFontPadding = false
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        row.addView(
-            TextView(this).apply {
-                text = entry.protocol.uppercase(Locale.US) + " · " + entry.host
-                textSize = 11.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(TEXT_SECONDARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) },
-        )
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        fun actionButton(labelRes: Int, accent: Boolean, click: (View) -> Unit) =
-            MaterialButton(this).apply {
-                setText(labelRes)
-                textSize = 11.5f
-                typeface = CatClientBodyBoldTypeface
-                isAllCaps = false
-                isSingleLine = true
-                cornerRadius = dp(9)
-                minWidth = 0
-                minimumWidth = 0
-                insetTop = 0
-                insetBottom = 0
-                setPaddingRelative(dp(6), 0, dp(6), 0)
-                backgroundTintList =
-                    ColorStateList.valueOf(if (accent) TEAL else withAlpha(TEXT_SECONDARY, 40))
-                setTextColor(if (accent) palette.onAccent else TEXT_PRIMARY)
-                setOnClickListener(click)
-            }
-        actions.addView(
-            actionButton(R.string.free_add_single, true) { addSingleConfig(entry.link, entry.tag) },
-            LinearLayout.LayoutParams(0, dp(40), 1f),
-        )
-        actions.addView(
-            actionButton(R.string.free_copy, false) { copyFreeConfig(entry) },
-            LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) },
-        )
-        actions.addView(
-            actionButton(R.string.free_qr, false) { showConfigQrCodes(listOf(entry.link), entry.tag) },
-            LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) },
-        )
-        row.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        return row
-    }
-
-    private fun copyFreeConfig(entry: FreeConfigs.FreeEntry) {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("free-config", entry.link))
-        Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
-    }
-
-    /** Adds one share-link as its own Subscription and selects it. */
-    private fun addSingleConfig(link: String, name: String) {
-        if (link.isBlank()) return
-        val subscriptionName = name.take(48).ifBlank { "Cat Single" }
-        activityScope.launch {
-            val added = runCatching {
-                withContext(Dispatchers.IO) { userSubscriptionManager.add(subscriptionName, link) }
-            }.getOrNull()
-            if (added == null) {
-                Toast.makeText(this@MainActivity, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
-                return@launch
-            }
-            userSubscriptionManager.select(added.id)
-            renderSubscriptions()
-            onSubscriptionSelected()
-            MaterialAlertDialogBuilder(this@MainActivity)
-                .setTitle(R.string.free_quick_add_done)
-                .setMessage(subscriptionName)
-                .setPositiveButton(R.string.free_quick_add_connect) { _, _ -> beginConnectFlow(Actions.CONNECT) }
-                .setNegativeButton(R.string.split_tunnel_cancel, null)
-                .show()
-        }
-    }
-
-    /** Paste / clipboard / QR entry point for a single config. */
-    private fun showQuickConfigMenu(anchor: View) {
-        val menu = catClientPopupMenu(anchor)
-        menu.menu.add(R.string.free_quick_paste).setOnMenuItemClickListener {
-            showQuickConfigDialog()
-            true
-        }
-        menu.menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
-            addSubscriptionFromClipboard()
-            true
-        }
-        menu.menu.add(R.string.subscription_scan_qr).setOnMenuItemClickListener {
-            startSubscriptionQrScan()
-            true
-        }
-        menu.menu.add(R.string.free_qr_all).setOnMenuItemClickListener {
-            showConfigQrCodes(freeConfigEntries.take(FREE_QR_BATCH).map { it.link }, getString(R.string.free_title))
-            true
-        }
-        menu.show()
-    }
-
-    private fun showQuickConfigDialog() {
-        val input = EditText(this).apply {
-            hint = getString(R.string.free_quick_hint)
-            textSize = 13f
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            maxLines = 4
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(8), dp(4), 0)
-            addView(input, LinearLayout.LayoutParams(-1, -2))
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.free_quick_add)
-            .setView(container)
-            .setPositiveButton(R.string.free_quick_add_confirm) { _, _ ->
-                val link = input.text?.toString()?.trim().orEmpty()
-                if (link.isEmpty()) {
-                    Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                normalizedSubscriptionSource(link)?.let { source ->
-                    addSingleConfig(source, scannedSubscriptionName(source) ?: "Cat Single")
-                } ?: Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
-            }
-            .setNeutralButton(R.string.subscription_scan_qr) { _, _ -> startSubscriptionQrScan() }
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .show()
-    }
-
-    /** Ping-tests the fetched free configs through the core's connection testing page. */
-    private fun testFreeConfigs() {
-        val entries = freeConfigEntries
-        if (entries.isEmpty()) {
-            Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
-            return
-        }
-        activityScope.launch {
-            val id = ensureFreeSubscription(entries.map { it.link }.take(FREE_SUBSCRIPTION_LIMIT))
-            if (id != null) openSubscriptionConnectionTesting(id)
-        }
-    }
-
-    /** Adds every fetched free config as one Subscription (capped for size). */
-    private fun importFreeConfigs() {
-        val entries = freeConfigEntries
-        if (entries.isEmpty()) {
-            Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
-            return
-        }
-        activityScope.launch {
-            val id = ensureFreeSubscription(entries.map { it.link }.take(FREE_SUBSCRIPTION_LIMIT))
-            if (id == null) {
-                Toast.makeText(this@MainActivity, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
-                return@launch
-            }
-            userSubscriptionManager.select(id)
-            renderSubscriptions()
-            onSubscriptionSelected()
-            Toast.makeText(this@MainActivity, R.string.free_imported, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private suspend fun ensureFreeSubscription(links: List<String>): String? {
-        if (links.isEmpty()) return null
-        val content = links.joinToString("\n")
-        val name = getString(R.string.free_subscription_name)
-        val existing = userSubscriptionManager.list().firstOrNull { it.name == name }
-        if (existing != null) {
-            val updated = runCatching {
-                withContext(Dispatchers.IO) { userSubscriptionManager.update(existing.id, name, content) }
-            }.getOrNull()
-            if (updated != null) return updated.id
-            // Fall through to creating a fresh one when the update is rejected.
-            userSubscriptionManager.delete(existing.id)
-        }
-        return runCatching {
-            withContext(Dispatchers.IO) { userSubscriptionManager.add(name, content) }
-        }.getOrNull()?.id
-    }
-
-    /** QR codes for one or more share links, shown natively (no network needed). */
-    private fun showConfigQrCodes(links: List<String>, title: String) {
-        val valid = links.filter { it.isNotBlank() }.distinct()
-        if (valid.isEmpty()) {
-            Toast.makeText(this, R.string.free_empty, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val index = intArrayOf(0)
-        val image = ImageView(this).apply {
-            adjustViewBounds = true
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            setBackgroundColor(Color.WHITE)
-        }
-        val caption = TextView(this).apply {
-            textSize = 11.5f
-            setTextColor(TEXT_SECONDARY)
-            maxLines = 3
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            setPadding(dp(16), dp(6), dp(16), 0)
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            addView(image, LinearLayout.LayoutParams(-1, -2))
-            addView(caption, LinearLayout.LayoutParams(-1, -2))
-        }
-        fun render() {
-            val link = valid[index[0]]
-            image.setImageBitmap(QrCodes.bitmap(link, sizePx = dp(240)))
-            caption.text = "${index[0] + 1}/${valid.size} · $link"
-        }
-        render()
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.free_qr_title, title))
-            .setView(container)
-            .setPositiveButton(R.string.free_qr_copy) { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", valid[index[0]]))
-                Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-        if (valid.size > 1) {
-            builder.setNeutralButton(R.string.free_qr_next) { _, _ ->
-                index[0] = (index[0] + 1) % valid.size
-                showConfigQrCodes(listOf(valid[index[0]]), title)
-            }
-        }
-        builder.show()
-    }
-
-    /** Human-readable quota line for a subscription panel that reports usage. */
-    private fun subscriptionUsageLine(usage: SubscriptionUsage?): String {
-        if (usage == null) return ""
-        val parts = mutableListOf<String>()
-        if (usage.totalBytes > 0) {
-            parts += getString(
-                R.string.subscription_usage_traffic,
-                SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
-                SubscriptionUsagePolicy.formatBytes(usage.totalBytes),
-                usage.usedPercent,
-            )
-        } else if (usage.usedBytes > 0) {
-            parts += getString(
-                R.string.subscription_usage_used_only,
-                SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
-            )
-        }
-        usage.expireEpochSeconds?.let { seconds ->
-            val days = ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0L)
-            parts += getString(R.string.subscription_usage_expiry, days)
-        }
-        return if (parts.isEmpty()) "" else "\n" + parts.joinToString(" · ")
-    }
-
-    private fun renderSubscriptions() {
-        if (!::subscriptionsList.isInitialized) return
-        subscriptionsList.removeAllViews()
-        val store = SubscriptionStore(this)
-        val selectedId = store.readSelectedSubscriptionId()
-        val selectedName = selectedSubscriptionName()
-        homeSubscriptionSelectorRow.setValue(selectedName)
-        homeSubscriptionSelectorRow.contentDescription =
-            getString(
-                R.string.settings_value_content_description,
-                getString(R.string.subscriptions_title),
-                selectedName,
-            )
-        if (::settingsSubscriptionSelectorRow.isInitialized) {
-            settingsSubscriptionSelectorRow.setValue(selectedName)
-            settingsSubscriptionSelectorRow.contentDescription =
-                getString(
-                    R.string.settings_value_content_description,
-                    getString(R.string.settings_subscription_title),
-                    selectedName,
-                )
-        }
-        SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.forEachIndexed { index, subscriptionId ->
-            val name = builtInSubscriptionName(subscriptionId)
-            val count = store.readCatalog(subscriptionId)?.profiles?.size ?: 0
-            subscriptionsList.addView(
-                subscriptionCard(
-                    title = name,
-                    detail = getString(R.string.subscription_builtin_detail, connectionCountLabel(count)),
-                    selected = selectedId == subscriptionId,
-                    error = "",
-                    onTestConnections = { openSubscriptionConnectionTesting(subscriptionId) },
-                    actions = listOf(
-                        R.string.subscription_action_select to {
-                            userSubscriptionManager.select(subscriptionId)
-                            onSubscriptionSelected()
-                        },
-                        R.string.subscription_action_refresh to {
-                            refreshBuiltInSubscription(subscriptionId, name)
-                        },
-                    ),
-                ),
-                LinearLayout.LayoutParams(-1, -2).apply {
-                    if (index > 0) topMargin = dp(8)
-                },
-            )
-        }
-        val usageStore = SubscriptionUsageStore(this)
-        userSubscriptionManager.list().forEach { item ->
-            val updated = item.updatedAt.takeIf { it > 0 }?.let {
-                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(it)
-            } ?: getString(R.string.subscription_never_updated)
-            val detail = getString(
-                R.string.subscription_detail,
-                item.format.label,
-                connectionCountLabel(item.connectionCount),
-                updated,
-            )
-            val usage = usageStore.read(item.input)
-            val isRemote = item.input.trim().startsWith("https://", ignoreCase = true)
-            val shareActions: List<Pair<Int, () -> Unit>> = if (isRemote) listOf(
-                R.string.subscription_action_copy_link to { copySubscriptionLink(item) },
-                R.string.subscription_action_qr to { showConfigQrCodes(listOf(item.input.trim()), item.name) },
-                R.string.subscription_action_share to { shareSubscriptionLink(item) },
-                R.string.subscription_action_open_v2rayng to { openSubscriptionInApp(item, "v2rayng") },
-                R.string.subscription_action_open_v2box to { openSubscriptionInApp(item, "v2box") },
-                R.string.subscription_action_open_info to { openSubscriptionInfoPage(item) },
-            ) else emptyList()
-            subscriptionsList.addView(
-                subscriptionCard(
-                    title = item.name,
-                    detail = detail + subscriptionUsageLine(usage),
-                    selected = selectedId == item.id,
-                    error = localizedSubscriptionError(item.lastError),
-                    onTestConnections = { openSubscriptionConnectionTesting(item.id) },
-                    actions = listOf(
-                        R.string.subscription_action_select to {
-                            userSubscriptionManager.select(item.id)
-                            onSubscriptionSelected()
-                        },
-                        R.string.subscription_action_edit to { showEditSubscriptionDialog(item) },
-                        R.string.subscription_action_refresh to { refreshSubscription(item) },
-                    ) + shareActions + listOf(
-                        R.string.subscription_action_delete to { confirmDeleteSubscription(item) },
-                    ),
-                    usage = usage,
-                ),
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-        }
-        renderHomeConnectionRows()
-    }
-
-    /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
-    /* Hallmark · component: subscription card · genre: modern-minimal · design-system: design.md · designed-as-app */
-    private fun subscriptionCard(
-        title: String,
-        detail: String,
-        selected: Boolean,
-        error: String,
-        onTestConnections: () -> Unit,
-        actions: List<Pair<Int, () -> Unit>>,
-        usage: SubscriptionUsage? = null,
-    ): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        gravity = Gravity.START
-        minimumHeight = dp(112)
-        setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-        elevation = 0f
-        val selectAction = actions.firstOrNull { it.first == R.string.subscription_action_select }
-        val overflowActions = actions.filterNot { it.first == R.string.subscription_action_select }
-        val canSelect = selectAction != null && !selected
-        isClickable = canSelect
-        isFocusable = canSelect
-        contentDescription = "$title, ${getString(
-            if (selected) R.string.subscription_selected_badge else R.string.subscription_action_select,
-        )}"
-        background = if (selected) {
-            glassSurfaceDrawable(radiusDp = 12, highlighted = true)
-        } else {
-            RippleDrawable(
-                ColorStateList.valueOf(withAlpha(TEAL, 28)),
-                glassSurfaceDrawable(radiusDp = 12),
-                null,
-            )
-        }
-        clipToOutline = true
-        if (canSelect) {
-            setOnClickListener { selectAction?.second?.invoke() }
-        }
-
-        addView(
-            LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                gravity = Gravity.CENTER_VERTICAL
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = title
-                        textSize = 16f
-                        typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEXT_PRIMARY)
-                        includeFontPadding = false
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.END
-                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                        textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-                        gravity = Gravity.START
-                    },
-                    LinearLayout.LayoutParams(0, -2, 1f),
-                )
-                if (selected) addView(
-                    TextView(this@MainActivity).apply {
-                        setText(R.string.subscription_selected_badge)
-                        textSize = 12f
-                        typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEAL)
-                        includeFontPadding = false
-                        gravity = Gravity.CENTER
-                        isSingleLine = true
-                        setPaddingRelative(dp(8), dp(4), dp(8), dp(4))
-                        background = GradientDrawable().apply {
-                            shape = GradientDrawable.RECTANGLE
-                            cornerRadius = dp(12).toFloat()
-                            setColor(withAlpha(TEAL, if (palette.isDark) 34 else 22))
-                            setStroke(dp(1), withAlpha(TEAL, 92))
-                        }
-                    },
-                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) },
-                )
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        addView(TextView(this@MainActivity).apply {
-            text = detail
-            textSize = 12f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            maxLines = 2
-            ellipsize = TextUtils.TruncateAt.END
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            gravity = Gravity.START
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-        if (usage != null && usage.totalBytes > 0) {
-            // Quota bar (panel reported total=): green → amber → red as it fills up.
-            val fraction = usage.usedFraction
-            val barColor = when {
-                fraction >= 0.9f -> ERROR
-                fraction >= 0.7f -> palette.amber
-                else -> TEAL
-            }
-            addView(
-                ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
-                    isIndeterminate = false
-                    max = 1000
-                    progress = (fraction * 1000f).toInt().coerceIn(0, 1000)
-                    progressTintList = ColorStateList.valueOf(barColor)
-                    progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 120))
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    contentDescription = getString(
-                        R.string.subscription_usage_traffic,
-                        SubscriptionUsagePolicy.formatBytes(usage.usedBytes),
-                        SubscriptionUsagePolicy.formatBytes(usage.totalBytes),
-                        usage.usedPercent,
-                    )
-                },
-                LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(10) },
-            )
-        }
-        if (error.isNotBlank()) addView(TextView(this@MainActivity).apply {
-            text = getString(R.string.subscription_error, error)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(ERROR)
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            gravity = Gravity.START
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-
-        fun actionButton(
-            @StringRes labelRes: Int,
-            @DrawableRes iconRes: Int,
-            accent: Boolean,
-            action: (View) -> Unit,
-        ): MaterialButton = MaterialButton(this@MainActivity).apply {
-            setText(labelRes)
-            setIconResource(iconRes)
-            iconTint = ColorStateList.valueOf(if (accent) TEAL else TEXT_SECONDARY)
-            iconSize = dp(18)
-            iconPadding = dp(8)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            setAllCaps(false)
-            isSingleLine = true
-            ellipsize = TextUtils.TruncateAt.END
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            setPaddingRelative(dp(12), 0, dp(12), 0)
-            backgroundTintList = ColorStateList.valueOf(palette.surfaceElevated2)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(if (accent) withAlpha(TEAL, 150) else OUTLINE)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 26))
-            setTextColor(if (accent) TEAL else TEXT_PRIMARY)
-            setOnClickListener(action)
-        }
-
-        addView(
-            LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                addView(
-                    actionButton(
-                        labelRes = R.string.subscription_action_test,
-                        iconRes = R.drawable.ic_connection_test,
-                        accent = true,
-                    ) { onTestConnections() },
-                    LinearLayout.LayoutParams(0, dp(48), 1f),
-                )
-                addView(
-                    actionButton(
-                        labelRes = R.string.subscription_action_options,
-                        iconRes = R.drawable.ic_more_vert,
-                        accent = false,
-                    ) { view ->
-                        catClientPopupMenu(view).apply {
-                            overflowActions.forEachIndexed { index, (labelRes, _) ->
-                                menu.add(0, index, index, labelRes)
-                            }
-                            setOnMenuItemClickListener { item ->
-                                overflowActions[item.itemId].second()
-                                true
-                            }
-                        }.show()
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) },
-                )
-            },
-            LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) },
-        )
-    }
-
-    private fun openSubscriptionConnectionTesting(subscriptionId: String) {
-        if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
-        val store = SubscriptionStore(this)
-        if (store.readSelectedSubscriptionId() != subscriptionId) {
-            userSubscriptionManager.select(subscriptionId)
-            onSubscriptionSelected()
-        }
-        val profiles = if (SubscriptionStore.isBuiltInSubscription(subscriptionId)) {
-            store.readCatalog(subscriptionId)?.profiles
-        } else {
-            runCatching { userSubscriptionManager.cachedSnapshot(subscriptionId) }
-                .getOrNull()
-                ?.catalog
-                ?.profiles
-        }.orEmpty()
-        updateLocationOptions(profiles, resetMissingSelection = true)
-        showConnectionTestingPage()
-    }
-
-    private fun startSubscriptionQrScan() {
-        IntentIntegrator(this)
-            .setCaptureActivity(SubscriptionQrCaptureActivity::class.java)
-            .setDesiredBarcodeFormats(listOf(IntentIntegrator.QR_CODE))
-            .setPrompt(getString(R.string.subscription_scan_qr_prompt))
-            .setBeepEnabled(false)
-            .setBarcodeImageEnabled(false)
-            .initiateScan()
-    }
-
-    private fun showAddSubscriptionMenu(anchor: View) {
-        catClientPopupMenu(anchor).apply {
-            if (packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
-                menu.add(R.string.subscription_scan_qr).setOnMenuItemClickListener {
-                    startSubscriptionQrScan()
-                    true
-                }
-            }
-            menu.add(R.string.subscription_from_clipboard).setOnMenuItemClickListener {
-                addSubscriptionFromClipboard()
-                true
-            }
-            show()
-        }
-    }
-
-    private fun addSubscriptionFromClipboard() {
-        val source = getSystemService(ClipboardManager::class.java).primaryClip
-            ?.takeIf { it.itemCount > 0 }
-            ?.getItemAt(0)
-            ?.coerceToText(this)
-            ?.toString()
-            .let(::normalizedSubscriptionSource)
-        if (source == null) {
-            Toast.makeText(this, R.string.subscription_clipboard_empty, Toast.LENGTH_SHORT).show()
-        } else {
-            showAddSubscriptionDialog(source, scannedSubscriptionName(source).orEmpty())
-        }
-    }
-
-    private fun showAddSubscriptionDialog(initialSource: String = "", initialName: String = "") =
-        showSubscriptionDialog(initialSource = initialSource, initialName = initialName)
-
-    private fun showEditSubscriptionDialog(item: UserSubscription) = showSubscriptionDialog(item)
-
-    private fun showSubscriptionDialog(
-        existing: UserSubscription? = null,
-        initialSource: String = "",
-        initialName: String = "",
-    ) {
-        val nameInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setText(existing?.name ?: initialName)
-        }
-        val nameLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.subscription_name_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(nameInput)
-        }
-        val sourceInput = TextInputEditText(this).apply {
-            minLines = 4
-            maxLines = 9
-            gravity = Gravity.TOP or Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setText(existing?.input ?: initialSource)
-        }
-        val sourceLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.subscription_source_hint)
-            helperText = getString(R.string.subscription_source_helper)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(sourceInput)
-        }
-        val body = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(4))
-            addView(nameLayout, LinearLayout.LayoutParams(-1, -2))
-            addView(sourceLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-        }
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(
-                if (existing == null) {
-                    R.string.subscription_add_title
-                } else {
-                    R.string.subscription_edit_title
-                },
-            )
-            .setView(body)
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .setPositiveButton(
-                if (existing == null) R.string.subscription_add else R.string.split_tunnel_save,
-                null,
-            )
-            .create()
-        dialog.showCatClientDialog {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val name = nameInput.text.toString()
-                val source = sourceInput.text.toString()
-                if (name.isBlank() || source.isBlank()) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        R.string.subscription_fields_required,
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    return@setOnClickListener
-                }
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-                activityScope.launch {
-                    val result = runCatching {
-                        withContext(Dispatchers.IO) {
-                            if (existing == null) {
-                                userSubscriptionManager.add(name, source)
-                            } else {
-                                userSubscriptionManager.update(existing.id, name, source)
-                            }
-                        }
-                    }
-                    result.onSuccess { item ->
-                        dialog.dismiss()
-                        renderSubscriptions()
-                        renderConnectionDetails(buttonModel.state)
-                        if (existing?.id == userSubscriptionManager.selectedId()) {
-                            refreshLocationOptions()
-                        }
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(
-                                if (existing == null) {
-                                    R.string.subscription_added
-                                } else {
-                                    R.string.subscription_updated
-                                },
-                                connectionCountLabel(item.connectionCount),
-                            ),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }.onFailure { error ->
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
-                        Toast.makeText(
-                            this@MainActivity,
-                            localizedError(
-                                error,
-                                if (existing == null) {
-                                    R.string.subscription_add_failed
-                                } else {
-                                    R.string.subscription_update_failed
-                                },
-                            ),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun testSubscription(item: UserSubscription) {
-        runSubscriptionAction(getString(R.string.subscription_testing, item.name)) {
-            val imported = userSubscriptionManager.test(item.input)
-            getString(R.string.subscription_found, connectionCountLabel(imported.connectionCount))
-        }
-    }
-
-    private fun refreshSubscription(item: UserSubscription) {
-        runSubscriptionAction(
-            startMessage = getString(R.string.subscription_refreshing, item.name),
-            refreshProfiles = item.id == userSubscriptionManager.selectedId(),
-        ) {
-            val refreshed = userSubscriptionManager.refresh(item.id)
-            getString(R.string.subscription_refreshed, connectionCountLabel(refreshed.connectionCount))
-        }
-    }
-
-    private fun refreshBuiltInSubscription(subscriptionId: String, name: String) {
-        runSubscriptionAction(
-            startMessage = getString(R.string.subscription_refreshing, name),
-            refreshProfiles = userSubscriptionManager.selectedId() == subscriptionId,
-        ) {
-            val refreshed = ConfigRepository(this@MainActivity).refreshBuiltInMihomoConfig(subscriptionId)
-            getString(R.string.subscription_refreshed, connectionCountLabel(refreshed.catalog.profiles.size))
-        }
-    }
-
-    private fun runSubscriptionAction(
-        startMessage: String,
-        refreshProfiles: Boolean = false,
-        action: suspend () -> String,
-    ) {
-        Toast.makeText(this, startMessage, Toast.LENGTH_SHORT).show()
-        activityScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { action() } }
-            renderSubscriptions()
-            if (result.isSuccess && refreshProfiles) refreshLocationOptions()
-            result.onSuccess { message -> Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show() }
-                .onFailure { error ->
-                    Toast.makeText(
-                        this@MainActivity,
-                        localizedError(error, R.string.subscription_operation_failed),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-        }
-    }
-
     /* ---- share a single connection (long-press on a row) ---- */
-
-    /**
-     * Long-press menu on a connection row: copy / QR / share the `vless://`-style form of that one
-     * connection, so a single working config can be moved to v2rayNG, V2Box, Streisand, etc.
-     */
-    private fun showConnectionShareMenu(anchor: View, profile: ConnectionProfile) {
-        val link = profile.shareLink?.takeIf(String::isNotBlank)
-        if (link == null) {
-            Toast.makeText(this, R.string.connection_share_unavailable, Toast.LENGTH_SHORT).show()
-            return
-        }
-        catClientPopupMenu(anchor).apply {
-            menu.add(R.string.subscription_action_copy_link).setOnMenuItemClickListener {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("cat-config", link))
-                Toast.makeText(this@MainActivity, R.string.free_copied, Toast.LENGTH_SHORT).show()
-                true
-            }
-            menu.add(R.string.subscription_action_qr).setOnMenuItemClickListener {
-                showConfigQrCodes(listOf(link), profile.displayTag)
-                true
-            }
-            menu.add(R.string.subscription_action_share).setOnMenuItemClickListener {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, profile.displayTag)
-                    putExtra(Intent.EXTRA_TEXT, link)
-                }
-                runCatching { startActivity(Intent.createChooser(send, profile.displayTag)) }
-                    .onFailure {
-                        Toast.makeText(this@MainActivity, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show()
-                    }
-                true
-            }
-            show()
-        }
-    }
 
     /* ---- share a remote subscription with other clients (v2rayNG / V2Box / …) ---- */
 
-    private fun subscriptionLink(item: UserSubscription): String = item.input.trim()
-
-    private fun copySubscriptionLink(item: UserSubscription) {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("subscription", subscriptionLink(item)))
-        Toast.makeText(this, R.string.free_copied, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun shareSubscriptionLink(item: UserSubscription) {
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, item.name)
-            putExtra(Intent.EXTRA_TEXT, subscriptionLink(item))
-        }
-        runCatching { startActivity(Intent.createChooser(send, item.name)) }
-            .onFailure { Toast.makeText(this, R.string.subscription_share_failed, Toast.LENGTH_SHORT).show() }
-    }
-
-    /**
-     * Hands the subscription to another installed client through its URL scheme
-     * (the same standard deep-link schemes used by common client pages). Falls back to copying the link.
-     */
-    private fun openSubscriptionInApp(item: UserSubscription, app: String) {
-        val link = subscriptionLink(item)
-        val encoded = Uri.encode(link)
-        val name = Uri.encode(item.name)
-        val target = when (app) {
-            "v2rayng" -> "v2rayng://install-sub?url=$encoded&name=$name"
-            "v2box" -> "v2box://install-sub?url=$encoded&name=$name"
-            "hiddify" -> "hiddify://import/$link#${item.name}"
-            else -> return
-        }
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val launched = runCatching { startActivity(intent); true }.getOrDefault(false)
-        if (!launched) {
-            copySubscriptionLink(item)
-            Toast.makeText(this, getString(R.string.subscription_app_missing, app), Toast.LENGTH_LONG).show()
-        }
-    }
-
-    /** Cat Panel per-user pages live at /info/<token>; other panels get the plain link. */
-    private fun openSubscriptionInfoPage(item: UserSubscription) {
-        val link = subscriptionLink(item)
-        val info = Regex("^(https://[^/]+)/u/([^/?#]+)").find(link)
-            ?.let { "${it.groupValues[1]}/info/${it.groupValues[2]}" }
-            ?: link.substringBefore('#').let { if (it.contains('?')) "$it&web=1" else "$it?web=1" }
-        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info))) }
-            .onFailure { copySubscriptionLink(item) }
-    }
-
-    private fun confirmDeleteSubscription(item: UserSubscription) {
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.subscription_delete_title, item.name))
-            .setMessage(R.string.subscription_delete_message)
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .setPositiveButton(R.string.subscription_action_delete) { _, _ ->
-                userSubscriptionManager.delete(item.id)
-                renderSubscriptions()
-                refreshLocationOptions()
-            }
-            .create()
-        dialog.showCatClientDialog(positiveColor = ERROR)
-    }
-
-    private fun onSubscriptionSelected() {
-        locationPreferenceStore.clearSelectedCountry()
-        renderSubscriptions()
-        renderConnectionDetails(buttonModel.state)
-        renderConnectionSelection()
-        refreshLocationOptions()
-        if (buttonModel.state == VpnState.Started) {
-            Toast.makeText(this, R.string.subscription_selected_reconnect, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun connectionCountLabel(count: Int): String =
-        resources.getQuantityString(R.plurals.connection_count, count, count)
-
-    private fun localizedSubscriptionError(error: String): String = when {
-        error.isBlank() -> ""
-        else -> getString(R.string.subscription_operation_failed)
-    }
-
-    private fun selectedSubscriptionName(): String {
-        val store = SubscriptionStore(this)
-        val selectedId = store.readSelectedSubscriptionId()
-        return store.readUserSubscription(selectedId)?.name ?: builtInSubscriptionName(selectedId)
-    }
-
-    private fun builtInSubscriptionName(id: String): String = getString(
-        if (id == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID) {
-            R.string.subscription_public_name
-        } else {
-            R.string.subscription_private_name
-        },
-    )
-
-    private fun renderConnectionDetails(state: VpnState) {
+    internal fun renderConnectionDetails(state: VpnState) {
         if (!::connectionDetailsText.isInitialized) return
-        connectionDetailsText.text = connectionDetails.takeIf { state == VpnState.Started }.orEmpty()
+        connectionDetailsText.text = when {
+            state == VpnState.Started -> connectionDetails
+            state == VpnState.Starting -> automaticConnectionProgress
+            else -> ""
+        }
         connectionDetailsText.visibility =
             if (connectionDetailsText.text.isNotBlank()) View.VISIBLE else View.GONE
         if (::dashboardChainText.isInitialized) {
@@ -2115,22 +1283,31 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun localizedError(@Suppress("UNUSED_PARAMETER") error: Throwable, @StringRes fallbackRes: Int): String =
+    internal fun localizedError(@Suppress("UNUSED_PARAMETER") error: Throwable, @StringRes fallbackRes: Int): String =
         getString(fallbackRes)
 
     override fun onStart() {
         super.onStart()
+        runCatching { appTools.onStart(appRootView) }
         VpnWidgetProvider.refresh(this)
         DiagnosticLogger.info(this, "activity.onStart")
         val filter = IntentFilter().apply {
             addAction(Actions.STATE_CHANGED)
             addAction(Actions.CONNECTION_DELAY_TEST_CHANGED)
             addAction(Actions.CONNECTION_SPEED_TEST_CHANGED)
+            addAction(Actions.AUTOMATIC_CONNECTION_PROGRESS)
+            addAction(Actions.REAL_INTERNET_CHECK)
         }
         // Below API 33 a bare registerReceiver is implicitly exported, which would let any other
         // app broadcast STATE_CHANGED and paint a false "connected" state over the UI.
         // ContextCompat guards the pre-33 path with a signature-level permission.
         ContextCompat.registerReceiver(this, stateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        // Carrier can change while the app is open (Wi-Fi ↔ mobile, roaming); the fragment
+        // preset is decided from it at connect time, so the settings line must follow.
+        runCatching {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.registerDefaultNetworkCallback(carrierChangeCallback)
+        }
         applyRuntimeState(
             VpnRuntimeStateStore.read(this),
             VpnRuntimeStateStore.readSessionStartedAtElapsedMs(this),
@@ -2148,6 +1325,12 @@ class MainActivity : Activity() {
             VpnRuntimeStateStore.readAlwaysOn(this),
             VpnRuntimeStateStore.readLockdown(this),
         )
+        // beta220: the last real internet test of this connection (measured by the service while we were away)
+        renderRealInternetCard(VpnRuntimeStateStore.readRealInternetResult(this))
+        // Fragmenting is on → keep the recommendation fresh (one request per foreground).
+        refreshPanelTuneIfNeeded()
+        // The chain decides which countries the location picker may offer.
+        refreshChainExitCountries()
         if (connectionTestingPageVisible) {
             showConnectionTestingPage(
                 animate = false,
@@ -2159,6 +1342,10 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        runCatching { appTools.onStop() }
+        aetherOperationJob?.cancel(CancellationException("Cat Warp page left foreground"))
+        aetherOperationJob = null
+        AetherOperations.cancel()
         VpnWidgetProvider.refresh(this)
         DiagnosticLogger.info(this, "activity.onStop")
         mainHandler.removeCallbacks(timerRunnable)
@@ -2166,20 +1353,49 @@ class MainActivity : Activity() {
         privacyPolicyDialog = null
         connectionDelayTestListener = null
         unregisterReceiver(stateReceiver)
+        runCatching {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.unregisterNetworkCallback(carrierChangeCallback)
+        }
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
+        // Reached an interactive state → the previous session did not die silently.
+        CrashWatch.markHealthy(this)
+        renderFragmentCarrierLine()
         appUpdateUi.onResume()
+        prewarmSubscriptionSnapshots()
+        runCatching { UiStallWatchdog.setActive(this, true) }
+    }
+
+    /**
+     * Parses the selected subscription (and a few others) in the background so the first tap on a subscription,
+     * the connection list or the picker does not freeze the UI while a large YAML is parsed.
+     */
+    private fun prewarmSubscriptionSnapshots() {
+        activityScope.launch(Dispatchers.IO) {
+            runCatching {
+                val selectedId = SubscriptionStore(this@MainActivity).readSelectedSubscriptionId()
+                val ids = (listOf(selectedId) + userSubscriptionManager.list().map { it.id })
+                    .distinct()
+                    .filterNot { SubscriptionStore.isBuiltInSubscription(it) }
+                    .take(3)
+                ids.forEach { id -> runCatching { userSubscriptionManager.cachedSnapshot(id) } }
+            }
+        }
     }
 
     override fun onPause() {
+        runCatching { UiStallWatchdog.setActive(this, false) }
         appUpdateUi.onPause()
         super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt(STATE_ACTIVE_SCREEN, currentActiveScreen)
+        outState.putInt(STATE_SETTINGS_CATEGORY_RES, activeSettingsCategoryTitleRes)
         outState.putBoolean(STATE_CONNECTION_TESTING_PAGE, connectionTestingPageVisible)
         outState.putString(STATE_CHAIN_PICKER_SLOT, activeChainPickerSlot?.wireName)
         outState.putString(STATE_CHAIN_PICKER_SUBSCRIPTION, activeChainPickerSubscriptionId)
@@ -2203,9 +1419,34 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    /**
+     * Memory pressure, in the log and in the UI.
+     *
+     * The owner's beta98 report ends in `OutOfMemoryError` while a result row was being
+     * built, and nothing in the diagnostics said the heap had been filling up. This
+     * override records the level with the heap numbers (so the next report is readable)
+     * and, when the system says the heap is low, drops the rendered rows to a small cap
+     * before the next render — «the list gets shorter» beats «the app closes».
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val runtime = Runtime.getRuntime()
+        DiagnosticLogger.info(
+            this,
+            "mem.trim",
+            "level=$level maxMb=${runtime.maxMemory() / 1_048_576} " +
+                "totalMb=${runtime.totalMemory() / 1_048_576} freeMb=${runtime.freeMemory() / 1_048_576}",
+        )
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW && !lowMemoryRows) {
+            lowMemoryRows = true
+            runCatching { renderScannerResults() }
+        }
+    }
+
     @Deprecated("Deprecated in Android API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (appUpdateUi.onActivityResult(requestCode)) return
+        if (appTools.handleActivityResult(requestCode, resultCode, data)) return
         val scanResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (scanResult != null) {
             normalizedSubscriptionSource(scanResult.contents)?.let { source ->
@@ -2259,2737 +1500,90 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun buildDashboard(): View {
-        val scrollView = ScrollView(this).apply {
-            isFillViewport = true
-            setBackgroundColor(withAlpha(BACKGROUND, 0))
-            clipToPadding = false
-            clipChildren = false  // Allow particles to extend beyond bounds
+    /** Big value · small unit, as in ZedSecure's flow meter (Pixel/Portal designs). */
+    internal fun setSpeedText(view: TextView, bytesPerSecond: Long) {
+        val raw = formatTransferSpeed(bytesPerSecond)
+        if (appDesign == AppDesign.Old) {
+            view.text = raw
+            return
         }
-        ViewCompat.setOnApplyWindowInsetsListener(scrollView) { view, insets ->
-            val topInset = insets.getInsets(
-                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
-            ).top
-            val bottomInset = insets.getInsets(
-                WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.navigationBars(),
-            ).bottom
-            view.setPadding(view.paddingLeft, topInset, view.paddingRight, bottomInset)
-            view.post {
-                view.findFocus()?.let { focusedView ->
-                    scrollFieldIntoView(scrollView, focusedView, delayMs = 0L)
-                }
-            }
-            insets
+        val cut = raw.lastIndexOf(' ')
+        if (cut <= 0) {
+            view.text = raw
+            return
         }
-        val viewport = FrameLayout(this).apply {
-            setPadding(0, 0, 0, dp(104))
-            // Allow particles to extend beyond this layout's bounds
-            clipChildren = false
-            clipToPadding = false
-        }
-        scrollView.addView(
-            viewport,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            ),
+        val spannable = android.text.SpannableString(raw)
+        spannable.setSpan(android.text.style.RelativeSizeSpan(0.52f), cut, raw.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        spannable.setSpan(
+            android.text.style.ForegroundColorSpan(zedScheme.onSurfaceVariant),
+            cut,
+            raw.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
-
-        val dashboardContent = MaxWidthLinearLayout(this).apply {
-            maxWidthPx = dp(520)
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, 0, 0, dp(104))
-            // Allow particles to extend beyond this layout's bounds
-            clipChildren = false
-            clipToPadding = false
-        }
-
-        fun contentParams(topMargin: Int = 0): LinearLayout.LayoutParams {
-            return LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                leftMargin = dp(24)
-                rightMargin = dp(24)
-                this.topMargin = topMargin
-            }
-        }
-
-        // Centered product header
-        val headerBlock = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            gravity = Gravity.CENTER
-            setPadding(dp(9), dp(4), dp(9), dp(4))
-            addView(TextView(this@MainActivity).apply {
-                text = "Cat Client"
-                textSize = 14.5f
-                typeface = CatClientDisplayTypeface
-                setTextColor(TEXT_PRIMARY)
-                includeFontPadding = false
-                letterSpacing = -0.01f
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = BuildConfig.VERSION_NAME
-                textSize = 11.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(palette.textTertiary)
-                includeFontPadding = false
-            }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(9) })
-        }
-
-        // New segmented tab switcher with rounded corners
-        val connectionModeButtonColors = arrayOf(
-            intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked),
-            intArrayOf(android.R.attr.state_enabled, -android.R.attr.state_checked),
-            intArrayOf(-android.R.attr.state_enabled, android.R.attr.state_checked),
-            intArrayOf(-android.R.attr.state_enabled, -android.R.attr.state_checked),
-        )
-        fun connectionModeButton(@StringRes textRes: Int) = MaterialButton(
-            this,
-            null,
-            com.google.android.material.R.attr.materialButtonOutlinedStyle,
-        ).apply {
-            id = View.generateViewId()
-            setText(textRes)
-            setAllCaps(false)
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            isCheckable = true
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(44)
-            minimumHeight = dp(44)
-            insetTop = 0
-            insetBottom = 0
-            setPadding(0, 0, 0, 0)
-            cornerRadius = dp(12)
-            strokeWidth = 0
-            elevation = 0f
-            stateListAnimator = null
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            val selectedBackground = withAlpha(TEAL, if (palette.isDark) 64 else 32)
-            backgroundTintList = ColorStateList(
-                connectionModeButtonColors,
-                intArrayOf(selectedBackground, Color.TRANSPARENT, withAlpha(TEAL, 24), Color.TRANSPARENT),
-            )
-            setTextColor(
-                ColorStateList(
-                    connectionModeButtonColors,
-                    intArrayOf(
-                        TEAL,
-                        TEXT_PRIMARY,
-                        withAlpha(TEAL, 120),
-                        withAlpha(TEXT_PRIMARY, 110),
-                    ),
-                ),
-            )
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 28))
-            gravity = Gravity.CENTER
-        }
-        vpnModeButton = connectionModeButton(R.string.connection_mode_vpn)
-        proxyModeButton = connectionModeButton(R.string.connection_mode_proxy)
-        connectionModeGroup = MaterialButtonToggleGroup(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            isSingleSelection = true
-            isSelectionRequired = true
-            // Container with rounded background
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(withAlpha(SURFACE, 200))
-                setStroke(dp(1), withAlpha(OUTLINE, 180))
-            }
-            minimumHeight = dp(52)
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            addView(vpnModeButton, LinearLayout.LayoutParams(0, dp(44), 1f))
-            addView(proxyModeButton, LinearLayout.LayoutParams(0, dp(44), 1f))
-            check(
-                if (connectionModePreferenceStore.read() == ConnectionMode.Proxy) {
-                    proxyModeButton.id
-                } else {
-                    vpnModeButton.id
-                },
-            )
-            addOnButtonCheckedListener { _, checkedId, isChecked ->
-                if (isChecked && isEnabled) {
-                    saveConnectionMode(
-                        if (checkedId == proxyModeButton.id) ConnectionMode.Proxy else ConnectionMode.Vpn,
-                    )
-                }
-            }
-        }
-        // The globe is the connection surface; the glass action below it is the
-        // single clear connect/disconnect action and keeps the gesture obvious.
-        connectionGlobe = ConnectionGlobeView(this).apply {
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { handleButtonClick() }
-            setOnLongClickListener {
-                copyDiagnosticsToClipboard()
-                true
-            }
-        }
-        // Aras-style action capsule: a big 56dp pill. Filled purple gradient
-        // while the tunnel is up, state-tinted while switching, quiet glass
-        // otherwise (see applyConnectPillStyle). The globe stays the playful
-        // touch target; this is the clear one-tap switch under it.
-        connectActionButton = MaterialButton(this).apply {
-            setText(R.string.connect_action_connect)
-            setAllCaps(false)
-            textSize = 16f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(56)
-            minimumHeight = dp(56)
-            insetTop = 0
-            insetBottom = 0
-            setPadding(dp(30), 0, dp(30), 0)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 60))
-            elevation = dp(4).toFloat()
-            stateListAnimator = null
-            backgroundTintList = null
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(28).toFloat()
-                setColor(withAlpha(SURFACE, 235))
-                setStroke(dp(1), withAlpha(OUTLINE, 210))
-            }
-            setTextColor(TEAL)
-            setOnClickListener { handleButtonClick() }
-        }
-        statusDot = View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(palette.neutral)
-            }
-        }
-        statusText = TextView(this).apply {
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-            textSize = 13f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-        }
-        publicServerNotice = TextView(this).apply {
-            setText(R.string.notification_connected_public)
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(AMBER)
-            includeFontPadding = false
-            visibility = View.GONE
-        }
-        timerText = TextView(this).apply {
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            text = "00:00:00"
-            textSize = 15f
-            letterSpacing = 0.02f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-        }
-        downloadSpeedText = TextView(this).apply {
-            text = "0 B/s"
-            gravity = Gravity.END
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 15f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = false
-        }
-        uploadSpeedText = TextView(this).apply {
-            text = "0 B/s"
-            gravity = Gravity.END
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 15f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = false
-        }
-        connectionRealIpText = TextView(this).apply {
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            textSize = 11f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            visibility = View.GONE
-        }
-        connectionV6Text = TextView(this).apply {
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            textSize = 11f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            visibility = View.GONE
-        }
-        connectionCountryText = TextView(this).apply {
-            setText(R.string.output_automatic)
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-        }
-        connectionDetailsText = TextView(this).apply {
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            textSize = 12f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            minWidth = 0
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            visibility = View.GONE
-        }
-        dashboardLocalEndpointText = TextView(this).apply {
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 12f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            visibility = View.GONE
-        }
-        dashboardChainText = TextView(this).apply {
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEAL)
-            includeFontPadding = false
-            maxLines = 1
-            visibility = View.GONE
-        }
-
-        // Animated arrow icons for download/upload
-        downloadArrowIcon = AnimatedArrowIcon(this, isDownload = true)
-        uploadArrowIcon = AnimatedArrowIcon(this, isDownload = false)
-
-        // Speed stats row with animated arrow icons - matching the design
-        fun speedStatRow(label: String, value: TextView, isDownload: Boolean, arrowIcon: AnimatedArrowIcon): View = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            // Arrow icon + label on left
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                // Animated arrow icon
-                addView(arrowIcon, LinearLayout.LayoutParams(dp(13), dp(13)))
-                addView(TextView(this@MainActivity).apply {
-                    text = label
-                    textSize = 11.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            // Value on right
-            addView(value, LinearLayout.LayoutParams(-2, -2))
-        }
-        fun kpiCard(label: String, value: TextView, accent: Boolean): LinearLayout =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                gravity = Gravity.CENTER_VERTICAL
-                background = glassSurfaceDrawable(radiusDp = 14)
-                clipToOutline = true
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = label
-                        textSize = 11f
-                        typeface = CatClientBodyTypeface
-                        setTextColor(TEXT_SECONDARY)
-                        includeFontPadding = false
-                    },
-                    LinearLayout.LayoutParams(-2, -2),
-                )
-                addView(
-                    value,
-                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-                )
-                if (accent) {
-                    addView(
-                        View(this@MainActivity).apply {
-                            background = GradientDrawable().apply {
-                                shape = GradientDrawable.RECTANGLE
-                                cornerRadius = dp(2).toFloat()
-                                setColor(withAlpha(TEAL, 140))
-                            }
-                        },
-                        LinearLayout.LayoutParams(dp(28), dp(3)).apply { topMargin = dp(8) },
-                    )
-                }
-            }
-        pingValueText = TextView(this).apply {
-            text = "—"
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 19f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = false
-        }
-        uptimeValueText = TextView(this).apply {
-            text = "00:00:00"
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            textSize = 19f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = false
-        }
-        // 2 x 2 KPI grid: download / upload / ping / uptime
-        val speedStatsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(
-                        kpiCard(getString(R.string.metric_download), downloadSpeedText, true),
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    addView(
-                        kpiCard(getString(R.string.metric_upload), uploadSpeedText, false),
-                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(
-                        kpiCard(getString(R.string.home_ping_label), pingValueText, false).apply {
-                            isClickable = true
-                            isFocusable = true
-                            setOnClickListener { runTunnelPing() }
-                        },
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    addView(
-                        kpiCard(getString(R.string.home_uptime_label), uptimeValueText, false),
-                        LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-            )
-        }
-
-        // Reconnect button - initialize before signalSection
-        refreshActionButton = MaterialButton(this).apply {
-            setText(R.string.action_reconnect)
-            textSize = 11f
-            typeface = CatClientBodyBoldTypeface
-            minHeight = dp(44)
-            minimumHeight = dp(44)
-            minWidth = 0
-            minimumWidth = 0
-            insetTop = 0
-            insetBottom = 0
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            cornerRadius = dp(12)
-            strokeWidth = 0
-            elevation = 0f
-            stateListAnimator = null
-            setAllCaps(false)
-            setIconResource(R.drawable.ic_refresh)
-            iconSize = dp(14)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            iconPadding = dp(4)
-            visibility = View.INVISIBLE  // Use INVISIBLE to preserve space and prevent UI jump
-            setOnClickListener { handleRefreshClick() }
-        }
-
-        // Row with reconnect button on left and timer on right
-        val timerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            // Reconnect button on left
-            addView(
-                refreshActionButton,
-                LinearLayout.LayoutParams(-2, -2),
-            )
-            // Spacer
-            addView(
-                View(this@MainActivity),
-                LinearLayout.LayoutParams(0, 0, 1f),
-            )
-            // Timer on right
-            addView(
-                timerText,
-                LinearLayout.LayoutParams(-2, -2),
-            )
-        }
-
-        val statusCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(withAlpha(SURFACE, 200))
-                setStroke(dp(1), withAlpha(OUTLINE, 180))
-            }
-            addView(timerRow, LinearLayout.LayoutParams(-1, dp(44)))
-            addView(
-                View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    topMargin = dp(8)
-                    bottomMargin = dp(8)
-                },
-            )
-            addView(speedStatsRow, LinearLayout.LayoutParams(-1, dp(44)))
-        }
-
-        val signalSection = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            // Allow particles to extend beyond this layout's bounds
-            clipChildren = false
-            clipToPadding = false
-            // Route globe first; the connect action now lives below it rather than inside the orb.
-            addView(
-                connectionGlobe,
-                LinearLayout.LayoutParams(-1, dp(238)),
-            )
-            addView(
-                connectActionButton,
-                LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) },
-            )
-            // Visible actions: ping through the ACTIVE config (like v2rayNG /
-            // V2Box) and a manual IP re-check so the dashboard can be synced
-            // with any "what is my ip" site at a glance.
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
-                        setText(textRes)
-                        setAllCaps(false)
-                        textSize = 11.5f
-                        typeface = CatClientBodyBoldTypeface
-                        minWidth = 0
-                        minimumWidth = 0
-                        minHeight = dp(34)
-                        minimumHeight = dp(34)
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(14), 0, dp(14), 0)
-                        cornerRadius = dp(12)
-                        strokeWidth = dp(1)
-                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-                        setTextColor(TEAL)
-                        setOnClickListener { onClick() }
-                    }
-                    addView(ghostButton(R.string.action_ping_test) { runTunnelPing() }, LinearLayout.LayoutParams(-2, -2))
-                    addView(ghostButton(R.string.ip_refresh) { refreshDashboardIp() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-            // Bulk actions: ping EVERY config (like v2rayNG Ping All) and
-            // connect straight to the fastest one.
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    fun ghostButton(textRes: Int, onClick: () -> Unit) = MaterialButton(this@MainActivity).apply {
-                        setText(textRes)
-                        setAllCaps(false)
-                        textSize = 11.5f
-                        typeface = CatClientBodyBoldTypeface
-                        minWidth = 0
-                        minimumWidth = 0
-                        minHeight = dp(34)
-                        minimumHeight = dp(34)
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(14), 0, dp(14), 0)
-                        cornerRadius = dp(12)
-                        strokeWidth = dp(1)
-                        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                        backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 30))
-                        setTextColor(TEAL)
-                        setOnClickListener { onClick() }
-                    }
-                    addView(ghostButton(R.string.action_ping_all) { runPingAll(autoConnect = false) }, LinearLayout.LayoutParams(-2, -2))
-                    addView(ghostButton(R.string.action_connect_best) { runPingAll(autoConnect = true) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-            )
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    addView(statusDot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(7) })
-                    addView(statusText, LinearLayout.LayoutParams(-2, -2))
-                    addView(connectionCountryText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                    addView(connectionRealIpText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                    addView(connectionV6Text, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) },
-            )
-            addView(
-                publicServerNotice,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-            // Connection status and traffic metrics
-            addView(
-                statusCard,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) },
-            )
-        }
-
-        locationSelectorRow = DashboardDataRowView(this).apply {
-            setRow(getString(R.string.location_label), getString(R.string.option_automatic))
-            setOnRowClickListener { showLocationSelector() }
-        }
-        connectionSelectorRow = DashboardDataRowView(this).apply {
-            setRow(getString(R.string.connection_label), getString(R.string.option_automatic))
-            setOnRowClickListener {
-                if (connectionChainPreferenceStore.read().enabled) {
-                    openConnectionChainSettingsFromHome()
-                } else {
-                    showConnectionTestingPage()
-                }
-            }
-        }
-        homeChainAfterSelectorRow = DashboardDataRowView(this).apply {
-            setRow(
-                getString(R.string.connection_chain_after),
-                getString(R.string.connection_chain_optional_detail),
-            )
-            setOnRowClickListener { openConnectionChainSettingsFromHome() }
-        }
-        homeChainSelectorRows = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            addView(
-                View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    marginStart = dp(18)
-                    marginEnd = dp(18)
-                },
-            )
-            addView(homeChainAfterSelectorRow, LinearLayout.LayoutParams(-1, -2))
-        }
-        homeSubscriptionSelectorRow = DashboardDataRowView(this).apply {
-            val subscriptionName = selectedSubscriptionName()
-            setRow(getString(R.string.subscriptions_title), subscriptionName)
-            contentDescription = getString(
-                R.string.settings_value_content_description,
-                getString(R.string.subscriptions_title),
-                subscriptionName,
-            )
-            setOnRowClickListener { showSubscriptionSelectorMenu(this) }
-        }
-        dashboardConnectionMetadataSection = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            addView(
-                View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    marginStart = dp(18)
-                    marginEnd = dp(18)
-                },
-            )
-            addView(
-                LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(16), dp(10), dp(16), dp(12))
-                    addView(
-                        dashboardChainText,
-                        LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(12) },
-                    )
-                    addView(connectionDetailsText, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(
-                        dashboardLocalEndpointText,
-                        LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-        }
-        // Connection details card
-        val dataRowsList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(withAlpha(SURFACE, 200))
-                setStroke(dp(1), withAlpha(OUTLINE, 180))
-            }
-            clipToOutline = true
-            addView(locationSelectorRow, LinearLayout.LayoutParams(-1, -2))
-            addView(View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    marginStart = dp(18)
-                    marginEnd = dp(18)
-                })
-            addView(connectionSelectorRow, LinearLayout.LayoutParams(-1, -2))
-            addView(homeChainSelectorRows, LinearLayout.LayoutParams(-1, -2))
-            addView(View(this@MainActivity).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    marginStart = dp(18)
-                    marginEnd = dp(18)
-                })
-            addView(homeSubscriptionSelectorRow, LinearLayout.LayoutParams(-1, -2))
-            addView(dashboardConnectionMetadataSection, LinearLayout.LayoutParams(-1, -2))
-        }
-        val dataRows = dataRowsList
-
-        homeUsageCard = buildHomeUsageCard()
-
-        dashboardContent.apply {
-            addView(
-                headerBlock,
-                contentParams(dp(34)),
-            )
-            addView(
-                signalSection,
-                contentParams(dp(24)),
-            )
-            // VPN/Proxy tab switcher
-            addView(
-                connectionModeGroup,
-                contentParams(dp(16)),
-            )
-            addView(
-                dataRows,
-                contentParams(dp(16)),
-            )
-            addView(
-                homeUsageCard,
-                contentParams(dp(16)),
-            )
-        }
-        renderHomeUsageCard()
-        viewport.addView(
-            dashboardContent,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
-            ),
-        )
-
-        return scrollView
+        view.text = spannable
     }
 
-    private fun buildAdvancedScreen(): View {
-        val root = FrameLayout(this).apply { setBackgroundColor(withAlpha(BACKGROUND, 0)) }
-        val scrollView = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-            setBackgroundColor(withAlpha(BACKGROUND, 0))
-        }
-        ViewCompat.setOnApplyWindowInsetsListener(scrollView) { view, insets ->
-            val topInset = insets.getInsets(
-                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
-            ).top
-            val bottomInset = insets.getInsets(
-                WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.navigationBars(),
-            ).bottom
-            view.setPadding(view.paddingLeft, topInset, view.paddingRight, bottomInset)
-            view.post {
-                view.findFocus()?.let { focusedView ->
-                    scrollFieldIntoView(scrollView, focusedView, delayMs = 0L)
-                }
-            }
-            insets
-        }
-        val advancedBody = MaxWidthLinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            maxWidthPx = dp(520)
-            setPadding(dp(24), dp(20), dp(24), dp(104))
-        }
-        fun settingsContent() = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        val appPreferencesSettings = settingsContent()
-        val testingSettings = settingsContent()
-        val connectionSettings = settingsContent()
-        val chainSettings = buildConnectionChainSettings()
-        val splitTunnelSettings = settingsContent()
-        val sharingSettings = settingsContent()
-        val systemSettings = settingsContent()
-        fun appPreferenceRow(
-            @StringRes titleRes: Int,
-            value: String,
-            onClick: (View) -> Unit,
-        ) = DashboardDataRowView(this).apply {
-            val title = getString(titleRes)
-            setRow(title, value)
-            contentDescription = getString(R.string.settings_value_content_description, title, value)
-            setOnRowClickListener { onClick(this) }
-        }
-        settingsSubscriptionSelectorRow = appPreferenceRow(
-            R.string.settings_subscription_title,
-            selectedSubscriptionName(),
-            ::showSubscriptionSelectorMenu,
-        )
-        val themeSelectorRow = appPreferenceRow(
-            R.string.theme_dialog_title,
-            getString(appThemePreferenceStore.read().labelRes),
-        ) { showThemeSelector() }
-        val languageSelectorRow = appPreferenceRow(
-            R.string.language_setting_title,
-            getString(appLanguagePreferenceStore.read().labelRes),
-        ) { showLanguageSelector() }
-        val appPreferencesPanel = advancedSettingsPanel()
-        listOf(settingsSubscriptionSelectorRow, themeSelectorRow, languageSelectorRow)
-            .forEachIndexed { index, row ->
-                if (index > 0) {
-                    appPreferencesPanel.addView(
-                        View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                        LinearLayout.LayoutParams(-1, dp(1)).apply {
-                            marginStart = dp(16)
-                            marginEnd = dp(16)
-                        },
-                    )
-                }
-                appPreferencesPanel.addView(row, LinearLayout.LayoutParams(-1, -2))
-            }
-        appPreferencesSettings.addView(
-            appPreferencesPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-        )
-        var connectionTestSettings = connectionTestSettingsPreferenceStore.read()
-        testingSettings.addView(
-            advancedSectionLabel(getString(R.string.config_test_section)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(32) },
-        )
-        val connectionTestPanel = advancedSettingsPanel()
-        fun testIntegerInput(
-            title: String,
-            detail: String,
-            initialValue: Int,
-            range: IntRange,
-            imeAction: Int,
-            onValueChanged: (Int) -> Unit,
-        ): TextInputLayout {
-            var savedValue = initialValue
-            val input = TextInputEditText(this).apply {
-                setSingleLine(true)
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-                gravity = Gravity.CENTER
-                background = null
-                textSize = 16f
-                typeface = CatClientDataTypeface
-                inputType = InputType.TYPE_CLASS_NUMBER
-                imeOptions = imeAction
-                filters = arrayOf(InputFilter.LengthFilter(3))
-                setText(initialValue.toString())
-                setSelectAllOnFocus(true)
-                setTextColor(TEXT_PRIMARY)
-            }
-            fun commit() {
-                val value = (input.text?.toString()?.toIntOrNull() ?: savedValue)
-                    .coerceIn(range.first, range.last)
-                if (input.text?.toString() != value.toString()) {
-                    input.setText(value.toString())
-                    input.setSelection(input.text?.length ?: 0)
-                }
-                if (value != savedValue) {
-                    savedValue = value
-                    onValueChanged(value)
-                }
-            }
-            input.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) commit()
-            }
-            input.setOnEditorActionListener { _, actionId, _ ->
-                if (actionId != EditorInfo.IME_ACTION_NEXT && actionId != EditorInfo.IME_ACTION_DONE) {
-                    false
-                } else {
-                    commit()
-                    input.clearFocus()
-                    true
-                }
-            }
-            return TextInputLayout(this).apply {
-                hint = title
-                helperText = getString(R.string.config_test_integer_range, range.first, range.last, detail)
-                boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-                boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-                boxStrokeColor = TEAL
-                boxStrokeWidth = dp(1)
-                boxStrokeWidthFocused = dp(1)
-                defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-                setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
-                setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-                addView(input)
-            }
-        }
-        connectionTestPanel.addView(
-            testIntegerInput(
-                title = getString(R.string.config_test_timeout_title),
-                detail = getString(R.string.config_test_timeout_detail),
-                initialValue = connectionTestSettings.timeoutSeconds,
-                range = ConnectionTestSettings.MIN_TIMEOUT_SECONDS..ConnectionTestSettings.MAX_TIMEOUT_SECONDS,
-                imeAction = EditorInfo.IME_ACTION_NEXT,
-            ) { value ->
-                connectionTestSettings = connectionTestSettings.copy(timeoutSeconds = value)
-                connectionTestSettingsPreferenceStore.save(connectionTestSettings)
-            },
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(12)
-                marginEnd = dp(12)
-                topMargin = dp(12)
-            },
-        )
-        connectionTestPanel.addView(
-            testIntegerInput(
-                title = getString(R.string.config_test_concurrency_title),
-                detail = getString(R.string.config_test_concurrency_detail),
-                initialValue = connectionTestSettings.concurrency,
-                range = ConnectionTestSettings.MIN_CONCURRENCY..ConnectionTestSettings.MAX_CONCURRENCY,
-                imeAction = EditorInfo.IME_ACTION_NEXT,
-            ) { value ->
-                connectionTestSettings = connectionTestSettings.copy(concurrency = value)
-                connectionTestSettingsPreferenceStore.save(connectionTestSettings)
-            },
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(12)
-                marginEnd = dp(12)
-                topMargin = dp(12)
-            },
-        )
-        connectionTestPanel.addView(
-            testIntegerInput(
-                title = getString(R.string.config_test_speed_size_title),
-                detail = getString(R.string.config_test_speed_size_detail),
-                initialValue = connectionTestSettings.speedTestMegabytes,
-                range = ConnectionTestSettings.MIN_SPEED_TEST_MEGABYTES..
-                    ConnectionTestSettings.MAX_SPEED_TEST_MEGABYTES,
-                imeAction = EditorInfo.IME_ACTION_DONE,
-            ) { value ->
-                connectionTestSettings = connectionTestSettings.copy(speedTestMegabytes = value)
-                connectionTestSettingsPreferenceStore.save(connectionTestSettings)
-            },
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(12)
-                marginEnd = dp(12)
-                topMargin = dp(12)
-                bottomMargin = dp(12)
-            },
-        )
-        testingSettings.addView(
-            connectionTestPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        connectionSettings.addView(
-            advancedSectionLabel(getString(R.string.tls_integrity_section)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-        )
-        val tlsIntegrityPanel = advancedSettingsPanel()
-        tlsIntegrityCheckbox = MaterialSwitch(this).apply {
-            isChecked = tlsIntegrityPreferenceStore.isEnabled()
-            contentDescription = getString(R.string.tls_integrity_title)
-            setOnClickListener { saveTlsIntegrityEnabled(isChecked) }
-        }
-        tlsIntegrityPanel.addView(
-            advancedToggleRow(
-                title = getString(R.string.tls_integrity_title),
-                detail = getString(R.string.tls_integrity_description),
-                toggle = tlsIntegrityCheckbox,
-            ),
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        tlsFragmentCheckbox = MaterialSwitch(this).apply {
-            isChecked = dpiBypassPreferenceStore.isEnabled()
-            contentDescription = getString(R.string.tls_fragment_title)
-            setOnClickListener { saveTlsFragmentEnabled(isChecked) }
-        }
-        tlsIntegrityPanel.addView(
-            advancedToggleRow(
-                title = getString(R.string.tls_fragment_title),
-                detail = getString(R.string.tls_fragment_description),
-                toggle = tlsFragmentCheckbox,
-            ),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-        )
-        // ISP-specific fragmentation presets (the one-click carriers row):
-        // each operator's DPI splits ClientHello differently, so the winning
-        // ByeDPI pattern differs too — try one, keep what works.
-        val presetChips = mutableListOf<Chip>()
-        val presetRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        listOf(
-            R.string.dpi_preset_default to DpiFragmentPreset.DEFAULT,
-            R.string.dpi_preset_mci to DpiFragmentPreset.MCI,
-            R.string.dpi_preset_irancell to DpiFragmentPreset.IRANCELL,
-            R.string.dpi_preset_rightel to DpiFragmentPreset.RIGHTEL,
-            R.string.dpi_preset_tci to DpiFragmentPreset.TCI,
-            R.string.dpi_preset_gaming to DpiFragmentPreset.GAMING,
-        ).forEach { (labelRes, preset) ->
-            val chip = Chip(this).apply {
-                text = getString(labelRes)
-                isCheckable = true
-                isChecked = dpiBypassPreferenceStore.presetId() == preset.id
-                textSize = 11f
-                setTextColor(TEXT_PRIMARY)
-                chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
-                chipStrokeWidth = dp(1).toFloat()
-                chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
-                setOnCheckedChangeListener { _, checked ->
-                    if (checked) {
-                        presetChips.filterNot { it === this }.forEach { it.isChecked = false }
-                        dpiBypassPreferenceStore.savePreset(preset.id)
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.dpi_preset_applied, getString(labelRes)),
-                            Toast.LENGTH_LONG,
-                        ).show()
+    /** Mirrors the VPN state into the Pixel/Portal home (title tint, Pixel card tone, connect hint). */
+    private fun applyZedHomeState(state: VpnState) {
+        if (appDesign == AppDesign.Old || !::heroStateText.isInitialized) return
+        val s = zedScheme
+        val live = state == VpnState.Started
+        homeHintText?.visibility = if (state == VpnState.Stopped) View.VISIBLE else View.GONE
+        val title = heroStateText
+        title.paint.shader = null
+        when (appDesign) {
+            AppDesign.Pixel -> {
+                val target = if (live) s.primaryContainer else s.surfaceContainer
+                val card = pixelCard
+                if (card != null && target != pixelCardColor) {
+                    val from = pixelCardColor
+                    pixelCardColor = target
+                    val bg = card.background as? GradientDrawable
+                    android.animation.ValueAnimator.ofObject(android.animation.ArgbEvaluator(), from, target).apply {
+                        duration = 420L
+                        addUpdateListener { bg?.setColor(it.animatedValue as Int) }
+                        start()
                     }
                 }
-            }
-            presetChips += chip
-            presetRow.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
-        }
-        tlsIntegrityPanel.addView(
-            advancedSectionLabel(getString(R.string.dpi_preset_section)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
-        tlsIntegrityPanel.addView(
-            presetRow,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-        )
-        connectionSettings.addView(
-            tlsIntegrityPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        connectionSettings.addView(
-            advancedSectionLabel(getString(R.string.settings_warp_section)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(24) },
-        )
-        val amneziaPanel = advancedSettingsPanel()
-        connectionSettings.addView(
-            amneziaPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        amneziaNoiseCheckbox = MaterialSwitch(this).apply {
-            isChecked = connectionOptionsPreferenceStore.read().amneziaNoiseEnabled
-            contentDescription = getString(R.string.amnezia_noise_enable)
-            setOnClickListener { saveAmneziaNoiseEnabled(isChecked) }
-        }
-        amneziaPanel.addView(
-            advancedToggleRow(
-                title = getString(R.string.amnezia_noise_title),
-                detail = getString(R.string.amnezia_noise_description),
-                toggle = amneziaNoiseCheckbox,
-            ),
-            LinearLayout.LayoutParams(-1, -2),
-        )
-
-        fun noiseField(hint: String, numeric: Boolean = false): Pair<EditText, TextInputLayout> {
-            val input = TextInputEditText(this).apply {
-                setSingleLine(true)
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-                gravity = if (numeric) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
-                background = null
-                textSize = 14f
-                inputType = if (numeric) {
-                    InputType.TYPE_CLASS_NUMBER
-                } else {
-                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                }
-                imeOptions = EditorInfo.IME_ACTION_NEXT
-                setTextColor(TEXT_PRIMARY)
-            }
-            val layout = TextInputLayout(this).apply {
-                this.hint = hint
-                boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-                boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-                boxStrokeColor = TEAL
-                boxStrokeWidth = dp(1)
-                boxStrokeWidthFocused = dp(1)
-                defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-                setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-                addView(input)
-            }
-            return input to layout
-        }
-
-        fun noiseFieldRow(vararg fields: TextInputLayout): LinearLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            gravity = Gravity.CENTER_VERTICAL
-            fields.forEachIndexed { index, field ->
-                addView(
-                    field,
-                    LinearLayout.LayoutParams(0, -2, 1f).apply {
-                        if (index > 0) marginStart = dp(8)
+                title.setTextColor(
+                    when {
+                        state is VpnState.Error -> s.error
+                        live -> s.onPrimaryContainer
+                        else -> s.onSurface
                     },
                 )
+                homeHintText?.setTextColor(s.primary)
             }
-        }
-
-        fun noiseGroupLabel(text: String): TextView = TextView(this).apply {
-            this.text = text
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-        }
-
-        val (countInput, countLayout) = noiseField(getString(R.string.amnezia_noise_count), numeric = true)
-        val (minSizeInput, minSizeLayout) = noiseField(getString(R.string.amnezia_noise_min_size), numeric = true)
-        val (maxSizeInput, maxSizeLayout) = noiseField(getString(R.string.amnezia_noise_max_size), numeric = true)
-        val (ttlInput, ttlLayout) = noiseField(getString(R.string.amnezia_noise_fake_ttl), numeric = true)
-        val (versionInput, versionLayout) = noiseField(getString(R.string.amnezia_noise_version), numeric = true)
-        val (ipStackInput, ipStackLayout) = noiseField(getString(R.string.amnezia_noise_ip_stack))
-        val (congestionInput, congestionLayout) = noiseField(getString(R.string.amnezia_noise_congestion))
-        val (headerProtectionKeyInput, headerProtectionKeyLayout) =
-            noiseField(getString(R.string.amnezia_noise_header_protection_key))
-        val (contentPaddingInput, contentPaddingLayout) =
-            noiseField(getString(R.string.amnezia_noise_content_padding))
-        val (rekeyAfterInput, rekeyAfterLayout) = noiseField(getString(R.string.amnezia_noise_rekey_after))
-        val (rekeyTimeoutInput, rekeyTimeoutLayout) = noiseField(getString(R.string.amnezia_noise_rekey_timeout))
-        val (rejectAfterInput, rejectAfterLayout) = noiseField(getString(R.string.amnezia_noise_reject_after))
-        val (keepaliveTimeoutInput, keepaliveTimeoutLayout) =
-            noiseField(getString(R.string.amnezia_noise_keepalive_timeout))
-        val (maxHandshakeAttemptsInput, maxHandshakeAttemptsLayout) =
-            noiseField(getString(R.string.amnezia_noise_max_handshake_attempts))
-        val (randomTrailersInput, randomTrailersLayout) =
-            noiseField(getString(R.string.amnezia_noise_random_trailers))
-        val (disableCookiesInput, disableCookiesLayout) =
-            noiseField(getString(R.string.amnezia_noise_disable_cookies))
-        amneziaNoiseCountInput = countInput
-        amneziaNoiseMinSizeInput = minSizeInput
-        amneziaNoiseMaxSizeInput = maxSizeInput
-        amneziaNoiseTtlInput = ttlInput
-        amneziaNoiseVersionInput = versionInput
-        amneziaNoiseIpStackInput = ipStackInput
-        amneziaNoiseCongestionInput = congestionInput
-        amneziaNoiseHeaderProtectionKeyInput = headerProtectionKeyInput
-        amneziaNoiseContentPaddingInput = contentPaddingInput
-        amneziaNoiseRekeyAfterInput = rekeyAfterInput
-        amneziaNoiseRekeyTimeoutInput = rekeyTimeoutInput
-        amneziaNoiseRejectAfterInput = rejectAfterInput
-        amneziaNoiseKeepaliveTimeoutInput = keepaliveTimeoutInput
-        amneziaNoiseMaxHandshakeAttemptsInput = maxHandshakeAttemptsInput
-        amneziaNoiseRandomTrailersInput = randomTrailersInput
-        amneziaNoiseDisableCookiesInput = disableCookiesInput.apply { imeOptions = EditorInfo.IME_ACTION_DONE }
-        amneziaNoiseFields = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(noiseGroupLabel(getString(R.string.amnezia_noise_packets_group)))
-            addView(noiseFieldRow(countLayout, minSizeLayout, maxSizeLayout), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            })
-            addView(noiseFieldRow(ttlLayout, versionLayout), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            })
-            addView(noiseGroupLabel(getString(R.string.amnezia_noise_stack_group)), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(16)
-            })
-            addView(noiseFieldRow(ipStackLayout, congestionLayout), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            })
-            addView(noiseGroupLabel(getString(R.string.amnezia_noise_v3_group)), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(16)
-            })
-            addView(headerProtectionKeyLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            addView(contentPaddingLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            addView(noiseFieldRow(rekeyAfterLayout, rekeyTimeoutLayout), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            })
-            addView(noiseFieldRow(rejectAfterLayout, keepaliveTimeoutLayout), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            })
-            addView(maxHandshakeAttemptsLayout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            addView(noiseFieldRow(randomTrailersLayout, disableCookiesLayout), LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-            })
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.amnezia_noise_optional_hint)
-                    textSize = 11f
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-            )
-        }
-        amneziaPanel.addView(
-            amneziaNoiseFields,
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-                topMargin = dp(8)
-            },
-        )
-        amneziaNoiseApplyButton = MaterialButton(this).apply {
-            setText(R.string.amnezia_noise_apply)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setAllCaps(false)
-            minWidth = 0
-            minHeight = dp(44)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(OUTLINE)
-            rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 28))
-            setTextColor(TEAL)
-            elevation = 0f
-            stateListAnimator = null
-            setOnClickListener { applyAmneziaNoiseSettings() }
-        }
-        amneziaPanel.addView(
-            amneziaNoiseApplyButton,
-            LinearLayout.LayoutParams(-2, dp(44)).apply {
-                gravity = Gravity.END
-                marginStart = dp(8)
-                marginEnd = dp(8)
-                topMargin = dp(12)
-            },
-        )
-        amneziaNoiseErrorText = TextView(this).apply {
-            textSize = 12f
-            setTextColor(ERROR)
-            visibility = View.GONE
-        }
-        amneziaPanel.addView(
-            amneziaNoiseErrorText,
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-            },
-        )
-        connectionSettings.addView(
-            advancedSectionLabel(getString(R.string.fronting_section)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = dp(24)
-            },
-        )
-        val frontingPanel = advancedSettingsPanel()
-        connectionSettings.addView(
-            frontingPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        frontingPanel.addView(
-            advancedSectionDetail(getString(R.string.fronting_description)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-                topMargin = dp(8)
-            },
-        )
-        frontingIps = frontingIpPreferenceStore.readFrontingIps()
-        frontingIpChipGroup = ChipGroup(this).apply {
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            isSingleLine = false
-            chipSpacingHorizontal = dp(8)
-            chipSpacingVertical = dp(4)
-        }
-        frontingPanel.addView(
-            frontingIpChipGroup,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-                topMargin = dp(8)
-            },
-        )
-        renderFrontingIpChips()
-        frontingIpInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            textSize = 14f
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setOnEditorActionListener { _, actionId, _ ->
-                if (actionId != EditorInfo.IME_ACTION_DONE) return@setOnEditorActionListener false
-                commitFrontingIpInput(reconnectIfChanged = true)
-                clearFocus()
-                true
-            }
-            setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    scrollFieldIntoView(scrollView, frontingIpInputLayout)
+            AppDesign.Portal -> {
+                title.setTextColor(if (state is VpnState.Error) s.error else s.onSurface)
+                if (live) {
+                    title.post {
+                        val textWidth = title.paint.measureText(title.text.toString())
+                        val start = ((title.width - textWidth) / 2f).coerceAtLeast(0f)
+                        title.paint.shader = android.graphics.LinearGradient(
+                            start, 0f, start + textWidth.coerceAtLeast(1f), 0f,
+                            s.primary, s.tertiary, android.graphics.Shader.TileMode.CLAMP,
+                        )
+                        title.invalidate()
+                    }
                 } else {
-                    commitFrontingIpInput(reconnectIfChanged = true)
+                    title.invalidate()
                 }
             }
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    if (frontingIpInputUpdating) return
-                    frontingIpErrorText.visibility = View.GONE
-                    val value = s?.toString().orEmpty()
-                    if (value.contains(",")) {
-                        val parts = value.split(",")
-                        val completeParts = parts.dropLast(1)
-                        val tail = if (value.endsWith(",")) "" else parts.last()
-                        if (addFrontingIpTokens(completeParts, focusOnError = false)) {
-                            setFrontingIpInputText(tail)
-                        }
-                    }
-                }
-            })
+            AppDesign.Old -> Unit
         }
-        frontingIpInputLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.fronting_hint)
-            placeholderText = "104.16.0.1:443"
-            helperText = frontingIpInputHint()
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            boxStrokeWidth = dp(1)
-            boxStrokeWidthFocused = dp(1)
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(frontingIpInput)
-        }
-        frontingPanel.addView(
-            frontingIpInputLayout,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-                topMargin = dp(12)
-            },
-        )
-        frontingIpErrorText = TextView(this).apply {
-            textSize = 12f
-            setTextColor(ERROR)
-            includeFontPadding = true
-            visibility = View.GONE
-        }
-        frontingPanel.addView(
-            frontingIpErrorText,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-            },
-        )
-        connectionSettings.addView(
-            advancedSectionLabel(getString(R.string.routing_section)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = dp(24)
-            },
-        )
-        val routingPanel = advancedSettingsPanel()
-        connectionSettings.addView(
-            routingPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        routingModeDetailText = TextView(this).apply {
-            textSize = 12f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            maxLines = 2
-        }
-        val routingText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.routing_rules_title)
-                    textSize = 14f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    includeFontPadding = false
-                },
-            )
-            addView(
-                routingModeDetailText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = dp(4) },
-            )
-        }
-        routingModeValueText = TextView(this).apply {
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEAL)
-            includeFontPadding = false
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-        }
-        routingModeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            setSelectableBackground()
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showRoutingModeSelector() }
-            addView(
-                routingText,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-            )
-            addView(
-                routingModeValueText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { marginStart = dp(16) },
-            )
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.chevron_forward)
-                    textSize = 22f
-                    layoutDirection = View.LAYOUT_DIRECTION_LTR
-                    textDirection = View.TEXT_DIRECTION_LTR
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEAL)
-                    includeFontPadding = false
-                    gravity = Gravity.CENTER
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { marginStart = dp(8) },
-            )
-        }
-        routingPanel.addView(
-            routingModeRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        connectionSettings.addView(
-            advancedSectionLabel(getString(R.string.dns_privacy_section)),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = dp(24)
-            },
-        )
-        val dnsPanel = advancedSettingsPanel()
-        connectionSettings.addView(
-            dnsPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        dnsPrivacyDetailText = TextView(this).apply {
-            textSize = 12f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-        }
-        val dnsText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.dns_encrypted_title)
-                    textSize = 14f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    includeFontPadding = false
-                },
-            )
-            addView(
-                dnsPrivacyDetailText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    topMargin = dp(4)
-                },
-            )
-        }
-        dnsPrivacyValueText = TextView(this).apply {
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEAL)
-            includeFontPadding = false
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_LOCALE
-        }
-        dnsPrivacyRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            setSelectableBackground()
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showDnsPrivacySelector() }
-            addView(
-                dnsText,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-            )
-            addView(
-                dnsPrivacyValueText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { marginStart = dp(16) },
-            )
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.chevron_forward)
-                    textSize = 22f
-                    layoutDirection = View.LAYOUT_DIRECTION_LTR
-                    textDirection = View.TEXT_DIRECTION_LTR
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEAL)
-                    includeFontPadding = false
-                    gravity = Gravity.CENTER
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { marginStart = dp(8) },
-            )
-        }
-        dnsPanel.addView(
-            dnsPrivacyRow,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        dnsPrivacyEndpointInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            textSize = 14f
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setOnEditorActionListener { _, actionId, _ ->
-                if (actionId != EditorInfo.IME_ACTION_DONE) return@setOnEditorActionListener false
-                if (commitDnsPrivacyEndpoint(reconnectIfChanged = true, focusOnError = true)) {
-                    clearFocus()
-                }
-                true
-            }
-            setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    scrollFieldIntoView(scrollView, dnsPrivacyEndpointLayout)
-                } else {
-                    commitDnsPrivacyEndpoint(reconnectIfChanged = true)
-                }
-            }
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    if (!dnsPrivacyInputUpdating && ::dnsPrivacyErrorText.isInitialized) {
-                        dnsPrivacyErrorText.visibility = View.GONE
-                    }
-                }
-            })
-        }
-        dnsPrivacyEndpointLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.dns_server_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            boxStrokeWidth = dp(1)
-            boxStrokeWidthFocused = dp(1)
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(dnsPrivacyEndpointInput)
-        }
-        dnsPanel.addView(
-            dnsPrivacyEndpointLayout,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-                topMargin = dp(12)
-            },
-        )
-        dnsPrivacyErrorText = TextView(this).apply {
-            textSize = 12f
-            setTextColor(ERROR)
-            includeFontPadding = true
-            visibility = View.GONE
-        }
-        dnsPanel.addView(
-            dnsPrivacyErrorText,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginStart = dp(8)
-                marginEnd = dp(8)
-            },
-        )
-        sharingSettings.addView(
-            advancedSectionLabel(getString(R.string.lan_sharing_section)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-        )
-        val lanSharingPanel = advancedSettingsPanel()
-        lanSharingCheckbox = MaterialSwitch(this).apply {
-            contentDescription = getString(R.string.lan_sharing_title)
-            setOnClickListener { saveLanSharingEnabled(isChecked) }
-        }
-        lanSharingPanel.addView(
-            advancedToggleRow(
-                title = getString(R.string.lan_sharing_title),
-                detail = getString(R.string.lan_sharing_description),
-                toggle = lanSharingCheckbox,
-            ),
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        lanSharingPasswordCheckbox = MaterialSwitch(this).apply {
-            contentDescription = getString(R.string.lan_sharing_require_password)
-            setOnClickListener { saveLanSharingPasswordRequired(isChecked) }
-        }
-        lanSharingPanel.addView(
-            advancedToggleRow(
-                title = getString(R.string.lan_sharing_require_password),
-                detail = getString(R.string.lan_sharing_require_password_description),
-                toggle = lanSharingPasswordCheckbox,
-            ),
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        lanSharingPanel.addView(
-            advancedSectionDetail(getString(R.string.lan_sharing_manual_setup)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(8)
-            },
-        )
-        lanSharingDetailsText = TextView(this).apply {
-            textSize = 13f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_PRIMARY)
-            setTextIsSelectable(true)
-            includeFontPadding = false
-            setLineSpacing(dp(5).toFloat(), 1f)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = RippleDrawable(
-                ColorStateList.valueOf(withAlpha(TEAL, 28)),
-                GradientDrawable().apply {
-                    cornerRadius = dp(8).toFloat()
-                    setColor(withAlpha(SURFACE, if (palette.isDark) 232 else 246))
-                    setStroke(dp(1), withAlpha(OUTLINE, 170), dp(5).toFloat(), dp(4).toFloat())
-                },
-                null,
-            )
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { copyLanSharingSettings() }
-        }
-        lanSharingPanel.addView(
-            lanSharingDetailsText,
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(12)
-            },
-        )
-        lanSharingRegenerateButton = MaterialButton(this).apply {
-            setText(R.string.lan_sharing_regenerate)
-            setAllCaps(false)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minHeight = dp(44)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(OUTLINE)
-            setTextColor(TEAL)
-            setOnClickListener { regenerateLanSharingPassword() }
-        }
-        lanSharingPanel.addView(
-            lanSharingRegenerateButton,
-            LinearLayout.LayoutParams(-1, dp(44)).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(12)
-                bottomMargin = dp(16)
-            },
-        )
-        sharingSettings.addView(
-            lanSharingPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        systemSettings.addView(
-            advancedSectionLabel(getString(R.string.always_on_section)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-        )
-        val alwaysOnPanel = advancedSettingsPanel()
-        alwaysOnStatusText = TextView(this).apply {
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            includeFontPadding = false
-        }
-        alwaysOnPanel.addView(
-            alwaysOnStatusText,
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(16)
-            },
-        )
-        alwaysOnPanel.addView(
-            advancedSectionDetail(getString(R.string.always_on_description)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(6)
-            },
-        )
-        alwaysOnPanel.addView(
-            MaterialButton(this).apply {
-                setText(R.string.always_on_open_settings)
-                setAllCaps(false)
-                textSize = 12f
-                typeface = CatClientBodyBoldTypeface
-                minHeight = dp(44)
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(8)
-                backgroundTintList = ColorStateList.valueOf(SURFACE)
-                strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(TEAL)
-                rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 24))
-                setTextColor(TEAL)
-                setOnClickListener {
-                    startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
-                }
-            },
-            LinearLayout.LayoutParams(-2, dp(44)).apply {
-                gravity = Gravity.END
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(14)
-                bottomMargin = dp(16)
-            },
-        )
-        systemSettings.addView(
-            alwaysOnPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        renderAlwaysOnStatus()
-
-        systemSettings.addView(
-            advancedSectionLabel(getString(R.string.diagnostics_section)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-        )
-        val diagnosticsPanel = advancedSettingsPanel()
-        diagnosticsPanel.addView(
-            advancedSectionDetail(getString(R.string.diagnostics_description)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-                topMargin = dp(16)
-            },
-        )
-        val diagnosticsActions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(12), dp(10), dp(12), dp(12))
-        }
-        fun diagnosticsButton(@StringRes labelRes: Int, action: (View) -> Unit) =
-            MaterialButton(this).apply {
-                setText(labelRes)
-                setAllCaps(false)
-                textSize = 11.5f
-                typeface = CatClientBodyBoldTypeface
-                minWidth = 0
-                minimumWidth = 0
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(9)
-                backgroundTintList = ColorStateList.valueOf(withAlpha(TEXT_SECONDARY, 38))
-                setTextColor(TEXT_PRIMARY)
-                setPaddingRelative(dp(8), 0, dp(8), 0)
-                setOnClickListener(action)
-            }
-        diagnosticsActions.addView(
-            diagnosticsButton(R.string.diagnostics_copy) { copyDiagnosticsToClipboard() },
-            LinearLayout.LayoutParams(0, dp(44), 1f),
-        )
-        diagnosticsActions.addView(
-            diagnosticsButton(R.string.diagnostics_share) { shareDiagnostics() },
-            LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(8) },
-        )
-        diagnosticsPanel.addView(diagnosticsActions, LinearLayout.LayoutParams(-1, -2))
-        diagnosticsPanel.addView(
-            MaterialButton(this).apply {
-                setText(R.string.diagnostics_clear)
-                setAllCaps(false)
-                textSize = 11.5f
-                typeface = CatClientBodyBoldTypeface
-                minWidth = 0
-                minimumWidth = 0
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(9)
-                backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
-                setTextColor(ERROR)
-                setOnClickListener {
-                    DiagnosticLogger.clear(this@MainActivity)
-                    Toast.makeText(this@MainActivity, R.string.diagnostics_cleared, Toast.LENGTH_SHORT).show()
-                }
-            },
-            LinearLayout.LayoutParams(-2, dp(42)).apply {
-                gravity = Gravity.END
-                marginStart = dp(12)
-                marginEnd = dp(12)
-                bottomMargin = dp(8)
-            },
-        )
-        systemSettings.addView(
-            diagnosticsPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-
-        scrollView.addView(
-            advancedBody,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        scrollView.visibility = View.GONE
-
-        val indexBody = MaxWidthLinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            maxWidthPx = dp(520)
-            setPadding(dp(24), dp(34), dp(24), dp(104))
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.settings_title)
-                    textSize = 28f
-                    typeface = CatClientDisplayTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    includeFontPadding = false
-                },
-            )
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.settings_categories_description)
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    setLineSpacing(dp(2).toFloat(), 1f)
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-            )
-        }
-        val indexScrollView = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-            setBackgroundColor(withAlpha(BACKGROUND, 0))
-            addView(indexBody, ViewGroup.LayoutParams(-1, -2))
-        }
-        ViewCompat.setOnApplyWindowInsetsListener(indexScrollView) { view, insets ->
-            val topInset = insets.getInsets(
-                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
-            ).top
-            val bottomInset = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(view.paddingLeft, topInset, view.paddingRight, bottomInset)
-            insets
-        }
-
-        fun closeCategory() {
-            currentFocus?.clearFocus()
-            advancedSettingsBackAction = null
-            scrollView.visibility = View.GONE
-            indexScrollView.visibility = View.VISIBLE
-            indexScrollView.scrollTo(0, 0)
-            ViewCompat.requestApplyInsets(indexScrollView)
-        }
-
-        fun showCategory(@StringRes titleRes: Int, content: View) {
-            advancedBody.removeAllViews()
-            (content.parent as? ViewGroup)?.removeView(content)
-            val backButton = ImageButton(this).apply {
-                setImageResource(R.drawable.ic_arrow_back)
-                imageTintList = ColorStateList.valueOf(TEXT_PRIMARY)
-                setBackgroundColor(Color.TRANSPARENT)
-                setSelectableBackground()
-                contentDescription = getString(R.string.settings_category_back)
-                setPadding(dp(12), dp(12), dp(12), dp(12))
-                setOnClickListener { closeCategory() }
-            }
-            advancedBody.addView(
-                LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(backButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
-                    addView(
-                        TextView(this@MainActivity).apply {
-                            setText(titleRes)
-                            textSize = 24f
-                            typeface = CatClientDisplayTypeface
-                            setTextColor(TEXT_PRIMARY)
-                            includeFontPadding = false
-                            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                            textDirection = View.TEXT_DIRECTION_LOCALE
-                        },
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-            advancedBody.addView(
-                View(this).apply { setBackgroundColor(OUTLINE) },
-                LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(16) },
-            )
-            advancedBody.addView(content, LinearLayout.LayoutParams(-1, -2))
-            indexScrollView.visibility = View.GONE
-            ViewCompat.setAccessibilityPaneTitle(scrollView, getString(titleRes))
-            scrollView.visibility = View.VISIBLE
-            scrollView.scrollTo(0, 0)
-            ViewCompat.requestApplyInsets(scrollView)
-            advancedSettingsBackAction = { closeCategory() }
-            renderAdvancedControls()
-        }
-
-        val categoriesPanel = advancedSettingsPanel()
-        fun addCategory(
-            @StringRes titleRes: Int,
-            @StringRes detailRes: Int,
-            content: View,
-            addDivider: Boolean = true,
-            onOpen: (() -> Unit)? = null,
-            badge: View? = null,
-        ) {
-            categoriesPanel.addView(
-                LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    gravity = Gravity.CENTER_VERTICAL
-                    minimumHeight = dp(76)
-                    setPadding(dp(16), dp(14), dp(12), dp(14))
-                    setSelectableBackground()
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = getString(titleRes)
-                    setOnClickListener {
-                        showCategory(titleRes, content)
-                        onOpen?.invoke()
-                    }
-                    addView(
-                        LinearLayout(this@MainActivity).apply {
-                            orientation = LinearLayout.VERTICAL
-                            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                            addView(
-                                TextView(this@MainActivity).apply {
-                                    setText(titleRes)
-                                    textSize = 16f
-                                    typeface = CatClientBodyBoldTypeface
-                                    setTextColor(TEXT_PRIMARY)
-                                    includeFontPadding = false
-                                },
-                            )
-                            addView(
-                                TextView(this@MainActivity).apply {
-                                    setText(detailRes)
-                                    textSize = 12f
-                                    typeface = CatClientBodyTypeface
-                                    setTextColor(TEXT_SECONDARY)
-                                    includeFontPadding = false
-                                    maxLines = 2
-                                },
-                                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
-                            )
-                        },
-                        LinearLayout.LayoutParams(0, -2, 1f),
-                    )
-                    badge?.let {
-                        addView(it, LinearLayout.LayoutParams(-2, -2).apply {
-                            marginStart = dp(12)
-                            marginEnd = dp(12)
-                        })
-                    }
-                    addView(
-                        TextView(this@MainActivity).apply {
-                            setText(R.string.chevron_forward)
-                            textSize = 22f
-                            typeface = CatClientBodyBoldTypeface
-                            setTextColor(TEAL)
-                            includeFontPadding = false
-                            layoutDirection = View.LAYOUT_DIRECTION_LTR
-                            textDirection = View.TEXT_DIRECTION_LTR
-                        },
-                        LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) },
-                    )
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-            if (addDivider) {
-                categoriesPanel.addView(
-                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                    LinearLayout.LayoutParams(-1, dp(1)).apply {
-                        marginStart = dp(16)
-                        marginEnd = dp(16)
-                    },
-                )
-            }
-        }
-        addCategory(
-            R.string.settings_category_app_preferences,
-            R.string.settings_category_app_preferences_detail,
-            appPreferencesSettings,
-        )
-        addCategory(
-            R.string.settings_category_testing,
-            R.string.settings_category_testing_detail,
-            testingSettings,
-        )
-        addCategory(
-            R.string.settings_category_connections,
-            R.string.settings_category_connections_detail,
-            connectionSettings,
-        )
-        openConnectionChainSettingsPage = {
-            showCategory(R.string.connection_chain_title, chainSettings)
-        }
-        addCategory(
-            R.string.connection_chain_title,
-            R.string.connection_chain_category_detail,
-            chainSettings,
-        )
-        addCategory(
-            R.string.split_tunnel_label,
-            R.string.settings_category_split_tunnel_detail,
-            splitTunnelSettings,
-            onOpen = { showSplitTunnelSelector(splitTunnelSettings) },
-        )
-        addCategory(
-            R.string.settings_category_sharing,
-            R.string.settings_category_sharing_detail,
-            sharingSettings,
-        )
-        addCategory(
-            R.string.settings_category_system,
-            R.string.settings_category_system_detail,
-            systemSettings,
-        )
-        categoriesPanel.addView(
-            MaterialButton(this).apply {
-                setText(R.string.settings_reset)
-                setAllCaps(false)
-                textSize = 16f
-                typeface = CatClientBodyBoldTypeface
-                gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                minHeight = dp(64)
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = 0
-                backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
-                rippleColor = ColorStateList.valueOf(withAlpha(ERROR, 24))
-                setTextColor(ERROR)
-                elevation = 0f
-                stateListAnimator = null
-                setOnClickListener { showResetSettingsDialog() }
-            },
-            LinearLayout.LayoutParams(-1, dp(64)),
-        )
-        categoriesPanel.addView(
-            View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-            LinearLayout.LayoutParams(-1, dp(1)).apply {
-                marginStart = dp(16)
-                marginEnd = dp(16)
-            },
-        )
-        updateSettingsBadge = TextView(this).apply {
-            setText(R.string.update_badge)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEAL)
-            includeFontPadding = false
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            visibility = View.GONE
-        }
-        addCategory(
-            R.string.update_settings_title,
-            R.string.update_check,
-            appUpdateUi.createView(advancedSettingsPanel()),
-            addDivider = false,
-            badge = updateSettingsBadge,
-        )
-        indexBody.addView(
-            categoriesPanel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-        )
-        val footerCopyrightText = TextView(this).apply {
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            text = getString(R.string.footer_copyright)
-            textSize = 12f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-        }
-        val footerTelegramLink = TextView(this).apply {
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            text = getString(R.string.footer_url)
-            textSize = 12f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            minHeight = dp(44)
-            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_telegram, 0, 0, 0)
-            compoundDrawablePadding = dp(6)
-            compoundDrawableTintList = ColorStateList.valueOf(TEXT_SECONDARY)
-            setSelectableBackground()
-            isClickable = true
-            isFocusable = true
-            contentDescription = getString(R.string.footer_telegram_content_description)
-            setOnClickListener { openFooterLink() }
-        }
-        indexBody.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                addView(footerCopyrightText, LinearLayout.LayoutParams(-1, -2))
-                addView(footerTelegramLink, LinearLayout.LayoutParams(-2, dp(44)))
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(32) },
-        )
-
-        root.addView(indexScrollView, FrameLayout.LayoutParams(-1, -1))
-        root.addView(scrollView, FrameLayout.LayoutParams(-1, -1))
-        renderAdvancedControls()
-        return root
     }
+
+    /* ====================== ZedSecure 3.1.6 Settings pieces (Pixel/Portal) ====================== */
 
     /* ============================== Cloud tab ============================== */
-
-    private fun cloudActionButton(
-        @StringRes labelRes: Int,
-        @DrawableRes iconRes: Int,
-        accent: Boolean,
-        action: (View) -> Unit,
-    ): MaterialButton = MaterialButton(this).apply {
-        setText(labelRes)
-        setIconResource(iconRes)
-        iconTint = ColorStateList.valueOf(if (accent) TEAL else TEXT_SECONDARY)
-        iconSize = dp(18)
-        iconPadding = dp(8)
-        iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-        setAllCaps(false)
-        isSingleLine = true
-        ellipsize = TextUtils.TruncateAt.END
-        textSize = 14f
-        typeface = CatClientBodyBoldTypeface
-        minWidth = 0
-        minimumWidth = 0
-        minHeight = dp(48)
-        minimumHeight = dp(48)
-        insetTop = 0
-        insetBottom = 0
-        cornerRadius = dp(18)
-        setPaddingRelative(dp(16), 0, dp(16), 0)
-        backgroundTintList = ColorStateList.valueOf(if (accent) withAlpha(TEAL, 42) else withAlpha(palette.surfaceElevated2, 190))
-        strokeWidth = dp(1)
-        strokeColor = ColorStateList.valueOf(if (accent) withAlpha(TEAL, 180) else withAlpha(OUTLINE, 220))
-        rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 36))
-        elevation = dp(2).toFloat()
-        stateListAnimator = null
-        setTextColor(if (accent) TEAL else TEXT_PRIMARY)
-        setOnClickListener(action)
-    }
-
-    private fun cloudScopeLabel(scope: CloudflareWorker.PanelScope): String = when (scope) {
-        CloudflareWorker.PanelScope.CF_WORKER -> getString(R.string.cloud_scope_worker)
-        CloudflareWorker.PanelScope.SERVER -> getString(R.string.cloud_scope_server)
-        CloudflareWorker.PanelScope.TUNNEL -> getString(R.string.cloud_scope_tunnel)
-    }
 
     /* ------------------------------------------------------------------ */
     /* IP scanner screen: clean Cloudflare IPs (SNI + fronting)            */
     /* ------------------------------------------------------------------ */
 
-    private fun buildScannerScreen(): View {
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-        }
-        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
-            val topInset = insets.getInsets(
-                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout(),
-            ).top
-            view.setPadding(view.paddingLeft, topInset, view.paddingRight, view.paddingBottom)
-            insets
-        }
-        val body = MaxWidthLinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            maxWidthPx = dp(520)
-            setPadding(dp(24), dp(28), dp(24), dp(104))
-        }
-
-        body.addView(
-            TextView(this).apply {
-                setText(R.string.scanner_title)
-                textSize = 28f
-                typeface = CatClientDisplayTypeface
-                setTextColor(TEXT_PRIMARY)
-                includeFontPadding = false
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        body.addView(
-            advancedSectionDetail(getString(R.string.scanner_intro)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(8)
-                bottomMargin = dp(18)
-            },
-        )
-
-        // ---- live IP health: auto-refresh the pool and replace broken IPs ----
-        val ipHealthStore = IpHealthStore(this)
-        val healthCard = advancedSettingsPanel()
-        healthCard.addView(
-            advancedSectionLabel(getString(R.string.ip_health_section)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(10)
-                bottomMargin = dp(8)
-            },
-        )
-        healthCard.addView(
-            advancedSectionDetail(getString(R.string.ip_health_desc)),
-            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) },
-        )
-        ipHealthStatusView = TextView(this).apply {
-            textSize = 12f
-            typeface = CatClientDataTypeface
-            setTextColor(TEXT_SECONDARY)
-            setLineSpacing(dp(3).toFloat(), 1f)
-        }
-        healthCard.addView(ipHealthStatusView, LinearLayout.LayoutParams(-1, -2))
-        val intervalChips = mutableListOf<Chip>()
-        val autoChip = Chip(this@MainActivity).apply {
-            setText(R.string.ip_health_auto)
-            isCheckable = true
-            isChecked = ipHealthStore.autoEnabled
-            textSize = 12f
-            setTextColor(TEXT_PRIMARY)
-            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 170))
-            chipStrokeWidth = dp(1).toFloat()
-            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
-            setOnCheckedChangeListener { _, checked ->
-                ipHealthStore.autoEnabled = checked
-                startIpHealthLoop()
-                Toast.makeText(
-                    this@MainActivity,
-                    if (checked) R.string.ip_health_auto_on else R.string.ip_health_auto_off,
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-        val rotateButton = MaterialButton(this).apply {
-            setText(R.string.ip_health_rotate_now)
-            setAllCaps(false)
-            textSize = 11.5f
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(36)
-            minimumHeight = dp(36)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(14)
-            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34))
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-            setTextColor(TEAL)
-            setOnClickListener { runIpHealthSweep(failFast = true) }
-        }
-        val healthRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        val pinChip = Chip(this@MainActivity).apply {
-            setText(R.string.ip_health_pin)
-            isCheckable = true
-            isChecked = ipHealthStore.pinned
-            textSize = 12f
-            setTextColor(TEXT_PRIMARY)
-            chipStrokeColor = ColorStateList.valueOf(withAlpha(TEAL, 170))
-            chipStrokeWidth = dp(1).toFloat()
-            chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
-            setOnCheckedChangeListener { _, checked ->
-                ipHealthStore.pinned = checked
-                if (checked) startIpHealthLoop() // no-op while pinned; kills a running loop
-                Toast.makeText(
-                    this@MainActivity,
-                    if (checked) R.string.ip_health_pin_on else R.string.ip_health_pin_off,
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-        healthRow.addView(autoChip, LinearLayout.LayoutParams(-2, -2))
-        healthRow.addView(pinChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-        healthRow.addView(rotateButton, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-        healthCard.addView(healthRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        val intervalRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        listOf(5, 15, 30).forEach { minutes ->
-            val chip = Chip(this@MainActivity).apply {
-                text = getString(R.string.ip_health_interval, minutes)
-                isCheckable = true
-                isChecked = ipHealthStore.intervalMinutes == minutes
-                textSize = 11f
-                setTextColor(TEXT_PRIMARY)
-                chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
-                chipStrokeWidth = dp(1).toFloat()
-                chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
-                setOnCheckedChangeListener { _, checked ->
-                    if (checked) {
-                        intervalChips.filterNot { it === this }.forEach { it.isChecked = false }
-                        ipHealthStore.intervalMinutes = minutes
-                        startIpHealthLoop()
-                    }
-                }
-            }
-            intervalChips += chip
-            intervalRow.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
-        }
-        healthCard.addView(intervalRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        body.addView(healthCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
-        renderScannerIpHealth()
-        startIpHealthLoop()
-
-        val controls = advancedSettingsPanel()
-        controls.addView(
-            advancedSectionLabel(getString(R.string.scanner_settings_section)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(10)
-                bottomMargin = dp(8)
-            },
-        )
-        scannerSniInput = scannerInput(
-            hint = getString(R.string.scanner_sni_hint),
-            initial = scannerSniPreference(),
-        )
-        controls.addView(
-            scannerFieldLayout(getString(R.string.scanner_sni_label), scannerSniInput),
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        controls.addView(
-            TextView(this).apply {
-                setText(R.string.scanner_sni_recommended)
-                textSize = 11.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(TEXT_SECONDARY)
-                setPadding(0, dp(8), 0, dp(4))
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        val sniSuggestions = ChipGroup(this).apply {
-            isSingleLine = true
-            chipSpacingHorizontal = dp(6)
-            chipSpacingVertical = dp(4)
-            recommendedScannerSnis().forEach { suggestion ->
-                addView(Chip(this@MainActivity).apply {
-                    text = suggestion
-                    isCheckable = false
-                    isClickable = true
-                    textSize = 11f
-                    setTextColor(TEXT_PRIMARY)
-                    chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
-                    chipStrokeWidth = dp(1).toFloat()
-                    chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
-                    setOnClickListener {
-                        scannerSniInput.setText(suggestion)
-                        scannerSniInput.setSelection(suggestion.length)
-                        saveScannerSni(suggestion)
-                    }
-                })
-            }
-        }
-        controls.addView(sniSuggestions, LinearLayout.LayoutParams(-1, -2))
-        controls.addView(
-            TextView(this).apply {
-                setText(R.string.scanner_port_label)
-                textSize = 11.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(TEXT_SECONDARY)
-                setPadding(0, dp(10), 0, dp(4))
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        scannerPort = scannerPortPreference()
-        scannerPortGroup = ChipGroup(this).apply {
-            isSingleLine = true
-            isSingleSelection = true
-            chipSpacingHorizontal = dp(6)
-            chipSpacingVertical = dp(4)
-            listOf(443, 2053, 2083, 8443).forEach { port ->
-                addView(Chip(this@MainActivity).apply {
-                    id = View.generateViewId()
-                    text = getString(R.string.scanner_port_selected, port)
-                    isCheckable = true
-                    isChecked = port == scannerPort
-                    textSize = 11f
-                    setTextColor(TEXT_PRIMARY)
-                    chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
-                    chipStrokeWidth = dp(1).toFloat()
-                    chipBackgroundColor = ColorStateList.valueOf(withAlpha(SURFACE, if (palette.isDark) 210 else 245))
-                    setOnClickListener {
-                        scannerPort = port
-                        saveScannerPort(port)
-                    }
-                })
-            }
-        }
-        controls.addView(scannerPortGroup, LinearLayout.LayoutParams(-1, -2))
-        controls.addView(
-            TextView(this).apply {
-                setText(R.string.scanner_port_hint)
-                textSize = 10.5f
-                typeface = CatClientBodyTypeface
-                setTextColor(TEXT_SECONDARY)
-                setPadding(0, dp(3), 0, 0)
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        scannerSubnetsInput = scannerInput(
-            hint = getString(R.string.scanner_subnets_hint),
-            initial = scannerRangesPreference(),
-        ).apply {
-            // Range list: allow several lines so long CIDR lists stay readable.
-            setSingleLine(false)
-            maxLines = 4
-            isVerticalScrollBarEnabled = true
-        }
-        controls.addView(
-            scannerFieldLayout(getString(R.string.scanner_subnets_label), scannerSubnetsInput),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
-        val rangeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                TextView(this@MainActivity).apply {
-                    setText(R.string.scanner_ranges_note)
-                    textSize = 11.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                },
-                LinearLayout.LayoutParams(0, -2, 1f),
-            )
-            addView(
-                MaterialButton(this@MainActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                    setText(R.string.scanner_ranges_reset)
-                    textSize = 11.5f
-                    typeface = CatClientBodyBoldTypeface
-                    isAllCaps = false
-                    cornerRadius = dp(10)
-                    strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 160))
-                    setTextColor(TEXT_PRIMARY)
-                    insetTop = 0
-                    insetBottom = 0
-                    setOnClickListener {
-                        scannerSubnetsInput.setText(IpScanner.defaultRangesText())
-                        saveScannerRanges(IpScanner.defaultRangesText())
-                    }
-                },
-                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
-            )
-        }
-        controls.addView(rangeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-        val actionRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                MaterialButton(this@MainActivity).apply {
-                    setText(R.string.scanner_start)
-                    textSize = 13.5f
-                    typeface = CatClientBodyBoldTypeface
-                    isAllCaps = false
-                    cornerRadius = dp(10)
-                    backgroundTintList = ColorStateList.valueOf(TEAL)
-                    setTextColor(palette.onAccent)
-                    insetTop = 0
-                    insetBottom = 0
-                    setOnClickListener { startIpScanner() }
-                },
-                LinearLayout.LayoutParams(0, -2, 1f),
-            )
-            addView(
-                MaterialButton(this@MainActivity).apply {
-                    setText(R.string.scanner_stop)
-                    textSize = 13.5f
-                    typeface = CatClientBodyBoldTypeface
-                    isAllCaps = false
-                    cornerRadius = dp(10)
-                    isEnabled = false
-                    backgroundTintList = ColorStateList.valueOf(withAlpha(TEXT_SECONDARY, 60))
-                    setTextColor(TEXT_PRIMARY)
-                    insetTop = 0
-                    insetBottom = 0
-                    setOnClickListener { stopIpScanner() }
-                },
-                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
-            )
-        }
-        controls.addView(actionRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
-        scannerStartButton = actionRow.getChildAt(0) as MaterialButton
-        scannerStopButton = actionRow.getChildAt(1) as MaterialButton
-
-        scannerProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            visibility = View.GONE
-            indeterminateTintList = ColorStateList.valueOf(TEAL)
-            progressTintList = ColorStateList.valueOf(TEAL)
-            progressBackgroundTintList = ColorStateList.valueOf(withAlpha(OUTLINE, 120))
-        }
-        controls.addView(
-            scannerProgressBar,
-            LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(14) },
-        )
-        scannerStatusText = TextView(this).apply {
-            setText(R.string.scanner_idle)
-            textSize = 12.5f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(0, dp(8), 0, dp(4))
-        }
-        controls.addView(scannerStatusText, LinearLayout.LayoutParams(-1, -2))
-        body.addView(controls, LinearLayout.LayoutParams(-1, -2))
-
-        body.addView(
-            advancedSectionLabel(getString(R.string.scanner_results_section)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(22)
-                bottomMargin = dp(10)
-            },
-        )
-        scannerApplyButton = MaterialButton(this).apply {
-            setText(R.string.scanner_apply_best)
-            textSize = 13.5f
-            typeface = CatClientBodyBoldTypeface
-            isAllCaps = false
-            cornerRadius = dp(10)
-            isEnabled = false
-            backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 120))
-            setTextColor(palette.onAccent)
-            insetTop = 0
-            insetBottom = 0
-            setOnClickListener { applyScannerResult() }
-        }
-        body.addView(scannerApplyButton, LinearLayout.LayoutParams(-1, -2))
-        scannerBuildButton = MaterialButton(this).apply {
-            setText(R.string.scanner_build_configs)
-            textSize = 13.5f
-            typeface = CatClientBodyBoldTypeface
-            isAllCaps = false
-            cornerRadius = dp(10)
-            isEnabled = false
-            backgroundTintList = ColorStateList.valueOf(TEAL)
-            setTextColor(palette.onAccent)
-            insetTop = 0
-            insetBottom = 0
-            setOnClickListener {
-                val source = if (scannerResults.isNotEmpty()) scannerResults else scannerLiveResults.toList()
-                if (source.isEmpty()) {
-                    Toast.makeText(this@MainActivity, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
-                } else {
-                    buildSubscriptionFromScan(source)
-                }
-            }
-        }
-        body.addView(scannerBuildButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-
-        scannerResultsList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        body.addView(
-            scannerResultsList,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        renderScannerResults()
-
-        return scroll.apply { addView(body, FrameLayout.LayoutParams(-1, -2)) }
-    }
-
-    private fun scannerInput(hint: String, initial: String): TextInputEditText =
-        TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setHint(hint)
-            setText(initial)
-        }
-
-    private fun scannerFieldLayout(hint: String, input: TextInputEditText): TextInputLayout =
-        TextInputLayout(this).apply {
-            this.hint = hint
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(input)
-        }
-
-    private fun recommendedScannerSnis(): List<String> = buildList {
-        addAll(detectPanelSnisFromSubscriptions())
-        addAll(IpScanner.RECOMMENDED_SNIS)
-    }.map(String::lowercase).filter { it.isNotBlank() }.distinct().take(8)
-
-    private fun scannerSniPreference(): String {
-        val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
-            .getString(SCANNER_SNI_KEY, null)
-            ?.trim()
-        if (!saved.isNullOrEmpty() && saved != DEFAULT_SCANNER_SNI) return saved
-        return detectPanelSniFromSubscriptions() ?: saved?.takeIf { it.isNotEmpty() } ?: DEFAULT_SCANNER_SNI
-    }
-
-    /**
-     * Cat-compatible panels put the worker host in `servername:` / ws `Host:`; read it
-     * from the selected (or first) user subscription so the scanner tests the
-     * right SNI without the user typing anything.
-     */
-    private fun detectPanelSniFromSubscriptions(): String? {
-        val store = SubscriptionStore(this)
-        val ids = buildList {
-            add(store.readSelectedSubscriptionId())
-            userSubscriptionManager.list().forEach { add(it.id) }
-        }.filter { it.isNotBlank() }.distinct()
-        val pattern = Regex("""(?:servername|sni|Host):\s*['"]?([a-z0-9.-]+\.[a-z]{2,})['"]?""", RegexOption.IGNORE_CASE)
-        ids.forEach { id ->
-            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
-            pattern.findAll(yaml).map { it.groupValues[1].lowercase(Locale.US) }
-                .firstOrNull { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") }
-                ?.let { return it }
-            pattern.find(yaml)?.groupValues?.get(1)?.lowercase(Locale.US)?.let { return it }
-        }
-        return null
-    }
-
-    /**
-     * Every distinct SNI baked into the user's subscriptions — the panel writes
-     * its operator-verified winners (verifiedByOp) into each config, so this is
-     * the operator-verified SNI pool surfaced in scanner suggestions + health
-     * sweeps. Panel-host names (workers.dev/pages.dev) sort first.
-     */
-    private fun detectPanelSnisFromSubscriptions(): List<String> {
-        val store = SubscriptionStore(this)
-        val ids = buildList {
-            add(store.readSelectedSubscriptionId())
-            userSubscriptionManager.list().forEach { add(it.id) }
-        }.filter { it.isNotBlank() }.distinct()
-        val pattern = Regex("""(?:servername|sni|Host):\s*['"]?([a-z0-9.-]+\.[a-z]{2,})['"]?""", RegexOption.IGNORE_CASE)
-        val out = LinkedHashSet<String>()
-        ids.forEach { id ->
-            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
-            pattern.findAll(yaml).forEach { out.add(it.groupValues[1].lowercase(Locale.US)) }
-        }
-        return out
-            .sortedByDescending { it.endsWith(".workers.dev") || it.endsWith(".pages.dev") }
-            .toList()
-    }
-
     /** Detected panel identity (uuid + WS paths) for rebuilding configs with new IPs. */
-    private data class PanelIdentity(
+    internal data class PanelIdentity(
         val host: String,
         val uuid: String,
         val vlessPath: String,
@@ -4997,299 +1591,72 @@ class MainActivity : Activity() {
         val trojanPassword: String,
     )
 
-    private fun detectPanelIdentity(sni: String): PanelIdentity? {
-        val store = SubscriptionStore(this)
-        val ids = (listOf(store.readSelectedSubscriptionId()) + userSubscriptionManager.list().map { it.id })
-            .filter { it.isNotBlank() }.distinct()
-        val uuidRe = Regex("""uuid:\s*['"]?([0-9a-fA-F-]{36})""")
-        val pathRe = Regex("""path:\s*['"]?([^'"\n]+)""")
-        val trojanRe = Regex("""type:\s*trojan[\s\S]{0,400}?path:\s*['"]?([^'"\n]+)""")
-        ids.forEach { id ->
-            val yaml = runCatching { store.readUserSubscriptionYaml(id) }.getOrNull().orEmpty()
-            if (!yaml.contains(sni, ignoreCase = true)) return@forEach
-            val uuid = uuidRe.find(yaml)?.groupValues?.get(1) ?: return@forEach
-            val path = pathRe.find(yaml)?.groupValues?.get(1)?.trim() ?: "/ws?ed=2048"
-            val trojanPath = trojanRe.find(yaml)?.groupValues?.get(1)?.trim() ?: path
-            val trojanPassword = Regex(
-                """type:\s*trojan[\s\S]{0,500}?password:\s*['\"]?([^'\"\n]+)""",
-            ).find(yaml)?.groupValues?.get(1)?.trim().orEmpty().ifBlank { uuid }
-            return PanelIdentity(sni, uuid, path, trojanPath, trojanPassword)
-        }
-        return null
+    internal var scannerSourceRow: LinearLayout? = null
+    internal var scannerSourceSummary: TextView? = null
+    internal var scannerForceRow: LinearLayout? = null
+
+    internal var ipHealthJob: Job? = null
+    internal var ipHealthSweeping = false
+    internal var ipHealthStatusView: TextView? = null
+    internal var ipHealthCountryRow: LinearLayout? = null
+
+    // Category chips under the results (like the reference screenshots): all /
+    // v4-only / v6-only — v6 chip lights up once the walk found v6 endpoints.
+    internal var scannerFilterAll: android.widget.TextView? = null
+    internal var scannerFilterV4: android.widget.TextView? = null
+    internal var scannerFilterV6: android.widget.TextView? = null
+    internal var scannerFilter: String = "all"
+    /** Results table: which column is sorted, and in which direction. */
+    internal var scannerSortKey: String = "ping"
+    internal var scannerSortAsc: Boolean = true
+    /** `ip:port` of every row the owner ticked; survives re-renders and re-sorts. */
+    internal val scannerSelected = linkedSetOf<String>()
+    /** Header cells, rebuilt once per page: (view, sort key, base label). */
+    internal val scannerHeaderCells = mutableListOf<Triple<TextView, String, String>>()
+    internal var scannerSelectionText: TextView? = null
+    internal lateinit var scannerCopySelectedButton: MaterialButton
+    internal lateinit var scannerSendSelectedButton: MaterialButton
+    internal var scannerNeighborRunning: Boolean = false
+    /** IPs the 👑 neighbor scan added this session — sent to the panel with
+     * source=neighbor so the 🩺 provenance badge shows «👑 همسایه». */
+    internal val scannerNeighborIps = mutableSetOf<String>()
+    // ⚡ Advanced scanner (beta57): profile «fast/std/deep», jitter of the top
+    // hits, country distribution of the visible results, run history line.
+    internal var scannerProfile: String = "std"
+    // 🌐 Force-IPv6: bypass the connectivity gate — some carriers answer v6
+    // even when the quick probe fails (the user's own line, per BPB scans).
+    // Persisted flag (loaded in onCreate — reading prefs in a property
+    // initializer runs inside the Activity constructor, where the base context
+    // is still null and getSharedPreferences throws NullPointerException:
+    // «the app opens and closes instantly». See scripts/android-startup-guard.py.)
+    internal var scannerForceV6: Boolean = false
+    internal var scannerAiRunning: Boolean = false
+    internal lateinit var scannerAiList: LinearLayout
+    internal var scannerForeignRunning: Boolean = false
+    internal lateinit var scannerForeignList: LinearLayout
+    internal lateinit var scannerForeignShareButton: MaterialButton
+    internal val scannerForeignResults = linkedMapOf<String, ForeignServiceProbeResult>()
+    internal var scannerCountryText: TextView? = null
+    internal var scannerHistoryText: TextView? = null
+    /** Set by [onTrimMemory] when the system reports a low heap: fewer rows, same data. */
+    internal var lowMemoryRows: Boolean = false
+
+    private fun refreshScannerSelection(total: Int) {
+        val n = scannerSelected.size
+        scannerSelectionText?.text = getString(R.string.scanner_selected_count, n, total)
+        if (::scannerCopySelectedButton.isInitialized) scannerCopySelectedButton.isEnabled = n > 0
+        if (::scannerSendSelectedButton.isInitialized) scannerSendSelectedButton.isEnabled = n > 0
     }
 
-    /**
-     * Cat behaviour: take the scanned IPs and build real configs (address = clean IP,
-     * SNI/Host = panel) as a new subscription the core can pick from — no fronting
-     * layer involved, so the app connects to those IPs directly.
-     */
-    private fun buildSubscriptionFromScan(results: List<IpScanner.ScanResult>) {
-        val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
-        val identity = detectPanelIdentity(sni)
-        if (identity == null) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.scanner_build_title)
-                .setMessage(getString(R.string.scanner_build_no_panel, sni))
-                .setPositiveButton(R.string.scanner_build_apply_fronting) { _, _ -> applyScannerResult(results.firstOrNull()) }
-                .setNegativeButton(R.string.split_tunnel_cancel, null)
-                .show()
-            return
-        }
-        val verified = results.filter { it.tlsOk }
-        if (verified.isEmpty()) {
-            Toast.makeText(this, R.string.scanner_no_verified, Toast.LENGTH_LONG).show()
-            return
-        }
-        val top = verified.sortedBy { it.pingMs }.take(SCANNER_BUILD_LIMIT)
-        // Cat layout: plain-HTTP :80 first (no SNI on the wire), then TLS 443/2053.
-        val tlsParams = "security=tls&sni=" + Uri.encode(identity.host) + "&fp=chrome&alpn=" + Uri.encode("http/1.1")
-        val links = buildList {
-            SCANNER_BUILD_PORTS.forEach { port ->
-                top.forEach { r ->
-                    val tls = port != 80
-                    val location = r.countryName?.takeIf { it.isNotBlank() }
-                        ?: r.colo?.takeIf { it.isNotBlank() }
-                        ?: "Cloudflare edge"
-                    val transport = if (tls) tlsParams else "security=none"
-                    val vlessLabel = "🐱 Cat · " + location + " · VLESS · " + port + " · " + r.flag
-                    val vlessCommon = "&type=ws&path=" + Uri.encode(identity.vlessPath) + "&host=" + Uri.encode(identity.host)
-                    add(
-                        "vless://" + identity.uuid + "@" + r.ip + ":" + port + "?encryption=none&" +
-                            transport + vlessCommon + "#" + Uri.encode(vlessLabel),
-                    )
-                    val trojanLabel = "🐱 Cat · " + location + " · Trojan · " + port + " · " + r.flag
-                    val trojanCommon = "&type=ws&path=" + Uri.encode(identity.trojanPath) + "&host=" + Uri.encode(identity.host)
-                    add(
-                        "trojan://" + Uri.encode(identity.trojanPassword) + "@" + r.ip + ":" + port + "?" +
-                            transport + trojanCommon + "#" + Uri.encode(trojanLabel),
-                    )
-                }
-            }
-        }
-        val name = getString(R.string.scanner_build_sub_name, identity.host.substringBefore('.'))
-        activityScope.launch {
-            val added = runCatching {
-                withContext(Dispatchers.IO) { userSubscriptionManager.add(name, links.joinToString("\n")) }
-            }.getOrNull()
-            if (added == null) {
-                Toast.makeText(this@MainActivity, R.string.free_quick_add_failed, Toast.LENGTH_LONG).show()
-                return@launch
-            }
-            userSubscriptionManager.select(added.id)
-            renderSubscriptions()
-            onSubscriptionSelected()
-            Toast.makeText(this@MainActivity, getString(R.string.scanner_build_done, links.size), Toast.LENGTH_LONG).show()
-            beginConnectFlow(Actions.CONNECT)
-        }
-    }
-
-    private fun saveScannerSni(value: String) {
-        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
-            .edit()
-            .putString(SCANNER_SNI_KEY, value)
-            .apply()
-    }
-
-    private fun scannerPortPreference(): Int {
-        val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
-            .getInt(SCANNER_PORT_KEY, 443)
-        return saved.takeIf { it in SCANNER_PORTS } ?: 443
-    }
-
-    private fun saveScannerPort(value: Int) {
-        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
-            .edit()
-            .putInt(SCANNER_PORT_KEY, value)
-            .apply()
-    }
-
-    private fun scannerRangesPreference(): String {
-        val saved = getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE).getString(SCANNER_RANGES_KEY, null)
-        return saved ?: IpScanner.defaultRangesText()
-    }
-
-    private fun saveScannerRanges(value: String) {
-        getSharedPreferences(SCANNER_PREFERENCES, MODE_PRIVATE)
-            .edit()
-            .putString(SCANNER_RANGES_KEY, value)
-            .apply()
-    }
-
-    private fun startIpScanner() {
-        if (scannerRunning) return
-        val sni = scannerSniInput.text?.toString()?.trim().orEmpty().ifBlank { DEFAULT_SCANNER_SNI }
-        saveScannerSni(sni)
-        val customSubnets = scannerSubnetsInput.text?.toString()?.trim().orEmpty()
-        saveScannerRanges(customSubnets)
-        val parsedRanges = IpScanner.parseRangeList(customSubnets)
-        if (customSubnets.isNotBlank() && parsedRanges.isEmpty()) {
-            Toast.makeText(this, R.string.scanner_ranges_invalid, Toast.LENGTH_LONG).show()
-            return
-        }
-        scannerRunning = true
-        scannerStartButton.isEnabled = false
-        scannerStopButton.isEnabled = true
-        scannerProgressBar.visibility = View.VISIBLE
-        scannerStatusText.setText(R.string.scanner_progress_hint)
-        scannerLiveResults.clear()
-        scannerResultsList.removeAllViews()
-        scannerApplyButton.isEnabled = false
-        val options = IpScanner.ScanOptions(
-            sni = sni,
-            port = scannerPort,
-            customSubnets = customSubnets,
-            includeBuiltin = true,
-            includeIranLibrary = true,
-            perRange = SCANNER_PER_RANGE,
-            randomSample = true,
-            concurrency = SCANNER_CONCURRENCY,
-            connectTimeoutMs = SCANNER_CONNECT_TIMEOUT_MS,
-            tlsTimeoutMs = SCANNER_TLS_TIMEOUT_MS,
-            verifyHttp = true,
-        )
-        scannerProgressBar.progress = 0
-        scannerJob = activityScope.launch {
-            val found = runCatching {
-                IpScanner.scan(this@MainActivity, options) { done, total, result ->
-                    // Called from an IO thread for every finished candidate.
-                    mainHandler.post {
-                        if (!scannerRunning) return@post
-                        val percent = (done * 100) / total.coerceAtLeast(1)
-                        scannerProgressBar.progress = percent
-                        if (result != null && scannerLiveResults.none { it.ip == result.ip }) {
-                            scannerLiveResults += result
-                        }
-                        val best = scannerLiveResults
-                            .filter { it.tlsOk }
-                            .minByOrNull { it.pingMs }
-                            ?.pingMs
-                            ?: scannerLiveResults.minByOrNull { it.pingMs }?.pingMs
-                        scannerStatusText.text = if (best == null) {
-                            getString(R.string.scanner_progress_empty, done, total, percent)
-                        } else {
-                            getString(R.string.scanner_progress, done, total, percent, best)
-                        }
-                        if (done % SCANNER_LIVE_REFRESH_EVERY == 0 || done == total) {
-                            scannerLiveResults.sortWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
-                            renderScannerResults()
-                        }
-                    }
-                }
-            }.getOrDefault(emptyList())
-            if (!scannerRunning) return@launch
-            scannerRunning = false
-            scannerStartButton.isEnabled = true
-            scannerStopButton.isEnabled = false
-            scannerProgressBar.visibility = View.GONE
-            scannerResults = found.sortedWith(compareBy({ if (it.tlsOk) 0 else 1 }, { it.pingMs }))
-            IpHealthMonitor.seed(
-                IpHealthStore(this@MainActivity),
-                scannerResults,
-                scannerSniPreference(),
-                scannerPortPreference(),
-            )
-            renderScannerResults()
-            renderScannerIpHealth()
-            scannerStatusText.text = if (found.isEmpty()) {
-                getString(R.string.scanner_no_results)
-            } else {
-                getString(R.string.scanner_done_detailed, found.size, found.count { it.tlsOk })
-            }
-        }
-    }
-
-    private fun stopIpScanner() {
-        scannerJob?.cancel()
-        scannerJob = null
-        scannerRunning = false
-        scannerStartButton.isEnabled = true
-        scannerStopButton.isEnabled = false
-        scannerProgressBar.visibility = View.GONE
-        scannerStatusText.setText(R.string.scanner_stopped)
-    }
-
-    private var ipHealthJob: Job? = null
-    private var ipHealthSweeping = false
-    private var ipHealthStatusView: TextView? = null
-
-    private fun renderScannerIpHealth() {
-        val view = ipHealthStatusView ?: return
-        val store = IpHealthStore(this)
-        val entries = store.entries()
-        val last = store.events().firstOrNull()
-        view.text = buildString {
-            append(getString(R.string.ip_health_pool, entries.size))
-            val best = entries.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }
-            if (best != null) {
-                append("  ·  ")
-                append(getString(R.string.ip_health_best, best.ip, best.pingMs))
-            }
-            if (last != null) {
-                append('\n')
-                append(getString(R.string.ip_health_last_event, last.removedIp, last.addedIp ?: "—"))
-            }
-        }
-    }
-
-    private fun startIpHealthLoop() {
-        ipHealthJob?.cancel()
-        ipHealthJob = null
-        // Static-IP pin: nothing is ever swapped automatically.
-        if (!IpHealthStore(this).autoEnabled || IpHealthStore(this).pinned) return
-        ipHealthJob = activityScope.launch {
-            while (true) {
-                runIpHealthSweep(silent = true)
-                delay(IpHealthStore(this@MainActivity).intervalMinutes * 60_000L)
-            }
-        }
-    }
-
-    private fun runIpHealthSweep(silent: Boolean = false, failFast: Boolean = false) {
-        if (ipHealthSweeping) return
-        ipHealthSweeping = true
-        val store = IpHealthStore(this)
-        val sni = scannerSniPreference().ifBlank { IpScanner.RECOMMENDED_SNIS.first() }
-        val port = scannerPortPreference()
-        if (!silent) Toast.makeText(this, R.string.ip_health_sweeping, Toast.LENGTH_SHORT).show()
-        activityScope.launch {
-            try {
-                val result = IpHealthMonitor.sweep(
-                    store,
-                    sni,
-                    port,
-                    failFast = failFast,
-                    extraSnis = detectPanelSnisFromSubscriptions(),
-                )
-                renderScannerIpHealth()
-                if (!silent) {
-                    if (result.removed.isEmpty() && result.added.isEmpty()) {
-                        Toast.makeText(this@MainActivity, R.string.ip_health_all_ok, Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.ip_health_rotated, result.removed.size, result.added.size),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                }
-            } catch (e: Exception) {
-                if (!silent) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.ip_health_failed, e.message ?: e::class.java.simpleName),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            } finally {
-                ipHealthSweeping = false
-            }
-        }
-    }
-
-    private fun renderScannerResults() {
+    internal fun renderScannerResults() {
         if (!::scannerResultsList.isInitialized) return
-        val visible = if (scannerRunning) scannerLiveResults.toList() else scannerResults
+        val all = scannerSourceList()
+        val visible = scannerFilterVisible(all)
         scannerResultsList.removeAllViews()
+        refreshScannerFilters()
+        refreshScannerHeader()
+        refreshScannerCountrySummary(visible)
+        refreshScannerSelection(all.size)
         if (visible.isEmpty()) {
             scannerResultsList.addView(
                 TextView(this).apply {
@@ -5306,1757 +1673,205 @@ class MainActivity : Activity() {
             return
         }
         val hasVerifiedResult = visible.any { it.tlsOk }
-        scannerApplyButton.isEnabled = hasVerifiedResult
+        runCatching { scannerApplyButton.isEnabled = hasVerifiedResult }
         if (::scannerBuildButton.isInitialized) scannerBuildButton.isEnabled = hasVerifiedResult
-        visible.take(SCANNER_VISIBLE_RESULTS).forEachIndexed { index, result ->
-            scannerResultsList.addView(
-                scannerResultRow(index + 1, result),
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
-            )
-        }
-    }
-
-    private fun scannerResultRow(rank: Int, result: IpScanner.ScanResult): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            background = glassSurfaceDrawable(radiusDp = 12)
-            clipToOutline = true
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            isClickable = true
-            isFocusable = true
-            setSelectableBackground()
-            setOnClickListener {
-                copyScannerIp(result)
-            }
-        }
-        row.addView(
+        // Count header: the user must always see THAT results exist, even if a
+        // fancy row fails to build (regression: chips showed 1114 but zero rows
+        // rendered — an exception anywhere in the styled-row loop left the list
+        // blank with no trace).
+        scannerResultsList.addView(
             TextView(this).apply {
-                text = if (result.tlsOk) "TLS ✓" else "TCP"
-                textSize = 10.5f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(if (result.tlsOk) TEAL else TEXT_SECONDARY)
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dp(6).toFloat()
-                    setColor(withAlpha(if (result.tlsOk) TEAL else TEXT_SECONDARY, 24))
-                }
-                setPadding(dp(6), dp(2), dp(6), dp(2))
-                includeFontPadding = false
-            },
-            LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) },
-        )
-        row.addView(
-            TextView(this).apply {
-                text = getString(R.string.scanner_result_rank, rank, result.flag)
-                textSize = 12.5f
+                text = getString(R.string.scanner_results_header, visible.size, minOf(visible.size, scannerVisibleCap()))
+                textSize = 11f
                 typeface = CatClientBodyBoldTypeface
                 setTextColor(TEXT_SECONDARY)
                 includeFontPadding = false
             },
-            LinearLayout.LayoutParams(-2, -2),
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
         )
-        val locationColumn = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(TextView(this@MainActivity).apply {
-                text = "${result.ip}:${result.port}"
-                textSize = 14f
-                typeface = CatClientDataTypeface
-                setTextColor(TEXT_PRIMARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-                includeFontPadding = false
-            }, LinearLayout.LayoutParams(-1, -2))
-            val location = if (result.countryCode != null) {
-                result.countryName ?: getString(R.string.scanner_result_edge_fallback)
-            } else {
-                result.colo?.takeIf { it.isNotBlank() }
-                    ?: getString(R.string.scanner_result_edge_fallback)
-            }
-            if (location.isNotBlank()) {
-                addView(TextView(this@MainActivity).apply {
-                    text = getString(R.string.scanner_result_location, result.flag, location)
-                    textSize = 10.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
-            }
-            result.sourceRange?.takeIf { it.isNotBlank() }?.let { range ->
-                addView(TextView(this@MainActivity).apply {
-                    text = getString(R.string.scanner_result_range, range)
-                    textSize = 9.5f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            }
-            if (rank == 1) {
-                addView(TextView(this@MainActivity).apply {
-                    setText(R.string.scanner_recommended)
-                    textSize = 9.5f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEAL)
-                    includeFontPadding = false
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
-            }
-        }
-        row.addView(
-            locationColumn,
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) },
-        )
-        row.addView(
-            TextView(this).apply {
-                text = getString(R.string.scanner_result_ping, result.pingMs)
-                textSize = 13f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(
-                    when {
-                        result.pingMs < SCANNER_GOOD_MS -> TEAL
-                        result.pingMs < SCANNER_FAIR_MS -> AMBER
-                        else -> ERROR
-                    },
+        // The sort itself is inside the guard too: it used to be the only unguarded
+        // statement between the count header and the rows, so a throw there left the
+        // screen showing «N result» with an empty list under it (again).
+        val top = runCatching { scannerSortedRows(visible) }.getOrElse { visible }
+            .take(scannerVisibleCap()).toList()
+        val buildFailure = runCatching {
+            top.forEachIndexed { index, result ->
+                val row = runCatching { scannerResultRow(index + 1, result) }.getOrNull()
+                scannerResultsList.addView(
+                    row ?: fallbackScannerRow(result),
+                    LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) },
                 )
-                includeFontPadding = false
-            },
-            LinearLayout.LayoutParams(-2, -2),
-        )
-        row.addView(
-            MaterialButton(this).apply {
-                setText(if (rank == 1) R.string.scanner_apply_best else R.string.scanner_use)
-                textSize = 12f
-                typeface = CatClientBodyBoldTypeface
-                isAllCaps = false
-                cornerRadius = dp(15)
-                minWidth = 0
-                minimumWidth = 0
-                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 38))
-                strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 150))
-                elevation = dp(1).toFloat()
-                stateListAnimator = null
-                setTextColor(TEAL)
-                insetTop = 0
-                insetBottom = 0
-                setPadding(dp(12), 0, dp(12), 0)
-                setOnClickListener { applyScannerResult(result) }
-            },
-            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
-        )
-        return row
-    }
-
-    private fun copyScannerIp(result: IpScanner.ScanResult) {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("clean-ip", result.ip))
-        Toast.makeText(this, getString(R.string.scanner_ip_copied, result.ip), Toast.LENGTH_SHORT).show()
-    }
-
-    /**
-     * Applies a scanned IP as a fronting endpoint: connects to that clean CDN IP
-     * while the profile's SNI/Host (the panel domain) stays untouched.
-     */
-    private fun applyScannerResult(result: IpScanner.ScanResult? = null) {
-        val target = result ?: scannerResults.firstOrNull()
-        if (target == null) {
-            Toast.makeText(this, R.string.scanner_no_results, Toast.LENGTH_SHORT).show()
+            }
+        }.exceptionOrNull()
+        // An OOM while building rows (the beta98 report: RippleDrawable allocation with
+        // <1% heap free) must not travel any further up the main thread. Shrink and log.
+        if (buildFailure is OutOfMemoryError && !lowMemoryRows) {
+            lowMemoryRows = true
+            DiagnosticLogger.warn(this, "scanner.rows.oom", "rows=${top.size} cap=${scannerVisibleCap()}", buildFailure)
+            scannerResultsList.removeAllViews()
+            renderScannerResults()
             return
         }
-        val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = FrontingIpPolicy.normalizeIps((frontingIps + target.ip).joinToString(","))
-        renderFrontingIpChips()
-        if (!saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)) return
-        Toast.makeText(
-            this,
-            getString(R.string.scanner_applied, target.ip, target.pingMs),
-            Toast.LENGTH_LONG,
-        ).show()
+        if (buildFailure != null && scannerResultsList.childCount <= 1) {
+            scannerResultsList.addView(scannerPlainRowsBlock(top), LinearLayout.LayoutParams(-1, -2))
+        }
+        verifyScannerRowsPainted(top.size, buildFailure)
     }
 
-    private fun buildCloudScreen(): View {
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-        }
-        val body = MaxWidthLinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            maxWidthPx = dp(520)
-            setPadding(dp(24), dp(20), dp(24), dp(104))
-        }
+    internal var scannerPanelPushProgressBar: ProgressBar? = null
+    internal var scannerPanelPushStatusText: TextView? = null
 
-        body.addView(
-            advancedSectionLabel(getString(R.string.cloud_section_catpanel)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-        )
+    /* ------------------------------------------------------------------ */
+    /* Panel status & one-tap recovery (Cloudflare abuse-report 1101)      */
+    /* ------------------------------------------------------------------ */
 
-        val catPanelCard = advancedSettingsPanel()
-        catPanelCard.addView(
-            TextView(this).apply {
-                text = CloudflareWorker.PANELS.first { it.id == "cat-panel" }.let {
-                    if (appLanguagePreferenceStore.read() == AppLanguage.Persian) it.displayNameFa else it.displayName
-                }
-                textSize = 16f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(TEXT_PRIMARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        catPanelCard.addView(
-            TextView(this).apply {
-                text = getString(R.string.cloud_catpanel_desc)
-                textSize = 13f
-                setTextColor(TEXT_SECONDARY)
-                setLineSpacing(dp(3).toFloat(), 1f)
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                setPadding(0, dp(6), 0, dp(14))
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
+    /**
+     * Interactive "Add Aether config manually" dialog implementing both:
+     * - The complete step-by-step PattNG (`v2.3.13-P69`) tutorial:
+     *   2-1 & 2-2) `Get new WARP keys`
+     *   2-3) `Remarks`
+     *   2-4 & 2-5) `Protocol` = `MASQUE in MASQUE` (`mim`), `MASQUE`, `WireGuard over MASQUE`, `WARP in WARP`, `WireGuard`
+     *   2-6 & 2-7) `Transport` = `HTTP/2` (`h2`) or `HTTP/3` (`h3`)
+     *   2-8 & 2-9) `Psiphon` = `WARP > Psiphon` (`chain`)
+     *   2-10 & 2-11) `Exit country` = 29+ Psiphon countries
+     *   2-12) `Scan for an endpoint` (populates both Outer & Inner endpoints)
+     *   2-13) Save to main config list & connect
+     * - Plus MCI / Irancell firewall presets and 1-tap Auto Wizard.
+     */
+    // =====================================================================================================
+    // beta209: per-config Cat Warp editor: fields, our WARP keys, «Scan for an endpoint», the equivalent
+    // command line and a log box with Copy. Opened from «ویرایش» on any subscription holding aether:// links.
+    // =====================================================================================================
 
-        catPanelCard.addView(
-            cloudActionButton(R.string.cloud_copy_code, R.drawable.ic_cloud_tab, accent = true) {
-                val script = runCatching { CloudflareWorker.builtInWorkerScript(this) }
-                    .getOrNull()
-                if (script.isNullOrBlank()) {
-                    Toast.makeText(this, R.string.cloud_code_failed, Toast.LENGTH_SHORT).show()
-                    return@cloudActionButton
-                }
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-worker", script))
-                Toast.makeText(this, R.string.cloud_code_copied, Toast.LENGTH_LONG).show()
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
+    internal data class AetherNetworkProbeCandidate(
+        val titleFa: String,
+        val titleEn: String,
+        val baseMode: AetherMode,
+        val ipScan: String,
+        val endpoint: String,
+        val reachable: Boolean,
+        val rttMs: Long,
+    )
 
-        // The no-app path (v1.9.48): share the official one-click Deploy-to-
-        // Cloudflare link — the same button as the README — with anyone. The
-        // recipient deploys their own panel straight from their browser.
-        catPanelCard.addView(
-            cloudActionButton(R.string.cloud_share_deploy_link, R.drawable.ic_cloud_tab, accent = false) {
-                shareDeployButtonLink()
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
+    /**
+     * AmneziaWG 2.0, Proton VPN WireGuard & Hysteria2 Hub (`MLM v1.2.39–v1.2.41` equivalent):
+     * - Connects with anti-DPI AmneziaWG 2.0 (`Jc=5, Jmin=50, Jmax=1000, S1, S2` + UDP noise) & Hysteria2,
+     * - Converts any standard Proton VPN / WireGuard `.conf` file into an anti-DPI `awg://` profile.
+     */
+    // ---------------------------------------------------------------------------------------------------------
+    // 🧭 Feature finder: "what do you want to do?" → one plain sentence per tool → opens it directly.
+    // The app has dozens of tools spread over six tabs; this is the single place to find any of them.
+    // ---------------------------------------------------------------------------------------------------------
 
-        val workerNameInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setText("catpanel")
-        }
-        val workerNameLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.cloud_worker_name_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(workerNameInput)
-        }
-        catPanelCard.addView(
-            workerNameLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
+    internal class FinderEntry(
+        val titleFa: String,
+        val titleEn: String,
+        val whatFa: String,
+        val whatEn: String,
+        val keywords: String,
+        val open: () -> Unit,
+    )
 
-        // Admin gate: every new panel gets a username + password (management
-        // panel — not open access). Suggested values are prefilled.
-        val panelUserInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            setText("admin")
-        }
-        val panelUserLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.cloud_panel_user_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(panelUserInput)
-        }
-        catPanelCard.addView(
-            panelUserLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
-        val suggestedPanelPassword = List(12) { "abcdefghjkmnpqrstuvwxyz23456789".random() }.joinToString("")
-        val panelPassInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(suggestedPanelPassword)
-        }
-        val panelPassLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.cloud_panel_password_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(panelPassInput)
-        }
-        catPanelCard.addView(
-            panelPassLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
+    // ---------------------------------------------------------------------------------------------------------
+    // 🔐 Amnezia section: everything for AmneziaVPN keys (vpn://) and AmneziaWG / WireGuard .conf in one place.
+    // ---------------------------------------------------------------------------------------------------------
 
-        val tokenInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val tokenLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.cloud_token_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
-            helperText = getString(R.string.cloud_token_help)
-            isHelperTextEnabled = true
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(tokenInput)
-        }
-        // Step 1 — open Cloudflare with the permissions pre-selected (token template URL).
-        catPanelCard.addView(
-            cloudActionButton(R.string.cloud_get_token, R.drawable.ic_cloud_tab, accent = true) {
-                openCloudflareTokenPage()
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
-        catPanelCard.addView(
-            advancedSectionDetail(getString(R.string.cloud_get_token_steps)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-        )
-        tokenLayout.helperText = getString(R.string.cloud_token_help)
-        catPanelCard.addView(
-            tokenLayout,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
+    internal val amneziaSubscriptionPrefix = "🔐 Amnezia"
 
-        val deployButton = cloudActionButton(R.string.cloud_deploy, R.drawable.ic_cloud_tab, accent = false) { }
-        var cloudDeployInProgress = false
-        deployButton.setOnClickListener {
-            if (cloudDeployInProgress) return@setOnClickListener
-            val token = tokenInput.text?.toString()?.trim().orEmpty()
-            if (token.isEmpty()) {
-                Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val workerName = workerNameInput.text?.toString()?.trim()
-                ?.lowercase(Locale.US)
-                ?.replace(Regex("[^a-z0-9-]"), "-")
-                ?.replace(Regex("-{2,}"), "-")
-                ?.trim('-')
-                ?.ifEmpty { "catpanel" } ?: "catpanel"
-            cloudDeployInProgress = true
-            deployButton.isEnabled = false
-            activityScope.launch {
-                try {
-                    Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
-                    val permissions = CloudflareWorker.verifyToken(token)
-                    val accountId = permissions.accountId
-                    if (!permissions.valid || accountId == null) {
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                        return@launch
-                    }
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploying, workerName),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    val result = CloudflareWorker.deployBuiltIn(
-                        this@MainActivity,
-                        token,
-                        accountId,
-                        workerName,
-                        panelUser = panelUserInput.text?.toString()?.trim().orEmpty(),
-                        panelPassword = panelPassInput.text?.toString()?.trim().orEmpty(),
-                    )
-                    PanelDeploymentStore(this@MainActivity).rememberToken(result.workerUrl, token)
-                    showCloudDeploymentDialog(result)
-                } catch (e: Exception) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                } finally {
-                    cloudDeployInProgress = false
-                    deployButton.isEnabled = true
-                }
-            }
-        }
-        catPanelCard.addView(deployButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+    internal class AmneziaPreview(val links: Int, val server: String, val ok: List<String>, val bad: List<String>, val problem: String?)
 
-        body.addView(catPanelCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+    // ---------------------------------------------------------------- beta212: Cat SSTP
 
-        val deploymentHistoryCard = advancedSettingsPanel()
-        deploymentHistoryCard.addView(
-            TextView(this).apply {
-                setText(R.string.cloud_my_deployments)
-                textSize = 16f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(TEXT_PRIMARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        deploymentHistoryCard.addView(
-            advancedSectionDetail(getString(R.string.cloud_no_deployments)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) },
-        )
-        cloudDeploymentHistoryHost = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        deploymentHistoryCard.addView(
-            cloudDeploymentHistoryHost,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
-        )
-        body.addView(deploymentHistoryCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        renderCloudDeploymentHistory()
+    internal val catSstpSubscriptionName = "🌏 Cat SSTP"
+    internal val CAT_SSTP_LIST_LIMIT = 40
 
-        // ---- Cat Wizard: a shareable one-click installer page on the user's own account ----
-        val wizardCard = advancedSettingsPanel()
-        wizardCard.addView(
-            TextView(this).apply {
-                text = getString(R.string.cloud_wizard_title)
-                textSize = 16f
-                typeface = CatClientBodyBoldTypeface
-                setTextColor(TEXT_PRIMARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        wizardCard.addView(
-            advancedSectionDetail(getString(R.string.cloud_wizard_desc)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
-        )
-        val lastWizard = PanelDeploymentStore(this).lastWizardUrl()
-        val wizardUrlView = TextView(this).apply {
-            text = lastWizard ?: ""
-            visibility = if (lastWizard.isNullOrBlank()) View.GONE else View.VISIBLE
-            textSize = 13f
-            setTextColor(TEAL)
-            setTextIsSelectable(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            setPadding(0, dp(8), 0, 0)
-            setOnClickListener {
-                val u = text?.toString().orEmpty()
-                if (u.isNotBlank()) runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) }
-            }
-        }
-        wizardCard.addView(wizardUrlView, LinearLayout.LayoutParams(-1, -2))
-        var wizardInProgress = false
-        val wizardButton = cloudActionButton(R.string.cloud_wizard_deploy, R.drawable.ic_cloud_tab, accent = false) { }
-        wizardButton.setOnClickListener {
-            if (wizardInProgress) return@setOnClickListener
-            val token = tokenInput.text?.toString()?.trim().orEmpty()
-            if (token.isEmpty()) {
-                Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            wizardInProgress = true
-            wizardButton.isEnabled = false
-            activityScope.launch {
-                try {
-                    Toast.makeText(this@MainActivity, R.string.cloud_verifying, Toast.LENGTH_SHORT).show()
-                    val permissions = CloudflareWorker.verifyToken(token)
-                    val accountId = permissions.accountId
-                    if (!permissions.valid || accountId == null) {
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                        return@launch
-                    }
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploying, "cat-wizard"),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    val result = CloudflareWorker.deployWizard(this@MainActivity, token, accountId)
-                    PanelDeploymentStore(this@MainActivity).rememberWizard(result.wizardUrl)
-                    wizardUrlView.text = result.wizardUrl
-                    wizardUrlView.visibility = View.VISIBLE
-                    showWizardDeployedDialog(result)
-                } catch (e: Exception) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_deploy_failed, e.message ?: e::class.java.simpleName),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                } finally {
-                    wizardInProgress = false
-                    wizardButton.isEnabled = true
-                }
-            }
-        }
-        wizardCard.addView(wizardButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        body.addView(wizardCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+    internal var techNamoozDeployInProgress = false
 
-        // Cross-link: the built-in panel is only useful with a clean IP — jump to the scanner.
-        val scannerLinkCard = advancedSettingsPanel()
-        scannerLinkCard.addView(
-            advancedSectionDetail(getString(R.string.cloud_scanner_hint)),
-            LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(10)
-                bottomMargin = dp(4)
-            },
-        )
-        scannerLinkCard.addView(
-            cloudActionButton(R.string.cloud_open_scanner, R.drawable.ic_speedometer, accent = false) {
-                // Visual tab 3 is the scanner (see the tab mapping in buildAppShell)
-                appTabs.getTabAt(3)?.select()
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-        )
-        body.addView(scannerLinkCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-
-        // ---- panel catalog ----
-        body.addView(
-            advancedSectionLabel(getString(R.string.cloud_section_catalog)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(32) },
-        )
-        body.addView(
-            TextView(this).apply {
-                text = getString(R.string.cloud_intro)
-                textSize = 13f
-                setTextColor(TEXT_SECONDARY)
-                setLineSpacing(dp(3).toFloat(), 1f)
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                setPadding(0, 0, 0, dp(10))
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
-
-        val catalogCard = advancedSettingsPanel()
-        CloudflareWorker.PANELS.filter { it.id != "cat-panel" }.forEachIndexed { index, panel ->
-            val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                setPadding(dp(12), dp(12), dp(12), dp(12))
-            }
-            val nameRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            nameRow.addView(
-                TextView(this).apply {
-                    text = if (isFarsi) panel.displayNameFa else panel.displayName
-                    textSize = 14.5f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                },
-                LinearLayout.LayoutParams(0, -2, 1f),
-            )
-            nameRow.addView(
-                TextView(this).apply {
-                    text = cloudScopeLabel(panel.scope)
-                    textSize = 11f
-                    setTextColor(TEAL)
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = dp(999).toFloat()
-                        setColor(withAlpha(TEAL, 26))
-                        setStroke(dp(1), withAlpha(TEAL, 120))
-                    }
-                    setPadding(dp(8), dp(3), dp(8), dp(3))
-                },
-                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
-            )
-            row.addView(nameRow, LinearLayout.LayoutParams(-1, -2))
-            row.addView(
-                TextView(this).apply {
-                    text = if (isFarsi) panel.descriptionFa else panel.description
-                    textSize = 12.5f
-                    setTextColor(TEXT_SECONDARY)
-                    setLineSpacing(dp(2).toFloat(), 1f)
-                    maxLines = 3
-                    ellipsize = TextUtils.TruncateAt.END
-                    layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    setPadding(0, dp(4), 0, 0)
-                },
-                LinearLayout.LayoutParams(-1, -2),
-            )
-            val openButton = MaterialButton(this).apply {
-                setText(if (panel.scope == CloudflareWorker.PanelScope.CF_WORKER) R.string.cloud_open_builder else R.string.cloud_panel_open)
-                setAllCaps(false)
-                textSize = 12f
-                typeface = CatClientBodyBoldTypeface
-                isSingleLine = true
-                setPadding(dp(12), 0, dp(12), 0)
-                minWidth = 0
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(15)
-                minHeight = dp(40)
-                minimumHeight = dp(40)
-                backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 170))
-                strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 220))
-                elevation = dp(1).toFloat()
-                stateListAnimator = null
-                setTextColor(TEXT_PRIMARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                setOnClickListener {
-                    runCatching {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(panel.url)))
-                    }.onFailure {
-                        Toast.makeText(this@MainActivity, panel.url, Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            row.addView(
-                openButton,
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
-            )
-            catalogCard.addView(row, LinearLayout.LayoutParams(-1, -2))
-            if (index < CloudflareWorker.PANELS.size - 2) {
-                catalogCard.addView(
-                    View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                    LinearLayout.LayoutParams(-1, dp(1)).apply {
-                        marginStart = dp(12)
-                        marginEnd = dp(12)
-                    },
-                )
-            }
-        }
-        body.addView(catalogCard, LinearLayout.LayoutParams(-1, -2))
-
-        scroll.addView(body, FrameLayout.LayoutParams(-1, -1))
-        return scroll
-    }
-
-    private var panelUpdateInProgress = false
+    internal var panelUpdateInProgress = false
 
     @Volatile
-    private var newestPanelCache: PanelUpdate.PanelScript? = null
+    internal var newestPanelCache: PanelUpdate.PanelScript? = null
 
-    private suspend fun newestPanelScript(): PanelUpdate.PanelScript =
-        newestPanelCache ?: PanelUpdate.newestPanel(this).also { newestPanelCache = it }
+    /* ------------------------------------------------------------------ */
+    /* Panel wizard — the "I have nothing yet" path                          */
+    /* ------------------------------------------------------------------ */
 
-    private fun renderCloudDeploymentHistory() {
-        val host = cloudDeploymentHistoryHost ?: return
-        host.removeAllViews()
-        val history = PanelDeploymentStore(this).deployments()
-        if (history.isEmpty()) return
-        history.forEachIndexed { index, deployment ->
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                setPadding(dp(10), dp(9), dp(8), dp(9))
-                background = glassSurfaceDrawable(radiusDp = 14)
-            }
-            val titleLine = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            }
-            titleLine.addView(
-                TextView(this).apply {
-                    text = "🐱  " + deployment.workerUrl.removePrefix("https://").take(42)
-                    textSize = 12.5f
-                    typeface = CatClientDataTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    layoutDirection = View.LAYOUT_DIRECTION_LTR
-                    textDirection = View.TEXT_DIRECTION_LTR
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                },
-                LinearLayout.LayoutParams(0, -2, 1f),
-            )
-            val versionBadge = TextView(this).apply {
-                text = getString(R.string.cloud_panel_version_checking)
-                textSize = 11f
-                typeface = CatClientDataTypeface
-                setTextColor(TEXT_SECONDARY)
-                layoutDirection = View.LAYOUT_DIRECTION_LTR
-                textDirection = View.TEXT_DIRECTION_LTR
-                maxLines = 1
-            }
-            titleLine.addView(versionBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-            card.addView(titleLine, LinearLayout.LayoutParams(-1, -2))
-
-            fun rowButton(labelText: CharSequence): MaterialButton = MaterialButton(this@MainActivity).apply {
-                text = labelText
-                setAllCaps(false)
-                textSize = 11.5f
-                minWidth = 0
-                minimumWidth = 0
-                minHeight = dp(36)
-                minimumHeight = dp(36)
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(14)
-                backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, 34))
-                strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 130))
-                setTextColor(TEAL)
-            }
-
-            val buttons = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            }
-            val open = rowButton(getString(R.string.cloud_open_deployment)).apply {
-                setOnClickListener {
-                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(deployment.panelUrl))) }
-                }
-            }
-            val update = rowButton(getString(R.string.cloud_update_panel)).apply {
-                setOnClickListener { showPanelUpdateDialog(deployment) }
-            }
-            buttons.addView(open, LinearLayout.LayoutParams(0, -2, 1f).apply { topMargin = dp(8) })
-            buttons.addView(update, LinearLayout.LayoutParams(0, -2, 1f).apply {
-                topMargin = dp(8)
-                marginStart = dp(8)
-            })
-            card.addView(buttons, LinearLayout.LayoutParams(-1, -2))
-            host.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
-                if (index > 0) topMargin = dp(7)
-            })
-
-            // Live version check: deployed (/api/version) vs newest (release asset / bundle).
-            activityScope.launch {
-                val deployed = PanelUpdate.deployedVersion(deployment.workerUrl)
-                val newest = runCatching { newestPanelScript() }.getOrNull()
-                if (!versionBadge.isAttachedToWindow) return@launch
-                applyPanelVersionBadge(versionBadge, deployed, newest)
-            }
-        }
-    }
-
-    private fun applyPanelVersionBadge(
-        badge: TextView,
-        deployed: String?,
-        newest: PanelUpdate.PanelScript?,
-    ) {
-        when {
-            deployed == null -> {
-                badge.setTextColor(TEXT_SECONDARY)
-                badge.text = getString(R.string.cloud_panel_version_unknown)
-            }
-            newest != null && AppUpdatePolicy.isNewer(newest.version, deployed) -> {
-                badge.setTextColor(TEAL)
-                badge.text = getString(R.string.cloud_panel_update_ready, deployed, newest.version)
-            }
-            else -> {
-                badge.setTextColor(TEXT_SECONDARY)
-                badge.text = getString(R.string.cloud_panel_uptodate, deployed)
-            }
-        }
-    }
-
-    private fun showPanelUpdateDialog(deployment: PanelDeploymentRecord) {
-        if (panelUpdateInProgress) return
-        panelUpdateInProgress = true
-        Toast.makeText(this, R.string.cloud_panel_version_checking, Toast.LENGTH_SHORT).show()
-        activityScope.launch {
-            try {
-                val newest = newestPanelScript()
-                val deployed = PanelUpdate.deployedVersion(deployment.workerUrl)
-                val hasUpdate = deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed)
-                presentPanelUpdateDialog(deployment, deployed, newest, hasUpdate)
-            } catch (e: Exception) {
-                panelUpdateInProgress = false
-                Toast.makeText(
-                    this@MainActivity,
-                    getString(R.string.cloud_update_failed, e.message ?: e::class.java.simpleName),
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
-        }
-    }
-
-    private fun presentPanelUpdateDialog(
-        deployment: PanelDeploymentRecord,
-        deployed: String?,
-        newest: PanelUpdate.PanelScript,
-        hasUpdate: Boolean,
-    ) {
-        // The Cloudflare token was saved at deploy/update time: this flow only
-        // confirms the panel password, the saved token authorizes the upload.
-        val savedToken = PanelDeploymentStore(this).tokenFor(deployment.workerUrl)
-        if (!savedToken.isNullOrBlank()) {
-            presentPanelUpdatePasswordDialog(deployment, deployed, newest, hasUpdate, savedToken)
-            return
-        }
-        presentPanelTokenPrompt(deployment, deployed, newest)
-    }
-
-    /** Inline Cloudflare-token prompt (also the recovery path for an expired token). */
-    private fun presentPanelTokenPrompt(
-        deployment: PanelDeploymentRecord,
-        deployed: String?,
-        newest: PanelUpdate.PanelScript,
-    ) {
-        val hasUpdate = deployed == null || AppUpdatePolicy.isNewer(newest.version, deployed)
-        val tokenInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val tokenLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.cloud_token_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setHelperTextColor(ColorStateList.valueOf(TEXT_SECONDARY))
-            helperText = getString(R.string.cloud_token_help)
-            isHelperTextEnabled = true
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(tokenInput)
-        }
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(24), dp(6), dp(24), 0)
-            addView(tokenLayout, LinearLayout.LayoutParams(-1, -2))
-        }
-        val message = if (hasUpdate) {
-            getString(
-                R.string.cloud_update_message,
-                deployment.workerUrl.removePrefix("https://"),
-                deployed ?: "?",
-                newest.version,
-            )
-        } else {
-            getString(R.string.cloud_update_uptodate_message, newest.version)
-        }
-        val builder = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.cloud_update_title)
-            .setMessage(message)
-            .setView(box)
-            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
-            .setNeutralButton(R.string.cloud_get_token_short) { _, _ ->
-                panelUpdateInProgress = false
-                openCloudflareTokenPage()
-            }
-            .setPositiveButton(
-                if (hasUpdate) R.string.cloud_update_confirm else R.string.cloud_update_reinstall,
-                null,
-            )
-        val dialog = builder.create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val token = tokenInput.text?.toString()?.trim().orEmpty()
-                if (token.isEmpty()) {
-                    Toast.makeText(this, R.string.cloud_token_required, Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                dialog.dismiss()
-                runPanelUpdate(deployment, token, deployed, newest)
-            }
-        }
-        dialog.setOnCancelListener { panelUpdateInProgress = false }
-        dialog.show()
-    }
-
-    /**
-     * Update confirmation. The saved Cloudflare token IS the ownership proof —
-     * it performs the upload — so the panel password never gates a redeploy.
-     * (A crashed panel cannot answer a login challenge; asking for a password
-     * first is what used to brick the recovery path.)
-     */
-    private fun presentPanelUpdatePasswordDialog(
-        deployment: PanelDeploymentRecord,
-        deployed: String?,
-        newest: PanelUpdate.PanelScript,
-        hasUpdate: Boolean,
-        savedToken: String,
-    ) {
-        runPanelUpdate(deployment, savedToken, deployed, newest)
-    }
-
-    private fun runPanelUpdate(
-        deployment: PanelDeploymentRecord,
-        token: String,
-        deployed: String?,
-        script: PanelUpdate.PanelScript,
-        secretValues: Map<String, String> = emptyMap(),
-    ) {
-        Toast.makeText(this, R.string.cloud_update_running, Toast.LENGTH_SHORT).show()
-        activityScope.launch {
-            try {
-                val permissions = CloudflareWorker.verifyToken(token)
-                val accountId = permissions.accountId
-                if (!permissions.valid || accountId == null) {
-                    panelUpdateInProgress = false
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.cloud_token_invalid, permissions.missingScopes.joinToString(" + ")),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    // The saved token can no longer upload (expired/revoked/scopes) —
-                    // offer the inline token prompt so the recovery continues here.
-                    presentPanelTokenPrompt(deployment, deployed, script)
-                    return@launch
-                }
-                PanelDeploymentStore(this@MainActivity).rememberToken(deployment.workerUrl, token)
-                val remaining = CloudflareWorker.protectedSecretNames(token, accountId, deployment.workerUrl)
-                    .filterNot { secretValues.containsKey(it) }
-                if (remaining.isNotEmpty()) {
-                    panelUpdateInProgress = false
-                    showPanelSecretsDialog(deployment, token, deployed, script, remaining) { values ->
-                        runPanelUpdate(deployment, token, deployed, script, secretValues + values)
-                    }
-                    return@launch
-                }
-                val outcome = CloudflareWorker.updateBuiltIn(
-                    this@MainActivity,
-                    token,
-                    accountId,
-                    deployment.workerUrl,
-                    deployed ?: "",
-                    script,
-                    secretValues,
-                )
-                when (outcome) {
-                    is CloudflareWorker.PanelUpdateOutcome.Blocked -> {
-                        panelUpdateInProgress = false
-                        showPanelSecretsDialog(
-                            deployment,
-                            token,
-                            deployed,
-                            script,
-                            outcome.secretNames,
-                        ) { values ->
-                            runPanelUpdate(deployment, token, deployed, script, secretValues + values)
-                        }
-                    }
-                    is CloudflareWorker.PanelUpdateOutcome.Success -> showCloudUpdateDialog(outcome)
-                }
-            } catch (e: Exception) {
-                Toast.makeText(
-                    this@MainActivity,
-                    getString(R.string.cloud_update_failed, e.message ?: e::class.java.simpleName),
-                    Toast.LENGTH_LONG,
-                ).show()
-            } finally {
-                panelUpdateInProgress = false
-                renderCloudDeploymentHistory()
-            }
-        }
-    }
-
-    private fun showPanelSecretsDialog(
-        deployment: PanelDeploymentRecord,
-        token: String,
-        deployed: String?,
-        script: PanelUpdate.PanelScript,
-        secretNames: List<String>,
-        onValues: (Map<String, String>) -> Unit,
-    ) {
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(24), dp(8), dp(24), 0)
-        }
-        column.addView(
-            TextView(this).apply {
-                setText(R.string.cloud_secrets_desc)
-                textSize = 13f
-                setTextColor(TEXT_SECONDARY)
-                setLineSpacing(dp(2).toFloat(), 1f)
-            },
-            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
+    /** Step 4/4 — done: import + connect, scan clean IPs, open the panel. */
+    internal fun showPanelWizardDone(result: CloudflareWorker.DeploymentResult) {
+        val host = Uri.parse(result.workerUrl).host.orEmpty()
+        val status = panelStatusLine(
+            verifiedOnline = result.verifiedOnline,
+            health = result.health,
+            bundledVersion = result.bundledVersion,
+            panelVersion = result.panelVersion,
         )
-        val inputs = mutableMapOf<String, TextInputEditText>()
-        secretNames.forEach { name ->
-            val input = TextInputEditText(this).apply {
-                setSingleLine(true)
-                hint = name
-                background = null
-                setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-                setTextColor(TEXT_PRIMARY)
-                setHintTextColor(TEXT_SECONDARY)
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            }
-            inputs[name] = input
-            column.addView(
-                TextInputLayout(this).apply {
-                    this.hint = name
-                    boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-                    boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-                    boxStrokeColor = TEAL
-                    defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-                    setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-                    addView(input)
-                },
-                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.wizard_done_title)
+            .setView(
+                wizardBody(
+                    wizardText(status + "\n" + kvLine),
+                    wizardText(getString(R.string.cloud_panel_url) + ":\n" + result.panelUrl, secondary = true),
+                    wizardText(getString(R.string.cloud_uuid_is_password, result.uuid), secondary = true),
+                    wizardText(getString(R.string.wizard_done_help)),
+                ),
             )
-        }
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.cloud_secrets_title)
-            .setView(column)
-            .setNegativeButton(android.R.string.cancel) { _, _ -> panelUpdateInProgress = false }
-            .setPositiveButton(R.string.cloud_secrets_confirm, null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val values = mutableMapOf<String, String>()
-                for ((name, input) in inputs) {
-                    val value = input.text?.toString().orEmpty()
-                    if (value.isEmpty()) {
-                        Toast.makeText(this, getString(R.string.cloud_secrets_missing, name), Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-                    values[name] = value
-                }
-                dialog.dismiss()
-                panelUpdateInProgress = true
-                onValues(values)
-            }
-        }
-        dialog.setOnCancelListener { panelUpdateInProgress = false }
-        dialog.show()
-    }
-
-    private fun showCloudUpdateDialog(result: CloudflareWorker.PanelUpdateOutcome.Success) {
-        val status = if (result.verifiedOnline) {
-            getString(R.string.cloud_verified_online)
-        } else {
-            getString(R.string.cloud_verify_pending)
-        }
-        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
-        val message = getString(R.string.cloud_update_done, result.toVersion) + "\n" + status + "\n" + kvLine +
-            "\n\n" + result.panelUrl
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.cloud_update_title)
-            .setMessage(message)
-            .setPositiveButton(R.string.cloud_open_panel) { _, _ ->
-                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
-            }
-            .setNegativeButton(android.R.string.ok, null)
-            .show()
-    }
-
-    /** Opens dash.cloudflare.com with the Cat Panel permissions pre-selected. */
-    private fun openCloudflareTokenPage() {
-        val opened = runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.CF_TOKEN_TEMPLATE_URL)))
-        }.isSuccess
-        if (!opened) {
-            runCatching {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("cf-token-url", CloudflareWorker.CF_TOKEN_TEMPLATE_URL))
-            }
-        }
-        Toast.makeText(this, R.string.cloud_get_token_toast, Toast.LENGTH_LONG).show()
-    }
-
-    /**
-     * Copies the official one-click Deploy-to-Cloudflare link and opens the
-     * system share sheet — the recipient needs neither Cat Client nor an API
-     * token, just a (free) Cloudflare account.
-     */
-    private fun shareDeployButtonLink() {
-        val url = CloudflareWorker.DEPLOY_BUTTON_URL
-        runCatching {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-deploy-link", url))
-        }
-        Toast.makeText(this, R.string.cloud_share_deploy_copied, Toast.LENGTH_SHORT).show()
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.cloud_share_deploy_subject))
-            putExtra(Intent.EXTRA_TEXT, getString(R.string.cloud_share_deploy_text, url))
-        }
-        runCatching { startActivity(Intent.createChooser(send, getString(R.string.cloud_share_deploy_subject))) }
-    }
-
-    private fun showWizardDeployedDialog(result: CloudflareWorker.WizardDeploymentResult) {
-        val status = if (result.verifiedOnline) {
-            getString(R.string.cloud_verified_online)
-        } else {
-            getString(R.string.cloud_verify_pending)
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.cloud_wizard_deployed)
-            .setMessage(status + "\n\n" + result.wizardUrl + "\n\n" + getString(R.string.cloud_wizard_share_hint))
-            .setPositiveButton(R.string.cloud_open_panel) { _, _ ->
-                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.wizardUrl))) }
-            }
-            .setNeutralButton(R.string.cloud_copy_all) { _, _ ->
-                runCatching {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("cat-wizard", result.wizardUrl))
-                    Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton(android.R.string.ok, null)
-            .show()
-    }
-
-    private fun showCloudDeploymentDialog(result: CloudflareWorker.DeploymentResult) {
-        PanelDeploymentStore(this).rememberLast(result.workerUrl, result.uuid)
-        renderCloudDeploymentHistory()
-        val status = if (result.verifiedOnline) {
-            getString(R.string.cloud_verified_online)
-        } else {
-            getString(R.string.cloud_verify_pending)
-        }
-        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
-        val message = status + "\n" + kvLine + "\n\n" +
-            getString(R.string.cloud_panel_url) + ":\n" + result.panelUrl + "\n\n" +
-            getString(R.string.cloud_sub_label) + ":\n" + result.subscriptionUrl + "\n\n" +
-            getString(R.string.cloud_uuid_is_password, result.uuid)
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.cloud_deployed)
-            .setMessage(message)
-            .setPositiveButton(R.string.cloud_import_sub) { _, _ ->
+            .setPositiveButton(R.string.wizard_import_connect) { _, _ ->
                 showAddSubscriptionDialog(result.subscriptionUrl, "Cat Panel")
             }
+            .setNeutralButton(R.string.wizard_scan_now) { _, _ ->
+                if (::scannerSniInput.isInitialized && host.isNotEmpty()) {
+                    scannerSniInput.setText(host)
+                    saveScannerSni(host)
+                }
+                openScreen(SCREEN_SCANNER)
+                Toast.makeText(this, R.string.wizard_scan_hint, Toast.LENGTH_LONG).show()
+            }
             .setNegativeButton(R.string.cloud_open_panel) { _, _ ->
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl)))
-                }
-            }
-            .setNeutralButton(R.string.cloud_copy_all) { _, _ ->
-                runCatching {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val text = "Panel: ${result.panelUrl}\nSub: ${result.subscriptionUrl}\nUUID / password: ${result.uuid}"
-                    clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel", text))
-                    Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_LONG).show()
-                }
-            }
-            .setOnCancelListener {
-                runCatching {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("cat-panel-sub", result.subscriptionUrl))
-                    Toast.makeText(this, R.string.cloud_sub_copied, Toast.LENGTH_LONG).show()
-                    appTabs.getTabAt(2)?.select()
-                }
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
             }
             .show()
     }
 
-    private fun showResetSettingsDialog() {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.settings_reset)
-            .setMessage(R.string.settings_reset_message)
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .setPositiveButton(R.string.settings_reset_confirm) { _, _ ->
-                AppSettingsResetter.reset(this)
-                CatClientTileService.requestTileRefresh(this)
-                Toast.makeText(this, R.string.settings_reset_done, Toast.LENGTH_SHORT).show()
-                recreate()
-            }
-            .create()
-            .showCatClientDialog(positiveColor = ERROR)
-    }
+    /* ------------------------------------------------------------------ */
+    /* Map page (ZedSecure MapScreen): real location → exit                 */
+    /* ------------------------------------------------------------------ */
 
-    private fun scrollFieldIntoView(
-        scrollView: ScrollView,
-        field: View,
-        delayMs: Long = KEYBOARD_SCROLL_DELAY_MS,
-    ) {
-        scrollView.postDelayed(
-            {
-                val scrollLocation = IntArray(2)
-                val fieldLocation = IntArray(2)
-                scrollView.getLocationInWindow(scrollLocation)
-                field.getLocationInWindow(fieldLocation)
-                val visibleBottom = scrollLocation[1] + scrollView.height - scrollView.paddingBottom - dp(16)
-                val overlap = fieldLocation[1] + field.height - visibleBottom
-                if (overlap > 0) scrollView.smoothScrollBy(0, overlap)
-            },
-            delayMs,
-        )
-    }
 
-    private fun advancedSectionLabel(value: String): TextView {
-        return TextView(this).apply {
-            text = value
-            textSize = 12f
-            letterSpacing = 0f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            gravity = Gravity.START
-        }
-    }
+    /* ------------------------------------------------------------------ */
+    /* Static IP + multi-location + SNI scanner (Scanner tab)               */
+    /* ------------------------------------------------------------------ */
 
-    private fun connectionChainFixedLabel(
-        ref: ConnectionChainProfileRef?,
-        options: List<ConnectionChainPickerOption>,
-    ): String {
-        if (ref == null) return getString(R.string.connection_chain_unavailable)
-        val option = options.firstOrNull {
-            it.subscriptionId == ref.subscriptionId && it.profile.fingerprint == ref.fingerprint
-        }
-        return if (option == null) {
-            getString(R.string.connection_chain_unavailable)
-        } else {
-            getString(
-                R.string.connection_chain_fixed_value,
-                option.subscriptionName,
-                option.profile.displayTag,
-            )
-        }
-    }
+    internal fun String.dropLeadingZeros(): String = dropWhile { it == '0' }.ifEmpty { "0" }
 
-    private fun buildConnectionChainSettings(): View {
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        content.addView(
-            advancedSectionLabel(getString(R.string.connection_chain_title)),
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(32) },
-        )
-        val panel = advancedSettingsPanel()
-        val enabledSwitch = MaterialSwitch(this)
-        panel.addView(
-            advancedToggleRow(
-                title = getString(R.string.connection_chain_enable),
-                detail = getString(R.string.connection_chain_enable_detail),
-                toggle = enabledSwitch,
-            ),
-            LinearLayout.LayoutParams(-1, -2),
-        )
-        val hops = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        }
-        panel.addView(hops, LinearLayout.LayoutParams(-1, -2))
-        content.addView(
-            panel,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
+    /* ------------------------------------------------------------------ */
+    /* Add server sheet (ZedSecure "Add server")                             */
+    /* ------------------------------------------------------------------ */
 
-        fun hopRow(
-            slot: ConnectionChainSlot,
-            hop: ConnectionChainHop,
-            options: List<ConnectionChainPickerOption>,
-            controlsEnabled: Boolean,
-        ): View {
-            val optional = slot != ConnectionChainSlot.Base
-            val title = when {
-                hop.mode == ConnectionChainHopMode.Off && slot == ConnectionChainSlot.Before ->
-                    getString(R.string.connection_chain_add_before)
-                hop.mode == ConnectionChainHopMode.Off && slot == ConnectionChainSlot.After ->
-                    getString(R.string.connection_chain_add_after)
-                slot == ConnectionChainSlot.Before -> getString(R.string.connection_chain_before)
-                slot == ConnectionChainSlot.Base -> getString(R.string.connection_label)
-                else -> getString(R.string.connection_chain_after)
-            }
-            val detail = when (hop.mode) {
-                ConnectionChainHopMode.Off -> getString(R.string.connection_chain_optional_detail)
-                ConnectionChainHopMode.Automatic -> getString(R.string.connection_chain_automatic_detail)
-                ConnectionChainHopMode.Fixed -> connectionChainFixedLabel(hop.profileRef, options)
-            }
-            return LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = dp(72)
-                setPadding(dp(16), dp(12), dp(12), dp(12))
-                setSelectableBackground()
-                isEnabled = controlsEnabled
-                isClickable = controlsEnabled
-                isFocusable = controlsEnabled
-                if (controlsEnabled) setOnClickListener { showConnectionTestingPage(chainSlot = slot) }
-                addView(
-                    LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                        addView(
-                            TextView(this@MainActivity).apply {
-                                text = title
-                                textSize = 15f
-                                typeface = CatClientBodyBoldTypeface
-                                setTextColor(if (hop.mode == ConnectionChainHopMode.Off) TEAL else TEXT_PRIMARY)
-                                includeFontPadding = false
-                            },
-                        )
-                        addView(
-                            TextView(this@MainActivity).apply {
-                                text = detail
-                                textSize = 12f
-                                typeface = CatClientBodyTypeface
-                                setTextColor(TEXT_SECONDARY)
-                                includeFontPadding = false
-                                maxLines = 2
-                                ellipsize = TextUtils.TruncateAt.END
-                            },
-                            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
-                        )
-                    },
-                    LinearLayout.LayoutParams(0, -2, 1f),
-                )
-                if (optional && hop.mode != ConnectionChainHopMode.Off) {
-                    addView(
-                        TextView(this@MainActivity).apply {
-                            text = "×"
-                            textSize = 24f
-                            gravity = Gravity.CENTER
-                            setTextColor(TEXT_SECONDARY)
-                            contentDescription = getString(
-                                R.string.connection_chain_remove_hop,
-                                getString(
-                                    when (slot) {
-                                        ConnectionChainSlot.Before -> R.string.connection_chain_before
-                                        ConnectionChainSlot.Base -> R.string.connection_chain_base
-                                        ConnectionChainSlot.After -> R.string.connection_chain_after
-                                    },
-                                ),
-                            )
-                            setSelectableBackground()
-                            isEnabled = controlsEnabled
-                            isClickable = controlsEnabled
-                            isFocusable = controlsEnabled
-                            if (controlsEnabled) {
-                                setOnClickListener {
-                                    updateConnectionChainSettings(
-                                        connectionChainPreferenceStore.read()
-                                            .withHop(slot, ConnectionChainHop.off()),
-                                    )
-                                }
-                            }
-                        },
-                        LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) },
-                    )
-                } else {
-                    addView(
-                        TextView(this@MainActivity).apply {
-                            setText(R.string.chevron_forward)
-                            textSize = 22f
-                            typeface = CatClientBodyBoldTypeface
-                            setTextColor(TEAL)
-                            includeFontPadding = false
-                        },
-                        LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) },
-                    )
-                }
-            }
-        }
+    internal var fragmentCarrierLine: TextView? = null
 
-        fun render() {
-            val settings = connectionChainPreferenceStore.read()
-            val controlsEnabled = buttonModel.state != VpnState.Starting &&
-                buttonModel.state != VpnState.Stopping
-            if (enabledSwitch.isChecked != settings.enabled) enabledSwitch.isChecked = settings.enabled
-            enabledSwitch.isEnabled = controlsEnabled
-            hops.removeAllViews()
-            hops.visibility = if (settings.enabled) View.VISIBLE else View.GONE
-            hops.alpha = if (controlsEnabled) 1f else 0.45f
-            if (!settings.enabled) {
-                connectionChainCompatibilityIssue = null
-                connectionChainCompatibilityMessage = null
-                pendingConnectionChainAccessibilityAnnouncement = null
-                return
-            }
-            if (!hops.isShown) return
-            val fixedSubscriptionIds = listOf(settings.base, settings.after)
-                .mapNotNull { hop ->
-                    hop.profileRef?.subscriptionId.takeIf {
-                        hop.mode == ConnectionChainHopMode.Fixed
-                    }
-                }
-                .toSet()
-            val fixedSources = cachedConnectionChainSources(fixedSubscriptionIds)
-            val options = connectionChainFixedOptions(settings, fixedSources)
-            hops.addView(
-                advancedSectionDetail(getString(R.string.connection_chain_order_detail)),
-                LinearLayout.LayoutParams(-1, -2).apply {
-                    marginStart = dp(16)
-                    marginEnd = dp(16)
-                    topMargin = dp(10)
-                    bottomMargin = dp(4)
-                },
-            )
-            val compatibilityIssue = ConnectionChainPlanner.selectedCompatibilityIssue(settings, fixedSources)
-            val compatibilityChanged = compatibilityIssue != connectionChainCompatibilityIssue
-            connectionChainCompatibilityIssue = compatibilityIssue
-            if (compatibilityIssue == null) {
-                connectionChainCompatibilityMessage = null
-                pendingConnectionChainAccessibilityAnnouncement = null
-            }
-            compatibilityIssue?.let { issue ->
-                val message = getString(
-                    when (issue) {
-                        ConnectionChainCompatibilityIssue.SelectedConnectionUnavailable ->
-                            R.string.connection_chain_error_unavailable
-                        ConnectionChainCompatibilityIssue.SameConnection ->
-                            R.string.connection_chain_error_same
-                        ConnectionChainCompatibilityIssue.SharedProxyDependency ->
-                            R.string.connection_chain_error_shared_proxy
-                        ConnectionChainCompatibilityIssue.DownstreamRequiresUdpCapableUpstream ->
-                            R.string.connection_chain_error_udp
-                    },
-                )
-                connectionChainCompatibilityMessage = message
-                hops.addView(
-                    TextView(this).apply {
-                        text = "⚠  $message"
-                        textSize = 12f
-                        typeface = CatClientBodyTypeface
-                        setTextColor(ERROR)
-                        includeFontPadding = false
-                        gravity = Gravity.START
-                        setPadding(dp(12), dp(10), dp(12), dp(10))
-                        contentDescription = message
-                        background = GradientDrawable().apply {
-                            cornerRadius = dp(8).toFloat()
-                            setColor(withAlpha(ERROR, 18))
-                            setStroke(dp(1), withAlpha(ERROR, 110))
-                        }
-                    },
-                    LinearLayout.LayoutParams(-1, -2).apply {
-                        marginStart = dp(16)
-                        marginEnd = dp(16)
-                        topMargin = dp(8)
-                        bottomMargin = dp(4)
-                    },
-                )
-                if (compatibilityChanged) {
-                    if (connectionTestingPageVisible) {
-                        pendingConnectionChainAccessibilityAnnouncement = message
-                    } else {
-                        hops.post { if (hops.isShown) hops.announceAccessibility(message) }
-                    }
-                }
-            }
-            listOf(ConnectionChainSlot.Base, ConnectionChainSlot.After).forEachIndexed { index, slot ->
-                if (index > 0) {
-                    hops.addView(
-                        View(this).apply { setBackgroundColor(withAlpha(OUTLINE, 150)) },
-                        LinearLayout.LayoutParams(-1, dp(1)).apply {
-                            marginStart = dp(16)
-                            marginEnd = dp(16)
-                        },
-                    )
-                }
-                hops.addView(
-                    hopRow(slot, settings.hop(slot), options, controlsEnabled),
-                    LinearLayout.LayoutParams(-1, -2),
-                )
-            }
-        }
-        renderChainSettingsPage = ::render
-        enabledSwitch.setOnCheckedChangeListener { _, enabled ->
-            val current = connectionChainPreferenceStore.read()
-            if (current.enabled != enabled) updateConnectionChainSettings(current.copy(enabled = enabled))
-        }
-        render()
-        return content
-    }
+    /**
+     * ISO-2 codes the ACTIVE chain can really exit to — `null` when no chain is running, so
+     * callers can tell «no chain» from «a chain that can land nowhere recognisable».
+     *
+     * Why it exists: with a chain, the location list used to be built from the SELECTED
+     * subscription's profiles, i.e. from configs the chain may not even include. The user could
+     * pick Germany and the chain would leave from wherever — the setting looked applied and did
+     * nothing. This is the list the picker must offer instead.
+     */
+    internal var chainExitCountryCodes: List<String>? = null
 
-    private fun updateConnectionChainSettings(settings: ConnectionChainSettings) {
-        if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) {
-            renderChainSettingsPage?.invoke()
-            return
-        }
-        val previous = connectionChainPreferenceStore.read()
-        val normalized = settings.copy(before = ConnectionChainHop.off()).normalized()
-        if (previous == normalized) return
-        connectionChainPreferenceStore.save(normalized)
-        renderChainSettingsPage?.invoke()
-        renderConnectionDetails(buttonModel.state)
-        renderConnectionSelection()
-        if (
-            buttonModel.state == VpnState.Started &&
-            (previous.isActive || normalized.isActive) &&
-            connectionChainCompatibilityIssue == null
+    private fun handleAutomaticConnectionProgress(intent: Intent) {
+        automaticConnectionProgress = when (
+            intent.getStringExtra(Actions.EXTRA_AUTOMATIC_CONNECTION_PHASE)
         ) {
-            reconnectForConnectionOptionChange()
+            Actions.AUTO_PHASE_CHECKING_CACHE -> getString(R.string.auto_connection_checking_cache)
+            Actions.AUTO_PHASE_QUICK_SCAN -> getString(R.string.auto_connection_quick_scan)
+            Actions.AUTO_PHASE_FALLBACK_SCAN -> getString(R.string.auto_connection_fallback_scan)
+            Actions.AUTO_PHASE_RUNTIME_TEST -> getString(R.string.auto_connection_runtime_test)
+            else -> ""
         }
-    }
-
-    private fun openConnectionChainSettingsFromHome() {
-        appTabs.getTabAt(0)?.select()
-        openConnectionChainSettingsPage?.invoke()
-    }
-
-    private fun cachedConnectionChainPickerOptions(
-        subscriptionIds: Set<String>? = null,
-    ): List<ConnectionChainPickerOption> =
-        connectionChainPickerOptions(cachedConnectionChainSources(subscriptionIds))
-
-    private fun cachedConnectionChainSources(
-        subscriptionIds: Set<String>? = null,
-    ): List<ConnectionChainSource> {
-        val subscriptions = userSubscriptionManager.list()
-        val repository = ConfigRepository(this)
-        return buildList {
-            addAll(
-                SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.map {
-                    it to builtInSubscriptionName(it)
-                },
-            )
-            addAll(subscriptions.map { it.id to it.name })
-        }.filter { (subscriptionId, _) -> subscriptionIds == null || subscriptionId in subscriptionIds }
-            .mapNotNull { (subscriptionId, subscriptionName) ->
-                val snapshot = repository.readCachedMihomoConfigOrNullNow(subscriptionId)
-                    ?: return@mapNotNull null
-                ConnectionChainSource(subscriptionId, subscriptionName, snapshot)
-            }
-    }
-
-    private fun connectionChainPickerOptions(
-        sources: List<ConnectionChainSource>,
-    ): List<ConnectionChainPickerOption> = sources.flatMap { source ->
-        val selectable = ConnectionChainPlanner.selectableFingerprints(source.snapshot)
-        source.snapshot.catalog.profiles.filter { it.fingerprint in selectable }.map { profile ->
-            ConnectionChainPickerOption(
-                subscriptionId = source.subscriptionId,
-                subscriptionName = source.subscriptionName,
-                profile = profile,
-            )
-        }
-    }
-
-    private fun connectionChainFixedOptions(
-        settings: ConnectionChainSettings,
-        sources: List<ConnectionChainSource>,
-    ): List<ConnectionChainPickerOption> {
-        val refs = listOf(settings.base, settings.after).mapNotNull { hop ->
-            hop.profileRef.takeIf { hop.mode == ConnectionChainHopMode.Fixed }
-        }
-        return sources.flatMap { source ->
-            val fingerprints = refs.filter { it.subscriptionId == source.subscriptionId }
-                .mapTo(mutableSetOf(), ConnectionChainProfileRef::fingerprint)
-            source.snapshot.catalog.profiles.filter { it.fingerprint in fingerprints }.map { profile ->
-                ConnectionChainPickerOption(source.subscriptionId, source.subscriptionName, profile)
-            }
-        }
-    }
-
-    private fun advancedSectionDetail(value: String): TextView {
-        return TextView(this).apply {
-            text = value
-            textSize = 12f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            setLineSpacing(dp(2).toFloat(), 1f)
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-            gravity = Gravity.START
-        }
-    }
-
-    private fun advancedSettingsPanel(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            background = glassSurfaceDrawable(radiusDp = 12)
-            clipToOutline = true
-            elevation = 0f
-            setPadding(dp(4), dp(4), dp(4), dp(12))
-        }
-    }
-
-    private fun advancedToggleRow(
-        title: String,
-        detail: String,
-        toggle: MaterialSwitch,
-    ): View {
-        val toggleStates = arrayOf(
-            intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked),
-            intArrayOf(android.R.attr.state_enabled, -android.R.attr.state_checked),
-            intArrayOf(-android.R.attr.state_enabled, android.R.attr.state_checked),
-            intArrayOf(-android.R.attr.state_enabled, -android.R.attr.state_checked),
-        )
-        toggle.thumbTintList = ColorStateList(
-            toggleStates,
-            intArrayOf(SURFACE, SURFACE, withAlpha(SURFACE, 140), withAlpha(SURFACE, 140)),
-        )
-        toggle.trackTintList = ColorStateList(
-            toggleStates,
-            intArrayOf(
-                TEAL,
-                withAlpha(TEXT_SECONDARY, 190),
-                withAlpha(TEAL, 80),
-                withAlpha(TEXT_SECONDARY, 80),
-            ),
-        )
-        val textColumn = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            addView(
-                TextView(this@MainActivity).apply {
-                    text = title
-                    textSize = 14f
-                    typeface = CatClientBodyBoldTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    includeFontPadding = false
-                },
-            )
-            addView(
-                TextView(this@MainActivity).apply {
-                    text = detail
-                    textSize = 12f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_SECONDARY)
-                    includeFontPadding = false
-                    maxLines = 2
-                },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    topMargin = dp(4)
-                },
-            )
-        }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(64)
-            setPadding(dp(12), dp(12), dp(16), dp(12))
-            setSelectableBackground()
-            isClickable = true
-            isFocusable = false
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            toggle.contentDescription = "$title. $detail"
-            setOnClickListener {
-                if (toggle.isEnabled) toggle.performClick()
-            }
-            addView(
-                textColumn,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-            )
-            addView(
-                toggle,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { marginStart = dp(12) },
-            )
-        }
-    }
-
-    private fun showPrivacyPolicyIfNeeded(onAccepted: (() -> Unit)? = null): Boolean {
-        if (privacyPolicyStore.isAccepted()) return false
-        showPrivacyPolicyDialog(onAccepted)
-        return true
-    }
-
-    private fun showPrivacyPolicyDialog(onAccepted: (() -> Unit)? = null) {
-        if (privacyPolicyDialog?.isShowing == true) return
-
-        val messageText = TextView(this).apply {
-            text = getString(R.string.privacy_policy_message)
-            textSize = 14f
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = true
-            setLineSpacing(dp(2).toFloat(), 1.0f)
-        }
-        val checkbox = CheckBox(this).apply {
-            text = getString(R.string.privacy_policy_checkbox)
-            textSize = 14f
-            setTextColor(TEXT_PRIMARY)
-        }
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(4), dp(4), 0)
-            addView(
-                messageText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-            addView(
-                checkbox,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    topMargin = dp(12)
-                },
-            )
-        }
-        val scrollView = ScrollView(this).apply {
-            addView(
-                content,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-        }
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.privacy_policy_title)
-            .setView(scrollView)
-            .setNegativeButton(R.string.privacy_policy_not_now, null)
-            .setPositiveButton(R.string.privacy_policy_accept, null)
-            .create()
-
-        dialog.setOnDismissListener {
-            if (privacyPolicyDialog === dialog) {
-                privacyPolicyDialog = null
-            }
-        }
-        privacyPolicyDialog = dialog
-        dialog.showCatClientDialog {
-            val acceptButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-            acceptButton.isEnabled = false
-            checkbox.setOnCheckedChangeListener { _, isChecked ->
-                acceptButton.isEnabled = isChecked
-            }
-            acceptButton.setOnClickListener {
-                privacyPolicyStore.acceptCurrentVersion()
-                DiagnosticLogger.info(
-                    this@MainActivity,
-                    "privacy.accepted",
-                    "version=${PrivacyPolicyAcceptancePolicy.CURRENT_VERSION}",
-                )
-                dialog.dismiss()
-                onAccepted?.invoke()
-            }
-        }
+        renderConnectionDetails(buttonModel.state)
     }
 
     private fun handleStateChanged(context: Context, intent: Intent) {
@@ -7065,6 +1880,7 @@ class MainActivity : Activity() {
             intent.getStringExtra(Actions.EXTRA_STATE),
             intent.getStringExtra(Actions.EXTRA_ERROR),
         )
+        if (state != VpnState.Starting) automaticConnectionProgress = ""
         VpnAnalyticsEventPolicy.forStatePublished(previousState, state)?.let {
             AnalyticsEvents.log(this, it)
         }
@@ -7086,6 +1902,12 @@ class MainActivity : Activity() {
         )
         if (state != VpnState.Starting) {
             connectFlowPending = false
+        }
+        if (state is VpnState.Error && previousState == VpnState.Starting && state.message.isNotBlank() &&
+            state.message != lastShownConnectionFault
+        ) {
+            lastShownConnectionFault = state.message
+            window.decorView.post { showConnectionFaultDialog(state.message) }
         }
         if (state == VpnState.Started && previousState != VpnState.Started) {
             refreshLocationOptions()
@@ -7173,7 +1995,7 @@ class MainActivity : Activity() {
         if (!connectionChainPreferenceStore.read().enabled) renderConnectionSelection()
     }
 
-    private fun handleButtonClick() {
+    internal fun handleButtonClick() {
         DiagnosticLogger.beginCapture(this)
         val nextAction = buttonModel.nextAction()
         if (nextAction == null) {
@@ -7207,7 +2029,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun handleRefreshClick() {
+    internal fun handleRefreshClick() {
         if (buttonModel.state != VpnState.Started) return
         if (!commitFrontingIpInput(reconnectIfChanged = false, focusOnError = true)) return
         if (!commitDnsPrivacyEndpoint(reconnectIfChanged = false, focusOnError = true)) return
@@ -7239,7 +2061,7 @@ class MainActivity : Activity() {
         startVpnService(Actions.REFRESH)
     }
 
-    private fun refreshLocationOptions() {
+    internal fun refreshLocationOptions() {
         renderLocationSelection()
         renderConnectionSelection()
         activityScope.launch {
@@ -7288,7 +2110,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun updateLocationOptions(
+    internal fun updateLocationOptions(
         profiles: List<ConnectionProfile>,
         resetMissingSelection: Boolean,
     ) {
@@ -7328,1296 +2150,18 @@ class MainActivity : Activity() {
         renderConnectionSelection()
     }
 
-    private fun showConnectionTestingPage(
-        animate: Boolean = true,
-        rebuild: Boolean = false,
-        chainSlot: ConnectionChainSlot? = null,
-        pickerSubscriptionId: String? = null,
-    ) {
-        if (connectionTestingPageVisible && !rebuild) return
-        if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
-        val subscriptionStore = SubscriptionStore(this)
-        val pickerMode = chainSlot != null
-        val pickerOptions = if (pickerMode) cachedConnectionChainPickerOptions() else emptyList()
-        val configuredHop = chainSlot?.let { connectionChainPreferenceStore.read().hop(it) }
-        val requestedSubscriptionId = if (pickerMode) {
-            pickerSubscriptionId
-                ?: configuredHop?.profileRef?.subscriptionId
-                ?: subscriptionStore.readSelectedSubscriptionId()
-        } else {
-            subscriptionStore.readSelectedSubscriptionId()
-        }
-        val selectedSubscriptionId = if (
-            pickerMode && pickerOptions.none { it.subscriptionId == requestedSubscriptionId }
-        ) {
-            pickerOptions.firstOrNull()?.subscriptionId ?: requestedSubscriptionId
-        } else {
-            requestedSubscriptionId
-        }
-        activeChainPickerSlot = chainSlot
-        activeChainPickerSubscriptionId = selectedSubscriptionId.takeIf { pickerMode }
-        val pageProfiles = if (pickerMode) {
-            pickerOptions.filter { it.subscriptionId == selectedSubscriptionId }.map { it.profile }
-        } else {
-            connectionProfiles
-        }
-        val usesActiveRuntime = !pickerMode && buttonModel.state == VpnState.Started &&
-            activeRuntimeSubscriptionId == selectedSubscriptionId
-        val canRunConnectionTests = buttonModel.state != VpnState.Started ||
-            (activeChainHopCount <= 1 && activeRuntimeSubscriptionId == selectedSubscriptionId)
-        if (usesActiveRuntime && !liveSelectorReady) {
-            Toast.makeText(this, R.string.connection_selector_loading, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val selectorProfiles = if (usesActiveRuntime) {
-            pageProfiles.filter { it.fingerprint in liveSelectableConnectionFingerprints }
-        } else {
-            pageProfiles
-        }
-        val udpSupportByFingerprint = ConfigRepository(this)
-            .readCachedMihomoConfigOrNullNow(selectedSubscriptionId)
-            ?.let(ConnectionChainPlanner::udpSupportByFingerprint)
-            .orEmpty()
-        connectionDelayRecords = subscriptionStore
-            .readConnectionDelayRecords(selectedSubscriptionId, selectorProfiles)
-            .associateBy(ConnectionDelayRecord::fingerprint)
-        val selectedProfile = if (pickerMode) {
-            configuredHop
-                ?.takeIf { it.mode == ConnectionChainHopMode.Fixed }
-                ?.profileRef
-                ?.takeIf { it.subscriptionId == selectedSubscriptionId }
-                ?.let { ref -> selectorProfiles.firstOrNull { it.fingerprint == ref.fingerprint } }
-        } else {
-            connectionSelectionPreferenceStore.readSelectedProfile(selectedSubscriptionId, selectorProfiles)
-        }
-        val displayLocale = resources.configuration.locales[0]
-        val allCountriesLabel = getString(R.string.connection_filter_all_countries)
-        val countryOptions = ConnectionLocationPolicy.selectorOptions(
-            profiles = selectorProfiles,
-            automaticLabel = allCountriesLabel,
-            displayLocale = displayLocale,
-        )
-        val selectableCountryOptions = countryOptions.filter { it.countryCode != null }
-        val availableCountryCodes = selectableCountryOptions.mapNotNull(LocationSelectorOption::countryCode).toSet()
-        val availableTypes = ConnectionTypeSelectionPolicy.availableTypes(selectorProfiles)
-        val restoredSession = ConnectionDelayTestState.snapshot(selectedSubscriptionId)
-        val profilesByFingerprint = selectorProfiles.associateBy(ConnectionProfile::fingerprint)
-        val selectedCountryCodes = restoredSession
-            ?.takeIf(ConnectionDelayTestSession::isRunning)
-            ?.targetFingerprints
-            ?.map { fingerprint ->
-                profilesByFingerprint[fingerprint]
-                    ?.let { ConnectionLocationPolicy.countryForProfile(it, displayLocale) }
-                    ?.code
-            }
-            ?.filterNotNull()
-            ?.toMutableSet()
-            ?.takeIf { it.isNotEmpty() }
-            ?: availableCountryCodes.toMutableSet()
-        val selectedTypes = restoredSession
-            ?.takeIf(ConnectionDelayTestSession::isRunning)
-            ?.connectionTypes
-            .orEmpty()
-            .ifEmpty {
-                connectionSelectionPreferenceStore
-                    .readAutomaticTypes(selectedSubscriptionId, selectorProfiles)
-                    .ifEmpty { availableTypes.toSet() }
-            }
-            .toMutableSet()
-        val testingFingerprints = if (restoredSession?.isRunning == true) {
-            (restoredSession.targetFingerprints - restoredSession.finishedFingerprints).toMutableSet()
-        } else {
-            mutableSetOf<String>()
-        }
-        val speedTests = ConnectionSpeedTestState.runningSessions(selectedSubscriptionId)
-            .associateBy(ConnectionSpeedTestSession::fingerprint)
-            .toMutableMap()
-        var speedTestRunning = speedTests.isNotEmpty()
-        fun selectedTypesLabel(): String = when {
-            selectedTypes.size == availableTypes.size -> getString(R.string.connection_filter_all_types)
-            selectedTypes.size == 1 -> selectedTypes.first().uppercase(Locale.US)
-            else -> getString(R.string.connection_filter_types_count, selectedTypes.size)
-        }
-        fun selectedCountryLabel(): String = when {
-            selectedCountryCodes == availableCountryCodes -> allCountriesLabel
-            selectedCountryCodes.size == 1 -> selectableCountryOptions
-                .firstOrNull { it.countryCode in selectedCountryCodes }
-                ?.label
-                ?: allCountriesLabel
-            else -> getString(R.string.connection_filter_countries_count, selectedCountryCodes.size)
-        }
-        fun visibleProfiles(): List<ConnectionProfile> {
-            val matchingCountry = if (selectedCountryCodes == availableCountryCodes) {
-                selectorProfiles
-            } else {
-                selectorProfiles.filter { profile ->
-                    ConnectionLocationPolicy.countryForProfile(profile, displayLocale)?.code in selectedCountryCodes
-                }
-            }
-            val matchingType = ConnectionTypeSelectionPolicy.filterProfiles(
-                matchingCountry,
-                selectedTypes,
-            )
-            return ConnectionTestResultOrder.order(
-                profiles = matchingType,
-                records = connectionDelayRecords,
-                pendingFingerprints = testingFingerprints,
-            )
-        }
-        var filteredProfiles = visibleProfiles()
-        var testRunning = restoredSession?.isRunning == true
-        var testPaused = restoredSession?.paused == true
-        var lastTestCompleted = restoredSession?.completed ?: 0
-        var lastTestTotal = restoredSession?.total ?: 0
-        var lastTestAvailable = restoredSession?.available ?: 0
-        var lastTestStatus = restoredSession?.status
-        var lastTestError = restoredSession?.error.orEmpty()
-        var delayTestId: String? = restoredSession?.testId
-
-        data class ConnectionRowHolder(
-            val container: LinearLayout,
-            val title: TextView,
-            val detail: TextView,
-            val delayBadge: TextView,
-            val protocolBadges: LinearLayout,
-            val udpBadge: TextView,
-            val checkIcon: View,
-            val speedAction: FrameLayout,
-            val speedButton: TextView,
-        )
-
-        val content = MaxWidthLinearLayout(this).apply {
-            maxWidthPx = dp(640)
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(104))
-        }
-
-        val backButton = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_arrow_back)
-            imageTintList = ColorStateList.valueOf(TEXT_PRIMARY)
-            setBackgroundColor(Color.TRANSPARENT)
-            setSelectableBackground()
-            contentDescription = getString(
-                if (pickerMode) R.string.connection_chain_picker_back else R.string.connection_testing_back,
-            )
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setOnClickListener { closeConnectionTestingPage() }
-        }
-        val pageTitle = TextView(this).apply {
-            setText(
-                if (pickerMode) R.string.connection_chain_picker_title
-                else R.string.connection_testing_page_title,
-            )
-            textSize = 24f
-            typeface = CatClientDisplayTypeface
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = false
-        }
-        val settings = connectionTestSettingsPreferenceStore.read()
-        val pageConfig = TextView(this).apply {
-            text = if (pickerMode) {
-                getString(R.string.connection_chain_picker_detail)
-            } else {
-                getString(
-                    R.string.connection_testing_page_config,
-                    settings.timeoutSeconds,
-                    settings.concurrency,
-                    settings.speedTestMegabytes,
-                ) + (if (pageProfiles.any { it.shareLink != null }) " · " + getString(R.string.connection_share_hint) else "")
-            }
-            textSize = 12f
-            typeface = CatClientDataTypeface
-            setTextColor(TEAL)
-            includeFontPadding = false
-        }
-        val headerCopy = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(pageTitle, LinearLayout.LayoutParams(-1, -2))
-            addView(pageConfig, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        }
-        val headerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            gravity = Gravity.TOP
-            addView(backButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
-            addView(headerCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        }
-        val headerRule = View(this).apply { setBackgroundColor(OUTLINE) }
-
-        // Filter row - horizontal with chips
-        val filterRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        fun filterChip(text: String) = TextView(this).apply {
-            this.text = text
-            textSize = 13f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_PRIMARY)
-            includeFontPadding = false
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), OUTLINE)
-                setColor(SURFACE)
-            }
-        }
-
-        val countryFilterButton = filterChip(allCountriesLabel)
-        val typeFilterButton = filterChip(getString(R.string.connection_filter_all_types))
-        val pickerSubscriptions = pickerOptions.distinctBy(ConnectionChainPickerOption::subscriptionId)
-        val subscriptionFilterButton = if (pickerMode) {
-            filterChip(
-                getString(
-                    R.string.connection_chain_subscription,
-                    pickerSubscriptions.firstOrNull { it.subscriptionId == selectedSubscriptionId }
-                        ?.subscriptionName
-                        ?: selectedSubscriptionId,
-                ),
-            ).apply {
-                isClickable = pickerSubscriptions.size > 1
-                isFocusable = pickerSubscriptions.size > 1
-                alpha = if (pickerSubscriptions.size > 1) 1f else 0.7f
-                if (pickerSubscriptions.size > 1) setOnClickListener {
-                    val labels = pickerSubscriptions.map(ConnectionChainPickerOption::subscriptionName).toTypedArray()
-                    val checked = pickerSubscriptions.indexOfFirst {
-                        it.subscriptionId == selectedSubscriptionId
-                    }.coerceAtLeast(0)
-                    MaterialAlertDialogBuilder(this@MainActivity)
-                        .setTitle(R.string.connection_chain_subscription_title)
-                        .setSingleChoiceItems(labels, checked) { dialog, which ->
-                            val selected = pickerSubscriptions[which]
-                            dialog.dismiss()
-                            showConnectionTestingPage(
-                                animate = false,
-                                rebuild = true,
-                                chainSlot = chainSlot,
-                                pickerSubscriptionId = selected.subscriptionId,
-                            )
-                        }
-                        .setNegativeButton(R.string.split_tunnel_cancel, null)
-                        .create()
-                        .showCatClientDialog()
-                }
-            }
-        } else {
-            null
-        }
-
-        filterRow.addView(countryFilterButton, LinearLayout.LayoutParams(0, dp(48), 1f))
-        filterRow.addView(typeFilterButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
-
-        // Progress section
-        val progressSection = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = false
-            max = 100
-            progress = 0
-            progressTintList = ColorStateList.valueOf(TEAL)
-            progressBackgroundTintList = ColorStateList.valueOf(OUTLINE)
-            minimumHeight = dp(4)
-        }
-        val testStatus = TextView(this).apply {
-            textSize = 13f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            includeFontPadding = false
-            gravity = Gravity.CENTER
-        }
-        progressSection.addView(progressBar, LinearLayout.LayoutParams(-1, dp(4)))
-        progressSection.addView(testStatus, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-
-        // Control buttons
-        val testButton = MaterialButton(this).apply {
-            setText(R.string.connection_test_visible)
-            setIconResource(R.drawable.ic_connection_test)
-            iconTint = ColorStateList.valueOf(BACKGROUND)
-            iconSize = dp(18)
-            iconPadding = dp(8)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(24)
-            backgroundTintList = ColorStateList.valueOf(TEAL)
-            setTextColor(BACKGROUND)
-            setAllCaps(false)
-        }
-
-        val controlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val pauseButton = MaterialButton(this).apply {
-            setIconResource(R.drawable.ic_pause)
-            iconTint = ColorStateList.valueOf(TEAL)
-            iconSize = dp(20)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            iconPadding = 0
-            text = ""
-            minWidth = dp(48)
-            minimumWidth = dp(48)
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(24)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(OUTLINE)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            visibility = View.GONE
-            contentDescription = getString(R.string.connection_test_pause)
-            setPadding(0, 0, 0, 0)
-        }
-
-        val stopButton = MaterialButton(this).apply {
-            setText(R.string.connection_test_stop)
-            textSize = 13f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(24)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(ERROR)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-            setTextColor(ERROR)
-            setAllCaps(false)
-            visibility = View.GONE
-        }
-
-        stopButton.setPadding(dp(20), 0, dp(20), 0)
-        controlRow.addView(testButton, LinearLayout.LayoutParams(0, dp(48), 1f))
-        controlRow.addView(pauseButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
-        controlRow.addView(stopButton, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(8) })
-
-        // Server list with better styling
-        val list = ListView(this).apply {
-            divider = ColorDrawable(Color.TRANSPARENT)
-            dividerHeight = dp(8)
-            isVerticalScrollBarEnabled = true
-            clipToPadding = false
-            setPadding(0, dp(4), 0, dp(4))
-        }
-
-        fun protocolBadge(@StringRes label: Int) = TextView(this).apply {
-            setText(label)
-            textSize = 10f
-            typeface = CatClientDataTypeface
-            setTextColor(TEAL)
-            includeFontPadding = false
-            gravity = Gravity.CENTER
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            textDirection = View.TEXT_DIRECTION_LTR
-            setPadding(dp(6), dp(2), dp(6), dp(2))
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(withAlpha(TEAL, 24))
-                setStroke(dp(1), withAlpha(TEAL, 90))
-            }
-        }
-
-        val adapter = object : BaseAdapter() {
-            override fun getCount(): Int = filteredProfiles.size + 1
-
-            override fun getItem(position: Int): Any? =
-                if (position == 0) null else filteredProfiles[position - 1]
-
-            override fun getItemId(position: Int): Long = position.toLong()
-
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-                val row: LinearLayout
-                val holder: ConnectionRowHolder
-                if (convertView == null) {
-                    val container = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                        gravity = Gravity.CENTER_VERTICAL
-                    }
-                    val title = TextView(this@MainActivity).apply {
-                        textSize = 14f
-                        typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEXT_PRIMARY)
-                        includeFontPadding = false
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.END
-                    }
-                    val detail = TextView(this@MainActivity).apply {
-                        textSize = 12f
-                        typeface = CatClientDataTypeface
-                        setTextColor(TEXT_SECONDARY)
-                        includeFontPadding = false
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.END
-                    }
-                    val delayBadge = TextView(this@MainActivity).apply {
-                        textSize = 11f
-                        typeface = CatClientDataTypeface
-                        includeFontPadding = false
-                        gravity = Gravity.CENTER
-                        maxLines = 1
-                        setPadding(dp(7), dp(3), dp(7), dp(3))
-                        visibility = View.GONE
-                    }
-                    val tcpBadge = protocolBadge(R.string.connection_protocol_tcp)
-                    val udpBadge = protocolBadge(R.string.connection_protocol_udp)
-                    val protocolBadges = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        layoutDirection = View.LAYOUT_DIRECTION_LTR
-                        gravity = Gravity.CENTER_VERTICAL
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                        addView(tcpBadge, LinearLayout.LayoutParams(-2, -2))
-                        addView(
-                            udpBadge,
-                            LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(4) },
-                        )
-                    }
-                    val speedButton = TextView(this@MainActivity).apply {
-                        setText(R.string.connection_speed_test_label)
-                        textSize = 11f
-                        typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEAL)
-                        includeFontPadding = false
-                        gravity = Gravity.CENTER
-                        compoundDrawablePadding = dp(4)
-                        setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_speedometer, 0, 0, 0)
-                        compoundDrawableTintList = ColorStateList.valueOf(TEAL)
-                        setPadding(dp(8), 0, dp(8), 0)
-                        background = GradientDrawable().apply {
-                            cornerRadius = dp(16).toFloat()
-                            setColor((TEAL and 0x00FFFFFF) or (0x18 shl 24))
-                        }
-                        visibility = View.GONE
-                    }
-                    val speedAction = FrameLayout(this@MainActivity).apply {
-                        visibility = View.GONE
-                        isClickable = true
-                        isFocusable = true
-                        setSelectableBackground()
-                        addView(speedButton, FrameLayout.LayoutParams(-2, dp(32), Gravity.CENTER))
-                    }
-                    // Selection indicator (small dot)
-                    val checkIcon = View(this@MainActivity).apply {
-                        background = GradientDrawable().apply {
-                            shape = GradientDrawable.OVAL
-                            setColor(TEAL)
-                        }
-                        visibility = View.INVISIBLE
-                    }
-                    val textColumn = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                        addView(title, LinearLayout.LayoutParams(-1, -2))
-                        addView(
-                            LinearLayout(this@MainActivity).apply {
-                                orientation = LinearLayout.HORIZONTAL
-                                layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                                gravity = Gravity.CENTER_VERTICAL
-                                addView(
-                                    protocolBadges,
-                                    LinearLayout.LayoutParams(-2, -2),
-                                )
-                                addView(
-                                    detail,
-                                    LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) },
-                                )
-                            },
-                            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) },
-                        )
-                        addView(
-                            delayBadge,
-                            LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) },
-                        )
-                    }
-                    container.addView(checkIcon, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) })
-                    container.addView(textColumn, LinearLayout.LayoutParams(0, -2, 1f))
-                    container.addView(speedAction, LinearLayout.LayoutParams(dp(96), dp(56)).apply { marginStart = dp(4) })
-
-                    row = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(12), dp(10), dp(12), dp(10))
-                        addView(container, LinearLayout.LayoutParams(-1, -2))
-                    }
-                    // Card-like background
-                    row.background = GradientDrawable().apply {
-                        cornerRadius = dp(16).toFloat()
-                        setColor(SURFACE)
-                    }
-                    holder = ConnectionRowHolder(
-                        container,
-                        title,
-                        detail,
-                        delayBadge,
-                        protocolBadges,
-                        udpBadge,
-                        checkIcon,
-                        speedAction,
-                        speedButton,
-                    )
-                    row.tag = holder
-                } else {
-                    row = convertView as LinearLayout
-                    holder = row.tag as ConnectionRowHolder
-                }
-
-                val profile = getItem(position) as? ConnectionProfile
-                val isSelected = if (profile == null) {
-                    if (pickerMode) {
-                        configuredHop?.mode == ConnectionChainHopMode.Automatic
-                    } else {
-                        selectedProfile == null
-                    }
-                } else {
-                    selectedProfile?.fingerprint == profile.fingerprint
-                }
-
-                // Update selection state
-                holder.checkIcon.visibility = if (isSelected) View.VISIBLE else View.INVISIBLE
-                (row.background as? GradientDrawable)?.setColor(
-                    if (isSelected) ((TEAL and 0x00FFFFFF) or (0x18 shl 24)) else SURFACE
-                )
-                (row.background as? GradientDrawable)?.setStroke(
-                    dp(1),
-                    if (isSelected) TEAL else OUTLINE
-                )
-                row.isSelected = isSelected
-                var protocolDescription: String? = null
-
-                if (profile == null) {
-                    holder.title.setText(R.string.option_automatic)
-                    val automaticDetail = if (pickerMode) {
-                        getString(R.string.connection_chain_automatic_detail)
-                    } else if (selectedTypes.size == availableTypes.size) {
-                        getString(R.string.connection_automatic_detail)
-                    } else {
-                        getString(R.string.connection_automatic_types_detail, selectedTypesLabel())
-                    }
-                    holder.detail.text = activeConnectionTag
-                        .takeIf { usesActiveRuntime && it.isNotBlank() }
-                        ?.let { getString(R.string.connection_automatic_active_detail, automaticDetail, it) }
-                        ?: automaticDetail
-                    holder.delayBadge.text = ""
-                    holder.delayBadge.visibility = View.GONE
-                    holder.delayBadge.background = null
-                    holder.protocolBadges.visibility = View.GONE
-                    holder.speedAction.visibility = View.GONE
-                } else {
-                    holder.title.text = profile.displayTag
-                    holder.protocolBadges.visibility = View.VISIBLE
-                    val udpSupport = udpSupportByFingerprint[profile.fingerprint]
-                    val udpColor = when (udpSupport) {
-                        true -> TEAL
-                        false -> TEXT_SECONDARY
-                        null -> AMBER
-                    }
-                    holder.udpBadge.setText(
-                        when (udpSupport) {
-                            true -> R.string.connection_protocol_udp
-                            false -> R.string.connection_protocol_udp_unavailable
-                            null -> R.string.connection_protocol_udp_unknown
-                        },
-                    )
-                    holder.udpBadge.setTextColor(udpColor)
-                    holder.udpBadge.background = GradientDrawable().apply {
-                        cornerRadius = dp(8).toFloat()
-                        setColor(withAlpha(udpColor, 24))
-                        setStroke(dp(1), withAlpha(udpColor, 90))
-                    }
-                    protocolDescription = getString(
-                        when (udpSupport) {
-                            true -> R.string.connection_protocol_support_tcp_udp
-                            false -> R.string.connection_protocol_support_tcp_only
-                            null -> R.string.connection_protocol_support_udp_unknown
-                        },
-                    )
-                    holder.detail.text = if (SubscriptionStore.isBuiltInSubscription(selectedSubscriptionId)) {
-                        profile.type.uppercase(Locale.US)
-                    } else {
-                        getString(
-                            R.string.connection_detail,
-                            profile.type.uppercase(Locale.US),
-                            profile.server,
-                            profile.port,
-                        )
-                    }
-                    val delayRecord = connectionDelayRecords[profile.fingerprint]
-                    val delayMs: Int? = if (delayRecord?.status == ConnectionDelayStatus.Success) {
-                        delayRecord.delayMs
-                    } else {
-                        null
-                    }
-                    val speedKbps = delayRecord?.speedKbps?.takeUnless { profile.fingerprint in speedTests }
-                    val isTesting = profile.fingerprint in testingFingerprints
-                    val isSpeedTesting = profile.fingerprint in speedTests
-
-                    holder.delayBadge.text = when {
-                        isTesting -> getString(R.string.connection_delay_testing)
-                        speedKbps != null && delayMs != null -> getString(
-                            R.string.connection_speed_delay_value,
-                            speedKbps / 1_000.0,
-                            delayMs,
-                        )
-                        delayMs != null -> getString(R.string.connection_delay_value, delayMs)
-                        delayRecord?.status == ConnectionDelayStatus.Failure ->
-                            getString(R.string.connection_delay_unavailable)
-                        else -> ""
-                    }
-
-                    // Badge background based on state
-                    val badgeColor = when {
-                        isTesting -> AMBER
-                        delayMs != null -> TEAL
-                        delayRecord?.status == ConnectionDelayStatus.Failure -> ERROR
-                        else -> TEXT_SECONDARY
-                    }
-                    if (holder.delayBadge.text.isNotEmpty()) {
-                        holder.delayBadge.visibility = View.VISIBLE
-                        holder.delayBadge.setTextColor(badgeColor)
-                        holder.delayBadge.background = GradientDrawable().apply {
-                            cornerRadius = dp(12).toFloat()
-                            setColor((badgeColor and 0x00FFFFFF) or (0x20 shl 24))
-                        }
-                    } else {
-                        holder.delayBadge.visibility = View.GONE
-                        holder.delayBadge.background = null
-                    }
-
-                    holder.speedAction.visibility = if (delayMs != null) View.VISIBLE else View.GONE
-                    holder.speedButton.visibility = View.VISIBLE
-                    holder.speedButton.setText(
-                        if (isSpeedTesting) R.string.connection_test_stop else R.string.connection_speed_test_label,
-                    )
-                    holder.speedButton.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                        if (isSpeedTesting) R.drawable.ic_stop else R.drawable.ic_speedometer, 0, 0, 0,
-                    )
-                    holder.speedAction.isEnabled = isSpeedTesting ||
-                        (canRunConnectionTests && delayMs != null && !testRunning)
-                    holder.speedAction.alpha = if (holder.speedAction.isEnabled) 1f else 0.45f
-                    holder.speedAction.contentDescription = if (isSpeedTesting) {
-                        "${getString(R.string.connection_test_stop)}: ${profile.displayTag}"
-                    } else {
-                        getString(R.string.connection_speed_test_action, profile.displayTag)
-                    }
-                    holder.speedAction.setOnClickListener {
-                        speedTests[profile.fingerprint]?.let { running ->
-                            startService(
-                                Intent(this@MainActivity, CatClientVpnService::class.java)
-                                    .setAction(Actions.CANCEL_CONNECTION_SPEED_TEST)
-                                    .putExtra(Actions.EXTRA_APP_INITIATED, true)
-                                    .putExtra(Actions.EXTRA_SPEED_TEST_ID, running.testId),
-                            )
-                            return@setOnClickListener
-                        }
-                        if (!canRunConnectionTests || testRunning || delayMs == null) {
-                            return@setOnClickListener
-                        }
-                        delayRecord?.copy(speedKbps = null)?.let { clearedRecord ->
-                            connectionDelayRecords = connectionDelayRecords +
-                                (profile.fingerprint to clearedRecord)
-                        }
-                        val speedTestId = SystemClock.elapsedRealtimeNanos().toString()
-                        speedTests[profile.fingerprint] = ConnectionSpeedTestSession(
-                            speedTestId, selectedSubscriptionId, profile.fingerprint,
-                        )
-                        speedTestRunning = true
-                        notifyDataSetChanged()
-                        testButton.isEnabled = false
-                        testButton.alpha = 0.5f
-                        typeFilterButton.isEnabled = false
-                        typeFilterButton.alpha = 0.5f
-                        countryFilterButton.isEnabled = false
-                        countryFilterButton.alpha = 0.5f
-                        startForegroundService(
-                            Intent(this@MainActivity, CatClientVpnService::class.java)
-                                .setAction(Actions.TEST_CONNECTION_SPEED)
-                                .putExtra(Actions.EXTRA_APP_INITIATED, true)
-                                .putExtra(Actions.EXTRA_SPEED_TEST_ID, speedTestId)
-                                .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, selectedSubscriptionId)
-                                .putExtra(Actions.EXTRA_CONNECTION_FINGERPRINT, profile.fingerprint),
-                        )
-                    }
-                }
-
-                row.contentDescription = listOfNotNull(
-                    holder.title.text?.toString()?.takeIf(String::isNotBlank),
-                    holder.detail.text?.toString()?.takeIf(String::isNotBlank),
-                    protocolDescription,
-                    holder.delayBadge.text?.toString()?.takeIf(String::isNotBlank),
-                ).joinToString(". ")
-                row.setOnClickListener {
-                    if (speedTestRunning) return@setOnClickListener
-                    if (pickerMode) {
-                        val hop = if (profile == null) {
-                            ConnectionChainHop.automatic()
-                        } else {
-                            ConnectionChainHop.fixed(selectedSubscriptionId, profile.fingerprint)
-                        }
-                        val current = connectionChainPreferenceStore.read()
-                        val updated = current.withHop(chainSlot!!, hop)
-                        updateConnectionChainSettings(updated)
-                        if (current != updated) {
-                            pendingConnectionChainAccessibilityAnnouncement =
-                                connectionChainCompatibilityMessage
-                        }
-                    } else {
-                        handleConnectionSelected(profile, selectedTypes)
-                    }
-                    closeConnectionTestingPage()
-                }
-                row.setOnLongClickListener {
-                    val target = profile ?: return@setOnLongClickListener false
-                    showConnectionShareMenu(row, target)
-                    true
-                }
-                row.isLongClickable = profile?.shareLink != null
-                return row
-            }
-        }
-        list.adapter = adapter
-
-        fun updateTestControls() {
-            // Test button state
-            testButton.isEnabled = canRunConnectionTests && filteredProfiles.isNotEmpty() &&
-                !speedTestRunning && (!testRunning || testPaused)
-            testButton.alpha = if (testButton.isEnabled) 1f else 0.5f
-            val hasResults = filteredProfiles.any { it.fingerprint in connectionDelayRecords }
-            testButton.setText(
-                if (testPaused || hasResults) R.string.connection_test_again else R.string.connection_test_visible
-            )
-            // Show/hide test button based on state
-            testButton.visibility = if (testRunning && !testPaused) View.GONE else View.VISIBLE
-
-            // Pause button
-            pauseButton.visibility = if (testRunning) View.VISIBLE else View.GONE
-            pauseButton.setIconResource(if (testPaused) R.drawable.ic_play else R.drawable.ic_pause)
-            pauseButton.contentDescription = getString(
-                if (testPaused) R.string.connection_test_resume else R.string.connection_test_pause,
-            )
-
-            // Stop button
-            stopButton.visibility = if (testRunning) View.VISIBLE else View.GONE
-
-            // Filter chips
-            typeFilterButton.isEnabled = !testRunning && !speedTestRunning && availableTypes.isNotEmpty()
-            typeFilterButton.alpha = if (typeFilterButton.isEnabled) 1f else 0.5f
-            typeFilterButton.text = selectedTypesLabel()
-            (typeFilterButton.background as? GradientDrawable)?.setStroke(
-                dp(1), if (selectedTypes.size < availableTypes.size) TEAL else OUTLINE
-            )
-
-            countryFilterButton.isEnabled = !testRunning && !speedTestRunning && countryOptions.size > 1
-            countryFilterButton.alpha = if (countryFilterButton.isEnabled) 1f else 0.5f
-            countryFilterButton.text = selectedCountryLabel()
-            (countryFilterButton.background as? GradientDrawable)?.setStroke(
-                dp(1), if (selectedCountryCodes != availableCountryCodes) TEAL else OUTLINE
-            )
-
-            // Progress section
-            val failed = lastTestStatus == Actions.DELAY_TEST_FAILED
-
-            progressSection.visibility = if (testRunning || lastTestStatus != null) View.VISIBLE else View.GONE
-
-            // Update progress bar
-            val progressPercent = if (lastTestTotal > 0) (lastTestCompleted * 100) / lastTestTotal else 0
-            progressBar.progress = progressPercent
-            progressBar.progressTintList = ColorStateList.valueOf(
-                when {
-                    failed -> ERROR
-                    testPaused -> AMBER
-                    else -> TEAL
-                }
-            )
-
-            // Status text
-            testStatus.setTextColor(if (failed) ERROR else TEXT_SECONDARY)
-            testStatus.text = when {
-                selectorProfiles.isEmpty() -> getString(R.string.connection_empty)
-                testRunning && lastTestTotal == 0 -> getString(R.string.connection_test_preparing)
-                testRunning && testPaused ->
-                    getString(R.string.connection_test_paused, lastTestCompleted, lastTestTotal)
-                testRunning ->
-                    getString(R.string.connection_test_progress, lastTestCompleted, lastTestTotal)
-                lastTestStatus == Actions.DELAY_TEST_COMPLETED ->
-                    getString(R.string.connection_test_complete, lastTestAvailable, lastTestTotal)
-                failed -> lastTestError.ifBlank { getString(R.string.connection_test_failed) }
-                lastTestStatus == Actions.DELAY_TEST_CANCELED ->
-                    getString(R.string.connection_test_canceled)
-                else -> ""
-            }
-        }
-
-        fun filterBulkButton(@StringRes textRes: Int) = MaterialButton(this).apply {
-            setText(textRes)
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            setTextColor(TEAL)
-            setAllCaps(false)
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(24)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(OUTLINE)
-            backgroundTintList = ColorStateList.valueOf(SURFACE)
-        }
-
-        typeFilterButton.setOnClickListener {
-            val draft = selectedTypes.toMutableSet()
-            val typeChecks = mutableListOf<MaterialCheckBox>()
-            val choices = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(4), 0, dp(4), 0)
-            }
-            val bulkActions = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(
-                    filterBulkButton(R.string.connection_filter_select_all).apply {
-                        setOnClickListener {
-                            draft.clear()
-                            draft += availableTypes
-                            typeChecks.forEach { it.isChecked = true }
-                        }
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f),
-                )
-                addView(
-                    filterBulkButton(R.string.connection_filter_deselect_all).apply {
-                        setOnClickListener {
-                            draft.clear()
-                            typeChecks.forEach { it.isChecked = false }
-                        }
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) },
-                )
-            }
-            availableTypes.forEach { type ->
-                val check = MaterialCheckBox(this).apply {
-                    text = type.uppercase(Locale.US)
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    minHeight = dp(48)
-                    gravity = Gravity.CENTER_VERTICAL
-                    isUseMaterialThemeColors = false
-                    buttonTintList = ColorStateList(
-                        arrayOf(
-                            intArrayOf(android.R.attr.state_checked),
-                            intArrayOf(),
-                        ),
-                        intArrayOf(TEAL, TEXT_SECONDARY),
-                    )
-                    isChecked = type in draft
-                    setOnCheckedChangeListener { _, isChecked ->
-                        if (isChecked) draft += type else draft -= type
-                    }
-                }
-                typeChecks += check
-                choices.addView(
-                    check,
-                    LinearLayout.LayoutParams(-1, dp(48)),
-                )
-            }
-            val dialogContent = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), 0, dp(8), 0)
-                addView(bulkActions, LinearLayout.LayoutParams(-1, dp(48)))
-                addView(
-                    ScrollView(this@MainActivity).apply { addView(choices) },
-                    LinearLayout.LayoutParams(
-                        -1,
-                        minOf(
-                            availableTypes.size.coerceAtLeast(1) * dp(48),
-                            (resources.displayMetrics.heightPixels * 0.42f).toInt(),
-                        ),
-                    ).apply { topMargin = dp(8) },
-                )
-            }
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.connection_filter_types_title)
-                .setView(dialogContent)
-                .setNegativeButton(R.string.split_tunnel_cancel, null)
-                .setPositiveButton(R.string.split_tunnel_save) { _, _ ->
-                    selectedTypes.clear()
-                    selectedTypes += draft
-                    filteredProfiles = visibleProfiles()
-                    adapter.notifyDataSetChanged()
-                    updateTestControls()
-                }
-                .create()
-                .showCatClientDialog()
-        }
-
-        countryFilterButton.setOnClickListener {
-            val draft = selectedCountryCodes.toMutableSet()
-            val countryChecks = mutableListOf<MaterialCheckBox>()
-            val choices = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(4), 0, dp(4), 0)
-            }
-            val bulkActions = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(
-                    filterBulkButton(R.string.connection_filter_select_all).apply {
-                        setOnClickListener {
-                            draft.clear()
-                            draft += availableCountryCodes
-                            countryChecks.forEach { it.isChecked = true }
-                        }
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f),
-                )
-                addView(
-                    filterBulkButton(R.string.connection_filter_deselect_all).apply {
-                        setOnClickListener {
-                            draft.clear()
-                            countryChecks.forEach { it.isChecked = false }
-                        }
-                    },
-                    LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) },
-                )
-            }
-            selectableCountryOptions.forEach { option ->
-                val code = option.countryCode ?: return@forEach
-                val check = MaterialCheckBox(this).apply {
-                    text = option.label
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    minHeight = dp(48)
-                    gravity = Gravity.CENTER_VERTICAL
-                    isUseMaterialThemeColors = false
-                    buttonTintList = ColorStateList(
-                        arrayOf(
-                            intArrayOf(android.R.attr.state_checked),
-                            intArrayOf(),
-                        ),
-                        intArrayOf(TEAL, TEXT_SECONDARY),
-                    )
-                    isChecked = code in draft
-                    setOnCheckedChangeListener { _, isChecked ->
-                        if (isChecked) draft += code else draft -= code
-                    }
-                }
-                countryChecks += check
-                choices.addView(check, LinearLayout.LayoutParams(-1, dp(48)))
-            }
-            val dialogContent = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), 0, dp(8), 0)
-                addView(bulkActions, LinearLayout.LayoutParams(-1, dp(48)))
-                addView(
-                    ScrollView(this@MainActivity).apply { addView(choices) },
-                    LinearLayout.LayoutParams(
-                        -1,
-                        minOf(
-                            selectableCountryOptions.size.coerceAtLeast(1) * dp(48),
-                            (resources.displayMetrics.heightPixels * 0.42f).toInt(),
-                        ),
-                    ).apply { topMargin = dp(8) },
-                )
-            }
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.connection_filter_country_title)
-                .setView(dialogContent)
-                .setPositiveButton(R.string.split_tunnel_save) { _, _ ->
-                    selectedCountryCodes.clear()
-                    selectedCountryCodes += draft
-                    filteredProfiles = visibleProfiles()
-                    adapter.notifyDataSetChanged()
-                    updateTestControls()
-                }
-                .setNegativeButton(R.string.split_tunnel_cancel, null)
-                .create()
-                .showCatClientDialog()
-        }
-
-        testButton.setOnClickListener {
-            if (!canRunConnectionTests || speedTestRunning || testRunning && !testPaused) {
-                return@setOnClickListener
-            }
-            val targets = filteredProfiles.toList()
-            if (targets.isEmpty()) return@setOnClickListener
-            testRunning = true
-            testPaused = false
-            lastTestCompleted = 0
-            lastTestTotal = targets.size
-            lastTestAvailable = 0
-            lastTestStatus = Actions.DELAY_TEST_PREPARING
-            lastTestError = ""
-            delayTestId = SystemClock.elapsedRealtimeNanos().toString()
-            val targetFingerprints = targets.map { it.fingerprint }.toSet()
-            testingFingerprints.clear()
-            testingFingerprints += targetFingerprints
-            ConnectionDelayTestState.replace(
-                ConnectionDelayTestSession(
-                    testId = delayTestId.orEmpty(),
-                    subscriptionId = selectedSubscriptionId,
-                    connectionTypes = selectedTypes,
-                    targetFingerprints = targets.map(ConnectionProfile::fingerprint),
-                    status = Actions.DELAY_TEST_PREPARING,
-                    total = targets.size,
-                ),
-            )
-            filteredProfiles = visibleProfiles()
-            adapter.notifyDataSetChanged()
-            updateTestControls()
-            startForegroundService(
-                Intent(this, CatClientVpnService::class.java)
-                    .setAction(Actions.TEST_CONNECTION_DELAYS)
-                    .putExtra(Actions.EXTRA_APP_INITIATED, true)
-                    .putExtra(Actions.EXTRA_DELAY_TEST_ID, delayTestId)
-                    .putExtra(Actions.EXTRA_SUBSCRIPTION_ID, selectedSubscriptionId)
-                    .putStringArrayListExtra(
-                        Actions.EXTRA_CONNECTION_TYPES,
-                        ArrayList(selectedTypes.sorted()),
-                    )
-                    .putStringArrayListExtra(
-                        Actions.EXTRA_CONNECTION_FINGERPRINTS,
-                        ArrayList(targets.map(ConnectionProfile::fingerprint)),
-                    ),
-            )
-        }
-
-        pauseButton.setOnClickListener {
-            val currentTestId = delayTestId ?: return@setOnClickListener
-            if (!testRunning) return@setOnClickListener
-            testPaused = !testPaused
-            updateTestControls()
-            startService(
-                Intent(this, CatClientVpnService::class.java)
-                    .setAction(
-                        if (testPaused) {
-                            Actions.PAUSE_CONNECTION_DELAY_TEST
-                        } else {
-                            Actions.RESUME_CONNECTION_DELAY_TEST
-                        },
-                    )
-                    .putExtra(Actions.EXTRA_APP_INITIATED, true)
-                    .putExtra(Actions.EXTRA_DELAY_TEST_ID, currentTestId),
-            )
-        }
-
-        stopButton.setOnClickListener {
-            if (!testRunning) return@setOnClickListener
-            startService(
-                Intent(this, CatClientVpnService::class.java)
-                    .setAction(Actions.CANCEL_CONNECTION_DELAY_TEST)
-                    .putExtra(Actions.EXTRA_APP_INITIATED, true)
-                    .putExtra(Actions.EXTRA_DELAY_TEST_ID, delayTestId),
-            )
-        }
-
-        lateinit var pageDelayTestListener: (Intent) -> Unit
-        var lastDelayResultsRefreshAtMs: Long? = null
-        var delayResultsRefreshScheduled = false
-
-        fun reloadDelayResults() {
-            connectionDelayRecords = subscriptionStore
-                .readConnectionDelayRecords(
-                    subscriptionId = selectedSubscriptionId,
-                    profiles = selectorProfiles,
-                )
-                .associateBy(ConnectionDelayRecord::fingerprint)
-            filteredProfiles = visibleProfiles()
-            adapter.notifyDataSetChanged()
-            lastDelayResultsRefreshAtMs = SystemClock.elapsedRealtime()
-        }
-
-        val delayedResultsRefresh = Runnable {
-            delayResultsRefreshScheduled = false
-            if (connectionDelayTestListener !== pageDelayTestListener) return@Runnable
-            reloadDelayResults()
-        }
-
-        fun scheduleDelayResultsRefresh() {
-            if (delayResultsRefreshScheduled) return
-            val delayMs = ConnectionDelayUiRefreshPolicy.delayUntilNextRefresh(
-                nowMs = SystemClock.elapsedRealtime(),
-                lastRefreshAtMs = lastDelayResultsRefreshAtMs,
-            )
-            if (delayMs == 0L) {
-                reloadDelayResults()
-            } else {
-                delayResultsRefreshScheduled = true
-                mainHandler.postDelayed(delayedResultsRefresh, delayMs)
-            }
-        }
-
-        fun reloadFinalDelayResults() {
-            mainHandler.removeCallbacks(delayedResultsRefresh)
-            delayResultsRefreshScheduled = false
-            scheduleDelayResultsRefresh()
-        }
-
-        pageDelayTestListener = listener@{ intent ->
-            if (intent.action == Actions.CONNECTION_SPEED_TEST_CHANGED) {
-                val broadcastTestId = intent.getStringExtra(Actions.EXTRA_SPEED_TEST_ID) ?: return@listener
-                val broadcastSubscriptionId = intent.getStringExtra(Actions.EXTRA_SUBSCRIPTION_ID).orEmpty()
-                if (broadcastSubscriptionId != selectedSubscriptionId) return@listener
-                val fingerprint = intent.getStringExtra(Actions.EXTRA_CONNECTION_FINGERPRINT).orEmpty()
-                if (speedTests[fingerprint]?.testId != broadcastTestId) return@listener
-                val session = ConnectionSpeedTestState.snapshot(selectedSubscriptionId, fingerprint)
-                    ?.takeIf { it.testId == broadcastTestId }
-                    ?: ConnectionSpeedTestSession(
-                        testId = broadcastTestId,
-                        subscriptionId = broadcastSubscriptionId,
-                        fingerprint = intent.getStringExtra(Actions.EXTRA_CONNECTION_FINGERPRINT).orEmpty(),
-                        status = intent.getStringExtra(Actions.EXTRA_SPEED_TEST_STATUS)
-                            ?: Actions.SPEED_TEST_FAILED,
-                        error = intent.getStringExtra(Actions.EXTRA_SPEED_TEST_ERROR).orEmpty(),
-                    )
-                if (session.isRunning) {
-                    speedTests[fingerprint] = session
-                } else {
-                    speedTests.remove(fingerprint)
-                }
-                speedTestRunning = speedTests.isNotEmpty()
-                if (!session.isRunning) {
-                    connectionDelayRecords = subscriptionStore
-                        .readConnectionDelayRecords(selectedSubscriptionId, selectorProfiles)
-                        .associateBy(ConnectionDelayRecord::fingerprint)
-                }
-                adapter.notifyDataSetChanged()
-                updateTestControls()
-                if (session.status == Actions.SPEED_TEST_FAILED) {
-                    Toast.makeText(
-                        this,
-                        session.error.ifBlank { getString(R.string.connection_speed_test_failed) },
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-                return@listener
-            }
-
-            val broadcastTestId = intent.getStringExtra(Actions.EXTRA_DELAY_TEST_ID)
-            if (broadcastTestId != delayTestId) return@listener
-            val session = ConnectionDelayTestState.snapshot(selectedSubscriptionId)
-                ?.takeIf { it.testId == broadcastTestId }
-                ?: return@listener
-            val status = session.status
-            lastTestCompleted = session.completed
-            lastTestTotal = session.total
-            lastTestAvailable = session.available
-            lastTestStatus = status
-            lastTestError = session.error
-            testPaused = session.paused
-            if (status == Actions.DELAY_TEST_STARTED) {
-                connectionDelayRecords = connectionDelayRecords.filterKeys {
-                    it !in session.targetFingerprints
-                }
-                filteredProfiles = visibleProfiles()
-                lastDelayResultsRefreshAtMs = SystemClock.elapsedRealtime()
-            }
-            testingFingerprints.clear()
-            if (session.isRunning) {
-                testingFingerprints += session.targetFingerprints - session.finishedFingerprints
-            }
-            when (status) {
-                Actions.DELAY_TEST_STARTED -> {
-                    testRunning = true
-                    adapter.notifyDataSetChanged()
-                    updateTestControls()
-                }
-
-                Actions.DELAY_TEST_PROGRESS -> {
-                    testRunning = true
-                    scheduleDelayResultsRefresh()
-                    updateTestControls()
-                }
-
-                Actions.DELAY_TEST_COMPLETED -> {
-                    testRunning = false
-                    testPaused = false
-                    testingFingerprints.clear()
-                    reloadFinalDelayResults()
-                    updateTestControls()
-                }
-
-                Actions.DELAY_TEST_FAILED -> {
-                    testRunning = false
-                    testPaused = false
-                    testingFingerprints.clear()
-                    reloadFinalDelayResults()
-                    updateTestControls()
-                }
-
-                Actions.DELAY_TEST_CANCELED -> {
-                    testRunning = false
-                    testPaused = false
-                    testingFingerprints.clear()
-                    reloadFinalDelayResults()
-                    updateTestControls()
-                }
-            }
-        }
-        connectionDelayTestListener = pageDelayTestListener
-
-        // Assemble layout
-        content.addView(headerRow, LinearLayout.LayoutParams(-1, -2))
-        content.addView(
-            headerRule,
-            LinearLayout.LayoutParams(-1, dp(1)).apply {
-                topMargin = dp(18)
-                bottomMargin = dp(16)
-            },
-        )
-        subscriptionFilterButton?.let { button ->
-            content.addView(
-                button,
-                LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) },
-            )
-        }
-        content.addView(filterRow, LinearLayout.LayoutParams(-1, dp(48)))
-        content.addView(
-            progressSection,
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
-        )
-        content.addView(
-            controlRow,
-            LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) },
-        )
-        content.addView(
-            list,
-            LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12) },
-        )
-
-        connectionTestingPageHost.removeAllViews()
-        ViewCompat.setAccessibilityPaneTitle(connectionTestingPageHost, pageTitle.text)
-        connectionTestingPageHost.addView(
-            content,
-            FrameLayout.LayoutParams(-1, -1, Gravity.CENTER_HORIZONTAL),
-        )
-        updateTestControls()
-        setConnectionTestingPageVisible(visible = true, animate = animate && !rebuild)
-    }
-
-    private fun handleConnectionSelected(
+    internal fun handleConnectionSelected(
         profile: ConnectionProfile?,
         selectedTypes: Set<String>,
     ) {
+        // beta217: the settings panels (renderAdvancedControls) were redrawn up to twice per tap here; the Cat Warp
+        // preference is now settled first and the panels are redrawn once, only if it actually changed.
+        val currentAether = aetherPreferenceStore.read()
+        var aetherSettingsChanged = false
+        if (currentAether.enabled) {
+            aetherPreferenceStore.save(currentAether.copy(enabled = false))
+            aetherSettingsChanged = true
+        }
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val previous = connectionSelectionPreferenceStore.readSelectedProfile(
             selectedSubscriptionId,
@@ -8638,19 +2182,29 @@ class MainActivity : Activity() {
             selectedTypes,
             connectionProfiles,
         )
+        connectionSelectionPreferenceStore.saveSelectedProfile(selectedSubscriptionId, profile, userPick = true)
+        val pickedShareLink = profile?.shareLink.orEmpty()
+        if (pickedShareLink.startsWith("aether://", ignoreCase = true) || pickedShareLink.startsWith("masque://", ignoreCase = true)) {
+            AetherSelection.fromAetherUri(pickedShareLink)?.let { parsed ->
+                aetherPreferenceStore.save(parsed.copy(enabled = true))
+                aetherSettingsChanged = true
+            }
+        }
+        if (aetherSettingsChanged) renderAdvancedControls()
+        renderConnectionSelection()
+        renderLocationSelection()
+
         val usesActiveRuntime = buttonModel.state == VpnState.Started &&
             activeRuntimeSubscriptionId == selectedSubscriptionId
+        val activeSelectionChanged = profile != null &&
+            activeConnectionFingerprint != profile.fingerprint
         if (
             profile != null &&
             usesActiveRuntime &&
-            (!liveSelectorReady || profile.fingerprint !in liveSelectableConnectionFingerprints)
+            liveSelectorReady &&
+            profile.fingerprint in liveSelectableConnectionFingerprints &&
+            (selectionChanged || activeSelectionChanged)
         ) {
-            Toast.makeText(this, R.string.connection_switch_unavailable, Toast.LENGTH_LONG).show()
-            return
-        }
-        val activeSelectionChanged = profile != null &&
-            activeConnectionFingerprint != profile.fingerprint
-        if (profile != null && usesActiveRuntime && (selectionChanged || activeSelectionChanged)) {
             DiagnosticLogger.info(
                 this,
                 "activity.connection.switch.requested",
@@ -8660,16 +2214,13 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.connection_switching, Toast.LENGTH_SHORT).show()
             return
         }
-        if (!selectionChanged) return
-        connectionSelectionPreferenceStore.saveSelectedProfile(selectedSubscriptionId, profile)
+        if (!selectionChanged && !activeSelectionChanged) return
         DiagnosticLogger.info(
             this,
             "activity.connection.selected",
             "mode=${if (profile == null) "automatic" else "explicit"} " +
                 "profile=${profile?.tag.orEmpty()} types=${automaticTypes.sorted().joinToString(",")}",
         )
-        renderConnectionSelection()
-        renderLocationSelection()
         if (buttonModel.state == VpnState.Started) {
             buttonModel.onStateChanged(VpnState.Starting)
             renderState(VpnState.Starting)
@@ -8677,7 +2228,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderConnectionSelection() {
+    internal fun renderConnectionSelection() {
         if (!::connectionSelectorRow.isInitialized) return
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val profile = connectionSelectionPreferenceStore.readSelectedProfile(
@@ -8712,10 +2263,11 @@ class MainActivity : Activity() {
         } ?: configuredValue
         connectionSelectorRow.setValue(value)
         connectionSelectorRow.contentDescription = getString(R.string.connection_content_description, value)
+        if (::activeConfigTitle.isInitialized) activeConfigTitle.text = value
         renderHomeConnectionRows()
     }
 
-    private fun renderHomeConnectionRows() {
+    internal fun renderHomeConnectionRows() {
         if (!::homeChainSelectorRows.isInitialized) return
         val settings = connectionChainPreferenceStore.read()
         homeChainSelectorRows.visibility = if (settings.enabled) View.VISIBLE else View.GONE
@@ -8749,7 +2301,7 @@ class MainActivity : Activity() {
         render(homeChainAfterSelectorRow, R.string.connection_chain_after, settings.after)
     }
 
-    private fun showLocationSelector() {
+    internal fun showLocationSelector() {
         if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
         val options = dialogLocationOptions()
         val selectedCountryCode = locationPreferenceStore.readSelectedCountryCode()
@@ -8772,6 +2324,20 @@ class MainActivity : Activity() {
     }
 
     private fun dialogLocationOptions(): List<LocationSelectorOption> {
+        val chainCodes = chainExitCountryCodes
+        if (chainCodes != null) {
+            // The chain is in charge of the exit, so its reachable countries ARE the list.
+            // A code the chain cannot reach is offered as well when it is currently stored:
+            // hiding the user's own choice would look like the setting vanished.
+            val locale = resources.configuration.locales[0]
+            val stored = locationPreferenceStore.readSelectedCountryCode()
+            val codes = buildList {
+                addAll(chainCodes)
+                if (stored != null && stored !in chainCodes) add(stored)
+            }
+            val options = codes.mapNotNull { code -> ConnectionLocationPolicy.optionForCode(code, locale) }
+            return listOf(automaticLocationOption()) + options
+        }
         if (locationOptions.isEmpty()) return listOf(automaticLocationOption())
         val selectedCountryCode = locationPreferenceStore.readSelectedCountryCode()
         val selectedOption = if (
@@ -8805,6 +2371,14 @@ class MainActivity : Activity() {
             "activity.location.selected",
             "code=${option.countryCode ?: "auto"} label=${option.label}",
         )
+        val chainCodes = chainExitCountryCodes
+        if (chainCodes != null && option.countryCode != null && option.countryCode !in chainCodes) {
+            Toast.makeText(
+                this,
+                getString(R.string.location_chain_unavailable),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         renderLocationSelection()
         renderConnectionSelection()
         if (buttonModel.state == VpnState.Started) {
@@ -8814,7 +2388,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderLocationSelection() {
+    internal fun renderLocationSelection() {
         if (!::locationSelectorRow.isInitialized) return
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val selectedCountryCode = connectionSelectionPreferenceStore.readSelectedProfile(
@@ -8835,112 +2409,7 @@ class MainActivity : Activity() {
     private fun automaticLocationOption(): LocationSelectorOption =
         LocationSelectorOption(countryCode = null, label = getString(R.string.option_automatic))
 
-    private fun showSubscriptionSelectorMenu(anchor: View) {
-        val subscriptions = SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.map {
-            it to builtInSubscriptionName(it)
-        } + userSubscriptionManager.list().map { it.id to it.name }
-        val selectedId = userSubscriptionManager.selectedId()
-        catClientPopupMenu(anchor).apply {
-            subscriptions.forEachIndexed { index, (id, name) ->
-                menu.add(0, SUBSCRIPTION_ITEM_ID_BASE + index, index, name).apply {
-                    isCheckable = true
-                    isChecked = id == selectedId
-                }
-            }
-            menu.setGroupCheckable(0, true, true)
-            setOnMenuItemClickListener { item ->
-                val subscriptionId = subscriptions[item.itemId - SUBSCRIPTION_ITEM_ID_BASE].first
-                if (subscriptionId != selectedId) {
-                    userSubscriptionManager.select(subscriptionId)
-                    onSubscriptionSelected()
-                }
-                true
-            }
-        }.show()
-    }
-
-    private fun showThemeSelector() {
-        val modes = AppThemeMode.entries
-        val selected = appThemePreferenceStore.read()
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.theme_dialog_title)
-            .setSingleChoiceItems(
-                modes.map { getString(it.labelRes) }.toTypedArray(),
-                modes.indexOf(selected),
-            ) { dialog, which ->
-                val mode = modes[which]
-                dialog.dismiss()
-                if (mode == selected) return@setSingleChoiceItems
-                appThemePreferenceStore.save(mode)
-                VpnWidgetProvider.refresh(this)
-                recreate()
-            }
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .create()
-        dialog.showCatClientDialog()
-    }
-
-    private fun showLanguageSelector() {
-        val languages = AppLanguage.entries
-        val selected = appLanguagePreferenceStore.read()
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.language_dialog_title)
-            .setSingleChoiceItems(
-                languages.map { getString(it.labelRes) }.toTypedArray(),
-                languages.indexOf(selected),
-            ) { dialog, which ->
-                val language = languages[which]
-                dialog.dismiss()
-                if (language == selected) return@setSingleChoiceItems
-                AppLocale.apply(applicationContext, language)
-                VpnWidgetProvider.refresh(this)
-                CatClientTileService.requestTileRefresh(this)
-                recreate()
-            }
-            .setNegativeButton(R.string.split_tunnel_cancel, null)
-            .create()
-        dialog.showCatClientDialog()
-    }
-
-    private fun showDnsPrivacySelector() {
-        if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
-        val modes = DnsPrivacyMode.values()
-        val selectedMode = dnsPrivacyPreferenceStore.readMode()
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.dns_encrypted_title)
-            .setSingleChoiceItems(
-                modes.map { getString(it.labelRes) }.toTypedArray(),
-                modes.indexOf(selectedMode),
-            ) { dialog, which ->
-                if (handleDnsPrivacySelected(modes[which])) dialog.dismiss()
-            }
-            .create()
-        dialog.showCatClientDialog()
-    }
-
-    private fun showRoutingModeSelector() {
-        if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
-        val modes = RoutingMode.values()
-        val selectedMode = routingModePreferenceStore.read()
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.routing_rules_title)
-            .setSingleChoiceItems(
-                modes.map { getString(it.labelRes) }.toTypedArray(),
-                modes.indexOf(selectedMode),
-            ) { dialog, which ->
-                val mode = modes[which]
-                dialog.dismiss()
-                if (mode == selectedMode) return@setSingleChoiceItems
-                routingModePreferenceStore.save(mode)
-                DiagnosticLogger.info(this, "activity.routing.saved", "mode=${mode.wireName}")
-                renderRoutingModeSelection()
-                reconnectForConnectionOptionChange()
-            }
-            .create()
-        dialog.showCatClientDialog()
-    }
-
-    private fun renderRoutingModeSelection() {
+    internal fun renderRoutingModeSelection() {
         if (!::routingModeRow.isInitialized) return
         val mode = routingModePreferenceStore.read()
         val modeLabel = getString(mode.labelRes)
@@ -8949,7 +2418,7 @@ class MainActivity : Activity() {
         routingModeRow.contentDescription = getString(R.string.routing_content_description, modeLabel)
     }
 
-    private fun handleDnsPrivacySelected(mode: DnsPrivacyMode): Boolean {
+    internal fun handleDnsPrivacySelected(mode: DnsPrivacyMode): Boolean {
         val previousMode = dnsPrivacyPreferenceStore.readMode()
         val sameMode = previousMode == mode
         if (!commitDnsPrivacyEndpoint(reconnectIfChanged = sameMode, focusOnError = true)) return false
@@ -8966,7 +2435,7 @@ class MainActivity : Activity() {
         return true
     }
 
-    private fun commitDnsPrivacyEndpoint(
+    internal fun commitDnsPrivacyEndpoint(
         reconnectIfChanged: Boolean,
         focusOnError: Boolean = false,
     ): Boolean {
@@ -8976,12 +2445,16 @@ class MainActivity : Activity() {
         val previousValue = when (mode) {
             DnsPrivacyMode.DoH -> dnsPrivacyPreferenceStore.readDohUrl()
             DnsPrivacyMode.DoT -> dnsPrivacyPreferenceStore.readDotEndpoint()
+            DnsPrivacyMode.DoQ -> dnsPrivacyPreferenceStore.readDoqEndpoint()
+            DnsPrivacyMode.DoH3 -> dnsPrivacyPreferenceStore.readDoh3Url()
             DnsPrivacyMode.Automatic -> return true
         }
         val nextValue = runCatching {
             when (mode) {
                 DnsPrivacyMode.DoH -> DnsPrivacyPolicy.normalizeDohUrl(dnsPrivacyEndpointInput.text.toString())
                 DnsPrivacyMode.DoT -> DnsPrivacyPolicy.normalizeDotEndpoint(dnsPrivacyEndpointInput.text.toString())
+                DnsPrivacyMode.DoQ -> DnsPrivacyPolicy.normalizeDoqEndpoint(dnsPrivacyEndpointInput.text.toString())
+                DnsPrivacyMode.DoH3 -> DnsPrivacyPolicy.normalizeDoh3Url(dnsPrivacyEndpointInput.text.toString())
                 DnsPrivacyMode.Automatic -> return true
             }
         }.getOrElse { error ->
@@ -8991,6 +2464,8 @@ class MainActivity : Activity() {
         when (mode) {
             DnsPrivacyMode.DoH -> dnsPrivacyPreferenceStore.saveDohUrl(nextValue)
             DnsPrivacyMode.DoT -> dnsPrivacyPreferenceStore.saveDotEndpoint(nextValue)
+            DnsPrivacyMode.DoQ -> dnsPrivacyPreferenceStore.saveDoqEndpoint(nextValue)
+            DnsPrivacyMode.DoH3 -> dnsPrivacyPreferenceStore.saveDoh3Url(nextValue)
             DnsPrivacyMode.Automatic -> Unit
         }
         setDnsPrivacyEndpointInputText(displayDnsPrivacyEndpoint(mode, nextValue))
@@ -9003,7 +2478,7 @@ class MainActivity : Activity() {
         return true
     }
 
-    private fun renderDnsPrivacySelection() {
+    internal fun renderDnsPrivacySelection() {
         if (!::dnsPrivacyRow.isInitialized) return
         val mode = dnsPrivacyPreferenceStore.readMode()
         val modeLabel = getString(mode.labelRes)
@@ -9012,6 +2487,8 @@ class MainActivity : Activity() {
             DnsPrivacyMode.Automatic -> getString(R.string.dns_automatic_detail)
             DnsPrivacyMode.DoH -> getString(R.string.dns_doh_detail)
             DnsPrivacyMode.DoT -> getString(R.string.dns_dot_detail)
+            DnsPrivacyMode.DoQ -> getString(R.string.dns_doq_detail)
+            DnsPrivacyMode.DoH3 -> getString(R.string.dns_doh3_detail)
         }
         dnsPrivacyRow.contentDescription = getString(R.string.dns_content_description, modeLabel)
         if (
@@ -9026,537 +2503,30 @@ class MainActivity : Activity() {
         dnsPrivacyEndpointLayout.hint = when (mode) {
             DnsPrivacyMode.DoH -> getString(R.string.dns_doh_address)
             DnsPrivacyMode.DoT -> getString(R.string.dns_dot_address)
+            DnsPrivacyMode.DoQ -> getString(R.string.dns_doq_address)
+            DnsPrivacyMode.DoH3 -> getString(R.string.dns_doh3_address)
             DnsPrivacyMode.Automatic -> ""
         }
         dnsPrivacyEndpointLayout.helperText = when (mode) {
             DnsPrivacyMode.DoH -> getString(R.string.dns_doh_helper)
             DnsPrivacyMode.DoT -> getString(R.string.dns_dot_helper)
+            DnsPrivacyMode.DoQ -> getString(R.string.dns_doq_helper)
+            DnsPrivacyMode.DoH3 -> getString(R.string.dns_doh3_helper)
             DnsPrivacyMode.Automatic -> ""
         }
         if (!dnsPrivacyEndpointInput.hasFocus()) {
             val value = when (mode) {
                 DnsPrivacyMode.DoH -> dnsPrivacyPreferenceStore.readDohUrl()
                 DnsPrivacyMode.DoT -> dnsPrivacyPreferenceStore.readDotEndpoint()
+                DnsPrivacyMode.DoQ -> dnsPrivacyPreferenceStore.readDoqEndpoint()
+                DnsPrivacyMode.DoH3 -> dnsPrivacyPreferenceStore.readDoh3Url()
                 DnsPrivacyMode.Automatic -> ""
             }
             setDnsPrivacyEndpointInputText(displayDnsPrivacyEndpoint(mode, value))
         }
     }
 
-    private fun displayDnsPrivacyEndpoint(mode: DnsPrivacyMode, value: String): String {
-        return if (mode == DnsPrivacyMode.DoT) value.removePrefix("tls://") else value
-    }
-
-    private fun setDnsPrivacyEndpointInputText(value: String) {
-        if (dnsPrivacyEndpointInput.text.toString() == value) return
-        dnsPrivacyInputUpdating = true
-        try {
-            dnsPrivacyEndpointInput.setText(value)
-            dnsPrivacyEndpointInput.setSelection(dnsPrivacyEndpointInput.text.length)
-        } finally {
-            dnsPrivacyInputUpdating = false
-        }
-    }
-
-    private fun showDnsPrivacyError(message: String, focusOnError: Boolean) {
-        dnsPrivacyErrorText.text = message
-        dnsPrivacyErrorText.visibility = View.VISIBLE
-        if (focusOnError) dnsPrivacyEndpointInput.requestFocus()
-    }
-
-    private fun showSplitTunnelSelector(container: LinearLayout) {
-        updateSplitTunnelControlsEnabled = null
-        container.removeAllViews()
-        container.addView(
-            ProgressBar(this).apply {
-                isIndeterminate = true
-                contentDescription = getString(R.string.split_tunnel_title)
-            },
-            LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(32)
-            },
-        )
-        activityScope.launch {
-            val apps = runCatching {
-                withContext(Dispatchers.IO) {
-                    installedAppRepository.loadLaunchableApps()
-                }
-            }.onFailure { error ->
-                DiagnosticLogger.warn(this@MainActivity, "activity.splitTunnel.apps.failed", error = error)
-            }.getOrNull()
-
-            if (apps == null) {
-                container.removeAllViews()
-                container.addView(
-                    advancedSectionDetail(getString(R.string.split_tunnel_empty_apps)),
-                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) },
-                )
-                Toast.makeText(this@MainActivity, R.string.split_tunnel_empty_apps, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            showSplitTunnelSettings(container, apps)
-        }
-    }
-
-    private fun showSplitTunnelSettings(
-        container: LinearLayout,
-        apps: List<SplitTunnelInstalledApp>,
-    ) {
-        val launchablePackages = apps.map { it.packageName }.toSet()
-        val savedSettings = splitTunnelPreferenceStore.readSettings()
-        val prunedSettings = SplitTunnelPolicy.sanitizeSettings(
-            savedSettings.copy(
-                selectedPackages = savedSettings.selectedPackages.filter { it in launchablePackages }.toSet(),
-            ),
-            packageName,
-        )
-        if (prunedSettings.selectedPackages != savedSettings.selectedPackages) {
-            splitTunnelPreferenceStore.saveSettings(prunedSettings)
-            DiagnosticLogger.info(
-                this,
-                "activity.splitTunnel.pruned",
-                "before=${savedSettings.selectedPackages.size} after=${prunedSettings.selectedPackages.size}",
-            )
-        }
-
-        var currentMode = prunedSettings.mode
-        val selectedPackages = prunedSettings.selectedPackages.toMutableSet()
-        var controlsEnabled = buttonModel.state != VpnState.Starting && buttonModel.state != VpnState.Stopping
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(0, dp(24), 0, dp(24))
-        }
-
-        val modeGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassSurfaceDrawable(radiusDp = 12).apply {
-                setStroke(dp(1), OUTLINE)
-            }
-            clipToOutline = true
-        }
-        val modeById = mutableMapOf<Int, SplitTunnelMode>()
-        fun addModeButton(mode: SplitTunnelMode, label: String) {
-            val id = View.generateViewId()
-            modeById[id] = mode
-            modeGroup.addView(
-                RadioButton(this).apply {
-                    this.id = id
-                    text = label
-                    textSize = 14f
-                    typeface = CatClientBodyTypeface
-                    setTextColor(TEXT_PRIMARY)
-                    minHeight = dp(48)
-                    gravity = Gravity.CENTER_VERTICAL
-                    buttonTintList = ColorStateList(
-                        arrayOf(
-                            intArrayOf(android.R.attr.state_checked),
-                            intArrayOf(),
-                        ),
-                        intArrayOf(TEAL, TEXT_SECONDARY),
-                    )
-                    setSelectableBackground()
-                    setPaddingRelative(dp(12), dp(8), dp(12), dp(8))
-                    isChecked = currentMode == mode
-                },
-                RadioGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-        }
-        addModeButton(SplitTunnelMode.Off, getString(R.string.split_tunnel_mode_off))
-        addModeButton(SplitTunnelMode.BypassSelected, getString(R.string.split_tunnel_mode_bypass))
-        addModeButton(SplitTunnelMode.VpnOnlySelected, getString(R.string.split_tunnel_mode_vpn_only))
-
-        val searchInput = TextInputEditText(this).apply {
-            setSingleLine(true)
-            background = null
-            setPaddingRelative(dp(16), dp(12), dp(16), dp(12))
-            textSize = 14f
-            typeface = CatClientBodyTypeface
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_FILTER
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            setTextColor(TEXT_PRIMARY)
-            setHintTextColor(TEXT_SECONDARY)
-        }
-        val searchLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.split_tunnel_search_hint)
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxBackgroundColor = withAlpha(SURFACE, if (palette.isDark) 232 else 246)
-            boxStrokeColor = TEAL
-            boxStrokeWidth = dp(1)
-            boxStrokeWidthFocused = dp(1)
-            defaultHintTextColor = ColorStateList.valueOf(TEXT_SECONDARY)
-            setBoxCornerRadii(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat())
-            addView(searchInput)
-        }
-        val selectedCountText = TextView(this).apply {
-            textSize = 12f
-            typeface = CatClientBodyBoldTypeface
-            includeFontPadding = false
-            gravity = Gravity.START
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
-        }
-        val appListHeight = minOf(dp(520), resources.displayMetrics.heightPixels * 55 / 100)
-        val appList = object : ListView(this) {
-            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-                parent.requestDisallowInterceptTouchEvent(true)
-                return super.dispatchTouchEvent(event)
-            }
-        }.apply {
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            divider = ColorDrawable(OUTLINE)
-            dividerHeight = dp(1)
-            cacheColorHint = Color.TRANSPARENT
-        }
-        val emptyAppListText = TextView(this).apply {
-            setText(
-                if (apps.isEmpty()) {
-                    R.string.split_tunnel_empty_apps
-                } else {
-                    R.string.split_tunnel_empty_search
-                },
-            )
-            textSize = 14f
-            typeface = CatClientBodyTypeface
-            setTextColor(TEXT_SECONDARY)
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-        }
-        val appListContainer = FrameLayout(this).apply {
-            background = glassSurfaceDrawable(radiusDp = 12).apply {
-                setStroke(dp(1), OUTLINE)
-            }
-            clipToOutline = true
-            addView(
-                appList,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            addView(
-                emptyAppListText,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                ),
-            )
-        }
-        appList.emptyView = emptyAppListText
-        val appPicker = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            addView(
-                searchLayout,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-            addView(
-                selectedCountText,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    topMargin = dp(12)
-                },
-            )
-            addView(
-                appListContainer,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    appListHeight,
-                ).apply {
-                    topMargin = dp(8)
-                },
-            )
-        }
-
-        val saveButton = MaterialButton(this).apply {
-            setText(R.string.split_tunnel_save)
-            setAllCaps(false)
-            textSize = 14f
-            typeface = CatClientBodyBoldTypeface
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(12)
-            backgroundTintList = ColorStateList.valueOf(TEAL)
-            setTextColor(BACKGROUND)
-        }
-
-        fun updateSaveState() {
-            val requiresSelection = currentMode != SplitTunnelMode.Off
-            val isValid = !requiresSelection || selectedPackages.isNotEmpty()
-            saveButton.isEnabled = controlsEnabled && isValid
-            selectedCountText.text = if (isValid) {
-                getString(R.string.split_tunnel_selected_count, selectedPackages.size)
-            } else {
-                getString(R.string.split_tunnel_select_app_required)
-            }
-            selectedCountText.setTextColor(if (isValid) TEXT_SECONDARY else ERROR)
-        }
-
-        fun updateModeUi() {
-            val pickerVisible = currentMode != SplitTunnelMode.Off
-            appPicker.visibility = if (pickerVisible) View.VISIBLE else View.GONE
-            if (!pickerVisible) searchInput.clearFocus()
-            updateSaveState()
-        }
-
-        var filteredApps = apps
-        val appIconCache = mutableMapOf<String, android.graphics.drawable.Drawable>()
-        val fallbackAppIcon = packageManager.defaultActivityIcon
-
-        class AppRowHolder(
-            val checkBox: CheckBox,
-            val icon: ImageView,
-            val label: TextView,
-            val packageName: TextView,
-        )
-
-        val appListAdapter = object : BaseAdapter() {
-            override fun getCount(): Int = filteredApps.size
-
-            override fun getItem(position: Int): SplitTunnelInstalledApp = filteredApps[position]
-
-            override fun getItemId(position: Int): Long = position.toLong()
-
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val row: LinearLayout
-                val holder: AppRowHolder
-                if (convertView == null) {
-                    val checkBox = CheckBox(this@MainActivity).apply {
-                        buttonTintList = ColorStateList(
-                            arrayOf(
-                                intArrayOf(android.R.attr.state_checked),
-                                intArrayOf(),
-                            ),
-                            intArrayOf(TEAL, TEXT_SECONDARY),
-                        )
-                    }
-                    val icon = ImageView(this@MainActivity).apply {
-                        scaleType = ImageView.ScaleType.CENTER_INSIDE
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    }
-                    val label = TextView(this@MainActivity).apply {
-                        textSize = 14f
-                        typeface = CatClientBodyBoldTypeface
-                        setTextColor(TEXT_PRIMARY)
-                        includeFontPadding = false
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.END
-                        textAlignment = View.TEXT_ALIGNMENT_GRAVITY
-                    }
-                    val packageName = TextView(this@MainActivity).apply {
-                        textSize = 12f
-                        typeface = CatClientBodyTypeface
-                        setTextColor(TEXT_SECONDARY)
-                        includeFontPadding = false
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.MIDDLE
-                        textAlignment = View.TEXT_ALIGNMENT_GRAVITY
-                        textDirection = View.TEXT_DIRECTION_LTR
-                    }
-                    val appText = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                        addView(label, LinearLayout.LayoutParams(-1, -2))
-                        addView(
-                            packageName,
-                            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
-                        )
-                    }
-                    row = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                        gravity = Gravity.CENTER_VERTICAL
-                        minimumHeight = dp(64)
-                        setPadding(dp(8), dp(4), dp(12), dp(4))
-                        setSelectableBackground()
-                        isClickable = true
-                        isFocusable = false
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                        addView(checkBox, LinearLayout.LayoutParams(dp(48), dp(56)))
-                        addView(
-                            icon,
-                            LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(4) },
-                        )
-                        addView(
-                            appText,
-                            LinearLayout.LayoutParams(0, -2, 1f).apply {
-                                marginStart = dp(12)
-                                marginEnd = dp(8)
-                            },
-                        )
-                    }
-                    holder = AppRowHolder(checkBox, icon, label, packageName)
-                    row.tag = holder
-                } else {
-                    row = convertView as LinearLayout
-                    holder = row.tag as AppRowHolder
-                }
-
-                val app = getItem(position)
-                val appTextGravity =
-                    if (resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
-                        Gravity.RIGHT
-                    } else {
-                        Gravity.LEFT
-                    }
-                holder.label.text = app.label
-                holder.label.gravity = appTextGravity
-                holder.packageName.text = app.packageName
-                holder.packageName.gravity = appTextGravity
-                holder.checkBox.setOnCheckedChangeListener(null)
-                holder.checkBox.isChecked = app.packageName in selectedPackages
-                holder.checkBox.isEnabled = controlsEnabled
-                holder.checkBox.contentDescription = "${app.label}, ${app.packageName}"
-                holder.checkBox.setOnCheckedChangeListener { _, isChecked ->
-                    if (isChecked) {
-                        selectedPackages += app.packageName
-                    } else {
-                        selectedPackages -= app.packageName
-                    }
-                    updateSaveState()
-                }
-                row.isEnabled = controlsEnabled
-                row.setOnClickListener {
-                    if (controlsEnabled) holder.checkBox.performClick()
-                }
-
-                holder.icon.tag = app.packageName
-                val cachedIcon = appIconCache[app.packageName]
-                holder.icon.setImageDrawable(cachedIcon ?: fallbackAppIcon)
-                if (cachedIcon == null) {
-                    activityScope.launch {
-                        val icon = withContext(Dispatchers.IO) {
-                            runCatching { packageManager.getApplicationIcon(app.packageName) }
-                                .getOrDefault(fallbackAppIcon)
-                        }
-                        appIconCache[app.packageName] = icon
-                        if (holder.icon.tag == app.packageName) {
-                            holder.icon.setImageDrawable(icon)
-                        }
-                    }
-                }
-
-                return row
-            }
-        }
-        appList.adapter = appListAdapter
-
-        fun renderAppList(query: String) {
-            val normalizedQuery = query.trim().lowercase(Locale.getDefault())
-            filteredApps = if (normalizedQuery.isBlank()) {
-                apps
-            } else {
-                apps.filter { app ->
-                    app.label.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
-                        app.packageName.lowercase(Locale.US).contains(normalizedQuery)
-                }
-            }
-            emptyAppListText.setText(
-                if (apps.isEmpty()) {
-                    R.string.split_tunnel_empty_apps
-                } else {
-                    R.string.split_tunnel_empty_search
-                },
-            )
-            appListAdapter.notifyDataSetChanged()
-            updateSaveState()
-        }
-
-        modeGroup.setOnCheckedChangeListener { _, checkedId ->
-            currentMode = modeById[checkedId] ?: SplitTunnelMode.Off
-            updateModeUi()
-        }
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                renderAppList(s?.toString().orEmpty())
-            }
-        })
-
-        content.addView(
-            modeGroup,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        content.addView(
-            saveButton,
-            LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(16) },
-        )
-        content.addView(
-            appPicker,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = dp(16)
-            },
-        )
-
-        saveButton.setOnClickListener {
-            val nextSettings = SplitTunnelPolicy.sanitizeSettings(
-                SplitTunnelSettings(
-                    mode = currentMode,
-                    selectedPackages = selectedPackages,
-                ),
-                packageName,
-            )
-            if (nextSettings.mode != SplitTunnelMode.Off && nextSettings.selectedPackages.isEmpty()) {
-                updateSaveState()
-                return@setOnClickListener
-            }
-
-            val previousSettings = splitTunnelPreferenceStore.readSettings()
-            splitTunnelPreferenceStore.saveSettings(nextSettings)
-            DiagnosticLogger.info(
-                this@MainActivity,
-                "activity.splitTunnel.saved",
-                "mode=${nextSettings.mode.wireName} selected=${nextSettings.selectedPackages.size}",
-            )
-            if (buttonModel.state == VpnState.Started && previousSettings != nextSettings) {
-                buttonModel.onStateChanged(VpnState.Starting)
-                renderState(VpnState.Starting)
-                startVpnService(Actions.RECONNECT)
-            }
-        }
-
-        updateSplitTunnelControlsEnabled = { enabled ->
-            controlsEnabled = enabled
-            for (index in 0 until modeGroup.childCount) {
-                modeGroup.getChildAt(index).isEnabled = enabled
-            }
-            searchInput.isEnabled = enabled
-            appList.isEnabled = enabled
-            appListAdapter.notifyDataSetChanged()
-            content.alpha = if (enabled) 1f else 0.45f
-            updateSaveState()
-        }
-        updateModeUi()
-        container.removeAllViews()
-        container.addView(content, LinearLayout.LayoutParams(-1, -2))
-        updateSplitTunnelControlsEnabled?.invoke(controlsEnabled)
-    }
-
-    private fun commitFrontingIpInput(
+    internal fun commitFrontingIpInput(
         reconnectIfChanged: Boolean,
         focusOnError: Boolean = false,
     ): Boolean {
@@ -9576,76 +2546,30 @@ class MainActivity : Activity() {
         return saveFrontingIps(reconnectIfChanged, previousValue)
     }
 
-    private fun saveTlsIntegrityEnabled(enabled: Boolean) {
-        val previousValue = tlsIntegrityPreferenceStore.isEnabled()
-        if (previousValue == enabled) return
-        tlsIntegrityPreferenceStore.saveEnabled(enabled)
-        if (!enabled) CatClientScanStateStore(this).clearTlsQuarantine()
-        DiagnosticLogger.info(this, "activity.tlsIntegrity.saved", "enabled=$enabled")
-        reconnectForConnectionOptionChange()
-    }
+    /**
+     * The carrier can change while the app is open (Wi-Fi ↔ mobile, roaming) and the fragment
+     * preset is decided from it at connect time, so the settings line has to follow.
+     *
+     * This is a default-network callback and not a broadcast: `CONNECTIVITY_ACTION` is
+     * deprecated (and its delivery to registered receivers keeps being tightened per release),
+     * and the telephony «network operator changed» action is not part of the public SDK —
+     * `TelephonyManager.ACTION_NETWORK_OPERATOR_CHANGED` does not exist, which is exactly how
+     * it failed to compile here. Re-reading the operator code when the default network
+     * changes is the supported signal, and it also covers the roaming/Wi-Fi handovers that
+     * matter for a fragment preset. The callback arrives on a binder thread → post to main.
+     */
+    private val carrierChangeCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = carrierMoved()
 
-    private fun saveTlsFragmentEnabled(enabled: Boolean) {
-        if (dpiBypassPreferenceStore.isEnabled() == enabled) return
-        dpiBypassPreferenceStore.saveEnabled(enabled)
-        DiagnosticLogger.info(this, "activity.tlsFragment.saved", "enabled=$enabled")
-        Toast.makeText(
-            this,
-            if (enabled) R.string.tls_fragment_enabled_toast else R.string.tls_fragment_disabled_toast,
-            Toast.LENGTH_SHORT,
-        ).show()
-        reconnectForConnectionOptionChange()
-    }
+        override fun onLost(network: Network) = carrierMoved()
 
-    private fun saveLanSharingEnabled(enabled: Boolean) {
-        if (lanSharingPreferenceStore.read().enabled == enabled) return
-        lanSharingPreferenceStore.saveEnabled(enabled)
-        DiagnosticLogger.info(this, "activity.lanSharing.saved", "enabled=$enabled")
-        renderLanSharingControls(settingsEnabled = true)
-        reconnectForConnectionOptionChange()
-    }
-
-    private fun saveConnectionMode(mode: ConnectionMode) {
-        if (connectionModePreferenceStore.read() == mode) return
-        connectionModePreferenceStore.save(mode)
-        DiagnosticLogger.info(this, "activity.connectionMode.saved", "mode=${mode.wireName}")
-        renderLanSharingControls(settingsEnabled = true)
-        if (buttonModel.state != VpnState.Started) return
-        if (mode == ConnectionMode.Vpn) {
-            beginConnectFlow(Actions.RECONNECT)
-        } else {
-            buttonModel.onStateChanged(VpnState.Starting)
-            renderState(VpnState.Starting)
-            startVpnService(Actions.RECONNECT)
+        private fun carrierMoved() {
+            CarrierDetector.reset()
+            mainHandler.post { renderFragmentCarrierLine() }
         }
     }
 
-    private fun saveLanSharingPasswordRequired(required: Boolean) {
-        val settings = lanSharingPreferenceStore.read()
-        if (settings.passwordRequired == required) return
-        lanSharingPreferenceStore.savePasswordRequired(required)
-        DiagnosticLogger.info(this, "activity.lanSharing.passwordRequired.saved", "required=$required")
-        renderLanSharingControls(settingsEnabled = true)
-        if (settings.enabled) reconnectForConnectionOptionChange()
-    }
-
-    private fun regenerateLanSharingPassword() {
-        val settings = lanSharingPreferenceStore.read()
-        lanSharingPreferenceStore.regeneratePassword()
-        DiagnosticLogger.info(this, "activity.lanSharing.password.regenerated", "enabled=${settings.enabled}")
-        renderLanSharingControls(settingsEnabled = true)
-        if (settings.enabled && settings.passwordRequired) reconnectForConnectionOptionChange()
-    }
-
-    private fun copyLanSharingSettings() {
-        val settings = lanSharingPreferenceStore.read()
-        val value = lanSharingDetails(settings)
-        getSystemService(ClipboardManager::class.java)
-            .setPrimaryClip(ClipData.newPlainText("Cat Client LAN proxy", value))
-        Toast.makeText(this, R.string.lan_sharing_copied, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun renderLanSharingControls(settingsEnabled: Boolean) {
+    internal fun renderLanSharingControls(settingsEnabled: Boolean) {
         val settings = lanSharingPreferenceStore.read()
         val selectedMode = connectionModePreferenceStore.read()
         val usesVpnTunnel = ConnectionModePolicy.shouldStartTun(selectedMode, alwaysOnMode, lockdownMode)
@@ -9679,126 +2603,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun lanSharingDetails(settings: LanSharingSettings): String {
-        val localEndpoint = getString(
-            R.string.lan_sharing_local_endpoint,
-            MihomoRuntimeDefaults.MIXED_PORT,
-        )
-        val addresses = LanSharingAddresses.reachablePrivateIpv4Addresses()
-        val endpoints = if (addresses.isEmpty()) {
-            getString(R.string.lan_sharing_no_address)
-        } else {
-            addresses.joinToString("\n") { address ->
-                getString(R.string.lan_sharing_endpoint, address, MihomoRuntimeDefaults.MIXED_PORT)
-            }
-        }
-        val lanEndpoints = if (settings.passwordRequired) {
-            getString(R.string.lan_sharing_credentials, endpoints, settings.username, settings.password)
-        } else {
-            getString(R.string.lan_sharing_no_credentials, endpoints)
-        }
-        return getString(R.string.lan_sharing_details, localEndpoint, lanEndpoints)
-    }
-
-    private fun saveAmneziaNoiseEnabled(enabled: Boolean) {
-        val previous = connectionOptionsPreferenceStore.read()
-        val settings = if (enabled) {
-            runCatching(::readAmneziaNoiseInputs).getOrElse { error ->
-                amneziaNoiseCheckbox.isChecked = false
-                showAmneziaNoiseError(localizedError(error, R.string.amnezia_noise_invalid))
-                return
-            }
-        } else {
-            previous.amneziaNoise
-        }
-        connectionOptionsPreferenceStore.saveAmneziaNoise(enabled, settings)
-        DiagnosticLogger.info(
-            this,
-            "activity.amneziaNoise.saved",
-            "enabled=$enabled count=${settings.count} min=${settings.minSize} max=${settings.maxSize} " +
-                "ttl=${settings.fakeTtl ?: "default"} version=${settings.version ?: "default"} " +
-                "stack=${settings.ipStackMode ?: "default"}",
-        )
-        renderConnectionOptionsControls(settingsEnabled = true)
-        if (previous.amneziaNoiseEnabled != enabled) reconnectForConnectionOptionChange()
-    }
-
-    private fun applyAmneziaNoiseSettings() {
-        val previous = connectionOptionsPreferenceStore.read()
-        val settings = runCatching(::readAmneziaNoiseInputs).getOrElse { error ->
-            showAmneziaNoiseError(localizedError(error, R.string.amnezia_noise_invalid))
-            return
-        }
-        connectionOptionsPreferenceStore.saveAmneziaNoise(enabled = true, settings)
-        amneziaNoiseErrorText.visibility = View.GONE
-        if (previous.amneziaNoise != settings || !previous.amneziaNoiseEnabled) {
-            DiagnosticLogger.info(
-                this,
-                "activity.amneziaNoise.applied",
-                "count=${settings.count} min=${settings.minSize} max=${settings.maxSize} " +
-                    "ttl=${settings.fakeTtl ?: "default"} version=${settings.version ?: "default"} " +
-                    "stack=${settings.ipStackMode ?: "default"}",
-            )
-            reconnectForConnectionOptionChange()
-        }
-    }
-
-    private fun readAmneziaNoiseInputs(): AmneziaNoiseSettings {
-        val settings = AmneziaNoiseSettings(
-            count = amneziaNoiseCountInput.text.toString().toIntOrNull()
-                ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_count_invalid)),
-            minSize = amneziaNoiseMinSizeInput.text.toString().toIntOrNull()
-                ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_min_size_invalid)),
-            maxSize = amneziaNoiseMaxSizeInput.text.toString().toIntOrNull()
-                ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_max_size_invalid)),
-            fakeTtl = optionalAmneziaInt(amneziaNoiseTtlInput),
-            version = optionalAmneziaInt(amneziaNoiseVersionInput),
-            ipStackMode = optionalAmneziaText(amneziaNoiseIpStackInput),
-            congestionController = optionalAmneziaText(amneziaNoiseCongestionInput),
-            headerProtectionKey = amneziaNoiseHeaderProtectionKeyInput.text.toString(),
-            contentPaddingAddition = amneziaNoiseContentPaddingInput.text.toString(),
-            rekeyAfterTime = amneziaNoiseRekeyAfterInput.text.toString(),
-            rekeyTimeout = amneziaNoiseRekeyTimeoutInput.text.toString(),
-            rejectAfterTime = amneziaNoiseRejectAfterInput.text.toString(),
-            keepaliveTimeout = amneziaNoiseKeepaliveTimeoutInput.text.toString(),
-            maxHandshakeAttempts = amneziaNoiseMaxHandshakeAttemptsInput.text.toString(),
-            randomTrailers = optionalAmneziaBoolean(amneziaNoiseRandomTrailersInput),
-            disableCookies = optionalAmneziaBoolean(amneziaNoiseDisableCookiesInput),
-        )
-        return MihomoConnectionOptionsPolicy.validateNoise(settings)
-    }
-
-    private fun optionalAmneziaInt(input: EditText): Int? {
-        val value = input.text.toString().trim()
-        if (value.isEmpty()) return null
-        return value.toIntOrNull() ?: throw IllegalArgumentException(getString(R.string.amnezia_noise_invalid))
-    }
-
-    private fun optionalAmneziaText(input: EditText): String? =
-        input.text.toString().trim().takeIf(String::isNotEmpty)
-
-    private fun optionalAmneziaBoolean(input: EditText): Boolean? {
-        return when (input.text.toString().trim().lowercase()) {
-            "" -> null
-            "true", "on", "1" -> true
-            "false", "off", "0" -> false
-            else -> throw IllegalArgumentException(getString(R.string.amnezia_noise_invalid))
-        }
-    }
-
-    private fun showAmneziaNoiseError(message: String) {
-        amneziaNoiseErrorText.text = message
-        amneziaNoiseErrorText.visibility = View.VISIBLE
-    }
-
-    private fun reconnectForConnectionOptionChange() {
-        if (buttonModel.state != VpnState.Started) return
-        buttonModel.onStateChanged(VpnState.Starting)
-        renderState(VpnState.Starting)
-        startVpnService(Actions.RECONNECT)
-    }
-
-    private fun renderConnectionOptionsControls(settingsEnabled: Boolean) {
+    internal fun renderConnectionOptionsControls(settingsEnabled: Boolean) {
         if (!::amneziaNoiseCheckbox.isInitialized) return
         val options = connectionOptionsPreferenceStore.read()
         amneziaNoiseCheckbox.isChecked = options.amneziaNoiseEnabled
@@ -9852,46 +2657,7 @@ class MainActivity : Activity() {
         if (noiseFieldsEnabled) amneziaNoiseErrorText.visibility = View.GONE
     }
 
-    private fun saveFrontingIps(reconnectIfChanged: Boolean, previousValue: String?): Boolean {
-        val nextValue = FrontingIpPolicy.normalize(frontingIps.joinToString(","))
-        frontingIpPreferenceStore.saveFrontingIp(nextValue)
-        frontingIps = FrontingIpPolicy.normalizeIps(nextValue)
-        renderFrontingIpChips()
-        frontingIpErrorText.visibility = View.GONE
-
-        if (previousValue != nextValue) {
-            DiagnosticLogger.info(this, "activity.frontingIp.saved", "enabled=${nextValue != null} count=${frontingIps.size}")
-            if (reconnectIfChanged && buttonModel.state == VpnState.Started) {
-                buttonModel.onStateChanged(VpnState.Starting)
-                renderState(VpnState.Starting)
-                startVpnService(Actions.RECONNECT)
-            }
-        }
-        return true
-    }
-
-    private fun addFrontingIpTokens(tokens: List<String>, focusOnError: Boolean): Boolean {
-        val nextTokens = tokens.map { it.trim() }.filter { it.isNotEmpty() }
-        if (nextTokens.isEmpty()) return true
-        val nextIps = runCatching {
-            FrontingIpPolicy.normalizeIps((frontingIps + nextTokens).joinToString(","))
-        }.getOrElse { error ->
-            showFrontingIpError(localizedError(error, R.string.fronting_invalid), focusOnError)
-            return false
-        }
-        frontingIps = nextIps
-        renderFrontingIpChips()
-        return true
-    }
-
-    private fun removeFrontingIp(ip: String) {
-        val previousValue = frontingIpPreferenceStore.readFrontingIp()
-        frontingIps = frontingIps.filterNot { it == ip }
-        renderFrontingIpChips()
-        saveFrontingIps(reconnectIfChanged = true, previousValue = previousValue)
-    }
-
-    private fun renderFrontingIpChips() {
+    internal fun renderFrontingIpChips() {
         if (!::frontingIpChipGroup.isInitialized) return
         val controlsEnabled = !::frontingIpInput.isInitialized || frontingIpInput.isEnabled
         frontingIpChipGroup.removeAllViews()
@@ -9921,33 +2687,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun setFrontingIpInputText(value: String) {
-        frontingIpInputUpdating = true
-        try {
-            frontingIpInput.setText(value)
-            frontingIpInput.setSelection(frontingIpInput.text.length)
-        } finally {
-            frontingIpInputUpdating = false
-        }
-    }
-
-    private fun frontingIpInputHint(): String {
-        return if (frontingIps.size >= 5) {
-            getString(R.string.fronting_capacity_full)
-        } else {
-            getString(R.string.fronting_helper)
-        }
-    }
-
-    private fun showFrontingIpError(message: String, focusOnError: Boolean) {
-        frontingIpErrorText.text = message
-        frontingIpErrorText.visibility = View.VISIBLE
-        if (focusOnError) {
-            frontingIpInput.requestFocus()
-        }
-    }
-
-    private fun renderAdvancedControls() {
+    internal fun renderAdvancedControls() {
         val settingsEnabled = buttonModel.state != VpnState.Starting && buttonModel.state != VpnState.Stopping
         if (::tlsIntegrityCheckbox.isInitialized) {
             tlsIntegrityCheckbox.isChecked = tlsIntegrityPreferenceStore.isEnabled()
@@ -9963,9 +2703,10 @@ class MainActivity : Activity() {
         }
         renderDnsPrivacySelection()
         updateSplitTunnelControlsEnabled?.invoke(settingsEnabled)
+        refreshAetherEngineSummary?.invoke()
     }
 
-    private fun beginConnectFlow(action: String = Actions.CONNECT) {
+    internal fun beginConnectFlow(action: String = Actions.CONNECT) {
         connectFlowPending = true
         connectFlowAction = action
         buttonModel.onStateChanged(VpnState.Starting)
@@ -10026,7 +2767,7 @@ class MainActivity : Activity() {
         startVpnService(action)
     }
 
-    private fun startVpnService(action: String) {
+    internal fun startVpnService(action: String) {
         DiagnosticLogger.info(this, "service.intent", "action=$action")
         val intent = Intent(this, CatClientVpnService::class.java)
             .setAction(action)
@@ -10048,7 +2789,7 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun renderAlwaysOnStatus() {
+    internal fun renderAlwaysOnStatus() {
         if (!::alwaysOnStatusText.isInitialized) return
         alwaysOnStatusText.setText(
             when {
@@ -10097,6 +2838,20 @@ class MainActivity : Activity() {
             if (info == null) return@launch
             liveGeo = info
             liveGeoTunneled = tunneledAtFetch
+            if (tunneledAtFetch) {
+                getSharedPreferences("cat_client_map", MODE_PRIVATE).let { prefs ->
+                    if (!info.realCountryCode.isNullOrBlank() && prefs.getString("origin_code", "").isNullOrBlank()) {
+                        prefs.edit().putString("origin_code", info.realCountryCode.uppercase())
+                            .putString("origin_label", info.realCountryName.orEmpty()).apply()
+                    }
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) { measureTunnelPingQuietly() }
+            } else if (!currentVpnStateIsStarted() && !deviceVpnActive()) {
+                getSharedPreferences("cat_client_map", MODE_PRIVATE).edit()
+                    .putString("origin_code", info.countryCode.uppercase())
+                    .putString("origin_label", listOfNotNull(info.city?.takeIf { it.isNotBlank() }, info.countryName).joinToString(", "))
+                    .apply()
+            }
             val label = buildString {
                 if (!tunneledAtFetch) append(getString(R.string.route_direct_state) + " · ")
                 append(info.countryName)
@@ -10112,7 +2867,7 @@ class MainActivity : Activity() {
 
     /** The underlying physical network (Wi-Fi / cellular) — binding a request
      * to it bypasses our own TUN, so the caller sees the REAL ISP IP. */
-    private fun activePhysicalNetwork(): android.net.Network? = runCatching {
+    internal fun activePhysicalNetwork(): android.net.Network? = runCatching {
         val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return null
         cm.allNetworks.firstOrNull { net ->
             val caps = cm.getNetworkCapabilities(net) ?: return@firstOrNull false
@@ -10123,6 +2878,43 @@ class MainActivity : Activity() {
 
     /** "Real IP: 80.x.x.x 🇮🇷" — the tunnel ENTRY, shown next to the exit so the
      * dashboard always agrees with what "what is my ip" pages display. */
+    /** Zed ConnectionInfoPill ping: lime when < 250 ms, error-red otherwise, "—" while unknown. */
+    private fun renderPingValue() {
+        if (!::pingValueText.isInitialized) return
+        val ping = livePingMs
+        pingValueText.text = if (ping != null) "$ping ms" else "—"
+        pingValueText.setTextColor(if (ping == null) TEXT_SECONDARY else if (ping < 250) ZedBlobView.ZED_LIME else ERROR)
+    }
+
+    /** Silent background ping through the tunnel (feeds the Home pill and the Map card). */
+    private fun measureTunnelPingQuietly() {
+        if (tunnelPingRunning || !currentVpnStateIsStarted()) return
+        tunnelPingRunning = true
+        activityScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val tunnelProxy = java.net.Proxy(
+                java.net.Proxy.Type.HTTP,
+                java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
+            )
+            val samples = (1..2).mapNotNull {
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val code = runCatching {
+                    val conn = java.net.URL(MihomoRuntimeDefaults.DELAY_TEST_URL).openConnection(tunnelProxy) as java.net.HttpURLConnection
+                    conn.connectTimeout = 4_000; conn.readTimeout = 4_000; conn.instanceFollowRedirects = false
+                    val c = conn.responseCode
+                    runCatching { conn.inputStream.close() }
+                    conn.disconnect()
+                    c
+                }.getOrNull()
+                if (code != null && code in 200..399) android.os.SystemClock.elapsedRealtime() - t0 else null
+            }
+            if (samples.isNotEmpty()) livePingMs = samples.min()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                tunnelPingRunning = false
+                renderPingValue()
+            }
+        }
+    }
+
     /** Real ping THROUGH the active config: samples the local mihomo mixed
      * proxy (the exact tunnel path), like v2rayNG/V2Box delay tests — with an
      * on-the-spot result toast so the feedback is never missed. */
@@ -10160,10 +2952,14 @@ class MainActivity : Activity() {
                 return if (ok != null && ok in 200..399) android.os.SystemClock.elapsedRealtime() - t0 else null
             }
             var samples = (1..3).mapNotNull { sample(true) }
-            if (samples.isEmpty() && started) samples = (1..3).mapNotNull { sample(false) }
+            // beta204: the direct fallback is only a TUNNEL ping when this app's own traffic really rides the VPN.
+            // With a child-process engine (Psiphon/Tor/…) the app excludes itself, so a «direct» sample measured the
+            // phone's bare network and showed a fake, healthy-looking number for a dead config.
+            if (samples.isEmpty() && started && appTrafficRidesVpn()) samples = (1..3).mapNotNull { sample(false) }
             val best = samples.minOrNull()
+            livePingMs = best
             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                pingValueText.text = if (best != null) best.toString() + "ms" else "—"
+                renderPingValue()
                 Toast.makeText(
                     this@MainActivity,
                     if (best != null) getString(R.string.route_ping_result, best) else getString(R.string.route_ping_failed),
@@ -10174,9 +2970,16 @@ class MainActivity : Activity() {
         }
     }
 
+    /** True when this app's default network is the VPN (Android answers per UID, so an excluded app sees the bare network). */
+    private fun appTrafficRidesVpn(): Boolean = runCatching {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return@runCatching false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return@runCatching false
+        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+    }.getOrDefault(false)
+
     /** Manual "sync with the site" — forces a fresh family-forced probe so
      * the dashboard can be compared against whatismyipaddress right away. */
-    private fun refreshDashboardIp() {
+    internal fun refreshDashboardIp() {
         liveGeoDirectAttempted = false
         liveGeo = null
         beginLiveGeoCheck(force = true)
@@ -10186,7 +2989,7 @@ class MainActivity : Activity() {
     /** Ping EVERY profile of the active subscription through the running core
      * (the service's own concurrent delay sweep) and, with [autoConnect],
      * switch to the fastest one — v2rayNG 'Ping All' + best-connect. */
-    private fun runPingAll(autoConnect: Boolean) {
+    internal fun runPingAll(autoConnect: Boolean) {
         if (pingAllRunning) return
         val profiles = connectionProfiles
         if (profiles.isEmpty()) {
@@ -10234,7 +3037,7 @@ class MainActivity : Activity() {
                 if (bestProfile == null) {
                     Toast.makeText(this@MainActivity, R.string.ping_all_none, Toast.LENGTH_LONG).show()
                 } else if (autoConnect) {
-                    connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, bestProfile)
+                    connectionSelectionPreferenceStore.saveSelectedProfile(subscriptionId, bestProfile, userPick = true)
                     Toast.makeText(
                         this@MainActivity,
                         getString(R.string.ping_all_connecting, bestProfile.displayTag, best?.delayMs ?: 0),
@@ -10257,25 +3060,19 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
         if (!::connectionRealIpText.isInitialized) return
-        val show = info != null && tunneled && !info.realIp.isNullOrBlank() && info.realIp != info.ip
-        if (!show) {
+        connectionV6Text.visibility = View.GONE
+        if (info == null || !tunneled || info.ip.isBlank()) {
             connectionRealIpText.visibility = View.GONE
-            connectionV6Text.visibility = View.GONE
             return
         }
-        connectionRealIpText.text = getString(R.string.route_real_ip_line, info.realIp, info.realFlag ?: "")
+        connectionRealIpText.text = info.ip
         connectionRealIpText.visibility = View.VISIBLE
-        if (!info.v6.isNullOrBlank() && tunneled) {
-            connectionV6Text.text = getString(R.string.route_v6_line, info.v6)
-            connectionV6Text.visibility = View.VISIBLE
-        } else {
-            connectionV6Text.visibility = View.GONE
-        }
     }
 
-    private fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted
+    internal fun currentVpnStateIsStarted(): Boolean = vpnCurrentlyStarted
 
     private fun pendingGlobeCountry(): ConnectionCountry? {
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
@@ -10298,7 +3095,7 @@ class MainActivity : Activity() {
         else -> null
     }
 
-    private fun applyConnectPillStyle(state: VpnState) {
+    internal fun applyConnectPillStyle(state: VpnState) {
         if (!::connectActionButton.isInitialized) return
         val gradient = connectPillGradient(state)
         connectActionButton.backgroundTintList = null
@@ -10321,15 +3118,98 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderState(state: VpnState) {
+    private var lastHapticState: VpnState? = null
+
+    internal fun connectHapticEnabled(): Boolean =
+        getSharedPreferences("cat_client_theme", MODE_PRIVATE).getBoolean("haptic_connect", true)
+
+    internal fun connectHaptic() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+            } else {
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(25L, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            }
+        }
+    }
+
+    internal fun isPersianUi(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
+
+    /** ZedSecure-style fault card: a failed connect keeps its reason on screen instead of looking
+     * like a normal disconnect, with a plain-language "what to do" hint and the raw detail. */
+    private fun showConnectionFaultDialog(raw: String) {
+        if (isFinishing || isDestroyed) return
+        val fa = isPersianUi()
+        val fault = ConnectionFaultExplainer.explain(raw)
+        val body = buildString {
+            append(fault.hint(fa))
+            append("\n\n")
+            append(if (fa) "جزئیات فنی:\n" else "Technical detail:\n")
+            append(fault.raw.take(400))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("⚠️ " + fault.title(fa))
+            .setMessage(body)
+            .setPositiveButton(if (fa) "تلاش دوباره" else "Try again") { _, _ ->
+                if (buttonModel.state !is VpnState.Starting && buttonModel.state != VpnState.Started) {
+                    connectActionButton.performClick()
+                }
+            }
+            .setNeutralButton(if (fa) "کپی جزئیات" else "Copy details") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Cat Client error", "${fault.title(false)}: ${fault.raw}"))
+                Toast.makeText(this, if (fa) "کپی شد" else "Copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(if (fa) "بستن" else "Close", null)
+            .show()
+    }
+
+    internal fun renderState(state: VpnState) {
         val presentation = DashboardStatePresenter.forState(state)
+        if (state == VpnState.Started) renderRealInternetCard(lastRealInternetResult) else realInternetViews?.card?.visibility = View.GONE
+        if (state == VpnState.Started && lastHapticState != null && lastHapticState != VpnState.Started && connectHapticEnabled()) connectHaptic()
+        lastHapticState = state
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
         val accent = accentFor(presentation.tone)
         connectionGlobe.setVpnState(state)
+        portalView?.setVpnState(state)
+        pixelCore?.setVpnState(state)
+        if (state != VpnState.Started) {
+            portalView?.setCenterText("")
+            pixelCore?.setCenterText("")
+        }
+        if (::connectionBlob.isInitialized) {
+            connectionBlob.setVpnState(state)
+            if (state != VpnState.Started) connectionBlob.setCenterText("C")
+        }
+        if (::heroStateText.isInitialized) {
+            if (state is VpnState.Error && state.message.isNotBlank()) {
+                val fault = ConnectionFaultExplainer.explain(state.message)
+                heroStateText.text = getString(presentation.titleRes)
+                heroStateText.contentDescription = fault.title(isPersianUi())
+                heroStateText.setOnClickListener { showConnectionFaultDialog(state.message) }
+            } else {
+                heroStateText.text = getString(presentation.titleRes)
+                heroStateText.contentDescription = null
+                heroStateText.setOnClickListener(null)
+                heroStateText.isClickable = false
+            }
+        }
+        if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+        if (::heroPingAction.isInitialized) heroPingAction.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE
+        applyZedHomeState(state)
+        applyHomeBackdrop(state)
         connectActionButton.setText(buttonModel.labelRes())
         connectActionButton.isEnabled = buttonModel.isEnabled()
         connectActionButton.contentDescription = getString(buttonModel.labelRes())
         applyConnectPillStyle(state)
+        setDockExpanded(state == VpnState.Started)
         // Update status dot color based on state
         (statusDot.background as? GradientDrawable)?.setColor(
             when (state) {
@@ -10340,17 +3220,15 @@ class MainActivity : Activity() {
             }
         )
         statusText.text = getString(presentation.titleRes)
-        statusText.setTextColor(TEXT_SECONDARY)
+        statusText.setTextColor(TEXT_PRIMARY)
         timerText.setTextColor(if (state == VpnState.Started) TEXT_PRIMARY else TEXT_SECONDARY)
         val live = liveGeo?.takeIf { state == VpnState.Started }
         connectionCountryText.text = when {
             state == VpnState.Started && live != null ->
-                getString(R.string.route_location, live.flag, live.countryName)
-            state == VpnState.Started && connectionCountryFlag.isNotBlank() -> {
-                val country = ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
+                listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
+            state == VpnState.Started && connectionCountryFlag.isNotBlank() ->
+                ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.country
                     ?: getString(R.string.route_edge_fallback)
-                getString(R.string.route_location, connectionCountryFlag, country)
-            }
             state == VpnState.Started -> getString(R.string.route_edge_fallback)
             state == VpnState.Starting -> getString(R.string.route_selecting)
             state == VpnState.Stopping -> getString(R.string.route_closing)
@@ -10358,7 +3236,17 @@ class MainActivity : Activity() {
             state == VpnState.DailyLimitReached -> getString(R.string.state_daily_limit)
             else -> getString(R.string.route_automatic)
         }
-        connectionCountryText.setTextColor(if (state == VpnState.Started) accent else TEXT_SECONDARY)
+        connectionCountryText.setTextColor(TEXT_PRIMARY)
+        if (::homeFlagBadge.isInitialized) {
+            homeFlagBadge.setCountryCode(
+                when {
+                    state == VpnState.Started && live != null -> live.countryCode
+                    state == VpnState.Started && connectionCountryFlag.isNotBlank() ->
+                        ConnectionLocationPolicy.countryFromText(connectionCountryFlag)?.code
+                    else -> null
+                },
+            )
+        }
         val pendingCountry = pendingGlobeCountry()
         val liveLabel = live?.let { info ->
             buildString {
@@ -10405,28 +3293,22 @@ class MainActivity : Activity() {
             activeRuntimeSubscriptionId == SubscriptionStore.PUBLIC_SUBSCRIPTION_ID
         ) View.VISIBLE else View.GONE
         renderConnectionDetails(state)
-        if (::pingValueText.isInitialized) {
-            pingValueText.text = connectionDetails
-                .takeIf { state == VpnState.Started }
-                ?.let { details -> Regex("(\\d+\\s?ms)").find(details)?.value }
-                ?: "—"
-        }
+        if (state != VpnState.Started) livePingMs = null
+        renderPingValue()
         if (::uptimeValueText.isInitialized && ::timerText.isInitialized) {
             uptimeValueText.text = timerText.text
         }
         if (::homeUsageCard.isInitialized) renderHomeUsageCard()
-        refreshActionButton.visibility = if (state == VpnState.Started) View.VISIBLE else View.INVISIBLE
+
         refreshActionButton.isEnabled = state == VpnState.Started
         refreshActionButton.contentDescription = getString(R.string.action_reconnect)
         // Glass reconnect action with the Cat accent.
-        refreshActionButton.backgroundTintList = ColorStateList.valueOf(withAlpha(TEAL, if (palette.isDark) 34 else 24))
-        refreshActionButton.strokeWidth = dp(1)
-        refreshActionButton.strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 120))
-        refreshActionButton.elevation = dp(1).toFloat()
+        refreshActionButton.backgroundTintList = ColorStateList.valueOf(withAlpha(palette.surfaceElevated2, 235))
+        refreshActionButton.strokeWidth = 0
+        refreshActionButton.elevation = 0f
         refreshActionButton.stateListAnimator = null
         refreshActionButton.rippleColor = ColorStateList.valueOf(withAlpha(TEAL, 50))
-        refreshActionButton.setTextColor(ColorStateList.valueOf(TEAL))
-        refreshActionButton.iconTint = ColorStateList.valueOf(TEAL)
+        refreshActionButton.iconTint = ColorStateList.valueOf(TEXT_PRIMARY)
         val settingsEnabled = state != VpnState.Starting && state != VpnState.Stopping
         locationSelectorRow.isEnabled = settingsEnabled
         connectionSelectorRow.isEnabled = settingsEnabled
@@ -10483,6 +3365,14 @@ class MainActivity : Activity() {
         val isActive = buttonModel.state == VpnState.Started && sessionStartedAtElapsedMs > 0L
         timerText.setTextColor(if (isActive) TEXT_PRIMARY else TEXT_SECONDARY)
         timerText.text = formatDuration(elapsedMs)
+        if (::connectionBlob.isInitialized && buttonModel.state == VpnState.Started) {
+            connectionBlob.setCenterText(formatDuration(elapsedMs).removePrefix("00:"))
+        }
+        if (buttonModel.state == VpnState.Started && sessionStartedAtElapsedMs > 0L) {
+            val clock = formatDuration(elapsedMs).removePrefix("00:")
+            portalView?.setCenterText(clock)
+            pixelCore?.setCenterText(clock)
+        }
     }
 
     private fun toggleAppTheme() {
@@ -10508,26 +3398,125 @@ class MainActivity : Activity() {
 
         if (lastTransferSampleElapsedMs > 0L && nowElapsedMs > lastTransferSampleElapsedMs) {
             val elapsedMs = nowElapsedMs - lastTransferSampleElapsedMs
-            downloadSpeedText.text =
-                formatTransferSpeed(bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs))
-            uploadSpeedText.text =
-                formatTransferSpeed(bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs))
+            val rx = bytesPerSecond(rxBytes, lastTransferRxBytes, elapsedMs)
+            val tx = bytesPerSecond(txBytes, lastTransferTxBytes, elapsedMs)
+            setSpeedText(downloadSpeedText, rx)
+            setSpeedText(uploadSpeedText, tx)
+            renderTrafficBars(rx, tx)
         } else {
-            downloadSpeedText.text = formatTransferSpeed(0L)
-            uploadSpeedText.text = formatTransferSpeed(0L)
+            if (sessionRxStartBytes < 0L) {
+                sessionRxStartBytes = rxBytes
+                sessionTxStartBytes = txBytes
+            }
+            setSpeedText(downloadSpeedText, 0L)
+            setSpeedText(uploadSpeedText, 0L)
         }
         lastTransferRxBytes = rxBytes
         lastTransferTxBytes = txBytes
         lastTransferSampleElapsedMs = nowElapsedMs
+        if (currentVpnStateIsStarted() && nowElapsedMs - lastQuietPingAtMs > 30_000L) {
+            lastQuietPingAtMs = nowElapsedMs
+            measureTunnelPingQuietly()
+        }
+        if (::downloadTotalText.isInitialized && sessionRxStartBytes >= 0L) {
+            downloadTotalText.text = SubscriptionUsagePolicy.formatBytes((rxBytes - sessionRxStartBytes).coerceAtLeast(0L))
+            uploadTotalText.text = SubscriptionUsagePolicy.formatBytes((txBytes - sessionTxStartBytes).coerceAtLeast(0L))
+        }
+    }
+
+    /** Bar length grows logarithmically with the rate (ZedSecure rateFraction): 1 KB/s → ~0, 10 MB/s → full. */
+    private fun renderTrafficBars(rxPerSecond: Long, txPerSecond: Long) {
+        portalView?.setRates(rxPerSecond, txPerSecond)
+        pixelCore?.setRates(rxPerSecond, txPerSecond)
+        for ((badge, download) in flowBadges) {
+            val rate = if (download) rxPerSecond else txPerSecond
+            // Zed FlowMeter: the badge turns while data is moving through that direction
+            if (rate > 2_048L) badge.animate().rotationBy(30f).setDuration(900L).start()
+        }
+        if (!::downloadBarFill.isInitialized) return
+        val live = currentVpnStateIsStarted()
+        downloadBarFill.setRate(rxPerSecond, live)
+        uploadBarFill.setRate(txPerSecond, live)
+    }
+
+    /**
+     * Zed StageColumn: the hero stage takes whatever height is left so the Home never scrolls;
+     * it only shrinks (down to 210 dp, blob down to 180 dp) when the viewport is short.
+     */
+    private fun fitHomeStage(scrollView: ScrollView) {
+        val hero = homeHeroFrame ?: return
+        if (homeStageFitting || scrollView.height == 0) return
+        val wrapper = scrollView.getChildAt(0) as? ViewGroup ?: return
+        val content = wrapper.getChildAt(0) ?: return // dashboardContent (wrap_content; the wrapper is fillViewport)
+        if (content.height == 0) return
+        val viewport = scrollView.height - scrollView.paddingTop - scrollView.paddingBottom
+        val current = hero.height.takeIf { it > 0 } ?: hero.layoutParams.height
+        val fixed = content.height - current + wrapper.paddingTop + wrapper.paddingBottom // everything except the stage (incl. dock padding)
+        val full = dp(300)
+        val minStage = dp(210)
+        val target = (viewport - fixed).coerceIn(minStage, full)
+        if (target == current) return
+        homeStageFitting = true
+        val blob = (dp(250) * target / full.toFloat()).toInt().coerceIn(dp(180), dp(250))
+        // Zed HomeFabCluster: anchored at the blob's lower-right, running down past the state label.
+        heroClusterParams?.topMargin = target / 2 + blob / 2 - dp(32)
+        connectionBlob.layoutParams = (connectionBlob.layoutParams as FrameLayout.LayoutParams).apply { width = blob; height = blob }
+        hero.layoutParams = hero.layoutParams.apply { height = target }
+        hero.post {
+            homeStageFitting = false
+            fitHomeStage(scrollView)
+        }
+    }
+
+    /** Zed's selected-row tint: accent blended into the card surface (primaryContainer feel). */
+    internal fun selectedRowColor(): Int = androidx.core.graphics.ColorUtils.blendARGB(palette.surfaceElevated1, TEAL, if (palette.isDark) 0.28f else 0.22f)
+
+    /** Page backdrop: ZedSecure paints the whole home violet → cyan while connected, flat otherwise. */
+    internal fun applyHomeBackdrop(state: VpnState) {
+        val drawable = liveBackdrop ?: ZedLiveBackdropDrawable(resources.displayMetrics.density).also {
+            liveBackdrop = it
+            it.setThemeColors(palette.teal, palette.secondary, AppAccentPreferenceStore(this).read() == AppAccent.Lavender)
+        }
+        drawable.setVpnState(state)
+        syncShellBackdrop()
+    }
+
+    /** Zed paints the Home gradient edge to edge — behind the status bar and under the floating dock. */
+    private fun syncShellBackdrop() {
+        if (appDesign != AppDesign.Old) {
+            // Pixel/Portal keep a calm, flat page — the stage itself carries the colour.
+            homeBackdrop?.background = null
+            liveBackdrop?.stop()
+            appRootView?.let { root -> if (root.background !is ColorDrawable) root.setBackgroundColor(BACKGROUND) }
+            return
+        }
+        val root = appRootView
+        val drawable = liveBackdrop
+        if (root == null || drawable == null) { homeBackdrop?.background = drawable; return }
+        val home = ::vpnTabContent.isInitialized && vpnTabContent.visibility == View.VISIBLE
+        homeBackdrop?.background = null
+        if (home) {
+            if (root.background !== drawable) root.background = drawable
+            drawable.start()
+        } else if (root.background === drawable) {
+            root.setBackgroundColor(BACKGROUND)
+        }
     }
 
     private fun resetTransferSpeeds() {
         lastTransferRxBytes = TrafficStats.UNSUPPORTED.toLong()
         lastTransferTxBytes = TrafficStats.UNSUPPORTED.toLong()
         lastTransferSampleElapsedMs = 0L
+        sessionRxStartBytes = -1L
+        sessionTxStartBytes = -1L
+        if (::downloadBarFill.isInitialized) renderTrafficBars(0L, 0L)
+        if (::downloadTotalText.isInitialized) {
+            downloadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
+            uploadTotalText.text = SubscriptionUsagePolicy.formatBytes(0L)
+        }
         if (::downloadSpeedText.isInitialized) {
-            downloadSpeedText.text = formatTransferSpeed(0L)
-            uploadSpeedText.text = formatTransferSpeed(0L)
+            setSpeedText(downloadSpeedText, 0L)
+            setSpeedText(uploadSpeedText, 0L)
         }
     }
 
@@ -10544,132 +3533,87 @@ class MainActivity : Activity() {
         return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
     }
 
-    private fun copyDiagnosticsToClipboard() {
-        val diagnostics = DiagnosticLogger.read(this).ifBlank { getString(R.string.diagnostics_empty) }
-        val clipboard = getSystemService(ClipboardManager::class.java)
-        val clip = ClipData.newPlainText("Cat Client diagnostics", diagnostics).apply {
-            // Keeps the clipboard preview toast from rendering the log on screen (Android 13+).
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                description.extras = PersistableBundle().apply {
-                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
-                }
-            }
-        }
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(this, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
-        DiagnosticLogger.info(this, "diagnostics.copy", "chars=${diagnostics.length}")
-    }
-
-    private fun shareDiagnostics() {
-        activityScope.launch {
-            val file = runCatching {
-                withContext(Dispatchers.IO) { DiagnosticLogger.reportFile(this@MainActivity) }
-            }.getOrNull()
-            if (file == null) {
-                Toast.makeText(this@MainActivity, R.string.diagnostics_share_failed, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            val uri = runCatching {
-                FileProvider.getUriForFile(this@MainActivity, "${packageName}.updates", file)
-            }.getOrNull()
-            if (uri == null) {
-                Toast.makeText(this@MainActivity, R.string.diagnostics_share_failed, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            try {
-                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_TEXT, getString(R.string.app_name))
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }, getString(R.string.diagnostics_share)))
-                Toast.makeText(this@MainActivity, R.string.diagnostics_shared, Toast.LENGTH_SHORT).show()
-                DiagnosticLogger.info(this@MainActivity, "diagnostics.share")
-            } catch (error: Exception) {
-                DiagnosticLogger.warn(this@MainActivity, "diagnostics.share.failed", error = error)
-                Toast.makeText(this@MainActivity, R.string.diagnostics_share_failed, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun checkForUpdates() {
-        appUpdateUi.check(manual = false)
-    }
-
-    private fun openFooterLink() = openExternalUrl(getString(R.string.footer_url))
-
-    private fun openExternalUrl(url: String) {
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }.onFailure { error ->
-            Toast.makeText(this, url, Toast.LENGTH_SHORT).show()
-            DiagnosticLogger.warn(this, "external.open.failed", "url=$url", error)
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun configureSystemBars() {
-        window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-        window.decorView.textDirection = View.TEXT_DIRECTION_LOCALE
-        window.statusBarColor = BACKGROUND
-        window.navigationBarColor = SURFACE
-        var flags = window.decorView.systemUiVisibility
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags = if (palette.isDark) {
-                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-            } else {
-                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            flags = if (palette.isDark) {
-                flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-            } else {
-                flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            }
-        }
-        window.decorView.systemUiVisibility = flags
-    }
-
-    private fun glassSurfaceDrawable(radiusDp: Int, highlighted: Boolean = false): GradientDrawable {
+    internal fun glassSurfaceDrawable(radiusDp: Int, highlighted: Boolean = false): GradientDrawable {
+        val surfaceStyle = AppSurfaceStylePreferenceStore(this).read()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(radiusDp).toFloat()
-            setColor(if (highlighted) palette.surfaceElevated2 else palette.surface)
-            if (highlighted) {
-                setStroke(dp(1), withAlpha(TEAL, 170))
-            } else if (palette.isDark) {
-                // Glass edge: a whisper of white keeps cards readable on black.
-                setStroke(dp(1), withAlpha(0xFFFFFFFF.toInt(), 24))
+            when (surfaceStyle) {
+                AppSurfaceStyle.Amoled -> {
+                    val baseFill = if (palette.isDark) {
+                        if (highlighted) 0xFF101018.toInt() else 0xFF07070C.toInt()
+                    } else {
+                        if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1
+                    }
+                    setColor(baseFill)
+                    setStroke(dp(1), withAlpha(if (highlighted) TEAL else OUTLINE, if (highlighted) 195 else 155))
+                }
+                AppSurfaceStyle.Neon -> {
+                    orientation = GradientDrawable.Orientation.TL_BR
+                    val startFill = androidx.core.graphics.ColorUtils.blendARGB(
+                        if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1,
+                        TEAL,
+                        if (palette.isDark) 0.14f else 0.10f,
+                    )
+                    val endFill = androidx.core.graphics.ColorUtils.blendARGB(
+                        palette.surface,
+                        palette.secondary,
+                        if (palette.isDark) 0.12f else 0.08f,
+                    )
+                    colors = intArrayOf(startFill, endFill)
+                    setStroke(dp(if (highlighted) 2 else 1), withAlpha(TEAL, if (highlighted) 225 else 170))
+                }
+                AppSurfaceStyle.Glass -> {
+                    orientation = GradientDrawable.Orientation.TL_BR
+                    val topColor = if (highlighted) palette.surfaceElevated2 else palette.surfaceElevated1
+                    val bottomColor = if (highlighted) palette.surfaceElevated1 else palette.surface
+                    colors = intArrayOf(topColor, bottomColor)
+                    setStroke(dp(1), withAlpha(if (highlighted) TEAL else OUTLINE, if (highlighted) 175 else 120))
+                }
             }
         }
     }
 
-    private fun AlertDialog.showCatClientDialog(
+    internal fun AlertDialog.showCatClientDialog(
         positiveColor: Int = TEAL,
         onShow: AlertDialog.() -> Unit = {},
     ) {
+        if (isFinishing || isDestroyed) return
         setOnShowListener {
             styleCatClientDialog(positiveColor)
             onShow(this)
         }
-        show()
+        runCatching { show() }
     }
 
     private fun AlertDialog.styleCatClientDialog(positiveColor: Int) {
         window?.setBackgroundDrawable(glassSurfaceDrawable(radiusDp = 24))
-        findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.setTextColor(TEXT_PRIMARY)
+        findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.apply {
+            setTextColor(TEXT_PRIMARY)
+            typeface = CatClientBodyBoldTypeface
+        }
+        findViewById<TextView>(android.R.id.message)?.apply {
+            setTextColor(TEXT_PRIMARY)
+            typeface = CatClientBodyTypeface
+        }
         val optionColors = ColorStateList(
             arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
             intArrayOf(TEAL, TEXT_PRIMARY),
         )
         listView?.let { options ->
-            repeat(options.childCount) { index ->
-                (options.getChildAt(index) as? TextView)?.apply {
+            fun styleItem(child: View?) {
+                (child as? TextView)?.apply {
                     setTextColor(optionColors)
                     typeface = CatClientBodyTypeface
                 }
             }
+            repeat(options.childCount) { index ->
+                styleItem(options.getChildAt(index))
+            }
+            options.setOnHierarchyChangeListener(object : ViewGroup.OnHierarchyChangeListener {
+                override fun onChildViewAdded(parent: View?, child: View?) = styleItem(child)
+                override fun onChildViewRemoved(parent: View?, child: View?) = Unit
+            })
         }
         getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
             isAllCaps = false
@@ -10685,13 +3629,13 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun catClientPopupMenu(anchor: View): PopupMenu =
+    internal fun catClientPopupMenu(anchor: View): PopupMenu =
         PopupMenu(ContextThemeWrapper(this, R.style.CatClientPopupTheme), anchor)
 
-    private fun withAlpha(color: Int, alpha: Int): Int =
+    internal fun withAlpha(color: Int, alpha: Int): Int =
         (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
 
-    private fun View.setSelectableBackground() {
+    internal fun View.setSelectableBackground() {
         val value = TypedValue()
         if (theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)) {
             setBackgroundResource(value.resourceId)
@@ -10699,9 +3643,9 @@ class MainActivity : Activity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun View.announceAccessibility(message: String) = announceForAccessibility(message)
+    internal fun View.announceAccessibility(message: String) = announceForAccessibility(message)
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    internal fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun accentFor(tone: DashboardTone): Int = when (tone) {
         DashboardTone.Connected -> TEAL
@@ -10710,12 +3654,27 @@ class MainActivity : Activity() {
         DashboardTone.Neutral -> palette.neutral
     }
 
-    private companion object {
+    internal companion object {
+        // Dock cell indices (visual order) and content screen indices (fixed, used all over).
+        const val DOCK_HOME = 0
+        const val DOCK_SERVERS = 1
+        const val DOCK_AETHER = 2
+        const val DOCK_CLOUD = 3
+        const val DOCK_SETTINGS = 4
+        const val SCREEN_SERVERS = 0
+        const val SCREEN_HOME = 1
+        const val SCREEN_SETTINGS = 2
+        const val SCREEN_CLOUD = 3
+        const val SCREEN_SCANNER = 4
+        const val SCREEN_AETHER = 5
         const val REQUEST_VPN_PERMISSION = 10
         const val REQUEST_NOTIFICATION_PERMISSION = 11
+        const val REQUEST_NODE_RENEW_NOTIFICATION = 7301
         const val TIMER_TICK_MS = 1_000L
         const val KEYBOARD_SCROLL_DELAY_MS = 250L
         const val CONNECTION_TESTING_PAGE_ANIMATION_MS = 300L
+        const val STATE_ACTIVE_SCREEN = "active_screen"
+        const val STATE_SETTINGS_CATEGORY_RES = "settings_category_res"
         const val STATE_CONNECTION_TESTING_PAGE = "connection_testing_page"
         const val STATE_CHAIN_PICKER_SLOT = "chain_picker_slot"
         const val STATE_CHAIN_PICKER_SUBSCRIPTION = "chain_picker_subscription"
@@ -10731,9 +3690,11 @@ class MainActivity : Activity() {
         const val SCANNER_PORT_KEY = "scanner_port"
         val SCANNER_PORTS = setOf(443, 2053, 2083, 8443)
         const val DEFAULT_SCANNER_SNI = "skk.moe"
+        /** Rows the 🏠/☁️ ping-jitter pass measures after a scan (best verified first). */
+        const val SCANNER_MEASURE_ROWS = 12
         const val SCANNER_BUILD_LIMIT = 12
         val SCANNER_BUILD_PORTS = listOf(80, 443, 2053)
-        const val SCANNER_VISIBLE_RESULTS = 24
+        const val SCANNER_VISIBLE_RESULTS = 40
         const val SCANNER_LIVE_REFRESH_EVERY = 5
         const val SCANNER_CONCURRENCY = 24
         const val SCANNER_CONNECT_TIMEOUT_MS = 1500

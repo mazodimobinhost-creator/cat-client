@@ -64,6 +64,17 @@ internal fun scannedSubscriptionName(source: String): String? {
     }.getOrNull()
     if (uriName != null) return uriName
 
+    if (AmneziaVpnKey.looksLikeKey(source)) {
+        return AmneziaVpnKey.decode(source)?.serverName?.let { "🔐 Amnezia · ${it.take(40)}" } ?: "🔐 Amnezia"
+    }
+
+    if (source.startsWith("slipnet://", ignoreCase = true) ||
+        source.startsWith("slipnet-enc://", ignoreCase = true) ||
+        source.startsWith("dnst://", ignoreCase = true)
+    ) {
+        WhiteDnsSmartScanner.parseTunnelUri(source)?.remark?.let(::clean)?.let { return it }
+    }
+
     val jsonSource = if (source.startsWith("vmess://")) {
         SubConvConverter.decodeBase64Text(source.removePrefix("vmess://")) ?: return null
     } else {
@@ -96,6 +107,39 @@ object UserSubscriptionImporter {
         val trimmed = content.trim()
         require(trimmed.isNotBlank()) { "سابسکریپشن خالی است" }
         require(trimmed.toByteArray().size <= MAX_SUBSCRIPTION_BYTES) { "حجم سابسکریپشن بیش از حد مجاز است" }
+        if (CatFusionLink.isCatFusion(trimmed)) {
+            val links = CatFusionLink.decode(trimmed.lines().first().trim())
+            require(!links.isNullOrEmpty()) { "لینک catfusion:// معتبر نیست" }
+            val bundle = LocalSniSpoofProxy.buildFusedMultiTunnelSubscription(listOf(links.joinToString("\n")))
+            require(bundle != null && bundle.totalProxiesFused > 0) { "اتصال پشتیبانی‌شده‌ای در catfusion:// پیدا نشد" }
+            val count = MihomoConfigParser.parse(bundle.yaml, nowMs).catalog.profiles.size
+            require(count > 0) { "اتصال پشتیبانی‌شده‌ای پیدا نشد" }
+            return ImportedUserSubscription(bundle.yaml, UserSubscriptionFormat.Links, count)
+        }
+        // AmneziaVPN keys (vpn://…) → awg:// / wireguard:// / vless:// / ss:// links; other lines are kept.
+        if (AmneziaVpnKey.extractKeys(trimmed).isNotEmpty()) {
+            val keys = AmneziaVpnKey.extractKeys(trimmed)
+            val decoded = keys.map { AmneziaVpnKey.decode(it) }
+            val amneziaLinks = decoded.flatMap { it?.links.orEmpty() }
+            val others = trimmed.split(Regex("\\s+")).filterNot { it.startsWith("vpn://", ignoreCase = true) }
+                .filter { it.contains("://") }
+            require(amneziaLinks.isNotEmpty() || others.isNotEmpty()) {
+                decoded.firstNotNullOfOrNull { it?.problemFa } ?: "کلید vpn:// معتبر نیست (کلید Amnezia خراب یا ناقص است)"
+            }
+            val combined = (amneziaLinks + others).joinToString("\n")
+            val amYaml = MihomoLinkConfigBuilder.build(SubConvConverter.convert(combined))
+            val amCount = MihomoConfigParser.parse(amYaml, nowMs).catalog.profiles.size
+            require(amCount > 0) { "کانفیگ قابل اجرایی در کلید Amnezia پیدا نشد" }
+            return ImportedUserSubscription(amYaml, UserSubscriptionFormat.Links, amCount)
+        }
+        // Plain WireGuard / AmneziaWG .conf text (pasted, shared or opened as a file).
+        val wgConfUris = WireGuardConfText.toUris(trimmed)
+        if (wgConfUris.isNotEmpty()) {
+            val wgYaml = MihomoLinkConfigBuilder.build(SubConvConverter.convert(wgConfUris.joinToString("\n")))
+            val wgCount = MihomoConfigParser.parse(wgYaml, nowMs).catalog.profiles.size
+            require(wgCount > 0) { "فایل WireGuard معتبر نیست (PrivateKey / PublicKey / Endpoint)" }
+            return ImportedUserSubscription(wgYaml, UserSubscriptionFormat.Links, wgCount)
+        }
         val normalized = SubConvConverter.decodeBase64Text(trimmed)
             ?.trim()
             ?.takeIf(String::isNotBlank)
@@ -126,8 +170,20 @@ object JsonSubscriptionImporter {
     fun import(content: String, nowMs: Long): ImportedUserSubscription? {
         val first = content.firstOrNull() ?: return null
         val (proxies, format) = when (first) {
-            '{' -> clashProxies(runCatching { JSONObject(content) }.getOrNull() ?: return null) to
-                UserSubscriptionFormat.Mihomo
+            '{' -> {
+                val obj = runCatching { JSONObject(content) }.getOrNull() ?: return null
+                val clash = clashProxies(obj)
+                if (clash.isNotEmpty()) {
+                    clash to UserSubscriptionFormat.Mihomo
+                } else {
+                    val sing = singBoxProxies(obj)
+                    if (sing.isNotEmpty()) {
+                        sing to UserSubscriptionFormat.Links
+                    } else {
+                        xrayProxies(JSONArray().put(obj)) to UserSubscriptionFormat.Links
+                    }
+                }
+            }
             '[' -> xrayProxies(runCatching { JSONArray(content) }.getOrNull() ?: return null) to
                 UserSubscriptionFormat.Links
             else -> return null
@@ -144,9 +200,94 @@ object JsonSubscriptionImporter {
         val proxies = config.optJSONArray("proxies") ?: return emptyList()
         return (0 until proxies.length()).mapNotNull { index ->
             val proxy = proxies.optJSONObject(index) ?: return@mapNotNull null
+            val rawServer = proxy.optString("server")
+            if (rawServer.startsWith("[") && rawServer.endsWith("]")) {
+                proxy.put("server", rawServer.removePrefix("[").removeSuffix("]"))
+            }
             if (proxy.optString("type") in setOf("socks", "socks5")) {
                 proxy.put("type", "socks5")
                 if (!proxy.has("udp")) proxy.put("udp", true)
+            }
+            proxy.takeIf(::isSupportedMihomoProxy)
+        }
+    }
+
+    private fun singBoxProxies(config: JSONObject): List<JSONObject> {
+        val outbounds = config.optJSONArray("outbounds") ?: return emptyList()
+        return (0 until outbounds.length()).mapNotNull { index ->
+            val outbound = outbounds.optJSONObject(index) ?: return@mapNotNull null
+            val protocol = outbound.optString("type")
+            if (protocol !in setOf("vless", "vmess", "trojan", "socks")) return@mapNotNull null
+            val server = outbound.optString("server").removePrefix("[").removeSuffix("]")
+            val port = outbound.optInt("server_port")
+            if (server.isBlank() || port !in 1..65535) return@mapNotNull null
+
+            val proxy = JSONObject()
+                .put("name", outbound.optString("tag").ifBlank { "SingBox ${index + 1}" })
+                .put("type", if (protocol == "socks") "socks5" else protocol)
+                .put("server", server)
+                .put("port", port)
+                .put("udp", true)
+
+            when (protocol) {
+                "vless", "vmess" -> {
+                    val uuid = outbound.optString("uuid").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    proxy.put("uuid", uuid)
+                    if (protocol == "vless") {
+                        outbound.optString("flow").takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
+                    } else {
+                        proxy.put("alterId", outbound.optInt("alter_id", 0))
+                            .put("cipher", outbound.optString("security").ifBlank { "auto" })
+                    }
+                }
+                "trojan" -> {
+                    val password = outbound.optString("password").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    proxy.put("password", password)
+                }
+                "socks" -> {
+                    if (outbound.has("username") || outbound.has("password")) {
+                        val username = outbound.optString("username").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                        proxy.put("username", username).put("password", outbound.optString("password"))
+                    }
+                    return@mapNotNull proxy.takeIf(::isSupportedMihomoProxy)
+                }
+            }
+
+            val tlsObj = outbound.optJSONObject("tls")
+            if (tlsObj?.optBoolean("enabled", false) == true) {
+                proxy.put("tls", true)
+                tlsObj.optString("server_name").takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
+                val fp = tlsObj.optJSONObject("utls")?.optString("fingerprint").orEmpty()
+                    .ifBlank { tlsObj.optString("fingerprint") }
+                if (fp.isNotBlank()) proxy.put("client-fingerprint", fp)
+                proxy.put("skip-cert-verify", false)
+            } else if (protocol == "trojan") {
+                proxy.put("tls", false)
+            }
+
+            val transport = outbound.optJSONObject("transport")
+            when (transport?.optString("type")) {
+                "ws", "httpupgrade" -> {
+                    val transportType = transport.optString("type")
+                    val wsOpts = JSONObject().put("path", transport.optString("path").ifBlank { "/" })
+                    val host = transport.optJSONObject("headers")
+                        ?.let { it.optString("Host").ifBlank { it.optString("host") } }
+                        .orEmpty()
+                        .ifBlank { transport.optString("host") }
+                    if (host.isNotBlank()) wsOpts.put("headers", JSONObject().put("Host", host))
+                    // Mihomo has no `httpupgrade` network: it is ws + v2ray-http-upgrade.
+                    if (transportType == "httpupgrade") wsOpts.put("v2ray-http-upgrade", true)
+                    proxy.put("network", "ws").put("ws-opts", wsOpts)
+                }
+                "grpc" -> {
+                    proxy.put(
+                        "network",
+                        "grpc",
+                    ).put(
+                        "grpc-opts",
+                        JSONObject().put("grpc-service-name", transport.optString("service_name")),
+                    )
+                }
             }
             proxy.takeIf(::isSupportedMihomoProxy)
         }
@@ -254,7 +395,7 @@ object JsonSubscriptionImporter {
             ?: supported.singleOrNull()
             ?: return null
         val protocol = outbound.optString("protocol")
-        val settings = outbound.optJSONObject("settings") ?: return null
+        val settings = outbound.optJSONObject("settings")
         val stream = outbound.optJSONObject("streamSettings") ?: JSONObject()
         val proxy = JSONObject()
             .put("name", config.optString("remarks").ifBlank { "Xray ${index + 1}" })
@@ -262,31 +403,42 @@ object JsonSubscriptionImporter {
             .put("udp", true)
         when (protocol) {
             "vless", "vmess" -> {
-                val endpoint = settings.optJSONArray("vnext")?.optJSONObject(0) ?: return null
-                val user = endpoint.optJSONArray("users")?.optJSONObject(0) ?: return null
-                proxy.put("server", endpoint.optString("address"))
-                    .put("port", endpoint.optInt("port"))
-                    .put("uuid", user.optString("id"))
+                val endpoint = settings?.optJSONArray("vnext")?.optJSONObject(0)
+                val user = endpoint?.optJSONArray("users")?.optJSONObject(0)
+                val address = (endpoint?.optString("address").orEmpty().ifBlank { outbound.optString("address") })
+                    .removePrefix("[").removeSuffix("]")
+                val port = endpoint?.optInt("port")?.takeIf { it > 0 } ?: outbound.optInt("port")
+                val id = user?.optString("id").orEmpty().ifBlank { outbound.optString("id") }
+                if (address.isBlank() || port !in 1..65535 || id.isBlank()) return null
+                proxy.put("server", address)
+                    .put("port", port)
+                    .put("uuid", id)
                 if (protocol == "vless") {
-                    user.optString("flow").takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
+                    user?.optString("flow")?.takeIf(String::isNotBlank)?.let { proxy.put("flow", it) }
                 } else {
-                    proxy.put("alterId", user.optInt("alterId", user.optInt("alter_id")))
-                        .put("cipher", user.optString("security").ifBlank { "auto" })
+                    proxy.put("alterId", user?.optInt("alterId", user.optInt("alter_id")) ?: 0)
+                        .put("cipher", user?.optString("security").orEmpty().ifBlank { "auto" })
                 }
             }
             "trojan" -> {
-                val endpoint = settings.optJSONArray("servers")?.optJSONObject(0) ?: return null
-                proxy.put("server", endpoint.optString("address"))
-                    .put("port", endpoint.optInt("port"))
-                    .put("password", endpoint.optString("password"))
+                val endpoint = settings?.optJSONArray("servers")?.optJSONObject(0)
+                val address = (endpoint?.optString("address").orEmpty().ifBlank { outbound.optString("address") })
+                    .removePrefix("[").removeSuffix("]")
+                val port = endpoint?.optInt("port")?.takeIf { it > 0 } ?: outbound.optInt("port")
+                val password = endpoint?.optString("password").orEmpty().ifBlank { outbound.optString("password") }
+                if (address.isBlank() || port !in 1..65535 || password.isBlank()) return null
+                proxy.put("server", address)
+                    .put("port", port)
+                    .put("password", password)
             }
             "socks" -> {
-                proxy.put("server", settings.optString("address"))
-                    .put("port", settings.optInt("port"))
-                if (settings.has("user") || settings.has("pass")) {
-                    val username = (settings.opt("user") as? String)
+                val s = settings ?: return null
+                proxy.put("server", s.optString("address").removePrefix("[").removeSuffix("]"))
+                    .put("port", s.optInt("port"))
+                if (s.has("user") || s.has("pass")) {
+                    val username = (s.opt("user") as? String)
                         ?.takeIf(String::isNotBlank) ?: return null
-                    val password = settings.opt("pass") as? String ?: return null
+                    val password = s.opt("pass") as? String ?: return null
                     proxy.put("username", username).put("password", password)
                 }
                 return proxy.takeIf(::isSupportedMihomoProxy)
@@ -295,14 +447,16 @@ object JsonSubscriptionImporter {
 
         val security = stream.optString("security")
         val tls = when (security) {
-            "tls" -> stream.optJSONObject("tlsSettings")
+            "tls" -> stream.optJSONObject("tlsSettings") ?: JSONObject()
             "reality" -> stream.optJSONObject("realitySettings")
             else -> null
         }
         if (tls != null) {
             proxy.put("tls", true)
-            tls.optString("serverName").takeIf(String::isNotBlank)?.let { proxy.put("servername", it) }
-            tls.optString("fingerprint").takeIf(String::isNotBlank)?.let { proxy.put("client-fingerprint", it) }
+            val sni = tls.optString("serverName").ifBlank { stream.optString("serverName") }
+            if (sni.isNotBlank()) proxy.put("servername", sni)
+            val fp = tls.optString("fingerprint").ifBlank { stream.optString("fingerprint") }
+            if (fp.isNotBlank()) proxy.put("client-fingerprint", fp)
             // `allowInsecure` from the imported document is deliberately not propagated; see
             // MihomoLinkConfigBuilder. Certificate validation stays on for every imported proxy.
             proxy.put("skip-cert-verify", false)
@@ -312,19 +466,56 @@ object JsonSubscriptionImporter {
                     .put("public-key", tls.optString("publicKey"))
                 tls.optString("shortId").takeIf(String::isNotBlank)?.let { reality.put("short-id", it) }
                 proxy.put("reality-opts", reality)
+            } else if (security == "tls") {
+                val rawEch = tls.optString("echConfigList").trim()
+                val ws = stream.optJSONObject("wsSettings")
+                val wsHost = ws?.optString("host").orEmpty()
+                    .ifBlank { ws?.optJSONObject("headers")?.optString("Host").orEmpty() }
+                val hasCustomSniMask = sni.isNotBlank() && wsHost.isNotBlank() && !sni.equals(wsHost, ignoreCase = true)
+                val hasFragmentConflict = stream.optJSONObject("finalmask") != null ||
+                    tls.optString("cipherSuites").isNotBlank() ||
+                    stream.optJSONObject("sockopt")?.optString("dialerProxy").equals("fragment", ignoreCase = true)
+                if (rawEch.isNotBlank() && !rawEch.equals("off", ignoreCase = true) && !hasCustomSniMask && !hasFragmentConflict) {
+                    val queryMatch = Regex("""^([A-Za-z0-9][A-Za-z0-9.-]{0,252})(?:\+(?:udp|tcp|https|h2c|tls)://.+)?$""")
+                        .matchEntire(rawEch)
+                    if (queryMatch != null && '.' in queryMatch.groupValues[1]) {
+                        proxy.put("ech-opts", JSONObject().put("enable", true).put("query-server-name", queryMatch.groupValues[1]))
+                    } else if (Regex("""^[A-Za-z0-9+/=]{16,}$""").matches(rawEch)) {
+                        proxy.put("ech-opts", JSONObject().put("enable", true).put("config", rawEch))
+                    }
+                } else {
+                    tls.optString("cipherSuites").trim().takeIf(String::isNotBlank)?.let {
+                        proxy.put("cipher-suites", it)
+                    }
+                    val fmType = stream.optJSONObject("finalmask")
+                        ?.optJSONArray("tcp")
+                        ?.optJSONObject(0)
+                        ?.optString("type")
+                        .orEmpty()
+                        .ifBlank { stream.optString("finalMask") }
+                        .trim()
+                    if (fmType.isNotBlank()) {
+                        proxy.put("final-mask", WhiteDnsSmartScanner.normalizeRealityFragmentPackets(security, fmType))
+                    }
+                }
             }
+        } else if (protocol == "trojan") {
+            proxy.put("tls", false)
         }
 
         when (stream.optString("network")) {
             "tcp" -> xrayTcpHttpOptions(stream.optJSONObject("tcpSettings"))?.let { options ->
                 proxy.put("network", "http").put("http-opts", options)
             }
-            "ws" -> {
-                val ws = stream.optJSONObject("wsSettings") ?: JSONObject()
-                val options = JSONObject().put("path", ws.optString("path"))
+            "ws", "httpupgrade" -> {
+                val upgrade = stream.optString("network") == "httpupgrade"
+                val ws = stream.optJSONObject(if (upgrade) "httpupgradeSettings" else "wsSettings") ?: JSONObject()
+                val options = JSONObject().put("path", ws.optString("path").ifBlank { "/" })
                 val host = ws.optString("host")
                     .ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty() }
                 if (host.isNotBlank()) options.put("headers", JSONObject().put("Host", host))
+                // Mihomo has no `httpupgrade` network: it is ws + v2ray-http-upgrade.
+                if (upgrade) options.put("v2ray-http-upgrade", true)
                 proxy.put("network", "ws").put("ws-opts", options)
             }
             "grpc" -> {
@@ -361,7 +552,10 @@ object JsonSubscriptionImporter {
     }
 
     private fun isSupportedMihomoProxy(proxy: JSONObject): Boolean =
-        proxy.optString("type") in setOf("vless", "vmess", "trojan", "ss", "socks5", "wireguard") &&
+        proxy.optString("type").lowercase() in setOf(
+            "vless", "vmess", "trojan", "ss", "socks5", "socks",
+            "wireguard", "hysteria2", "hy2", "tuic", "anytls",
+        ) &&
             proxy.optString("name").isNotBlank() &&
             proxy.optString("server").isNotBlank() &&
             proxy.optInt("port") in 1..65535
@@ -377,20 +571,88 @@ object MihomoLinkConfigBuilder {
         require(unique.isNotEmpty()) { "اتصال سازگار با v1 پیدا نشد" }
         val proxyYaml = buildString {
             appendLine("proxies:")
-            unique.forEach { proxy ->
-                val orderedKeys = listOf("name", "type", "server", "port") +
-                    proxy.keys().asSequence().filterNot { it in setOf("name", "type", "server", "port") }
-                orderedKeys.forEachIndexed { propertyIndex, key ->
-                    val prefix = if (propertyIndex == 0) "  - " else "    "
-                    append(prefix).append(key).append(": ").appendLine(yamlValue(proxy.get(key)))
-                }
-            }
+            unique.forEach { proxy -> append(renderProxyYamlBlock(proxy)) }
         }
         return addDefaultGroups(proxyYaml, unique.map { it.getString("name") })
     }
 
+    internal fun renderProxyYamlBlock(proxy: JSONObject): String = buildString {
+        val orderedKeys = listOf("name", "type", "server", "port") +
+            proxy.keys().asSequence().filterNot { it in setOf("name", "type", "server", "port") }
+        orderedKeys.forEachIndexed { propertyIndex, key ->
+            val prefix = if (propertyIndex == 0) "  - " else "    "
+            append(prefix).append(key).append(": ").appendLine(yamlValue(proxy.get(key)))
+        }
+    }
+
+    /** Replaces a single proxy entry (`name == targetTag`) in a Mihomo YAML document
+     * with the converted form of `updatedShareLink`, keeping `targetTag`, all other
+     * proxies and all `proxy-groups:` / `rules:` sections untouched. */
+    internal fun replaceProxyInYaml(
+        yaml: String,
+        targetTag: String,
+        updatedShareLink: String,
+    ): String? {
+        if (targetTag.isBlank()) return null
+        val converted = SubConvConverter.convert(updatedShareLink).firstOrNull() ?: return null
+        converted.put("name", targetTag)
+        if (!isYamlSafeProxy(converted)) return null
+        val replacementBlock = renderProxyYamlBlock(converted).trimEnd('\n')
+
+        val out = StringBuilder(yaml.length + 128)
+        var inProxiesSection = false
+        val currentItemLines = ArrayList<String>()
+        var replaced = false
+
+        fun flushCurrentItem() {
+            if (currentItemLines.isEmpty()) return
+            val normalizedBlock = currentItemLines.mapIndexed { idx, line ->
+                if (idx == 0) {
+                    val trimmed = line.trimStart()
+                    if (trimmed.startsWith("- ")) "    " + trimmed.removePrefix("- ").trimStart() else line
+                } else {
+                    line
+                }
+            }.joinToString("\n")
+            val itemName = MihomoProxyYaml.parse(normalizedBlock)["name"]?.toString()
+            if (!replaced && itemName == targetTag) {
+                out.appendLine(replacementBlock)
+                replaced = true
+            } else {
+                currentItemLines.forEach { out.appendLine(it) }
+            }
+            currentItemLines.clear()
+        }
+
+        yaml.removePrefix("\uFEFF").lineSequence().forEach { rawLine ->
+            val indent = rawLine.indexOfFirst { !it.isWhitespace() }
+            if (indent == 0) {
+                flushCurrentItem()
+                val topKey = rawLine.trim().substringBefore(":").trim()
+                inProxiesSection = (topKey == "proxies")
+                out.appendLine(rawLine)
+                return@forEach
+            }
+            if (!inProxiesSection) {
+                out.appendLine(rawLine)
+                return@forEach
+            }
+            val content = rawLine.trimStart()
+            if (indent == 2 && content.startsWith("- ")) {
+                flushCurrentItem()
+                currentItemLines += rawLine
+            } else if (currentItemLines.isNotEmpty()) {
+                currentItemLines += rawLine
+            } else {
+                out.appendLine(rawLine)
+            }
+        }
+        flushCurrentItem()
+        return if (replaced) out.toString() else null
+    }
+
     fun addDefaultGroups(yaml: String, proxyNames: List<String>): String {
-        require(proxyNames.isNotEmpty()) { "سابسکریپشن Mihomo پروکسی ندارد" }
+        require(proxyNames.isNotEmpty()) { "سابسکریپشن Cat core پروکسی ندارد" }
         return yaml.trimEnd() + "\n" + defaultGroups(proxyNames)
     }
 
@@ -535,6 +797,27 @@ class UserSubscriptionManager(
     fun delete(id: String) = store.deleteUserSubscription(id)
 
     fun cachedSnapshot(id: String): MihomoSubscriptionSnapshot? = snapshots.cached(id)
+
+    /** Replaces a single proxy (`targetTag`) in the cached YAML of `subscriptionId`
+     * with `updatedShareLink`, persists the updated snapshot, and returns the
+     * updated [ConnectionProfile] so the caller can immediately re-test it. */
+    fun replaceProfileShareLink(
+        subscriptionId: String,
+        targetTag: String,
+        updatedShareLink: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): ConnectionProfile? {
+        val adapter = AndroidSubscriptionSnapshotAdapter(appContext, store)
+        val entry = adapter.read(subscriptionId) ?: return null
+        val currentYaml = entry.cachedYaml?.takeIf(String::isNotBlank) ?: return null
+        val updatedYaml = MihomoLinkConfigBuilder.replaceProxyInYaml(currentYaml, targetTag, updatedShareLink)
+            ?: return null
+        val snapshot = runCatching { MihomoConfigParser.parse(updatedYaml, nowMs) }.getOrNull() ?: return null
+        if (snapshot.catalog.profiles.isEmpty()) return null
+        val format = store.readUserSubscription(subscriptionId)?.format ?: UserSubscriptionFormat.Mihomo
+        adapter.save(subscriptionId, CompiledSubscription(format, snapshot))
+        return snapshot.catalog.profiles.firstOrNull { it.tag == targetTag }
+    }
 
     private suspend fun compile(input: String): CompiledSubscription {
         val loaded = SubscriptionSourceLoader.loadDetailed(userSubscriptionSource(input))

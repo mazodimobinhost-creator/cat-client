@@ -48,12 +48,52 @@ internal object SubscriptionSourceLoader {
         is SubscriptionSource.RemoteHttps -> loadHttps(source.url)
     }
 
-    private suspend fun loadHttps(value: String): LoadedSubscription = runInterruptible(Dispatchers.IO) {
-        val uri = runCatching { URI(value) }
+    internal fun candidateHttpsUrls(primaryUrl: String): List<URI> {
+        val uri = runCatching { URI(primaryUrl) }
             .getOrElse { throw IOException("Subscription Source URL is invalid", it) }
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
             throw IOException("Subscription Source must use HTTPS")
         }
+        val query = uri.rawQuery.orEmpty()
+        val fallbackHosts = query.split('&')
+            .mapNotNull { pair ->
+                val eq = pair.indexOf('=')
+                if (eq <= 0) return@mapNotNull null
+                val k = pair.substring(0, eq).lowercase()
+                if (k !in setOf("fallback_host", "mirror", "backup_host")) return@mapNotNull null
+                runCatching { java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8") }.getOrNull()
+            }
+            .flatMap { it.split(',') }
+            .map { it.trim().lowercase() }
+            .filter { it.matches(Regex("""^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d{1,5})?$""")) }
+            .distinct()
+        if (fallbackHosts.isEmpty()) return listOf(uri)
+        val mirrors = fallbackHosts.mapNotNull { hostPort ->
+            val colon = hostPort.indexOf(':')
+            val fHost = if (colon > 0) hostPort.substring(0, colon) else hostPort
+            val fPort = if (colon > 0) hostPort.substring(colon + 1).toIntOrNull() ?: -1 else uri.port
+            if (fHost.equals(uri.host, ignoreCase = true) && fPort == uri.port) return@mapNotNull null
+            runCatching {
+                URI("https", uri.rawUserInfo, fHost, fPort, uri.rawPath, uri.rawQuery, uri.rawFragment)
+            }.getOrNull()
+        }
+        return listOf(uri) + mirrors
+    }
+
+    private suspend fun loadHttps(value: String): LoadedSubscription = runInterruptible(Dispatchers.IO) {
+        val candidates = candidateHttpsUrls(value)
+        var lastError: IOException? = null
+        for (uri in candidates) {
+            try {
+                return@runInterruptible fetchSingleHttpsUri(uri)
+            } catch (e: IOException) {
+                lastError = e
+            }
+        }
+        throw lastError ?: IOException("Subscription Source failed")
+    }
+
+    private fun fetchSingleHttpsUri(uri: URI): LoadedSubscription {
         val connection = uri.toURL().openConnection() as HttpURLConnection
         connection.connectTimeout = 12_000
         connection.readTimeout = 20_000
@@ -71,7 +111,7 @@ internal object SubscriptionSourceLoader {
             if (bytes.size > UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES) {
                 throw IOException("Subscription Source exceeds the maximum size")
             }
-            LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"))
+            return LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"))
         } finally {
             connection.disconnect()
         }
@@ -103,12 +143,60 @@ internal fun replaceSubscriptionSnapshot(
     }
 }
 
+/**
+ * beta217: every tap that needed a subscription (select it, open its list, the picker…) read its YAML file again —
+ * up to a few MB, decoded and re-hashed on the main thread — before the parsed-snapshot memo could even answer.
+ * The text is kept for the few most recently used files and reused while the file's size and modification time are
+ * unchanged. Writes go through [writeSubscriptionTextAtomically], which refreshes the entry, so an edit is never
+ * served stale; returning the same String instance also lets the parsed memo reuse its cached hash.
+ */
+internal object SnapshotTextMemo {
+    private const val MAX_ENTRIES = 4
+
+    private class Slot(val length: Long, val modified: Long, val text: String)
+
+    private val slots = LinkedHashMap<String, Slot>(8, 0.75f, true)
+
+    fun read(file: File): String? {
+        if (!file.isFile) return null
+        val length = file.length()
+        if (length <= 0L) return null
+        val modified = file.lastModified()
+        synchronized(slots) {
+            slots[file.path]?.takeIf { it.length == length && it.modified == modified }?.let { return it.text }
+        }
+        val text = file.readText()
+        remember(file, length, modified, text)
+        return text
+    }
+
+    fun stored(file: File, text: String) {
+        if (!file.isFile) {
+            invalidate(file)
+            return
+        }
+        remember(file, file.length(), file.lastModified(), text)
+    }
+
+    fun invalidate(file: File) {
+        synchronized(slots) { slots.remove(file.path) }
+    }
+
+    private fun remember(file: File, length: Long, modified: Long, text: String) {
+        synchronized(slots) {
+            slots[file.path] = Slot(length, modified, text)
+            while (slots.size > MAX_ENTRIES) slots.remove(slots.keys.first())
+        }
+    }
+}
+
 internal fun writeSubscriptionTextAtomically(file: File, value: String) {
     val parent = file.parentFile
         ?: throw IOException("Subscription Snapshot file does not have a parent directory")
     if (!parent.isDirectory && !parent.mkdirs()) {
         throw IOException("Unable to create Subscription Snapshot directory")
     }
+    SnapshotTextMemo.invalidate(file)
     val temporary = File.createTempFile(".${file.name}.", ".tmp", parent)
     try {
         temporary.writeText(value)
@@ -119,9 +207,14 @@ internal fun writeSubscriptionTextAtomically(file: File, value: String) {
                 StandardCopyOption.REPLACE_EXISTING,
                 StandardCopyOption.ATOMIC_MOVE,
             )
-        } catch (error: AtomicMoveNotSupportedException) {
-            throw IOException("Atomic Subscription Snapshot replacement is not supported", error)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temporary.toPath(),
+                file.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
         }
+        SnapshotTextMemo.stored(file, value)
     } finally {
         temporary.delete()
     }
@@ -144,7 +237,7 @@ internal class AndroidSubscriptionSnapshotAdapter(
             val file = builtInSnapshotFile(id)
             return SubscriptionSnapshotEntry(
                 source = managedSource(id),
-                cachedYaml = file.takeIf { it.isFile && it.length() > 0L }?.readText(),
+                cachedYaml = SnapshotTextMemo.read(file),
                 fetchedAt = store.readCatalog(id)?.fetchedAt
                     ?: file.lastModified().takeIf { it > 0L }
                     ?: 0L,
@@ -177,6 +270,7 @@ internal class AndroidSubscriptionSnapshotAdapter(
             replaceSubscriptionSnapshot(file, subscription.snapshot.rawConfig) {
                 store.saveCatalog(id, subscription.snapshot.catalog)
             }
+            ParsedSnapshotMemo.seed(id, subscription.snapshot.rawConfig, subscription.snapshot.catalog.fetchedAt, subscription.snapshot)
             return
         }
 
@@ -193,6 +287,7 @@ internal class AndroidSubscriptionSnapshotAdapter(
             ),
             subscription.snapshot.rawConfig,
         )
+        ParsedSnapshotMemo.seed(id, subscription.snapshot.rawConfig, fetchedAt, subscription.snapshot)
     }
 
     override fun recordFailure(id: String, error: Throwable) {
@@ -300,7 +395,7 @@ internal class SubscriptionSnapshotResolver(
         val entry = persistence.read(id)
             ?: throw IOException("Subscription no longer exists")
         val cached = entry.cachedYaml?.let { yaml ->
-            runCatching { parseSubscriptionSnapshot(yaml, entry.fetchedAt) }.getOrNull()
+            runCatching { ParsedSnapshotMemo.parse(id, yaml, entry.fetchedAt) }.getOrNull()
         }
         val now = nowMs()
         if (
@@ -332,8 +427,48 @@ internal class SubscriptionSnapshotResolver(
     fun cached(id: String): MihomoSubscriptionSnapshot? {
         val entry = persistence.read(id) ?: return null
         val yaml = entry.cachedYaml ?: return null
-        return runCatching { parseSubscriptionSnapshot(yaml, entry.fetchedAt) }.getOrNull()
+        return runCatching { ParsedSnapshotMemo.parse(id, yaml, entry.fetchedAt) }.getOrNull()
     }
+}
+
+/**
+ * Parsing a cached subscription YAML (up to 2 MB, thousands of proxies) took long enough to freeze the screen,
+ * and the UI asked for it again on every tap (select a subscription, open its test list, the picker, the
+ * optimizer…). The parsed result is kept for the few most recently used subscriptions and reused while the YAML
+ * is byte-for-byte the same (same length + hash + fetch time); any refresh or edit parses again.
+ */
+internal object ParsedSnapshotMemo {
+    private const val MAX_ENTRIES = 4
+
+    private class Slot(val fetchedAt: Long, val length: Int, val hash: Int, val snapshot: MihomoSubscriptionSnapshot)
+
+    private val slots = LinkedHashMap<String, Slot>(8, 0.75f, true)
+
+    fun parse(id: String, yaml: String, fetchedAt: Long): MihomoSubscriptionSnapshot {
+        val length = yaml.length
+        val hash = yaml.hashCode()
+        synchronized(slots) {
+            val hit = slots[id]
+            if (hit != null && hit.fetchedAt == fetchedAt && hit.length == length && hit.hash == hash) return hit.snapshot
+        }
+        val parsed = parseSubscriptionSnapshot(yaml, fetchedAt)
+        synchronized(slots) {
+            slots[id] = Slot(fetchedAt, length, hash, parsed)
+            while (slots.size > MAX_ENTRIES) slots.remove(slots.keys.first())
+        }
+        return parsed
+    }
+
+    /** Stores an already parsed snapshot (import / refresh) so the next screen does not parse it again. */
+    fun seed(id: String, yaml: String, fetchedAt: Long, snapshot: MihomoSubscriptionSnapshot) {
+        if (yaml.isBlank()) return
+        synchronized(slots) {
+            slots[id] = Slot(fetchedAt, yaml.length, yaml.hashCode(), snapshot)
+            while (slots.size > MAX_ENTRIES) slots.remove(slots.keys.first())
+        }
+    }
+
+    fun clear() = synchronized(slots) { slots.clear() }
 }
 
 private fun parseSubscriptionSnapshot(yaml: String, fetchedAt: Long): MihomoSubscriptionSnapshot =

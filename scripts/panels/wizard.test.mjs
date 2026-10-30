@@ -20,6 +20,13 @@ const T = mod._testing;
 const panelSrc = readFileSync(panelPath, 'utf8');
 // Version-proof pins: everything below compares against the real bundled source.
 const PANEL_VERSION = (panelSrc.match(/CAT_PANEL_VERSION\s*=\s*'([^']+)'/) || [])[1];
+// Simulated normal minified module (release asset / committed snapshot).
+// Production panels such as BPB deploy a normal bundled/minified Worker rather
+// than a large RC4/control-flow-obfuscated runtime.
+const minPanelSrc = "var CAT_PANEL_VERSION = '" + PANEL_VERSION + "';\n" + '/* payload */\n'.repeat(300);
+const stalePanelSrc = "var CAT_PANEL_VERSION = '6.60.0';\n" + '/* payload */\n'.repeat(300);
+const blocked1101Src = "var CAT_PANEL_VERSION = '6.69.12';\n" + '/* payload */\n'.repeat(300);
+const badVersionSrc = "var CAT_PANEL_VERSION = 'not-a-version';\n" + '/* payload */\n'.repeat(300);
 
 let failures = 0;
 function check(name, cond, extra) {
@@ -36,7 +43,16 @@ const state = {
   calls: [],
   tokenValid: true,
   kvAllowed: true,
+  settingsMode: 'normal',
+  healthMode: 'ok',        // ok | mismatch | cached | malformed | down | hang | seq
+  healthSeq: [],           // consumed one per probe when healthMode === 'seq'
+  healthProbes: 0,
+  sourceMode: 'ok',        // ok | stale-first | stale-all | bad-version | hang
+  raceOnKv: '',            // worker name that "appears" while the KV namespace is created
 };
+T.__setTimeouts({ cf: 150, source: 150, health: 150 });
+T.__setSleep({ early: 1, late: 1 });
+const hang = (init) => new Promise((_, reject) => { init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
 
 T.__setFetch(async (input, init = {}) => {
@@ -45,11 +61,15 @@ T.__setFetch(async (input, init = {}) => {
   state.calls.push(method + ' ' + url);
   const auth = (init.headers && (init.headers.authorization || init.headers.Authorization)) || '';
 
-  if (url.startsWith('https://github.com/') || url.startsWith('https://raw.githubusercontent.com/')) {
-    if (url.endsWith('catclient.worker.js')) {
-      // first mirror fails to prove the fallback chain works
-      if (url.includes('/releases/latest/')) return new Response('nope', { status: 404 });
-      return new Response(panelSrc, { status: 200 });
+  if (url.startsWith('https://github.com/') || url.startsWith('https://raw.githubusercontent.com/') || url.startsWith('https://ghproxy.net/')) {
+    if (state.sourceMode === 'hang' && !url.endsWith('catclient.wizard.js')) return hang(init);
+    if (url.endsWith('catclient.worker.js') && url.includes('/releases/latest/')) return new Response('nope', { status: 404 });
+    if (url.endsWith('catclient.worker.js') || url.endsWith('catpanel.min.js')) {
+      if (state.sourceMode === 'stale-all') return new Response(stalePanelSrc, { status: 200 });
+      if (state.sourceMode === 'blocked-1101') return new Response(blocked1101Src, { status: 200 });
+      if (state.sourceMode === 'bad-version') return new Response(badVersionSrc, { status: 200 });
+      if (state.sourceMode === 'stale-first' && url === T.PANEL_SOURCES[0]) return new Response(stalePanelSrc, { status: 200 });
+      return new Response(minPanelSrc, { status: 200 });
     }
     if (url.endsWith('catclient.wizard.js')) return new Response(readFileSync(wizardPath, 'utf8'), { status: 200 });
     return new Response('nf', { status: 404 });
@@ -70,13 +90,17 @@ T.__setFetch(async (input, init = {}) => {
     if (p.startsWith('/accounts/acc-1/storage/kv/namespaces')) {
       if (!state.kvAllowed) return json({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }, 403);
       if (method === 'GET') return json({ success: true, result: state.kv });
-      if (method === 'POST') { const ns = { id: 'kv-' + (state.kv.length + 1), title: JSON.parse(init.body).title }; state.kv.push(ns); return json({ success: true, result: ns }); }
+      if (method === 'POST') { const ns = { id: 'kv-' + (state.kv.length + 1), title: JSON.parse(init.body).title }; state.kv.push(ns); if (state.raceOnKv) state.scripts[state.raceOnKv] = { bindings: [{ type: 'secret_text', name: 'THEIRS' }], script: 'theirs', meta: {} }; return json({ success: true, result: ns }); }
     }
     const scriptMatch = p.match(/^\/accounts\/acc-1\/workers\/scripts\/([a-z0-9-]+)(\/settings|\/subdomain)?$/);
     if (scriptMatch) {
       const name = scriptMatch[1];
       const sub = scriptMatch[2] || '';
       if (sub === '/settings' && method === 'GET') {
+        if (state.settingsMode === 'network') throw new TypeError('network down');
+        if (state.settingsMode === 'timeout') return hang(init);
+        if (state.settingsMode === 'malformed') return json({ success: true, result: {} });
+        if (/^(401|403|500)$/.test(state.settingsMode)) return json({ success: false, errors: [{ message: 'settings error' }] }, Number(state.settingsMode));
         const s = state.scripts[name];
         return s ? json({ success: true, result: { bindings: s.bindings } }) : json({ success: false, errors: [{ code: 10007, message: 'script not found' }] }, 404);
       }
@@ -92,11 +116,20 @@ T.__setFetch(async (input, init = {}) => {
     return json({ success: false, errors: [{ message: 'unhandled ' + method + ' ' + p }] }, 500);
   }
 
-  if (url.endsWith('/health')) {
+  if (new URL(url).pathname === '/health') {
     const name = new URL(url).hostname.split('.')[0];
     if (!state.scripts[name]) return new Response('nf', { status: 404 });
+    state.healthProbes++;
     const isWizard = state.scripts[name].script.includes('CAT_WIZARD_VERSION');
-    return json({ ok: true, version: isWizard ? T.CAT_WIZARD_VERSION : PANEL_VERSION });
+    const real = isWizard ? T.CAT_WIZARD_VERSION : PANEL_VERSION;
+    let mode = state.healthMode;
+    if (mode === 'seq') mode = state.healthSeq.length ? state.healthSeq.shift() : 'ok';
+    if (mode === 'hang') return hang(init);
+    if (mode === 'down') return new Response('error code: 1101', { status: 500 });
+    if (mode === 'malformed') return new Response('<html>not json</html>', { status: 200 });
+    if (mode === 'mismatch') return json({ ok: true, version: '6.0.1' });
+    if (mode === 'cached') return new Response(JSON.stringify({ ok: true, version: real }), { status: 200, headers: { 'content-type': 'application/json', 'cf-cache-status': 'HIT', age: '120' } });
+    return json({ ok: true, version: real });
   }
   return new Response('unhandled ' + url, { status: 500 });
 });
@@ -165,32 +198,145 @@ let first;
   check('install finishes ok', done && done.result && done.result.ok === true, JSON.stringify(done));
   first = done.result;
   check('worker name slugified', first.workerName === 'my-panel');
-  check('subdomain auto-created', /^catpanel-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
+  check('subdomain auto-created', /^edge-[a-z0-9]{8}$/.test(state.subdomain) && first.workerUrl === 'https://my-panel.' + state.subdomain + '.workers.dev');
   check('KV namespace created + bound', first.kvBound && state.kv.length === 1 && state.kv[0].title === 'my-panel-catpanel');
   const s = state.scripts['my-panel'];
-  check('panel script uploaded (real Cat Panel source)', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));
-  check('fallback source used after releases/latest 404', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com')));
+  check('panel script uploaded with the version marker', s && PANEL_VERSION && s.script.includes("CAT_PANEL_VERSION = '" + PANEL_VERSION + "'"));
+  check('branch minified snapshot is preferred over releases/latest', events.some((e) => e.step === 'source' && e.level === 'ok' && e.data && e.data.url.includes('raw.githubusercontent.com') && e.data.url.includes('catpanel.min.js')));
+  check('normal minified artifact accepted', !events.some((e) => e.step === 'source' && e.level === 'warn'));
   const bind = Object.fromEntries(s.bindings.map((b) => [b.name, b]));
   check('UUID bound as plain_text', bind.UUID && bind.UUID.type === 'plain_text' && /^[0-9a-f-]{36}$/.test(bind.UUID.text));
   check('CAT_KV bound', bind.CAT_KV && bind.CAT_KV.type === 'kv_namespace' && bind.CAT_KV.namespace_id === 'kv-1');
-  check('no PANEL_PASSWORD when none supplied', !bind.PANEL_PASSWORD);
-  check('nodejs_compat + compat date set', s.meta.compatibility_flags.includes('nodejs_compat') && s.meta.compatibility_date);
+  check('PANEL_PASSWORD is bound as secret_text (never plain_text)', bind.PANEL_PASSWORD && bind.PANEL_PASSWORD.type === 'secret_text' && !s.bindings.some((b) => b.type === 'plain_text' && b.name === 'PANEL_PASSWORD'));
+  check('CF_API_TOKEN + CF_ACCOUNT_ID + CF_WORKER_NAME bound for direct in-panel self-update', bind.CF_API_TOKEN && bind.CF_API_TOKEN.type === 'secret_text' && bind.CF_ACCOUNT_ID && bind.CF_ACCOUNT_ID.text === 'acc-1' && bind.CF_WORKER_NAME && bind.CF_WORKER_NAME.text === 'my-panel');
+  check('generated password is independent of the UUID and long enough', bind.PANEL_PASSWORD.text.length >= 24 && bind.PANEL_PASSWORD.text !== bind.UUID.text && !bind.PANEL_PASSWORD.text.includes(bind.UUID.text));
+  check('no OPEN_PANEL / OPEN_SUB binding is set by the Wizard', !bind.OPEN_PANEL && !bind.OPEN_SUB);
+  check('compat date + flags come from the single Wizard constants (no nodejs_compat)', s.meta.compatibility_date === T.COMPAT_DATE && JSON.stringify(s.meta.compatibility_flags) === JSON.stringify(T.COMPAT_FLAGS) && !s.meta.compatibility_flags.includes('nodejs_compat'));
   check('route enabled', state.routes['my-panel'] === true);
   check('online after health probe', first.online === true && first.panelVersion === PANEL_VERSION);
-  check('result: password = UUID by default', first.password === first.uuid && first.customPassword === false);
-  check('result: panel URL unlocks with ?p=<uuid>', first.panelUrl === first.workerUrl + '/?p=' + first.uuid);
+  check('result: password is the generated secret, not the UUID', first.password === bind.PANEL_PASSWORD.text && first.password !== first.uuid && first.customPassword === false && first.passwordGenerated === true);
+  check('result: panel URL carries no password / UUID in the query string', !/[?&]p=/.test(first.panelUrl) && !first.panelUrl.includes(first.password) && !first.panelUrl.includes(first.uuid));
+  check('password + token never appear in any streamed log event', !JSON.stringify(events.filter((e) => !e.done)).includes(first.password) && !JSON.stringify(events.filter((e) => !e.done)).includes('good-token'));
   check('result: sub URL /sub/<uuid>', first.subUrl === first.workerUrl + '/sub/' + first.uuid);
   check('result: deep link for the app', first.deepLink.startsWith('catclient://add-sub?url=') && decodeURIComponent(first.deepLink).includes(first.subUrl));
 }
 
-/* 5. re-install keeps UUID; custom password becomes a secret binding */
+/* 5. existing workers fail closed before KV/upload/route mutation */
 {
+  const beforeScript = state.scripts['my-panel'];
+  const beforeKv = state.kv.length;
+  const beforeCalls = state.calls.length;
   const { done } = await installEvents({ token: 'good-token', workerName: 'my-panel', password: 'Hunter2!' });
-  check('re-install keeps the same UUID', done.result.uuid === first.uuid);
-  check('re-install reuses the KV namespace', state.kv.length === 1 && done.result.kvBound);
-  const bind = Object.fromEntries(state.scripts['my-panel'].bindings.map((b) => [b.name, b]));
-  check('custom password bound as secret_text', bind.PANEL_PASSWORD && bind.PANEL_PASSWORD.type === 'secret_text' && bind.PANEL_PASSWORD.text === 'Hunter2!');
-  check('panel URL uses the custom password', done.result.password === 'Hunter2!' && done.result.panelUrl === done.result.workerUrl + '/?p=' + encodeURIComponent('Hunter2!'));
+  const calls = state.calls.slice(beforeCalls);
+  check('existing worker update is blocked', done && done.ok === false && /already exists|preserving/i.test(done.msg), JSON.stringify(done));
+  check('existing script is untouched', state.scripts['my-panel'] === beforeScript);
+  check('existing path creates no KV', state.kv.length === beforeKv && !calls.some((x) => x.startsWith('POST https://api.cloudflare.com/client/v4/accounts/acc-1/storage/kv')));
+  check('existing path performs no PUT upload', !calls.some((x) => x.includes('/workers/scripts/my-panel') && x.startsWith('PUT ')));
+  check('existing path does not toggle route', !calls.some((x) => x.includes('/workers/scripts/my-panel/subdomain') && x.startsWith('POST ')));
+}
+
+/* 5a. HTTP 200 with an empty binding list is still an existing Worker */
+{
+  state.scripts.emptyexisting = { bindings: [], script: 'existing', meta: {} };
+  const beforeCalls = state.calls.length;
+  const { done } = await installEvents({ token: 'good-token', workerName: 'emptyexisting' });
+  const calls = state.calls.slice(beforeCalls);
+  check('existing worker with bindings=[] is blocked', done && done.ok === false && /already exists/i.test(done.msg), JSON.stringify(done));
+  check('bindings=[] path performs no PUT', !calls.some((x) => x.includes('/workers/scripts/emptyexisting') && x.startsWith('PUT ')));
+}
+
+/* 5b. ambiguous existence checks all fail closed before mutation */
+{
+  for (const mode of ['401', '403', '500', 'network', 'malformed', 'timeout']) {
+    state.settingsMode = mode;
+    const name = 'guard-' + mode;
+    const beforeKv = state.kv.length;
+    const beforeCalls = state.calls.length;
+    const { done } = await installEvents({ token: 'good-token', workerName: name });
+    const calls = state.calls.slice(beforeCalls);
+    check('settings ' + mode + ' is inconclusive', done && done.ok === false && /inconclusive/i.test(done.msg), JSON.stringify(done));
+    check('settings ' + mode + ' does not create KV', state.kv.length === beforeKv);
+    check('settings ' + mode + ' does not upload', !calls.some((x) => x.includes('/workers/scripts/' + name) && x.startsWith('PUT ')));
+    check('settings ' + mode + ' does not toggle route', !calls.some((x) => x.includes('/workers/scripts/' + name + '/subdomain') && x.startsWith('POST ')));
+  }
+  state.settingsMode = 'normal';
+}
+
+
+/* 5c. race reduction: a Worker that appears after the first 404 must not be overwritten */
+{
+  state.raceOnKv = 'race-x';
+  const beforeCalls = state.calls.length;
+  const { done } = await installEvents({ token: 'good-token', workerName: 'race-x' });
+  const calls = state.calls.slice(beforeCalls);
+  check('worker that appears between 404 and upload is not overwritten', done && done.ok === false && /appeared|preserve/i.test(done.msg), JSON.stringify(done));
+  check('race: the other worker is untouched', state.scripts['race-x'].script === 'theirs' && state.scripts['race-x'].bindings[0].name === 'THEIRS');
+  check('race: no PUT upload and no route toggle', !calls.some((x) => x.includes('/workers/scripts/race-x') && (x.startsWith('PUT ') || x.includes('/subdomain') && x.startsWith('POST '))));
+  state.raceOnKv = '';
+}
+
+/* 5d. source gate: stale / malformed / hung sources are never deployed */
+{
+  T.sourceCache.clear(); state.sourceMode = 'stale-first';
+  const a = await installEvents({ token: 'good-token', workerName: 'src-a' });
+  const srcEvent = a.events.find((e) => e.step === 'source' && e.level === 'ok');
+  check('stale first mirror is skipped, a current one is used', a.done.result && a.done.result.ok && srcEvent.data.url !== T.PANEL_SOURCES[0] && srcEvent.data.version === PANEL_VERSION, JSON.stringify(a.done));
+  T.sourceCache.clear(); state.sourceMode = 'stale-all';
+  let beforeCalls = state.calls.length;
+  const b = await installEvents({ token: 'good-token', workerName: 'src-b' });
+  check('only stale sources → install refused, nothing uploaded', b.done.ok === false && /stale source/.test(b.done.msg) && !state.scripts['src-b'] && !state.calls.slice(beforeCalls).some((x) => x.startsWith('PUT ') && x.includes('/workers/scripts/')), JSON.stringify(b.done));
+  T.sourceCache.clear(); state.sourceMode = 'bad-version';
+  const c = await installEvents({ token: 'good-token', workerName: 'src-c' });
+  check('malformed source version → install refused', c.done.ok === false && /unknown or malformed/.test(c.done.msg) && !state.scripts['src-c'], JSON.stringify(c.done));
+  T.sourceCache.clear(); state.sourceMode = 'blocked-1101';
+  const c1101 = await installEvents({ token: 'good-token', workerName: 'src-1101' });
+  check('blocked 1101 version 6.69.12 → install refused, nothing uploaded', c1101.done.ok === false && /blocked 1101 version v6\.69\.12/.test(c1101.done.msg) && !state.scripts['src-1101'], JSON.stringify(c1101.done));
+  T.sourceCache.clear(); state.sourceMode = 'hang';
+  const d = await installEvents({ token: 'good-token', workerName: 'src-d' });
+  check('hung source download → timeout, install refused', d.done.ok === false && /timed out/.test(d.done.msg) && !state.scripts['src-d'], JSON.stringify(d.done));
+  state.sourceMode = 'ok'; T.sourceCache.clear();
+  check('PANEL_MIN_VERSION never exceeds the bundled source version', T.compareVersions(T.PANEL_MIN_VERSION, PANEL_VERSION) <= 0, T.PANEL_MIN_VERSION + ' vs ' + PANEL_VERSION);
+  check('compareVersions handles numeric order and malformed input', T.compareVersions('6.68.0', '6.9.0') === 1 && T.compareVersions('6.68', '6.68.0') === 0 && T.compareVersions('x', '1') === null);
+}
+
+/* 5e. health verification: version-exact, cache-proof, 3 consecutive, fail-safe on failure */
+{
+  const cases = [
+    ['mismatch', 'version mismatch'],
+    ['cached', 'cached response'],
+    ['malformed', 'malformed health body'],
+    ['down', 'HTTP 500'],
+    ['hang', 'timed out'],
+  ];
+  for (const [mode, needle] of cases) {
+    state.healthMode = mode; T.sourceCache.clear();
+    const name = 'hf-' + mode; const beforeCalls = state.calls.length; const kvBefore = state.kv.length;
+    const { done, events } = await installEvents({ token: 'good-token', workerName: name });
+    const calls = state.calls.slice(beforeCalls);
+    check('health ' + mode + ' → install not reported online', done.ok === false && !done.result, JSON.stringify(done));
+    check('health ' + mode + ' → reason is reported (' + needle + ')', events.some((e) => e.step === 'check' && e.level === 'error' && e.msg.includes(needle)), JSON.stringify(events.filter((e) => e.step === 'check')));
+    check('health ' + mode + ' → only the new route is disabled', state.routes[name] === false);
+    check('health ' + mode + ' → worker, secrets and KV are kept (no delete)', !!state.scripts[name] && state.scripts[name].bindings.some((b) => b.name === 'PANEL_PASSWORD' && b.type === 'secret_text') && state.scripts[name].bindings.some((b) => b.name === 'CAT_KV') && state.kv.length >= kvBefore && !calls.some((x) => x.startsWith('DELETE ')));
+  }
+  // exactly three consecutive healthy answers are required, and a failure resets the counter
+  state.healthMode = 'seq'; state.healthSeq = ['ok', 'ok', 'down', 'ok', 'ok', 'ok']; state.healthProbes = 0; T.sourceCache.clear();
+  const r1 = await installEvents({ token: 'good-token', workerName: 'hs-seq' });
+  check('a failure between healthy answers resets the counter (6 probes, not 3)', r1.done.result && r1.done.result.ok && state.healthProbes === 6, 'probes=' + state.healthProbes);
+  state.healthMode = 'ok'; state.healthProbes = 0; T.sourceCache.clear();
+  const r2 = await installEvents({ token: 'good-token', workerName: 'hs-ok' });
+  check('three healthy answers with the exact expected version are accepted (3 probes)', r2.done.result && r2.done.result.ok && state.healthProbes === 3 && r2.done.result.panelVersion === PANEL_VERSION, 'probes=' + state.healthProbes);
+  check('route stays enabled after a verified install', state.routes['hs-ok'] === true);
+  check('no DELETE request was made anywhere during the whole suite', !state.calls.some((x) => x.startsWith('DELETE ')));
+}
+
+/* 5f. password generation + custom password */
+{
+  const samples = new Set(Array.from({ length: 50 }, () => T.randomPassword(24)));
+  check('randomPassword: 24 chars, unambiguous alphabet, no repeats in 50 samples', samples.size === 50 && [...samples].every((p) => /^[A-HJ-NP-Za-km-z2-9]{24}$/.test(p)));
+  T.sourceCache.clear();
+  const { done } = await installEvents({ token: 'good-token', workerName: 'custom-pass', password: 'Hunter2-custom!', username: 'owner' });
+  const b = Object.fromEntries(state.scripts['custom-pass'].bindings.map((x) => [x.name, x]));
+  check('custom password: secret_text binding, returned as given, marked custom', b.PANEL_PASSWORD.type === 'secret_text' && b.PANEL_PASSWORD.text === 'Hunter2-custom!' && done.result.customPassword === true && done.result.passwordGenerated === false);
 }
 
 /* 6. token without KV scope still installs */
@@ -225,7 +371,15 @@ let first;
 
 /* 9. the panel itself advertises the wizard permissions */
 {
-  check('panel help links to a wizard/token template', panelSrc.includes('permissionGroupKeys') || panelSrc.includes('/wizard'));
+  check('panel deep-links back into Cat Client', panelSrc.includes('catclient://add-sub') && panelSrc.includes('catclient://scan'));
+}
+
+/* 10. deploy source is the compact, auditable minified module */
+{
+  check('source chain targets the minified snapshot / release asset',
+    T.PANEL_SOURCES.some((u) => u.includes('dist-panel/catpanel.min.js')) && T.PANEL_SOURCES.some((u) => u.includes('releases/latest/download/catclient.worker.js')));
+  check('source chain no longer targets the heavy obfuscated snapshot',
+    T.PANEL_SOURCES.every((u) => !u.includes('catpanel.obf.js')));
 }
 
 console.log(failures === 0 ? '\nWIZARD TESTS PASSED' : '\n' + failures + ' WIZARD TEST(S) FAILED');

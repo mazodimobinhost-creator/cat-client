@@ -15,6 +15,13 @@ object Actions {
     const val STATE_CHANGED = "com.cat.client.action.STATE_CHANGED"
     const val CONNECTION_DELAY_TEST_CHANGED = "com.cat.client.action.CONNECTION_DELAY_TEST_CHANGED"
     const val CONNECTION_SPEED_TEST_CHANGED = "com.cat.client.action.CONNECTION_SPEED_TEST_CHANGED"
+    const val AUTOMATIC_CONNECTION_PROGRESS = "com.cat.client.action.AUTOMATIC_CONNECTION_PROGRESS"
+    /** beta220: the service finished (or started) a real internet test; extra [EXTRA_REAL_INTERNET_RESULT]. */
+    const val REAL_INTERNET_CHECK = "com.cat.client.action.REAL_INTERNET_CHECK"
+    /** beta220: «try the next route» — switch to another route now (or restart without the current one). */
+    const val TRY_NEXT_ROUTE = "com.cat.client.action.TRY_NEXT_ROUTE"
+    /** beta220: run the real internet test again on the current route. */
+    const val RECHECK_REAL_INTERNET = "com.cat.client.action.RECHECK_REAL_INTERNET"
 
     const val EXTRA_STATE = "extra_state"
     const val EXTRA_ERROR = "extra_error"
@@ -47,6 +54,13 @@ object Actions {
     const val EXTRA_SPEED_TEST_ID = "extra_speed_test_id"
     const val EXTRA_SPEED_TEST_STATUS = "extra_speed_test_status"
     const val EXTRA_SPEED_TEST_ERROR = "extra_speed_test_error"
+    const val EXTRA_AUTOMATIC_CONNECTION_PHASE = "extra_automatic_connection_phase"
+    const val EXTRA_REAL_INTERNET_RESULT = "extra_real_internet_result"
+
+    const val AUTO_PHASE_CHECKING_CACHE = "checking-cache"
+    const val AUTO_PHASE_QUICK_SCAN = "quick-scan"
+    const val AUTO_PHASE_FALLBACK_SCAN = "fallback-scan"
+    const val AUTO_PHASE_RUNTIME_TEST = "runtime-test"
 
     const val DELAY_TEST_PREPARING = "preparing"
     const val DELAY_TEST_STARTED = "started"

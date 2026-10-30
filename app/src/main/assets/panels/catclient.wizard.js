@@ -11,7 +11,10 @@
  *      subdomain, a KV namespace, the Cat Panel worker with UUID / password
  *      bindings, enables the route and hands back panel URL + password + sub.
  *
- * The token is only used in-flight for that request and never stored.
+ * The token is only used in-flight for that request and never stored (verified
+ * by wizard.test.mjs: it appears in no log event, KV write or result).
+ * The panel password is generated here (or supplied by the visitor), bound as a
+ * secret_text and shown ONCE in the final result; it is never derived from the UUID.
  *
  * Env (all optional):
  *  PANEL_SOURCE_URL   Override where the Cat Panel worker source is fetched from.
@@ -21,17 +24,41 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.0.0';
+const CAT_WIZARD_VERSION = '1.3.1';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
-const BRANCH = 'arena/01a0c678-cat-client';
+const BRANCH = 'arena/c5b36768-cat-client';
 const CF_API = 'https://api.cloudflare.com/client/v4';
-const COMPAT_DATE = '2025-03-04';
+/* Runtime compatibility for EVERY deploy path (Wizard, in-app deploy, wrangler.jsonc).
+ * scripts/panels/compat-consistency.test.mjs fails when any of them drifts.
+ * nodejs_compat is intentionally absent: the Worker source uses no Node API
+ * (no Buffer / process / node: import), so the flag is not needed. */
+const COMPAT_DATE = '2026-09-01';
+const COMPAT_FLAGS = [];
 
+/* Oldest Panel / Wizard source this Wizard will deploy. A mirror or
+ * `releases/latest` that still serves an older artifact is rejected instead of
+ * being installed silently. Keep it equal to CAT_PANEL_VERSION at release time
+ * (compat-consistency.test.mjs enforces <=). */
+const PANEL_MIN_VERSION = '6.69.22';
+
+/* Network timeouts. A hung Cloudflare/GitHub/health request must become a
+ * clear failure (fail-closed), never an endless install. */
+let TIMEOUTS = { cf: 20000, source: 25000, health: 8000 };
+
+/* Deploy the normal minified module, matching established Worker panels such
+ * as BPB. The previous RC4/control-flow-obfuscated artifact was much larger and
+ * passed Node mocks but crashed at Cloudflare runtime with Error 1101. */
+const SNAPSHOT_PATH = 'dist-panel/catpanel.min.js';
+const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
 const PANEL_SOURCES = [
+  // Branch snapshot first: a pre-release must never resolve `releases/latest`
+  // to the older beta116 obfuscated artifact.
+  RAW_SNAPSHOT,
+  'https://ghproxy.net/' + RAW_SNAPSHOT,
   REPO_URL + '/releases/latest/download/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/app/src/main/assets/panels/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js',
+  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
+  'https://raw.githubusercontent.com/' + REPO + '/main/' + SNAPSHOT_PATH,
 ];
 const WIZARD_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.wizard.js',
@@ -60,6 +87,42 @@ const CORS = {
 let fetchImpl = (input, init) => fetch(input, init);
 function __setFetch(fn) { fetchImpl = fn || ((input, init) => fetch(input, init)); }
 
+/* Run `fn(signal)` with a hard deadline that also covers reading the body. */
+async function withTimeout(ms, label, fn) {
+  const ctl = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => { ctl.abort(); reject(new Error(label + ' timed out after ' + ms + ' ms')); }, ms);
+  });
+  try { return await Promise.race([fn(ctl.signal), deadline]); }
+  finally { clearTimeout(timer); }
+}
+
+function parseVersion(v) {
+  const m = /^[0-9]+(?:\.[0-9]+)*$/.exec(String(v || '').trim());
+  return m ? m[0].split('.').map(Number) : null;
+}
+/* -1 / 0 / 1, or null when either side is not a plain dotted version. */
+function compareVersions(a, b) {
+  const x = parseVersion(a); const y = parseVersion(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+function randomPassword(len = 24) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const limit = 256 - (256 % alphabet.length);
+  let out = '';
+  while (out.length < len) {
+    const bytes = crypto.getRandomValues(new Uint8Array(len));
+    for (const b of bytes) { if (b < limit && out.length < len) out += alphabet[b % alphabet.length]; }
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ */
 /* small helpers                                                       */
 /* ------------------------------------------------------------------ */
@@ -77,7 +140,7 @@ function jsonResponse(value, status = 200, extra = {}) {
 
 function slugWorkerName(value, fallback) {
   const slug = String(value || '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
-  return (slug || fallback || 'catpanel').slice(0, 54);
+  return (slug || fallback || 'edge-panel').slice(0, 54);
 }
 
 function isUuid(value) {
@@ -99,6 +162,7 @@ function randomSuffix(len = 6) {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
+const SLEEP_MS = { early: 1500, late: 3000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------------ */
@@ -114,8 +178,10 @@ async function cf(token, method, path, body, opts = {}) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetchImpl(CF_API + path, { method, headers, body: payload });
-  const text = await res.text();
+  const { res, text } = await withTimeout(TIMEOUTS.cf, 'Cloudflare API ' + method + ' ' + path.split('?')[0], async (signal) => {
+    const r = await fetchImpl(CF_API + path, { method, headers, body: payload, signal });
+    return { res: r, text: await r.text() };
+  });
   let json;
   try { json = JSON.parse(text); } catch (e) { json = { success: res.ok, errors: [{ message: text.slice(0, 300) }] }; }
   if (opts.raw) return { status: res.status, json };
@@ -155,7 +221,7 @@ async function ensureSubdomain(token, accountId, log) {
   const current = await cf(token, 'GET', '/accounts/' + accountId + '/workers/subdomain');
   const existing = current.ok && current.json.result && current.json.result.subdomain;
   if (existing) return existing;
-  const candidate = 'catpanel-' + randomSuffix(8);
+  const candidate = 'edge-' + randomSuffix(8);
   log('subdomain', 'info', 'no workers.dev subdomain yet — creating ' + candidate);
   const created = await cf(token, 'PUT', '/accounts/' + accountId + '/workers/subdomain', { subdomain: candidate });
   const made = created.ok && created.json.result && created.json.result.subdomain;
@@ -176,17 +242,28 @@ async function ensureKv(token, accountId, title) {
   return { id, created: true };
 }
 
-/** Existing bindings of a worker (so a re-install keeps the UUID/password). */
-async function existingBindings(token, accountId, name) {
-  const res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
-  const bindings = res.json && res.json.result && Array.isArray(res.json.result.bindings) ? res.json.result.bindings : [];
-  const out = {};
-  for (const b of bindings) {
-    if (!b || !b.name) continue;
-    if (b.type === 'plain_text') out[b.name] = String(b.text || '');
-    if (b.type === 'kv_namespace') out['kv:' + b.name] = String(b.namespace_id || '');
+/**
+ * Prove that a worker name is unused before uploading. A PUT with a partial
+ * bindings array can detach secrets, D1 and custom bindings, so updates are
+ * deliberately blocked until every Cloudflare binding type is preserved and
+ * tested. Only an actual 404 means fresh; every ambiguous response fails closed.
+ */
+async function inspectWorker(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
+  } catch (e) {
+    throw new Error('worker existence check inconclusive: ' + (e && e.message ? e.message : e));
   }
-  return out;
+  if (res.status === 404) return { status: 'missing', bindings: [] };
+  if (res.status !== 200) {
+    throw new Error('worker existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  const result = res.json && res.json.result;
+  if (!result || !Array.isArray(result.bindings)) {
+    throw new Error('worker existence check inconclusive: malformed settings response · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', bindings: result.bindings };
 }
 
 async function uploadWorker(token, accountId, name, script, bindings) {
@@ -194,7 +271,7 @@ async function uploadWorker(token, accountId, name, script, bindings) {
     main_module: 'worker.js',
     bindings,
     compatibility_date: COMPAT_DATE,
-    compatibility_flags: ['nodejs_compat'],
+    compatibility_flags: COMPAT_FLAGS.slice(),
   };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }), 'metadata.json');
@@ -204,8 +281,8 @@ async function uploadWorker(token, accountId, name, script, bindings) {
   return res.json.result || {};
 }
 
-async function enableRoute(token, accountId, name) {
-  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: true, previews_enabled: false });
+async function enableRoute(token, accountId, name, enabled = true) {
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: enabled === true, previews_enabled: false });
   return res.ok;
 }
 
@@ -224,12 +301,22 @@ async function fetchSource(kind, env) {
   let lastError = '';
   for (const url of urls) {
     try {
-      const res = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow' });
+      const fetched = await withTimeout(TIMEOUTS.source, 'source download', async (signal) => {
+        const r = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow', signal });
+        return { res: r, text: r.ok ? await r.text() : '' };
+      });
+      const res = fetched.res;
       if (!res.ok) { lastError = url + ' → HTTP ' + res.status; continue; }
-      const text = await res.text();
+      const text = fetched.text;
       if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
       const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
-      const entry = { text, url, version: versionMatch ? versionMatch[1] : '?', at: Date.now() };
+      const found = versionMatch ? versionMatch[1] : '';
+      if (kind === 'panel' && found === '6.69.12') { lastError = url + ' → blocked 1101 version v' + found; continue; }
+      const floor = kind === 'wizard' ? CAT_WIZARD_VERSION : PANEL_MIN_VERSION;
+      const cmp = compareVersions(found, floor);
+      if (cmp === null) { lastError = url + ' → source version unknown or malformed'; continue; }
+      if (cmp < 0) { lastError = url + ' → stale source v' + found + ' (< v' + floor + ')'; continue; }
+      const entry = { text, url, version: found, at: Date.now() };
       sourceCache.set(kind, entry);
       return entry;
     } catch (e) {
@@ -243,6 +330,26 @@ async function fetchSource(kind, env) {
 /* the install flow (async generator → streamed as NDJSON)             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Stealth: ask the fresh panel to move its UI to a random hidden path.
+ * Root then answers a bare 404 so crawlers scanning workers.dev find nothing.
+ * Keeps an existing panelPath if the panel already has one.
+ */
+async function applyStealth(base, username, password) {
+  const login = await fetchImpl(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password }) });
+  if (!login.ok) return '';
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) return '';
+  const get = await fetchImpl(base + '/api/settings', { headers: { cookie: cookie } });
+  if (!get.ok) return '';
+  const cur = await get.json().catch(() => ({}));
+  const existing = cur && cur.settings && String(cur.settings.panelPath || '');
+  if (/^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(existing)) return existing;
+  const p = randomSuffix(10);
+  const put = await fetchImpl(base + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie }, body: JSON.stringify({ panelPath: p }) });
+  return put.ok ? p : '';
+}
+
 async function* runInstall(input, env) {
   const events = [];
   const log = (step, level, msg, data) => { events.push({ step, level, msg, data }); };
@@ -250,7 +357,7 @@ async function* runInstall(input, env) {
 
   const token = String(input.token || '').trim();
   const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
-  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || 'catpanel'));
+  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))));
   const customPassword = String(input.password || '').trim();
   const customUser = String(input.username || '').trim();
   if (!token) throw new Error('token missing');
@@ -261,6 +368,13 @@ async function* runInstall(input, env) {
   const account = (input.accountId && verified.accounts.find((a) => a.id === input.accountId)) || verified.accounts[0];
   log('verify', 'ok', 'token OK · account: ' + (account.name || account.id), { account }); yield* flush();
 
+  log('existing', 'info', 'proving worker name is unused before upload'); yield* flush();
+  const inspected = await inspectWorker(token, account.id, workerName);
+  if (inspected.status !== 'missing') {
+    throw new Error('worker already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+  }
+  log('existing', 'ok', 'worker name is unused (settings returned 404)'); yield* flush();
+
   log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
   const source = await fetchSource(kind, env);
   log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
@@ -270,22 +384,24 @@ async function* runInstall(input, env) {
   const workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
   log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
 
-  const previous = await existingBindings(token, account.id, workerName).catch(() => ({}));
-  if (Object.keys(previous).length) { log('existing', 'info', 'worker "' + workerName + '" exists — updating in place, secrets are kept'); yield* flush(); }
-
   const bindings = [];
   let uuid = '';
+  let panelPassword = '';
   let kvBound = false;
   if (kind === 'panel') {
-    uuid = isUuid(previous.UUID) ? previous.UUID : (isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid());
+    uuid = isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid();
     bindings.push({ type: 'plain_text', name: 'UUID', text: uuid });
-    if (customPassword) bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: customPassword });
+    // Panel login is its own secret: the owner's password, or a random one generated
+    // here. It is never derived from the UUID and never written to a log line.
+    panelPassword = customPassword || randomPassword(24);
+    bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: panelPassword });
+    bindings.push({ type: 'secret_text', name: 'CF_API_TOKEN', text: token });
+    bindings.push({ type: 'plain_text', name: 'CF_ACCOUNT_ID', text: String(account.id) });
+    bindings.push({ type: 'plain_text', name: 'CF_WORKER_NAME', text: workerName });
     if (customUser) bindings.push({ type: 'plain_text', name: 'PANEL_USER', text: customUser });
     log('kv', 'info', 'creating KV storage (users, clean IPs, ports)'); yield* flush();
     try {
-      const kv = previous['kv:CAT_KV']
-        ? { id: previous['kv:CAT_KV'], created: false }
-        : await ensureKv(token, account.id, workerName + '-catpanel');
+      const kv = await ensureKv(token, account.id, workerName + '-catpanel');
       bindings.push({ type: 'kv_namespace', name: 'CAT_KV', namespace_id: kv.id });
       kvBound = true;
       log('kv', 'ok', kv.created ? 'KV namespace created' : 'KV namespace reused', { id: kv.id });
@@ -297,6 +413,15 @@ async function* runInstall(input, env) {
     bindings.push({ type: 'secret_text', name: 'WIZARD_PASSWORD', text: String(env.WIZARD_PASSWORD) });
   }
 
+  // Race reduction, NOT an atomic guard: Cloudflare's script PUT is an upsert and no
+  // conditional-create request is used, so a Worker created by someone else after
+  // this check can still be overwritten. The window shrinks from "whole install"
+  // to the time between this GET and the PUT.
+  log('existing', 'info', 'confirming worker name is still unused right before upload'); yield* flush();
+  const recheck = await inspectWorker(token, account.id, workerName);
+  if (recheck.status !== 'missing') {
+    throw new Error('worker appeared while the install was running; upload cancelled to preserve its bindings');
+  }
   log('upload', 'info', 'uploading worker "' + workerName + '"'); yield* flush();
   await uploadWorker(token, account.id, workerName, source.text, bindings);
   log('upload', 'ok', 'worker deployed'); yield* flush();
@@ -308,27 +433,68 @@ async function* runInstall(input, env) {
   log('check', 'info', 'waiting for ' + workerUrl); yield* flush();
   let online = false;
   let version = '';
-  for (let attempt = 1; attempt <= 6 && !online; attempt++) {
+  let consecutiveHealthy = 0;
+  let lastHealth = 'no response';
+  const expectedVersion = String(source.version || '');
+  for (let attempt = 1; attempt <= 8 && consecutiveHealthy < 3; attempt++) {
     try {
-      const res = await fetchImpl(workerUrl + '/health', { headers: { 'cache-control': 'no-cache' } });
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        online = body && body.ok === true;
-        version = body && body.version ? String(body.version) : '';
-      }
-    } catch (e) { /* propagation */ }
-    if (!online) await sleep(attempt < 3 ? 1500 : 3000);
+      const separator = workerUrl.includes('?') ? '&' : '?';
+      const probe = await withTimeout(TIMEOUTS.health, '/health probe', async (signal) => {
+        const r = await fetchImpl(workerUrl + '/health' + separator + '_verify=' + Date.now() + '-' + attempt, {
+          headers: { 'cache-control': 'no-cache, no-store' },
+          cf: { cacheTtl: 0, cacheEverything: false },
+          signal,
+        });
+        return { res: r, body: await r.json().catch(() => null) };
+      });
+      const res = probe.res; const body = probe.body;
+      const cacheStatus = String(res.headers && res.headers.get && res.headers.get('cf-cache-status') || '').toUpperCase();
+      const age = Number(res.headers && res.headers.get && res.headers.get('age') || 0);
+      const cached = cacheStatus === 'HIT' || cacheStatus === 'STALE' || cacheStatus === 'REVALIDATED' || age > 0;
+      const reported = body && typeof body === 'object' ? String(body.version || '').trim() : '';
+      const healthy = res.ok && !cached && !!body && body.ok === true && !!expectedVersion && reported === expectedVersion;
+      if (healthy) { version = reported; lastHealth = 'ok'; }
+      else if (cached) lastHealth = 'cached response (' + (cacheStatus || 'age ' + age) + ')';
+      else if (!body || typeof body !== 'object') lastHealth = 'HTTP ' + res.status + ' · malformed health body';
+      else if (res.ok && body.ok === true && reported !== expectedVersion) lastHealth = 'version mismatch · expected v' + expectedVersion + ' got ' + (reported ? 'v' + reported.slice(0, 20) : 'none');
+      else lastHealth = 'HTTP ' + res.status + (body.error ? ' · ' + String(body.error).slice(0, 80) : '');
+      consecutiveHealthy = healthy ? consecutiveHealthy + 1 : 0;
+    } catch (e) {
+      consecutiveHealthy = 0;
+      lastHealth = e && e.message ? e.message : String(e);
+    }
+    if (consecutiveHealthy < 3) await sleep(attempt < 3 ? SLEEP_MS.early : SLEEP_MS.late);
   }
-  log('check', online ? 'ok' : 'warn', online ? 'online · v' + version : 'not reachable yet — workers.dev needs up to a minute for a brand-new subdomain'); yield* flush();
+  online = consecutiveHealthy >= 3;
+  if (!online) {
+    // Never hand out a broken URL. For this freshly created script ONLY its public
+    // route is switched off; the Worker, KV, D1, Secrets and every other binding
+    // are left untouched for diagnosis or retry.
+    const disabled = await enableRoute(token, account.id, workerName, false).catch(() => false);
+    log('route', disabled ? 'ok' : 'warn', disabled ? 'route of the new worker disabled' : 'could not disable the new worker route — disable it in the dashboard'); yield* flush();
+    log('check', 'error', 'runtime verification failed; panel was not activated (' + lastHealth + ')', { status: lastHealth }); yield* flush();
+    throw new Error('worker deployed but did not pass 3 consecutive /health checks with the expected version (' + lastHealth + '); cause not determined — check Workers Live Logs');
+  }
+  log('check', 'ok', 'online · v' + version + ' · 3/3 health checks'); yield* flush();
 
-  const password = customPassword || uuid;
+  const password = kind === 'panel' ? panelPassword : '';
+  let stealthPath = '';
+  if (kind === 'panel' && online) {
+    log('stealth', 'info', 'moving the panel to a hidden path'); yield* flush();
+    stealthPath = await withTimeout(TIMEOUTS.health * 3, 'stealth setup', () => applyStealth(workerUrl, customUser, password)).catch(() => '');
+    log('stealth', stealthPath ? 'ok' : 'warn', stealthPath ? 'panel hidden at /' + stealthPath : 'stealth skipped — set a hidden path in Panel → Settings later'); yield* flush();
+  }
+  const panelBase = stealthPath ? workerUrl + '/' + stealthPath : workerUrl;
   const result = kind === 'panel'
     ? {
       ok: true,
       kind,
       workerName,
       workerUrl,
-      panelUrl: customUser ? workerUrl + '/' : workerUrl + '/?p=' + encodeURIComponent(password),
+      stealthPath,
+      // The password is deliberately NOT placed in the URL: query strings end up in
+      // browser history and Workers Logs. The owner signs in with the password below.
+      panelUrl: panelBase + '/',
       subUrl: workerUrl + '/sub/' + uuid,
       subClash: workerUrl + '/sub/' + uuid + '/clash',
       subSingbox: workerUrl + '/sub/' + uuid + '/singbox',
@@ -337,6 +503,7 @@ async function* runInstall(input, env) {
       password,
       username: customUser,
       customPassword: !!customPassword,
+      passwordGenerated: !customPassword,
       kvBound,
       online,
       panelVersion: version || source.version,
@@ -429,7 +596,7 @@ function i18n() {
       check: 'بررسی توکن',
       s3: 'نصب پنل',
       name: 'نام ورکر (اختیاری)',
-      pass: 'رمز پنل (اختیاری — پیش‌فرض UUID)',
+      pass: 'رمز پنل (اختیاری — اگر خالی بماند یک رمز تصادفی ساخته می‌شود)',
       user: 'نام کاربری پنل (اختیاری — ورود با نام کاربری + رمز)',
       adv: 'تنظیمات بیشتر',
       install: 'نصب Cat Panel روی حساب من',
@@ -446,7 +613,7 @@ function i18n() {
       copied: 'کپی شد',
       app: 'افزودن به Cat Client',
       apk: 'دانلود اپ',
-      keep: 'این آدرس و رمز را یک‌جا نگه دار. بعد از ورود، از تب «کانفیگ‌ها» پورت و SNI را انتخاب کن؛ آی‌پی تمیز خودکار داخل کانفیگ‌ها می‌رود.',
+      keep: 'این آدرس و رمز را یک‌جا نگه دار. بعد از ورود، از تب «کانفیگ‌ها» پورت و SNI را انتخاب کن؛ آی‌پی تمیز خودکار داخل کانفیگ‌ها می‌رود. رمز فقط همین یک‌بار نمایش داده می‌شود؛ همین حالا ذخیره‌اش کن.',
       wizardDone: 'ویزارد خصوصی آماده شد',
       wizardUrl: 'آدرس ویزارد تو',
       offline: 'هنوز بالا نیامده — یک دقیقه بعد آدرس را دوباره باز کن.',
@@ -471,7 +638,7 @@ function i18n() {
       check: 'Check token',
       s3: 'Install the panel',
       name: 'Worker name (optional)',
-      pass: 'Panel password (optional — UUID by default)',
+      pass: 'Panel password (optional — a random one is generated if left empty)',
       user: 'Panel username (optional — sign in with username + password)',
       adv: 'More options',
       install: 'Install Cat Panel on my account',
@@ -488,7 +655,7 @@ function i18n() {
       copied: 'Copied',
       app: 'Add to Cat Client',
       apk: 'Download app',
-      keep: 'Keep this URL and password together. After logging in, pick ports and SNI in the Configs tab; clean IPs are baked into the configs automatically.',
+      keep: 'Keep this URL and password together. After logging in, pick ports and SNI in the Configs tab; clean IPs are baked into the configs automatically. The password is shown only this once — save it now.',
       wizardDone: 'Private wizard ready',
       wizardUrl: 'Your wizard URL',
       offline: 'Not up yet — reopen the URL in a minute.',
@@ -510,7 +677,7 @@ function pageHtml(env, host) {
     host,
     tokenUrl: TOKEN_TEMPLATE_URL,
     inviteRequired,
-    defaultWorker: String(env.DEFAULT_WORKER || 'catpanel'),
+    defaultWorker: String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))),
     repo: REPO_URL,
     i18n: i18n(),
   };
@@ -701,11 +868,19 @@ export default {
 
 export const _testing = {
   CAT_WIZARD_VERSION,
+  inspectWorker,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
   PANEL_SOURCES,
   WIZARD_SOURCES,
   __setFetch,
+  __setTimeouts: (t) => { TIMEOUTS = Object.assign({}, TIMEOUTS, t); },
+  __setSleep: (t) => { Object.assign(SLEEP_MS, t); },
+  COMPAT_DATE,
+  COMPAT_FLAGS,
+  PANEL_MIN_VERSION,
+  compareVersions,
+  randomPassword,
   runInstall,
   verifyToken,
   slugWorkerName,

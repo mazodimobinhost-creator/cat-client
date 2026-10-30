@@ -16,6 +16,11 @@ internal object MihomoProxyYaml {
     fun parse(block: String): Map<String, Any?> {
         val lines = block.lines().filter { it.isNotBlank() && !it.trimStart().startsWith("#") }
         if (lines.isEmpty()) return emptyMap()
+        val firstTrimmed = lines.first().trim().removePrefix("- ").trim()
+        if (firstTrimmed.startsWith("{")) {
+            @Suppress("UNCHECKED_CAST")
+            return (FlowParser(firstTrimmed).value() as? Map<String, Any?>).orEmpty()
+        }
         val cursor = intArrayOf(0)
         return parseMapping(lines, cursor, indentOf(lines[0]))
     }
@@ -227,6 +232,42 @@ object MihomoShareLink {
         return runCatching { build(MihomoProxyYaml.parse(block)) }.getOrNull()
     }
 
+    /** Rebuilds the share link from a Mihomo YAML block and rotates its ingress
+     * `IP:port` to the next runtime-verified Clean-IP candidate while keeping
+     * protocol, credential, `Host`, `sni`, `path`, `proxyip=host:port` and `#remark`. */
+    internal fun changeRouteFromYamlBlock(
+        block: String,
+        candidates: List<VerifiedEndpoint>,
+        nowMs: Long,
+        maxAgeMs: Long = 3_600_000L,
+    ): String? {
+        val rawUri = fromYamlBlock(block) ?: return null
+        return VerifiedConfigFailover.changeRouteUri(
+            rawUri = rawUri,
+            candidates = candidates,
+            nowMs = nowMs,
+            maxAgeMs = maxAgeMs,
+            source = "mihomo-failover",
+        )
+    }
+
+    /** Rebuilds the share link from a Mihomo YAML block and rotates its `proxyip=host:port`
+     * to the next runtime-verified ProxyIP candidate while keeping ingress `IP:port` untouched. */
+    internal fun changeProxyIpFromYamlBlock(
+        block: String,
+        candidates: List<VerifiedEndpoint>,
+        nowMs: Long,
+        maxAgeMs: Long = 3_600_000L,
+    ): String? {
+        val rawUri = fromYamlBlock(block) ?: return null
+        val fragment = rawUri.substringAfter('#', "")
+        val parsed = VerifiedConfigUriParser.parse(rawUri, checkedAtMs = Long.MIN_VALUE, source = "mihomo-failover") ?: return null
+        val result = VerifiedConfigFailover.changeProxyIp(parsed, candidates, nowMs, maxAgeMs)
+        if (result.status != FailoverStatus.SWITCHED) return null
+        val rotated = result.config.encode()
+        return if (fragment.isBlank()) rotated else "$rotated#$fragment"
+    }
+
     fun build(proxy: Map<String, Any?>): String? {
         val type = proxy.str("type")?.lowercase() ?: return null
         val name = proxy.str("name").orEmpty()
@@ -254,6 +295,7 @@ object MihomoShareLink {
         proxy.str("flow")?.let { params["flow"] = it }
         params += tlsParams(proxy, sniKey = "servername")
         params += transportParams(proxy)
+        proxy.str("sni-fwd-target")?.takeIf { it.isNotBlank() }?.let { params["sni_fwd_target"] = it }
         return "vless://$uuid@$host:$port" + query(params) + fragment(name)
     }
 
@@ -263,6 +305,7 @@ object MihomoShareLink {
         // Mihomo treats trojan as TLS unless the entry says `tls: false` (Cat Panel plain ports).
         params += tlsParams(proxy, sniKey = "sni", alwaysTls = proxy["tls"] == null)
         params += transportParams(proxy)
+        proxy.str("sni-fwd-target")?.takeIf { it.isNotBlank() }?.let { params["sni_fwd_target"] = it }
         return "trojan://${encode(password)}@$host:$port" + query(params) + fragment(name)
     }
 
@@ -344,6 +387,11 @@ object MihomoShareLink {
     }
 
     private fun socks(proxy: Map<String, Any?>, name: String, host: String, port: Int): String {
+        proxy.str("aether-uri")?.let { return it }
+        proxy.str("sstp-uri")?.let { return it }
+        proxy.str("whitedns-uri")?.let { return it }
+        proxy.str("fenix-uri")?.let { return it }
+        proxy.str("paqet-uri")?.let { return it }
         val username = proxy.str("username")
         val password = proxy.str("password")
         val credentials = if (username != null) {
@@ -370,14 +418,28 @@ object MihomoShareLink {
             tls -> "tls"
             else -> "none"
         }
-        if (!tls) return params
         (proxy.str(sniKey) ?: proxy.str("servername") ?: proxy.str("sni"))?.let { params["sni"] = it }
+        if (!tls) return params
         proxy.str("client-fingerprint")?.let { params["fp"] = if (it == "random") "randomized" else it }
         proxy.list("alpn")?.takeIf { it.isNotEmpty() }?.let { params["alpn"] = it.joinToString(",") }
         if (proxy.bool("skip-cert-verify")) params["allowInsecure"] = "1"
         reality?.str("public-key")?.let { params["pbk"] = it }
         reality?.str("short-id")?.let { params["sid"] = it }
         proxy.str("fingerprint")?.let { params["pcs"] = it }
+        val echOpts = proxy.child("ech-opts")
+        if (echOpts?.bool("enable") == true) {
+            val sniValue = params["sni"]
+            val wsHost = proxy.child("ws-opts")?.child("headers")?.let { it.str("Host") ?: it.str("host") }
+            val hasCustomSniMask = !sniValue.isNullOrBlank() &&
+                !wsHost.isNullOrBlank() &&
+                !sniValue.equals(wsHost, ignoreCase = true)
+            if (!hasCustomSniMask) {
+                params["ech"] = echOpts.str("query-server-name") ?: "cloudflare-ech.com"
+            }
+        } else {
+            proxy.str("cipher-suites")?.let { params["cs"] = it }
+            proxy.str("final-mask")?.let { params["fm"] = it }
+        }
         return params
     }
 
@@ -389,9 +451,11 @@ object MihomoShareLink {
         val params = LinkedHashMap<String, String>()
         when (proxy.str("network")?.lowercase() ?: "tcp") {
             "ws", "httpupgrade" -> {
-                val network = proxy.str("network")!!.lowercase()
-                params["type"] = network
                 val options = proxy.child("ws-opts") ?: emptyMap<String, Any?>()
+                // Mihomo spells HTTPUpgrade as ws + `v2ray-http-upgrade: true`; share links say type=httpupgrade.
+                val upgradeFlag = options["v2ray-http-upgrade"].let { it == true || it?.toString().equals("true", ignoreCase = true) }
+                val network = if (upgradeFlag) "httpupgrade" else proxy.str("network")!!.lowercase()
+                params["type"] = network
                 var path = options.str("path") ?: "/"
                 val earlyData = options.str("max-early-data")?.toIntOrNull() ?: 0
                 if (network == "ws" && earlyData > 0 && !Regex("""[?&]ed=""").containsMatchIn(path)) {
@@ -438,8 +502,8 @@ object MihomoShareLink {
     }
 
     private fun hostLiteral(server: String): String {
-        val trimmed = server.trim()
-        return if (':' in trimmed && !trimmed.startsWith("[")) "[$trimmed]" else trimmed
+        val clean = server.trim().removePrefix("[").removeSuffix("]")
+        return if (':' in clean) "[$clean]" else clean
     }
 
     private fun query(params: Map<String, String>): String =

@@ -1,0 +1,62 @@
+name: Cat account portal tests
+on:
+  push:
+    branches: [arena/c5b36768-cat-client]
+    paths: ['portal/**', 'scripts/pages/**', 'package.json', '.github/workflows/portal-tests.yml']
+  pull_request:
+    paths: ['portal/**', 'scripts/pages/**', 'package.json', '.github/workflows/portal-tests.yml']
+permissions:
+  contents: read
+concurrency:
+  group: portal-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: '22' }
+      - run: node --check portal/src/_worker.js
+      - run: node --test scripts/pages/portal-target.test.mjs
+      - name: Verify live edge deployment (worker-1101-doctor)
+        continue-on-error: true
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install --no-save --no-audit --no-fund workerd@latest --silent || true
+          cat > /tmp/min-test.capnp <<'EOF'
+          using Workerd = import "/workerd/workerd.capnp";
+          const config :Workerd.Config = (
+            services = [ (name = "main", worker = (
+                modules = [ (name = "worker.js", esModule = embed "../../dist-panel/catpanel.min.js" ) ],
+                compatibilityDate = "2026-09-01",
+                compatibilityFlags = [],
+                bindings = [
+                  (name = "OPEN_SUB", text = "false"),
+                  (name = "PANEL_USER", text = "admin"),
+                  (name = "PANEL_PASSWORD", text = "admin"),
+                  (name = "UUID", text = "11111111-2222-3333-4444-555555555555"),
+                ],
+                ) ) ],
+            sockets = [ (name = "http", address = "127.0.0.1:8798", http = (), service = "main") ],
+          );
+          EOF
+          cp /tmp/min-test.capnp scripts/panels/min-test.capnp
+          ./node_modules/.bin/workerd serve scripts/panels/min-test.capnp > /tmp/workerd-min.log 2>&1 &
+          WPID=$!
+          sleep 3
+          W_HEALTH=$(curl -sS -i -m 4 http://127.0.0.1:8798/health 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
+          W_VER=$(curl -sS -i -m 4 http://127.0.0.1:8798/api/version 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
+          W_PANEL=$(curl -sS -i -m 4 "http://127.0.0.1:8798/panel/?av=1.10.0-beta137&pv=6.69.22" 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
+          W_SOCK=$(curl -sS -i -m 6 -X POST -H "x-cat-key: admin" -H "content-type: application/json" -d '{"tests":[{"addr":"104.16.132.229","port":443,"kind":"proxyip"}]}' http://127.0.0.1:8798/api/ip-test 2>&1 | tr '\r\n' ' ' | head -c 260 || true)
+          kill "$WPID" 2>/dev/null || true
+          rm -f scripts/panels/min-test.capnp
+          W_LOG=$(tail -n 20 /tmp/workerd-min.log 2>/dev/null | tr '\r\n' ' ' | head -c 400 || true)
+          echo "::notice title=workerd-min-6.69.22::health=$W_HEALTH | ver=$W_VER | sock=$W_SOCK | panel=$W_PANEL | log=$W_LOG"
+          node scripts/pages/live-edge-probe.mjs
+      - name: Reject committed credentials
+        run: |
+          ! grep -RIE '([0-9]{8,10}:[A-Za-z0-9_-]{30,}|CF_API_TOKEN\s*[=:]\s*[^$])' portal

@@ -74,8 +74,8 @@ android {
         applicationId = "com.cat.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 67
-        versionName = "1.9.51"
+        versionCode = 304
+        versionName = "1.10.0-beta237"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "fa")
@@ -145,6 +145,11 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // libslipnet.so is a static Go executable (the real DNS-tunnel engine), not a JNI
+            // library; it is already built with -s -w, so skip NDK strip on it.
+            keepDebugSymbols += "**/libslipnet.so"
+            // libxray.so is the same kind of static Go executable (official Xray-core + Cat's runner).
+            keepDebugSymbols += "**/libxray.so"
         }
     }
 
@@ -179,6 +184,11 @@ dependencies {
     implementation("org.json:json:20240303")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation(libs.material)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("com.caverock:androidsvg-aar:1.4")
+    // Isolated-process carrier for Aether → MASQUE → Psiphon. Pinned because
+    // this artifact contains a native Go runtime and is part of the VPN TCB.
+    implementation("ca.psiphon:psiphontunnel:2.0.42")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 

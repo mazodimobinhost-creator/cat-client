@@ -30,6 +30,20 @@ object FrontingIpPolicy {
         return ips
     }
 
+    /**
+     * beta205: newest-first merge that can never throw. Before, «existing (up to 5) + new» went through
+     * [normalizeIps], whose 5-address limit threw — the scanner's «use this IP» crashed the app once five IPs
+     * were saved, and other buttons silently dropped the new IP. Invalid tokens are skipped, duplicates removed,
+     * and the oldest entries fall off the end.
+     */
+    fun mergeNewestFirst(newFirst: List<String>, existing: List<String>): List<String> =
+        (newFirst + existing)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { runCatching { parseEndpoint(it).encoded() }.getOrNull() }
+            .distinct()
+            .take(MAX_FRONTING_IPS)
+
     fun parseEndpoint(value: String): FrontingEndpoint {
         val endpoint = value.trim()
         require(endpoint.isNotBlank() && endpoint.none(Char::isWhitespace)) {
@@ -53,7 +67,7 @@ object FrontingIpPolicy {
             else -> endpoint to null
         }
 
-        require(isValidIpv4(ip) || isValidIpv6(ip)) { "IP Fronting باید یک آدرس معتبر IPv4 یا IPv6 باشد" }
+        require(isValidIpv4(ip) || isValidIpv6(ip) || IpScanner.isValidHostname(ip)) { "IP Fronting باید یک آدرس معتبر IPv4، IPv6 یا دامنه باشد" }
         val port = portText?.let {
             require(it.all(Char::isDigit)) { "پورت IP Fronting باید عددی بین 1 تا 65535 باشد" }
             it.toIntOrNull()?.also { parsed ->
@@ -116,7 +130,16 @@ class FrontingIpPreferenceStore(context: Context) {
         editor.apply()
     }
 
+    /** SNI override applied to every TLS proxy in the runtime config (empty = keep the config's own servername). */
+    fun readSniOverride(): String = prefs.getString(KEY_SNI, "").orEmpty().trim().lowercase()
+
+    fun saveSniOverride(value: String?) {
+        val normalized = value?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        prefs.edit().apply { if (normalized == null) remove(KEY_SNI) else putString(KEY_SNI, normalized) }.apply()
+    }
+
     private companion object {
         const val KEY_FRONTING_IP = "fronting_ip"
+        const val KEY_SNI = "sni_override"
     }
 }

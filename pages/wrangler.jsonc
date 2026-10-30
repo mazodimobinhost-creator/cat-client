@@ -1,0 +1,15 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "cat-panel-pages",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": [],
+  "pages_build_output_dir": "./dist",
+  "kv_namespaces": [
+    { "binding": "CAT_KV" }
+  ],
+  "vars": {
+    "OPEN_PANEL": "true",
+    "OPEN_SUB": "true",
+    "CAT_DEPLOY_TARGET": "pages"
+  }
+}

@@ -1,0 +1,55 @@
+# Shared Agent Log
+
+- **2026-10-25 (Skill Setup Phase 1 & 2):** Installed all 19 specialist skills (`01` through `19`) from Google Drive folder `1Ib_oKMGA8a9M2Z5rg8c6-O6HyE8ml5rQ` into `.agents/skills/` and created `.agents/STATUS.md`.
+- **2026-10-25 (Crash Hunter & Android Service Fixes — `v1.10.0-beta145` / `6.69.26`):**
+  - `CatClientApplication.kt`, `PsiphonCarrierService.kt`, `PsiphonCarrierClient.kt`, `PsiphonCarrierConfig.kt`, `CatClientVpnService.kt`, `MainActivity.kt`: Fixed `:psiphon` secondary process isolation, Messenger IPC start, `DisableTactics: true` + 11 TCP protocols for chained Psiphon, and `BadTokenException` dialog guards.
+- **2026-10-25 (Dedicated SOCKS5 Hub & 3 Smart Tools — `v1.10.0-beta146` / `6.69.27`):**
+  - `ProxyScannerPage.kt`, `WhiteDnsSmartScanner.kt`, `MainActivity.kt`, `catclient.worker.js`: Added Dedicated SOCKS5 Live Hub (7 live feeds + 4-mirror GitHub API fallback + 62 built-in seeds + 1-tap direct & pool connect), Regional Firewall Fingerprinter, Auto-MTU & Carrier Record Finder, and Hybrid Iran IP + Auto Sanction-Bypass DNS.
+- **2026-10-25 (Complete 6 Remaining Items — `v1.10.0-beta147` / `6.69.28`):**
+  - Native in-app parsing & local SOCKS5 bridge execution for `cottendns://`, `stormdns://`, `masterdns://`, `soar://`, and `dnstt://` (`WhiteDnsSmartScanner.kt`, `SubConvConverter.kt`, `MihomoShareLink.kt`, `MainActivity.kt`).
+  - Irancell `F&F` (`finalMask=tlshello-0-len`, `cipherSuites=semi-python`) preservation in `SubConvConverter.kt`, `UserSubscriptions.kt`, `MihomoShareLink.kt` and TLS ClientHello record splitter (`splitTlsClientHelloRecord`).
+  - Server-side `RFC 1928` SOCKS5 handshake testing (`kind: 'socks'`) in `/api/ip-test`, `data-sk-test`, and `#skLiveFetch` in `catclient.worker.js`.
+  - Aether Smart Conditional Chain (`auto-psiphon`) and Top-10 Per-Carrier Clean Endpoint Pool with automatic failover (`AetherPreferenceStore.kt`, `CatClientVpnService.kt`, `MainActivity.kt`).
+  - Fallback Worker Domain (`fallbackHost` in `catclient.worker.js` and `SubscriptionSourceLoader.candidateHttpsUrls` in `SubscriptionSnapshot.kt`).
+- **2026-10-25 (6 Dr.Net-Inspired Capabilities — `v1.10.0-beta148` / `6.69.28`):**
+  - Mid-Stream Freeze & Throttling Detector (`evaluateMidStreamTransfer`, `probeMidStreamFreezeAndThroughput`, `runMidStreamFreezeDetectorDialog`).
+  - Domain Fronting & Unpoisoned Real IP Finder (`isPoisonedIranDnsIp`, `resolveUnpoisonedRealIp`, `showDomainFrontingAndUnpoisonResolverDialog`).
+  - Google Apps Script (`GAS`) Relay (`gasrelay://` URI scheme, `buildGoogleAppsScriptRelaySource`, `buildGasRelayUri`, daily 20k quota tracker in `VpnRuntimeStateStore`, and `showGoogleAppsScriptRelayDialog`).
+  - Cat Client Lite Worker Generator (`buildLiteWorkerScript` with zero-KV quota, Irancell F&F, MCI IPv6, and explicit-port ProxyIP).
+  - Independent Auto-Reconnect on Drop, Auto-Connect on Boot/Update (both default off), and Universal Kill Switch (`VpnRuntimeStateStore`, `showConnectionResilienceAndKillSwitchDialog`).
+  - Step-by-Step Live Connection Progress (`VpnRuntimeStateStore.saveLiveConnectStep` in `CatClientVpnService.kt`).
+- **2026-10-26 (Real engines + Toolbox + panel limits/2FA — `v1.10.0-beta174` / `6.69.37`):**
+  - DNS tunnels: fake probe-then-direct bridge replaced by the real SlipNet CLI engine (`SlipNetCliEngine.kt`, built from source in CI, AGPL-3.0, `NOTICE`); unsupported tunnel types now fail loudly (toast + `whitedns.engine.unavailable`).
+  - Paqet / Fenix: silent direct-connection fallbacks removed (honest failure). WARP-AWG `auto`: real WARP registration (`WarpRegistration.kt`, X25519) instead of a fake key; s1/s2 no longer injected into vanilla WG / Proton `.conf`.
+  - Deep links for every config scheme, `ACTION_SEND`, "open with" files (`ConfigFileImport.kt`, manifest); SAF file import, backup/restore, app lock (PIN + device credential, `AppLock.kt`), 6-hourly background subscription refresh + expiry/data-cap notifications (`SubscriptionAutoRefresh.kt`).
+  - WhiteDNS-style toolkit (`WhiteDnsToolkit.kt` + `AppToolsController.kt`, hub button 18): ASN export (RIPEstat), CIDR→IP, SNI scanner, 3-wave HTTP/SOCKS5 open-proxy scan, speed & loss rank, DNS resolver/tunnel-readiness scan, Config Maker (exact-port rewrite / endpoint extract).
+  - Panel 6.69.37: per-user traffic quota with a KV-safe meter (only quota users, ≤1 write/10 min/user), simultaneous-IP limit, real `subscription-userinfo`, salted password hash, per-IP login lockout, sign-in audit log, TOTP 2FA, trojan auth map keyed on user state. New suite `scripts/panels/panel-security.test.mjs`; paste budget raised with justification.
+- **2026-10-26 (ZedSecure 3.1.5–3.1.7 review — `v1.10.0-beta175`):**
+  - Connection failures now keep their reason on screen: `ConnectionFaultExplainer.kt` classifies the full cause chain (port busy, config, certificate, Reality, root, permission, network, DNS, auth, refused, health check, timeout) into Persian/English title + "what to do"; auto dialog after a failed connect, tap the status text to reopen; "Try again" / "Copy details".
+  - AmneziaWG: H1–H4 were parsed as Int and silently dropped when > Int.MAX or a 2.0 range (tunnel "connected" but carried no data) — now `AmneziaHeaders.kt` keeps uint32/ranges; s3/s4/i3–i5 forwarded from `.conf` imports too.
+  - `vmess://<base64>#Name` links (name after `#`) imported correctly instead of being dropped.
+- **2026-10-29 (beta220–222):** real internet card + auto next route + opt-in panel report (beta220, Panel 6.78.0); F&F check — mihomo silently drops `final-mask`/`cipher-suites`, so `finalMask=tlshello…` proxies are now dialled through the ByeByeDPI fragmenting proxy automatically (beta221, `Beta220FinalMaskTest`); MainActivity split phase 2 (12 364 → ≈3 660 lines, `scripts/dev/split-main-activity-2.py`); CatClientVpnService split per engine/feature (6 468 → ≈4 270 lines, `scripts/dev/split-vpn-service.py`, beta222).
+
+- **2026-10-29 (beta223):** built-in Xray engine — F&F/finalMask proxies swapped to local SOCKS inbounds served by the official Xray-core (built from pinned source in CI), sockets protected over a unix socket (SCM_RIGHTS), runner exits on stdin close, fallback to the beta221 ByeByeDPI path. Verified locally: real Xray v26.10.21 accepts the generated config (`-test`), live run protected the socket and split the ClientHello into 11 TLS records. `Beta223XrayEngineTest`.
+- 2026-10-29 beta224 (291): SmarterASP node panel (IIS), Fox port policy + target failures, CrashWatch exit reasons. Local: Beta224HostFoxCrashTest + NodeHostTest pass (kotlinc 2.4.21 harness), node-host.test.mjs all pass (incl. IIS spawn).
+- 2026-10-29 beta225 (292, Panel 6.79.0): free-host audit — CAT_HOST per host, KataBump direct-port header trust fix, 🟧 Cloudflare front for HTTPS Node hosts, per-platform hiding of CF-only panel sections, per-host renew reminders + SmarterASP trial reminder, IIS keep-warm. Local: npm test 134/134, node-host 69 checks, artifact suites green, NodeHostPanel helpers compiled+run with kotlinc 2.4.21.
+- 2026-10-29 beta226: chain fixes (ws key, VLESS addons, no response wait), katabump-cf-link real-socket test, Railway region picker (multiRegionConfig), Bot-Hosting node country, host country texts. Panel 6.79.1.
+- 2026-10-30 beta227: HostRegions + askCountry before every host install, Railway change-region button, flags in saved names.
+- 2026-10-30 beta228: SmarterASP Linux trial guide + smarterasp-linux.test.mjs, USA default, cat-config leak check, wsClientLayer close-frame data fix (Panel 6.79.2).
+- 2026-10-30 beta229: SmarterASP guide from real panel screenshots (Server Location list, form fields, FTP, bots rule).
+- 2026-10-30 beta230: SmarterASP Linux server.js entry + /health guide from NodeJs page screenshot.
+- 2026-10-30 beta231: SmarterASP Linux runner-load fix (autostarted) + cat-bundled first-start panel.
+- 2026-10-30 beta232: SmarterASP Linux read-only site files — prebuilt cat-code in zip, temp code/data fallback.
+- 2026-10-30 beta233 (Panel 6.79.3): node hosts — auto server IPs in configs, Clean IP page for nodes, exits on nodes (SOCKS all sites, ProxyIP CF names by DNS).  CI fix: feed clean IPs (repoIps «IP:443») leaked into node subs; node lists only pinned user exits.
+- 2026-10-30 beta234 (Panel 6.79.4): node typed IPs verified by the panel (WS 101, SNI=host) before entering subs; per-host capability list + save & test on the node Clean IP page; 14 lost regex escapes in the page template fixed. Botkeep not added (its fair-use rules forbid proxies/VPN endpoints).
+
+## 2026-10-30 — beta235 / Panel 6.80.0 (four owner requests)
+- Worker: `/api/ip-repo` (+ page picker with browser test, ≥40 ms rule, IPv6 pre-check), `/api/ech-pool` + `echPool` round-robin (udp:// and IP-cert DoH only), `resetDays` + `trafficOf` + `cronUsageReset`, `/api/cf-quota` + `cronQuotaWarn`, `/api/node/reality` + `realityLines` (raw/b64 subs only, unmetered users only, only when verified).
+- Adapter: Reality module (Xray v26.10.21 download + SHA2-256 check, X25519, per-operator inbounds on 127.0.0.1, SNI mux on the public port, verify through the public port, restart with backoff, state in `<CAT_KV_DIR>/reality/reality.json`), active only with `CAT_HOST_DIRECT=1`.
+- Tests: `panel-680.test.mjs`, `node-reality.test.mjs` (fake Xray via `CAT_XRAY_BIN`, openssl test CA via `NODE_EXTRA_CA_CERTS`), panel-dom additions. Budgets raised (raw 930 000 / guard 940 000 / gzip 278 000). The cat-panel.html one-liner is now at android.yml line 331.
+
+
+## 2026-10-30 — beta237 (Cat Fox VPN vs Firefox IP Protection)
+- Compared FirefoxVpnEngine with Firefox `toolkit/components/ipprotection` (GuardianClient, GuardianTypes ProxyPass, IPPChannelFilter, server list; MPL-2.0, rules only). New `FenixPassPolicy.kt` (pass states, 5-min rotation, Guardian 401/403 steps, split-retry rule, `FoxNetworkReset`), `FoxHttpProxyRequest` in `FoxPortPolicy.kt`.
+- Engine: single-flight `renewPassOnce` + `startPassRenewer`, expired pass renewed in `startLocalBridge`, `openNodeTls` unsplit retry (`unsplitTlsNodes`), API requests unsplit protected retry + host-name check, `experiment=alpha`, UA Firefox 152, HTTP-proxy forwarding. Service: `networkWatch.onNetwork` → `resetUpstreamSessions("network changed")`.
+- Local: pure policies checked with a kotlinc 2.4.21 harness; engine parse-checked (only Android/org.json unresolved). `Beta237FoxPassTest` added.

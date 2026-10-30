@@ -22,6 +22,7 @@ data class ConnectionDelayRecord(
     val status: ConnectionDelayStatus,
     val testedAt: Long,
     val speedKbps: Int? = null,
+    val networkKey: String = "",
 )
 
 object ConnectionDelayRecordPolicy {
@@ -29,12 +30,24 @@ object ConnectionDelayRecordPolicy {
         records
             .groupBy { it.subscriptionId to it.fingerprint }
             .mapNotNull { (_, matches) -> matches.maxByOrNull(ConnectionDelayRecord::testedAt) }
+
+    /** Storage keeps one result per route and network; the old reader may still request overall latest. */
+    fun latestPerNetwork(records: List<ConnectionDelayRecord>): List<ConnectionDelayRecord> =
+        records
+            .groupBy { Triple(it.subscriptionId, it.fingerprint, it.networkKey) }
+            .mapNotNull { (_, matches) -> matches.maxByOrNull(ConnectionDelayRecord::testedAt) }
 }
 
 class SubscriptionStore(private val context: Context) {
     fun readUserSubscriptions(): List<UserSubscription> {
         val file = userSubscriptionsFile()
         if (!file.exists() || file.length() == 0L) return emptyList()
+        // The list is read dozens of times per screen; re-parsing the JSON (inline subscriptions can be large)
+        // every time made taps stutter. Reuse it while the file is unchanged (this process invalidates on write).
+        val stamp = file.lastModified() to file.length()
+        synchronized(listMemoLock) {
+            if (listMemoPath == file.path && listMemoStamp == stamp) listMemo?.let { return it }
+        }
         var needsSourceKindMigration = false
         val subscriptions = runCatching {
             val items = JSONArray(file.readText())
@@ -50,7 +63,7 @@ class SubscriptionStore(private val context: Context) {
                     add(
                         UserSubscription(
                             id = id,
-                            name = name,
+                            name = CatBranding.rebrandName(name),
                             input = input,
                             format = UserSubscriptionFormat.fromWireName(item.optString("format")),
                             connectionCount = item.optInt("connectionCount", 0).coerceAtLeast(0),
@@ -68,6 +81,12 @@ class SubscriptionStore(private val context: Context) {
         }.getOrDefault(emptyList())
         if (needsSourceKindMigration && subscriptions.isNotEmpty()) {
             runCatching { writeUserSubscriptions(subscriptions) }
+        } else if (subscriptions.isNotEmpty()) {
+            synchronized(listMemoLock) {
+                listMemoPath = file.path
+                listMemoStamp = stamp
+                listMemo = subscriptions
+            }
         }
         return subscriptions
     }
@@ -90,15 +109,15 @@ class SubscriptionStore(private val context: Context) {
         readUserSubscriptions().firstOrNull { it.id == id }
 
     fun readUserSubscriptionYaml(id: String): String {
-        val file = userSubscriptionYamlFile(id)
-        return if (file.isFile && file.length() > 0L) file.readText() else ""
+        // beta217: served from SnapshotTextMemo while the file is unchanged (it was re-read on every tap).
+        return SnapshotTextMemo.read(userSubscriptionYamlFile(id)).orEmpty()
     }
 
     @Synchronized
     fun deleteUserSubscription(id: String) {
         val remaining = readUserSubscriptions().filterNot { it.id == id }
         writeUserSubscriptions(remaining)
-        userSubscriptionYamlFile(id).delete()
+        userSubscriptionYamlFile(id).also { SnapshotTextMemo.invalidate(it) }.delete()
         deleteConnectionDelayRecords(id)
         if (readSelectedSubscriptionId() == id) saveSelectedSubscriptionId(DEFAULT_SUBSCRIPTION_ID)
     }
@@ -125,6 +144,16 @@ class SubscriptionStore(private val context: Context) {
     fun readCatalog(subscriptionId: String = DEFAULT_SUBSCRIPTION_ID): SubscriptionCatalog? {
         val file = catalogFile(subscriptionId)
         if (!file.exists() || file.length() == 0L) return null
+        val stamp = file.lastModified() to file.length()
+        synchronized(listMemoLock) {
+            catalogMemo[file.path]?.takeIf { it.first == stamp }?.let { return it.second }
+        }
+        return parseCatalogFile(file)?.also { parsed ->
+            synchronized(listMemoLock) { catalogMemo[file.path] = stamp to parsed }
+        }
+    }
+
+    private fun parseCatalogFile(file: File): SubscriptionCatalog? {
         return runCatching {
             val root = JSONObject(file.readText())
             val profiles = root.optJSONArray("profiles").orEmptyObjects().mapNotNull { item ->
@@ -170,6 +199,7 @@ class SubscriptionStore(private val context: Context) {
                     .put("shareLink", profile.shareLink.orEmpty()),
             )
         }
+        synchronized(listMemoLock) { catalogMemo.remove(catalogFile(subscriptionId).path) }
         writeFile(
             catalogFile(subscriptionId),
             JSONObject()
@@ -177,6 +207,7 @@ class SubscriptionStore(private val context: Context) {
                 .put("profiles", profiles)
                 .toString(),
         )
+        synchronized(listMemoLock) { catalogMemo.remove(catalogFile(subscriptionId).path) }
     }
 
     fun readConnectionDelayRecords(
@@ -204,6 +235,24 @@ class SubscriptionStore(private val context: Context) {
             )
     }
 
+    fun readConnectionDelayRecordsForNetwork(
+        subscriptionId: String,
+        profiles: List<ConnectionProfile>,
+        networkKey: String,
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = ProfileDelayCacheDefaults.DELAY_CACHE_TTL_MS,
+    ): List<ConnectionDelayRecord> = synchronized(DELAY_RECORDS_LOCK) {
+        val fingerprints = profiles.mapTo(mutableSetOf(), ConnectionProfile::fingerprint)
+        ConnectionDelayRecordPolicy.latest(
+            readDelayRecords().filter { record ->
+                (record.subscriptionId == subscriptionId || record.subscriptionId.isBlank()) &&
+                    record.fingerprint in fingerprints &&
+                    record.networkKey == networkKey &&
+                    nowMs - record.testedAt in 0..ttlMs
+            },
+        )
+    }
+
     fun saveConnectionDelayRecord(record: ConnectionDelayRecord) =
         saveConnectionDelayRecords(listOf(record))
 
@@ -218,7 +267,7 @@ class SubscriptionStore(private val context: Context) {
                 record.subscriptionId.isBlank() && record.fingerprint in updatedFingerprints
             }
             writeDelayRecords(
-                ConnectionDelayRecordPolicy.latest(normalizedUpdates + existing),
+                ConnectionDelayRecordPolicy.latestPerNetwork(normalizedUpdates + existing),
             )
         }
     }
@@ -250,7 +299,7 @@ class SubscriptionStore(private val context: Context) {
                 record.copy(subscriptionId = subscriptionId)
             }
         }
-        val normalized = ConnectionDelayRecordPolicy.latest(kept)
+        val normalized = ConnectionDelayRecordPolicy.latestPerNetwork(kept)
         if (removed > 0 || normalized != existing) {
             writeDelayRecords(normalized)
         }
@@ -279,6 +328,18 @@ class SubscriptionStore(private val context: Context) {
     private fun readDelayRecords(): List<ConnectionDelayRecord> {
         val file = delaysFile()
         if (!file.exists() || file.length() == 0L) return emptyList()
+        // Parsed once per file version: this is read on every server-list render and the
+        // cache can hold thousands of records, so re-parsing it froze the UI on tab switches.
+        val stamp = file.length() to file.lastModified()
+        synchronized(listMemoLock) {
+            delaysMemo?.takeIf { it.first == file.path && it.second == stamp }?.let { return it.third }
+        }
+        return parseDelayRecords(file).also { parsed ->
+            synchronized(listMemoLock) { delaysMemo = Triple(file.path, stamp, parsed) }
+        }
+    }
+
+    private fun parseDelayRecords(file: File): List<ConnectionDelayRecord> {
         return runCatching {
             val items = JSONArray(file.readText())
             buildList {
@@ -306,6 +367,7 @@ class SubscriptionStore(private val context: Context) {
                             status = status,
                             testedAt = testedAt,
                             speedKbps = item.optInt("speedKbps", -1).takeIf { it > 0 },
+                            networkKey = item.optString("networkKey"),
                         ),
                     )
                 }
@@ -341,10 +403,13 @@ class SubscriptionStore(private val context: Context) {
                     .put("delayMs", record.delayMs ?: JSONObject.NULL)
                     .put("speedKbps", record.speedKbps ?: JSONObject.NULL)
                     .put("status", record.status.wireName)
+                    .put("networkKey", record.networkKey)
                     .put("testedAt", record.testedAt),
             )
         }
+        synchronized(listMemoLock) { delaysMemo = null }
         writeTextAtomically(delaysFile(), items.toString())
+        synchronized(listMemoLock) { delaysMemo = null }
     }
 
     private fun catalogFile(subscriptionId: String): File = File(
@@ -360,9 +425,14 @@ class SubscriptionStore(private val context: Context) {
         File(context.filesDir, "mihomo/subscriptions/$id.yaml")
 
     private fun writeUserSubscriptions(subscriptions: List<UserSubscription>) {
+        synchronized(listMemoLock) { listMemo = null; listMemoStamp = null }
         val items = JSONArray()
         subscriptions.forEach { items.put(it.toJson()) }
-        writeFile(userSubscriptionsFile(), items.toString())
+        try {
+            writeFile(userSubscriptionsFile(), items.toString())
+        } finally {
+            synchronized(listMemoLock) { listMemo = null; listMemoStamp = null }
+        }
     }
 
     private fun UserSubscription.toJson(): JSONObject = JSONObject()
@@ -390,6 +460,13 @@ class SubscriptionStore(private val context: Context) {
     }
 
     companion object {
+        private val listMemoLock = Any()
+        private var listMemoPath: String? = null
+        private var listMemoStamp: Pair<Long, Long>? = null
+        private var listMemo: List<UserSubscription>? = null
+        private val catalogMemo = HashMap<String, Pair<Pair<Long, Long>, SubscriptionCatalog>>()
+        private var delaysMemo: Triple<String, Pair<Long, Long>, List<ConnectionDelayRecord>>? = null
+
         const val PRIVATE_SUBSCRIPTION_ID = "catclient-private"
         const val PUBLIC_SUBSCRIPTION_ID = "catclient"
         val BUILT_IN_SUBSCRIPTION_IDS = listOfNotNull(

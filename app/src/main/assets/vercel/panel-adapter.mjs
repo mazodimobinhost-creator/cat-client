@@ -1,0 +1,802 @@
+// Cat Client — runs the Cat Panel (a Cloudflare-Worker script) on a Vercel Node.js Function.
+// Generated and uploaded by the Cat Client app ("Panel on Vercel"). Licence: GPL-3.0 (Cat Client).
+//
+// Vercel Functions accept WebSocket upgrades (GA since 2026-10-20) and may open outbound TCP
+// with node:net, so the panel's own VLESS/Trojan-over-WebSocket data plane works here as it does
+// on Cloudflare. This file only swaps the platform layer:
+//   WebSocketPair + Response(101)  -> `ws` WebSocketServer (noServer) bound to the panel's pair
+//   cloudflare:sockets connect()   -> node:net / node:tls with Web streams
+//   request.cf / cf-connecting-ip  -> Vercel x-vercel-ip-* / x-forwarded-for headers
+//   env.CAT_KV                     -> Vercel Blob (private store the app creates and connects:
+//                                     BLOB_STORE_ID / BLOB_READ_WRITE_TOKEN), or Upstash Redis REST
+//                                     when KV_REST_API_URL/TOKEN exist; without either the panel runs
+//                                     memory-only and refuses to create users (they would vanish).
+// 6.69.45: the same file also runs the panel on ANY Node host (node-panel/index.js sets CAT_PLATFORM=node):
+// KataBump / Lucity / Shiprr / a VPS. There it keeps users in a JSON file under CAT_KV_DIR (a host disk),
+// and tells every request how the phone reached it (plain host port / HTTPS edge / through Cloudflare).
+import http from 'node:http';
+import fs from 'node:fs';
+import pathMod from 'node:path';
+import net from 'node:net';
+import dns from 'node:dns';
+import tls from 'node:tls';
+import { Readable, Duplex } from 'node:stream';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
+import os from 'node:os';
+import { WebSocketServer } from 'ws';
+
+/* ------------------------------ sockets ------------------------------ */
+function webSocketFromNode(sock, opened) {
+  let web = null;
+  const streams = () => (web ||= Duplex.toWeb(sock));
+  let closedResolve;
+  let closedReject;
+  const closed = new Promise((res, rej) => { closedResolve = res; closedReject = rej; });
+  closed.catch(() => {});
+  sock.once('close', (hadError) => (hadError ? closedReject(new Error('socket error')) : closedResolve()));
+  sock.on('error', () => {});
+  return {
+    get readable() { return streams().readable; },
+    get writable() { return streams().writable; },
+    opened,
+    closed,
+    close() { try { sock.destroy(); } catch (_) { } return closed.catch(() => {}); },
+    startTls(options = {}) {
+      const servername = options.expectedServerHostname || sock.__catHost;
+      const secure = tls.connect({ socket: sock, servername: net.isIP(servername) ? undefined : servername, ALPNProtocols: ['http/1.1'] });
+      const ready = new Promise((res, rej) => { secure.once('secureConnect', () => res({})); secure.once('error', rej); });
+      ready.catch(() => {});
+      return webSocketFromNode(secure, ready);
+    },
+  };
+}
+
+// 5-minute DNS cache for outgoing tunnels (each new connection used to resolve again).
+const dnsCache = new Map();
+function cachedLookup(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  const opts = typeof options === 'number' ? { family: options } : (options || {});
+  const key = hostname + '|' + (opts.family || 0);
+  const reply = (list) => (opts.all ? callback(null, list) : callback(null, list[0].address, list[0].family));
+  const hit = dnsCache.get(key);
+  if (hit && hit.exp > Date.now()) { reply(hit.list); return; }
+  dns.lookup(hostname, { family: opts.family || 0, hints: opts.hints, all: true }, (err, list) => {
+    if (err || !list || !list.length) { callback(err || Object.assign(new Error('ENOTFOUND ' + hostname), { code: 'ENOTFOUND' })); return; }
+    if (dnsCache.size >= 1024) dnsCache.clear();
+    dnsCache.set(key, { list, exp: Date.now() + 300_000 });
+    reply(list);
+  });
+}
+
+function connect(address, options = {}) {
+  const host = typeof address === 'string' ? address.replace(/:\d+$/, '').replace(/^\[|\]$/g, '') : String(address.hostname).replace(/^\[|\]$/g, '');
+  const port = typeof address === 'string' ? Number((address.match(/:(\d+)$/) || [])[1] || 443) : Number(address.port);
+  const mode = String(options.secureTransport || 'off');
+  let sock;
+  let opened;
+  if (mode === 'on') {
+    // options.servername (Node-only, 6.69.43): the panel's Vercel scanner dials an edge IP with a chosen SNI.
+    const sn = typeof options.servername === 'string' && options.servername ? options.servername : (net.isIP(host) ? undefined : host);
+    sock = tls.connect({ host, port, lookup: cachedLookup, servername: sn, ALPNProtocols: ['http/1.1'] });
+    opened = new Promise((res, rej) => { sock.once('secureConnect', () => res({ remoteAddress: sock.remoteAddress })); sock.once('error', rej); });
+  } else {
+    sock = net.connect({ host, port, lookup: cachedLookup });
+    opened = new Promise((res, rej) => { sock.once('connect', () => res({ remoteAddress: sock.remoteAddress })); sock.once('error', rej); });
+  }
+  sock.setNoDelay(true);
+  sock.setKeepAlive(true, 20_000);
+  sock.setTimeout(330_000, () => sock.destroy());
+  sock.__catHost = host;
+  opened.catch(() => {});
+  return webSocketFromNode(sock, opened);
+}
+globalThis.__catSockets = { connect };
+// 6.79.3: the host's own resolver for the panel (its server IPs in the configs; Cloudflare-hosted names for 🎯 ProxyIP)
+globalThis.__catResolve4 = (name) => dns.promises.resolve4(String(name)).catch(() => dns.promises.lookup(String(name), { family: 4, all: true }).then((r) => r.map((x) => x.address)));
+
+/* --------------------------- WebSocketPair --------------------------- */
+// The panel does: pair = new WebSocketPair(); server.accept(); ...; return new Response(null, {status: 101, webSocket: client}).
+// `server` is what the panel talks to; `client` is handed back to the runtime, which here means:
+// bind it to the real `ws` connection after the HTTP upgrade completes.
+function toArrayBuffer(data) {
+  if (data instanceof ArrayBuffer) return data;
+  if (Array.isArray(data)) data = Buffer.concat(data);
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+function safeCode(code) {
+  const c = Number(code) || 1000;
+  return c === 1000 || (c >= 3000 && c <= 4999) || [1001, 1002, 1003, 1007, 1008, 1009, 1010, 1011].includes(c) ? c : 1000;
+}
+class ServerSide extends EventTarget {
+  constructor() { super(); this.readyState = 0; this.ws = null; this.queue = []; this.closedEarly = null; }
+  accept() { if (this.readyState === 0) this.readyState = 1; }
+  // Bytes accepted but not yet written to the client — the panel pauses the remote above 2 MB.
+  get bufferedAmount() { return this.ws ? this.ws.bufferedAmount : this.queue.reduce((n, c) => n + (c.length || 0), 0); }
+  bind(ws) {
+    this.ws = ws;
+    // WebSocket ping every 25 s: keeps mobile-carrier NAT from dropping a quiet tunnel. Every client
+    // (Xray, sing-box, mihomo) answers pings itself; no pong is required, so nothing is cut.
+    const beat = setInterval(() => { try { if (ws.readyState === 1) ws.ping(); } catch (_) { } }, 25_000);
+    beat.unref?.();
+    ws.once('close', () => clearInterval(beat));
+    ws.on('message', (data, isBinary) => {
+      const ev = new Event('message');
+      ev.data = isBinary ? toArrayBuffer(data) : Buffer.from(toArrayBuffer(data)).toString('utf8');
+      this.dispatchEvent(ev);
+    });
+    ws.on('close', (code, reason) => {
+      if (this.readyState === 3) return;
+      this.readyState = 3;
+      const ev = new Event('close');
+      ev.code = code; ev.reason = String(reason || ''); ev.wasClean = true;
+      this.dispatchEvent(ev);
+    });
+    ws.on('error', (err) => { const ev = new Event('error'); ev.error = err; ev.message = String(err && err.message || err); this.dispatchEvent(ev); });
+    for (const chunk of this.queue) ws.send(chunk);
+    this.queue = [];
+    if (this.closedEarly) ws.close(...this.closedEarly);
+  }
+  send(data) {
+    if (this.readyState !== 1) throw new Error('WebSocket is not open');
+    const payload = typeof data === 'string' ? data : Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+    if (this.ws) this.ws.send(payload); else this.queue.push(payload);
+  }
+  close(code, reason) {
+    if (this.readyState >= 2) return;
+    this.readyState = 2;
+    const args = [safeCode(code), String(reason || '').slice(0, 120)];
+    if (this.ws) { try { this.ws.close(...args); } catch (_) { try { this.ws.terminate(); } catch (__) { } } } else this.closedEarly = args;
+    setTimeout(() => { if (this.ws && this.readyState !== 3) { try { this.ws.terminate(); } catch (_) { } } }, 5000).unref?.();
+  }
+}
+class WebSocketPair {
+  constructor() {
+    const server = new ServerSide();
+    const client = { __catServer: server };
+    this[0] = client;
+    this[1] = server;
+  }
+}
+globalThis.WebSocketPair = WebSocketPair;
+
+// Response(null, {status: 101, webSocket}) is a Workers-only shape; Node's Response rejects 101.
+const NativeResponse = globalThis.Response;
+class CatResponse extends NativeResponse {
+  constructor(body, init) {
+    if (init && Number(init.status) === 101) {
+      super(null, { status: 200, headers: init.headers });
+      Object.defineProperty(this, '__catUpgrade', { value: init.webSocket || null });
+    } else {
+      super(body, init);
+    }
+  }
+  static [Symbol.hasInstance](value) { return value instanceof NativeResponse; }
+}
+globalThis.Response = CatResponse;
+
+/* -------------------------------- KV --------------------------------- */
+function upstashKv(url, token) {
+  const call = async (cmd) => {
+    const r = await fetch(url.replace(/\/$/, ''), { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(cmd) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error('kv: ' + (j.error || r.status));
+    return j.result;
+  };
+  return {
+    async get(key, type) {
+      const v = await call(['GET', 'cat:' + key]);
+      if (v == null) return null;
+      const t = typeof type === 'string' ? type : (type && type.type) || 'text';
+      if (t === 'json') { try { return JSON.parse(v); } catch (_) { return null; } }
+      if (t === 'arrayBuffer') return new TextEncoder().encode(v).buffer;
+      return v;
+    },
+    async put(key, value, opts) {
+      const v = typeof value === 'string' ? value : value instanceof ArrayBuffer ? new TextDecoder().decode(value) : String(value);
+      const cmd = ['SET', 'cat:' + key, v];
+      if (opts && Number(opts.expirationTtl) > 0) cmd.push('EX', String(Math.max(60, Math.floor(opts.expirationTtl))));
+      await call(cmd);
+    },
+    async delete(key) { await call(['DEL', 'cat:' + key]); },
+    async list(opts = {}) {
+      const prefix = 'cat:' + (opts.prefix || '');
+      let cursor = String(opts.cursor || '0');
+      const keys = [];
+      const limit = Math.min(1000, Number(opts.limit) || 1000);
+      do {
+        const [next, batch] = await call(['SCAN', cursor, 'MATCH', prefix.replace(/[*?[\]]/g, '\\$&') + '*', 'COUNT', '200']);
+        cursor = String(next);
+        for (const k of batch || []) keys.push({ name: String(k).slice(4) });
+      } while (cursor !== '0' && keys.length < limit);
+      return { keys: keys.slice(0, limit), list_complete: cursor === '0', cursor: cursor === '0' ? undefined : cursor };
+    },
+  };
+}
+
+/*
+ * 6.69.45 file KV for Node hosts with a disk (KataBump, a Lucity volume, a VPS): one process owns the data,
+ * so everything lives in memory and the whole map is written atomically (tmp file + rename, mode 0600) at
+ * most every 2 s after a change, and once more on exit. Expired keys are dropped on read and on save.
+ */
+export function fileKv(dir, clock = () => Date.now()) {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = pathMod.join(dir, 'cat-kv.json');
+  const map = new Map(); // key -> { v, exp }
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const [k, rec] of Object.entries(raw && raw.keys || {})) if (rec && typeof rec.v === 'string') map.set(k, { v: rec.v, exp: Number(rec.exp) || 0 });
+  } catch (e) { if (e && e.code !== 'ENOENT') console.error('cat-kv.json unreadable, starting empty (old file kept as .bad): ' + e.message); if (e && e.code !== 'ENOENT') { try { fs.renameSync(file, file + '.bad'); } catch (_) { } } }
+  let timer = null;
+  const save = () => {
+    timer = null;
+    const now = clock();
+    const keys = {};
+    for (const [k, rec] of map) if (!rec.exp || rec.exp > now) keys[k] = rec;
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, keys }), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  };
+  const schedule = () => { if (!timer) { timer = setTimeout(() => { try { save(); } catch (e) { console.error('cat-kv save failed: ' + e.message); } }, 2000); timer.unref?.(); } };
+  const flush = () => { if (timer) { clearTimeout(timer); timer = null; } try { save(); } catch (_) { } };
+  process.once('exit', flush);
+  for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { flush(); process.exit(0); });
+  const live = (k) => { const rec = map.get(k); if (!rec) return null; if (rec.exp && rec.exp <= clock()) { map.delete(k); return null; } return rec; };
+  return {
+    async get(key, type) {
+      const rec = live(key);
+      if (!rec) return null;
+      const t = typeof type === 'string' ? type : (type && type.type) || 'text';
+      if (t === 'json') { try { return JSON.parse(rec.v); } catch (_) { return null; } }
+      if (t === 'arrayBuffer') return new TextEncoder().encode(rec.v).buffer;
+      return rec.v;
+    },
+    async put(key, value, opts) {
+      const v = typeof value === 'string' ? value : value instanceof ArrayBuffer ? new TextDecoder().decode(value) : String(value);
+      const exp = opts && Number(opts.expirationTtl) > 0 ? clock() + Math.max(60, Number(opts.expirationTtl)) * 1000 : 0;
+      map.set(key, { v, exp });
+      schedule();
+    },
+    async delete(key) { if (map.delete(key)) schedule(); },
+    async list(opts = {}) {
+      const prefix = String(opts.prefix || '');
+      const names = [...map.keys()].filter((k) => k.startsWith(prefix) && live(k)).sort();
+      return { keys: names.slice(0, Math.min(1000, Number(opts.limit) || 1000)).map((name) => ({ name })), list_complete: true };
+    },
+    _flush: flush,
+  };
+}
+
+/*
+ * Vercel Blob as the panel's KV. Hobby includes ~10,000 reads and ~2,000 writes a month, so keys
+ * are split by value:
+ *   PERSIST  settings / users / uuid: written at once (owner actions only, a handful a month).
+ *   THROTTLE traffic counters, last-seen, login audit: newest value kept in memory and written at
+ *            most once per interval per instance (dirty values ride along the next request).
+ *   memory   everything else (Cloudflare IP caches, rate-limit counters, event ring, monitor):
+ *            per-instance only, exactly like a cold Worker isolate.
+ * Reads are cached per instance: 15 s while serving HTTP (panel, subscriptions: a user created a
+ * moment ago on another instance is found), 15 min while serving tunnels (the bulk of requests).
+ */
+const reqScope = new AsyncLocalStorage();
+const KV_PERSIST = /^cat:v6:(settings|users|uuid|cfdeploy)$/;
+const KV_THROTTLE = [[/^traffic:/, 3 * 3600e3], [/^seen:/, 6 * 3600e3], [/^cat:v6:appseen$/, 12 * 3600e3], [/^cat:v6:loginaudit$/, 30 * 60e3], [/^cat_sni_lab_v1$/, 6 * 3600e3]];
+const KV_PREFIX = 'catkv/';
+export function blobKv(client, clock = () => Date.now()) {
+  const mem = new Map(); // key -> { value, at, exp }
+  const lastWrite = new Map();
+  const dirty = new Map();
+  const throttleOf = (key) => { for (const [re, ms] of KV_THROTTLE) if (re.test(key)) return ms; return 0; };
+  const stored = (key) => KV_PERSIST.test(key) || throttleOf(key) > 0;
+  // Hex keeps blob paths to [0-9a-f] (no %-escapes a server could decode differently) and stays
+  // prefix-preserving for list().
+  const hex = (t) => Buffer.from(String(t), 'utf8').toString('hex');
+  const path = (key) => KV_PREFIX + hex(key);
+  const ttl = () => ((reqScope.getStore() || {}).tunnel ? 15 * 60e3 : 15e3);
+  const write = async (key, value) => { lastWrite.set(key, clock()); dirty.delete(key); await client.put(path(key), value); };
+  const flushDue = async () => {
+    for (const [key, value] of [...dirty]) {
+      if (!lastWrite.has(key) || clock() - lastWrite.get(key) >= throttleOf(key)) { try { await write(key, value); } catch (_) { dirty.set(key, value); } }
+    }
+  };
+  const textOf = (t, v) => {
+    if (v == null) return null;
+    if (t === 'json') { try { return JSON.parse(v); } catch (_) { return null; } }
+    if (t === 'arrayBuffer') return new TextEncoder().encode(v).buffer;
+    return v;
+  };
+  return {
+    async get(key, type) {
+      const t = typeof type === 'string' ? type : (type && type.type) || 'text';
+      const hit = mem.get(key);
+      const now = clock();
+      if (hit && hit.exp && now > hit.exp) mem.delete(key);
+      else if (hit && (!stored(key) || dirty.has(key) || now - hit.at < ttl())) return textOf(t, hit.value);
+      if (!stored(key)) return null;
+      if (dirty.size) await flushDue();
+      // One retry: the panel treats a failed read as "no users", and a following owner save would
+      // then overwrite the real list. Errors still propagate after the retry.
+      let value;
+      try { value = await client.get(path(key)); } catch (_) { value = await client.get(path(key)); }
+      mem.set(key, { value, at: clock() });
+      return textOf(t, value);
+    },
+    async put(key, value, opts) {
+      const v = typeof value === 'string' ? value : value instanceof ArrayBuffer ? new TextDecoder().decode(value) : String(value);
+      const exp = opts && Number(opts.expirationTtl) > 0 ? clock() + Math.max(60, Number(opts.expirationTtl)) * 1000 : 0;
+      mem.set(key, { value: v, at: clock(), exp });
+      if (KV_PERSIST.test(key)) return write(key, v);
+      const every = throttleOf(key);
+      if (!every) return;
+      if (!lastWrite.has(key) || clock() - lastWrite.get(key) >= every) return write(key, v);
+      dirty.set(key, v);
+    },
+    async delete(key) {
+      mem.delete(key);
+      dirty.delete(key);
+      if (stored(key)) await client.del(path(key));
+    },
+    async list(opts = {}) {
+      const prefix = String(opts.prefix || '');
+      const names = new Set([...mem.keys()].filter((k) => k.startsWith(prefix)));
+      for (const p of await client.list(KV_PREFIX + hex(prefix))) {
+        const h = p.slice(KV_PREFIX.length);
+        if (/^([0-9a-f]{2})+$/.test(h)) names.add(Buffer.from(h, 'hex').toString('utf8'));
+      }
+      const keys = [...names].sort().slice(0, Math.min(1000, Number(opts.limit) || 1000)).map((name) => ({ name }));
+      return { keys, list_complete: true };
+    },
+    _flush: flushDue,
+  };
+}
+
+async function vercelBlobClient() {
+  const sdk = await import('@vercel/blob');
+  const auth = process.env.BLOB_READ_WRITE_TOKEN ? { token: process.env.BLOB_READ_WRITE_TOKEN } : {};
+  return {
+    async get(p) {
+      const r = await sdk.get(p, { access: 'private', useCache: false, ...auth });
+      if (!r || r.statusCode !== 200 || !r.stream) return null;
+      const chunks = [];
+      for await (const c of r.stream) chunks.push(Buffer.from(c));
+      return Buffer.concat(chunks).toString('utf8');
+    },
+    async put(p, text) {
+      await sdk.put(p, text, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json', ...auth });
+    },
+    async del(p) { await sdk.del(p, auth); },
+    async list(prefix) {
+      const out = [];
+      let cursor;
+      do {
+        const r = await sdk.list({ prefix, cursor, limit: 1000, ...auth });
+        for (const b of r.blobs || []) out.push(b.pathname);
+        cursor = r.hasMore ? r.cursor : undefined;
+      } while (cursor);
+      return out;
+    },
+  };
+}
+
+const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
+const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const hasBlob = !!(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+const PLATFORM = String(process.env.CAT_PLATFORM || '').toLowerCase() === 'node' ? 'node' : 'vercel';
+let CAT_KV;
+let KV_KIND = 'memory';
+if (kvUrl && kvToken) { CAT_KV = upstashKv(kvUrl, kvToken); KV_KIND = 'upstash'; }
+else if (PLATFORM === 'node' && process.env.CAT_KV_DIR) {
+  try { CAT_KV = fileKv(process.env.CAT_KV_DIR); KV_KIND = 'file'; } catch (e) { console.error('file storage unavailable: ' + ((e && e.message) || e)); }
+}
+else if (hasBlob) {
+  try { CAT_KV = blobKv(await vercelBlobClient()); KV_KIND = 'blob'; } catch (e) { console.error('blob storage unavailable: ' + ((e && e.message) || e)); }
+}
+
+/* ------------------------------- panel -------------------------------- */
+// Layout written by the app: api/index.mjs (this file) + lib/catpanel.mjs (the panel with
+// `import("cloudflare:sockets")` swapped for the socket shim). vercel.json includeFiles keeps lib/.
+const panelModule = await import('../lib/catpanel.mjs');
+const worker = panelModule.default;
+if (panelModule._testing && typeof panelModule._testing.__setSockets === 'function') panelModule._testing.__setSockets(globalThis.__catSockets);
+
+const ENV_SKIP = /^(AWS_|LAMBDA_|NODE_|NOW_|VERCEL_|_|PATH$|HOME$|PWD$|LANG$|TZ$|KV_|UPSTASH_|REDIS_|BLOB_|SERVER_|P_SERVER_|STARTUP$|USER$|HOSTNAME$|CAT_KV_DIR$|CAT_NODE_)/;
+function buildEnv() {
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) if (!ENV_SKIP.test(k) && /^[A-Z][A-Z0-9_]*$/.test(k)) env[k] = v;
+  if (CAT_KV) env.CAT_KV = CAT_KV;
+  env.CAT_PLATFORM = PLATFORM;
+  if (PLATFORM === 'node') { env.CAT_STORAGE = KV_KIND; return env; }
+  // Vercel's shortest production domain: a custom domain the owner attached in the dashboard shows up here,
+  // and the panel then serves it (Host = SNI = that domain) without any extra setting.
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) env.CAT_VERCEL_PROD_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  // 6.75.0 in-panel self-update: which region/project to redeploy (the token itself comes from CAT_VERCEL_TOKEN).
+  if (process.env.VERCEL_REGION) env.CAT_VERCEL_REGION = process.env.VERCEL_REGION;
+  if (process.env.VERCEL_PROJECT_ID && !env.CAT_VERCEL_PROJECT) env.CAT_VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
+  env.CAT_STORAGE = KV_KIND;
+  return env;
+}
+const ENV = buildEnv();
+
+function waitUntilFn() {
+  const ctx = globalThis[Symbol.for('@vercel/request-context')];
+  const store = ctx && typeof ctx.get === 'function' ? ctx.get() : null;
+  return (p) => {
+    const promise = Promise.resolve(p).catch(() => {});
+    if (store && typeof store.waitUntil === 'function') store.waitUntil(promise);
+  };
+}
+
+function firstHeader(req, name) { return String(req.headers[name] || '').split(',')[0].trim(); }
+// Cloudflare's published edge ranges (cloudflare.com/ips) — on a direct host only these may claim cf-ray.
+const CF_V4 = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18',
+  '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'];
+const CF_V6 = ['2400:cb00:', '2606:4700:', '2803:f800:', '2405:b500:', '2405:8100:', '2a06:98c', '2c0f:f248:'];
+function v4num(ip) { const p = ip.split('.').map(Number); return p.length === 4 && p.every((n) => n >= 0 && n < 256) ? ((p[0] << 24) >>> 0) + (p[1] << 16) + (p[2] << 8) + p[3] : -1; }
+function isCloudflareIp(raw) {
+  const ip = String(raw || '').toLowerCase().replace(/^::ffff:/, '');
+  if (ip.indexOf(':') >= 0) return CF_V6.some((p) => ip.startsWith(p));
+  const n = v4num(ip);
+  return n >= 0 && CF_V4.some((c) => { const [b, l] = c.split('/'); const m = l === '0' ? 0 : (~0 << (32 - Number(l))) >>> 0; return ((n & m) >>> 0) === ((v4num(b) & m) >>> 0); });
+}
+/**
+ * Node hosts: how did this request reach us? cf-ray → through Cloudflare; an x-forwarded-proto from the
+ * host's own HTTPS edge → 'tls'; nothing in front → 'plain' (the host's own port, e.g. KataBump IP:port).
+ * 6.79.0: on a host with NO proxy of its own (CAT_HOST_DIRECT=1 — KataBump / any Pterodactyl server) every
+ * forwarded header comes from the client itself, so only a real Cloudflare edge address may claim cf-ray and
+ * nothing else can pretend to be TLS (a forged x-forwarded-for would otherwise dodge the login lockout).
+ * Our own 🟧 Cloudflare front (x-cat-front, over the host's HTTPS name) is answered as the TLS edge whatever
+ * Cloudflare headers its subrequest picked up — the panel adds the front's own lines itself.
+ */
+function nodeEdgeOf(req) {
+  if (process.env.CAT_HOST_DIRECT === '1') return req.headers['cf-ray'] && isCloudflareIp(req.socket.remoteAddress) ? 'cf' : 'plain';
+  const proto = firstHeader(req, 'x-forwarded-proto').toLowerCase();
+  if (req.headers['x-cat-front'] && proto === 'https') return 'tls';
+  if (req.headers['cf-ray']) return 'cf';
+  if (proto === 'https' || req.socket.encrypted) return 'tls';
+  if (proto === 'http') return 'proxied-http';
+  return 'plain';
+}
+function clientIp(req) {
+  if (PLATFORM === 'node') {
+    const edge = nodeEdgeOf(req);
+    // straight to our own port: forwarded headers come from the client itself and must not steer
+    // login lockouts / per-IP limits — only the socket address is real
+    if (edge === 'plain') return String(req.socket.remoteAddress || '');
+    if (edge === 'cf') return firstHeader(req, 'cf-connecting-ip') || firstHeader(req, 'x-forwarded-for') || String(req.socket.remoteAddress || '');
+  }
+  const xff = firstHeader(req, 'x-forwarded-for');
+  return String(req.headers['x-real-ip'] || xff || req.socket.remoteAddress || '');
+}
+/** The URL the phone used: scheme + host[:port] as it sees them (node); Vercel is always https on its host. */
+function publicOrigin(req) {
+  // a direct host (KataBump) has no proxy, so x-forwarded-host / -port can only be the client's own invention
+  const direct = PLATFORM === 'node' && process.env.CAT_HOST_DIRECT === '1';
+  const host = String((!direct && req.headers['x-forwarded-host']) || req.headers.host || 'localhost');
+  if (PLATFORM !== 'node') return { url: 'https://' + host, edge: '', port: 443 };
+  const edge = nodeEdgeOf(req);
+  const tls = edge === 'tls' || (edge === 'cf' && firstHeader(req, 'x-forwarded-proto').toLowerCase() !== 'http');
+  const m = /:(\d{1,5})$/.exec(host);
+  const fwdPort = direct ? 0 : Number(firstHeader(req, 'x-forwarded-port')) || 0;
+  const port = m ? Number(m[1]) : (fwdPort || (edge === 'plain' ? Number(process.env.CAT_PUBLIC_PORT || req.socket.localPort || 80) : (tls ? 443 : 80)));
+  const bare = host.replace(/:\d{1,5}$/, '');
+  const scheme = tls ? 'https' : 'http';
+  const showPort = (tls && port !== 443) || (!tls && port !== 80);
+  return { url: scheme + '://' + bare + (showPort ? ':' + port : ''), edge: edge === 'proxied-http' ? 'plain' : edge, port };
+}
+function envFor(req) {
+  if (PLATFORM !== 'node') return ENV;
+  const o = publicOrigin(req);
+  return Object.assign({}, ENV, { CAT_NODE_EDGE: o.edge, CAT_NODE_PORT: String(o.port) });
+}
+
+function toRequest(req, withBody) {
+  const url = publicOrigin(req).url + (req.url || '/');
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (v == null || k.startsWith(':')) continue;
+    if (Array.isArray(v)) v.forEach((x) => headers.append(k, x)); else headers.set(k, String(v));
+  }
+  const ip = clientIp(req);
+  if (ip && (PLATFORM === 'node' || !headers.has('cf-connecting-ip'))) headers.set('cf-connecting-ip', ip);
+  const init = { method: req.method, headers };
+  if (withBody && req.method !== 'GET' && req.method !== 'HEAD') { init.body = Readable.toWeb(req); init.duplex = 'half'; }
+  const request = new Request(url, init);
+  const decode = (x) => { try { return decodeURIComponent(String(x || '')); } catch (_) { return String(x || ''); } };
+  const cf = {
+    country: String(req.headers['x-vercel-ip-country'] || (PLATFORM === 'node' && req.headers['cf-ray'] ? req.headers['cf-ipcountry'] || '' : '')),
+    city: decode(req.headers['x-vercel-ip-city']),
+    region: String(req.headers['x-vercel-ip-country-region'] || ''),
+    latitude: String(req.headers['x-vercel-ip-latitude'] || ''),
+    longitude: String(req.headers['x-vercel-ip-longitude'] || ''),
+    timezone: String(req.headers['x-vercel-ip-timezone'] || ''),
+    colo: String(req.headers['x-vercel-id'] || '').split(':')[0] || (PLATFORM === 'node' ? 'node' : 'vercel'),
+    asn: 0,
+  };
+  try { Object.defineProperty(request, 'cf', { value: cf }); } catch (_) { }
+  return request;
+}
+
+async function writeResponse(res, response) {
+  const headers = {};
+  response.headers.forEach((v, k) => { if (k !== 'set-cookie' && k !== 'content-length' && k !== 'transfer-encoding' && k !== 'content-encoding') headers[k] = v; });
+  const cookies = typeof response.headers.getSetCookie === 'function' ? response.headers.getSetCookie() : [];
+  if (cookies.length) headers['set-cookie'] = cookies;
+  res.writeHead(response.status, headers);
+  if (!response.body) { res.end(); return; }
+  const body = Readable.fromWeb(response.body);
+  body.on('error', () => { try { res.destroy(); } catch (_) { } });
+  body.pipe(res);
+}
+
+const server = http.createServer((req, res) => reqScope.run({ tunnel: false }, async () => {
+  try {
+    const response = await worker.fetch(toRequest(req, true), envFor(req), { waitUntil: waitUntilFn(), passThroughOnException() {} });
+    await writeResponse(res, response);
+  } catch (e) {
+    if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });
+    res.end('panel error');
+  }
+}));
+
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 2 * 1024 * 1024, handleProtocols: (protocols) => protocols.values().next().value ?? false });
+server.on('upgrade', (req, socket, head) => reqScope.run({ tunnel: true }, async () => {
+  socket.on('error', () => {});
+  try {
+    const response = await worker.fetch(toRequest(req, false), envFor(req), { waitUntil: waitUntilFn(), passThroughOnException() {} });
+    const pairClient = response && response.__catUpgrade;
+    if (!pairClient || !pairClient.__catServer) {
+      const text = response ? await response.text().catch(() => '') : '';
+      socket.end('HTTP/1.1 ' + (response ? response.status : 500) + ' Not Upgraded\r\ncontent-type: text/plain\r\nconnection: close\r\ncontent-length: ' + Buffer.byteLength(text) + '\r\n\r\n' + text);
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => pairClient.__catServer.bind(ws));
+  } catch (e) {
+    socket.destroy();
+  }
+}));
+
+/* ----------------------- 🔒 Reality on a direct host ----------------------- */
+// 6.80.0 — KataBump / any Pterodactyl server with its own port and nothing in front (CAT_HOST_DIRECT=1) only, and OFF
+// until the owner turns it on in the panel (warning + confirmation). The one host port then carries both: the first
+// bytes of a connection decide — a TLS ClientHello goes to a local Xray VLESS-Reality inbound chosen by its SNI (one
+// per operator profile), anything else is the panel (HTTP / WebSocket) exactly as before. Xray-core (MPL-2.0) comes
+// from its own GitHub release and must match that release's SHA2-256 (.dgst); the X25519 key pair is made here and
+// only the public half leaves the host. After start the panel proves the path: a TLS handshake through the public
+// port with a profile's SNI must reach the real site's certificate (that is what Reality shows a stranger).
+export const XRAY_VERSION = 'v26.10.21';
+export const REALITY_PROFILES = [
+  { id: 'all', sni: 'www.speedtest.net' }, { id: 'mtn', sni: 'www.microsoft.com' },
+  { id: 'rtl', sni: 'www.cloudflare.com' }, { id: 'tci', sni: 'cdn.jsdelivr.net' },
+];
+const REALITY = { state: null, proc: null, ports: null, status: 'off', err: '', verified: false, clients: [], restarts: [] };
+const realityAllowed = () => PLATFORM === 'node' && process.env.CAT_HOST_DIRECT === '1';
+const realityDir = () => pathMod.join(process.env.CAT_KV_DIR || pathMod.join(os.tmpdir(), 'cat-data'), 'reality');
+
+/** SNI of a complete TLS ClientHello record; null = not TLS / not complete yet, '' = TLS without SNI. */
+export function parseClientHelloSni(buf) {
+  try {
+    if (buf.length < 9 || buf[0] !== 0x16 || buf[5] !== 1) return null;
+    if (buf.length < 5 + buf.readUInt16BE(3)) return null;
+    let p = 5 + 4 + 2 + 32;
+    p += 1 + buf[p];
+    p += 2 + buf.readUInt16BE(p);
+    p += 1 + buf[p];
+    const end = Math.min(buf.length, p + 2 + buf.readUInt16BE(p));
+    p += 2;
+    while (p + 4 <= end) {
+      const type = buf.readUInt16BE(p);
+      const len = buf.readUInt16BE(p + 2);
+      p += 4;
+      if (type === 0) return buf.subarray(p + 5, p + 5 + buf.readUInt16BE(p + 3)).toString('latin1').toLowerCase();
+      p += len;
+    }
+    return '';
+  } catch (e) { return null; }
+}
+/** One file out of a .zip (stored or deflate) — enough for the Xray release zip, no dependency. */
+export function unzipOne(zip, name) {
+  let e = zip.length - 22;
+  while (e >= 0 && zip.readUInt32LE(e) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('not a zip');
+  let p = zip.readUInt32LE(e + 16);
+  for (let i = zip.readUInt16LE(e + 10); i > 0; i--) {
+    if (zip.readUInt32LE(p) !== 0x02014b50) break;
+    const method = zip.readUInt16LE(p + 10);
+    const csize = zip.readUInt32LE(p + 20);
+    const nl = zip.readUInt16LE(p + 28);
+    const xl = zip.readUInt16LE(p + 30);
+    const cl = zip.readUInt16LE(p + 32);
+    const off = zip.readUInt32LE(p + 42);
+    if (zip.toString('utf8', p + 46, p + 46 + nl) === name) {
+      const data = zip.subarray(off + 30 + zip.readUInt16LE(off + 26) + zip.readUInt16LE(off + 28)).subarray(0, csize);
+      if (method === 0) return Buffer.from(data);
+      if (method === 8) return zlib.inflateRawSync(data);
+      throw new Error('zip method ' + method);
+    }
+    p += 46 + nl + xl + cl;
+  }
+  throw new Error(name + ' not in zip');
+}
+/** X25519 pair in Xray's own text form (base64url, no padding): privateKey for the server, pbk for the links. */
+export function realityKeyPair() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('x25519');
+  return { priv: privateKey.export({ format: 'jwk' }).d, pub: publicKey.export({ format: 'jwk' }).x, sid: crypto.randomBytes(4).toString('hex') };
+}
+export function realityXrayJson(state, clients, base) {
+  return {
+    log: { loglevel: 'warning' },
+    inbounds: REALITY_PROFILES.map((p, i) => ({
+      tag: 'r-' + p.id, listen: '127.0.0.1', port: base + i, protocol: 'vless',
+      settings: { clients: clients.map((id) => ({ id, flow: 'xtls-rprx-vision' })), decryption: 'none' },
+      streamSettings: { network: 'tcp', security: 'reality', realitySettings: { target: p.sni + ':443', serverNames: [p.sni], privateKey: state.priv, shortIds: [state.sid] } },
+    })),
+    outbounds: [{ protocol: 'freedom', tag: 'direct' }, { protocol: 'blackhole', tag: 'block' }],
+    // never a way into the host's own network
+    routing: { rules: [{ type: 'field', ip: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', 'fc00::/7', '::1/128'], outboundTag: 'block' }] },
+  };
+}
+function readState() { try { return JSON.parse(fs.readFileSync(pathMod.join(realityDir(), 'reality.json'), 'utf8')); } catch (e) { return null; } }
+function writeState(st) { fs.mkdirSync(realityDir(), { recursive: true }); fs.writeFileSync(pathMod.join(realityDir(), 'reality.json'), JSON.stringify(st), { mode: 0o600 }); }
+async function ensureXray() {
+  if (process.env.CAT_XRAY_BIN) return process.env.CAT_XRAY_BIN;
+  const arch = os.arch() === 'arm64' ? 'arm64-v8a' : os.arch() === 'x64' ? '64' : '';
+  if (!arch || os.platform() !== 'linux') throw new Error('no Xray build for ' + os.platform() + '/' + os.arch());
+  const dir = pathMod.join(realityDir(), 'xray-' + XRAY_VERSION);
+  const bin = pathMod.join(dir, 'xray');
+  if (fs.existsSync(bin)) return bin;
+  const url = 'https://github.com/XTLS/Xray-core/releases/download/' + XRAY_VERSION + '/Xray-linux-' + arch + '.zip';
+  const [zr, dr] = await Promise.all([fetch(url), fetch(url + '.dgst')]);
+  if (!zr.ok || !dr.ok) throw new Error('Xray download HTTP ' + zr.status + '/' + dr.status);
+  const zip = Buffer.from(await zr.arrayBuffer());
+  const want = (/SHA2-256=\s*([0-9a-f]{64})/i.exec(await dr.text()) || [])[1];
+  const got = crypto.createHash('sha256').update(zip).digest('hex');
+  if (!want || want.toLowerCase() !== got) throw new Error('Xray zip SHA-256 mismatch — not used');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(bin + '.part', unzipOne(zip, 'xray'), { mode: 0o755 });
+  fs.renameSync(bin + '.part', bin);
+  return bin;
+}
+function portFree(port) {
+  return new Promise((res) => { const t = net.createServer(); t.once('error', () => res(false)); t.listen(port, '127.0.0.1', () => t.close(() => res(true))); });
+}
+async function freeBase(n) {
+  for (let i = 0; i < 40; i++) {
+    const base = 20000 + Math.floor(Math.random() * 20000);
+    let ok = true;
+    for (let k = 0; k < n && ok; k++) ok = await portFree(base + k);
+    if (ok) return base;
+  }
+  throw new Error('no free local ports');
+}
+function waitPort(port, ms) {
+  const until = Date.now() + ms;
+  return new Promise((res, rej) => {
+    const tryOnce = () => {
+      const c = net.connect(port, '127.0.0.1');
+      c.once('connect', () => { c.destroy(); res(); });
+      c.once('error', () => { c.destroy(); if (Date.now() > until) rej(new Error('Xray did not open its port')); else setTimeout(tryOnce, 150); });
+    };
+    tryOnce();
+  });
+}
+/** The stranger's view through the PUBLIC port: a profile SNI must give that site's real, valid certificate. */
+function realityVerify(sni) {
+  const port = Number(process.env.CAT_PUBLIC_PORT) || (server.address() && server.address().port);
+  return new Promise((res) => {
+    const c = tls.connect({ host: '127.0.0.1', port, servername: sni, ALPNProtocols: ['h2', 'http/1.1'] });
+    const done = (ok, why) => { clearTimeout(t); c.destroy(); res({ ok, why }); };
+    const t = setTimeout(() => done(false, 'timeout'), 10000);
+    c.once('secureConnect', () => done(c.authorized, c.authorized ? '' : String(c.authorizationError || 'cert')));
+    c.once('error', (e) => done(false, String((e && e.code) || (e && e.message) || e)));
+  });
+}
+function stopXray() { const p = REALITY.proc; REALITY.proc = null; REALITY.ports = null; if (p) { p.removeAllListeners('exit'); try { p.kill('SIGTERM'); } catch (e) { /* gone */ } } }
+async function startXray() {
+  // a restart for a new user list keeps the proven state (the sub keeps its lines) unless the new start fails
+  if (!(REALITY.status === 'running' && REALITY.verified)) { REALITY.status = 'starting'; REALITY.verified = false; }
+  REALITY.err = '';
+  try {
+    const bin = await ensureXray();
+    const base = await freeBase(REALITY_PROFILES.length);
+    const cfg = pathMod.join(realityDir(), 'xray.json');
+    fs.writeFileSync(cfg, JSON.stringify(realityXrayJson(REALITY.state, REALITY.clients, base)), { mode: 0o600 });
+    stopXray();
+    const proc = spawn(bin, ['run', '-c', cfg], { stdio: ['ignore', 'ignore', 'pipe'], env: Object.assign({}, process.env, { GOMEMLIMIT: '64MiB' }) });
+    let tail = '';
+    proc.stderr.on('data', (d) => { tail = (tail + d).slice(-400); });
+    REALITY.proc = proc;
+    proc.once('exit', (code) => {
+      if (REALITY.proc !== proc) return;
+      REALITY.proc = null; REALITY.ports = null; REALITY.verified = false;
+      REALITY.status = 'error'; REALITY.err = 'Xray stopped (' + code + ') ' + tail.trim().split('\n').pop();
+      const now = Date.now();
+      REALITY.restarts = REALITY.restarts.filter((t) => now - t < 600000).concat(now);
+      if (REALITY.state && REALITY.state.on && REALITY.restarts.length <= 5) setTimeout(() => { startXray().catch(() => {}); }, 3000);
+    });
+    await waitPort(base + REALITY_PROFILES.length - 1, 10000);
+    REALITY.ports = Object.fromEntries(REALITY_PROFILES.map((p, i) => [p.sni, base + i]));
+    const v = await realityVerify(REALITY_PROFILES[0].sni);
+    REALITY.verified = v.ok;
+    REALITY.status = 'running';
+    if (!v.ok) REALITY.err = 'check through the public port failed: ' + v.why;
+  } catch (e) {
+    stopXray();
+    REALITY.status = 'error';
+    REALITY.err = String((e && e.message) || e).slice(0, 200);
+  }
+}
+function sameList(a, b) { return a.length === b.length && a.every((x, i) => x === b[i]); }
+export const realityApi = {
+  allowed: realityAllowed,
+  status() {
+    const st = REALITY.state || {};
+    return { allowed: realityAllowed(), on: !!st.on, status: REALITY.status, verified: REALITY.verified, err: REALITY.err, pub: st.on ? st.pub : '', sid: st.on ? st.sid : '',
+      profiles: REALITY_PROFILES, ver: XRAY_VERSION, clients: REALITY.clients.length };
+  },
+  async enable(clients) {
+    if (!realityAllowed()) throw new Error('Reality runs only on a direct host (KataBump)');
+    const st = Object.assign({}, readState() || {});
+    if (!st.priv) Object.assign(st, realityKeyPair());
+    st.on = true; st.clients = (clients || []).slice(0, 500);
+    writeState(st);
+    REALITY.state = st; REALITY.clients = st.clients; REALITY.restarts = [];
+    await startXray();
+    return this.status();
+  },
+  async disable() {
+    const st = readState() || {};
+    st.on = false; writeState(st);
+    REALITY.state = st; stopXray(); REALITY.status = 'off'; REALITY.err = ''; REALITY.verified = false;
+    return this.status();
+  },
+  /** Users changed → restart Xray only if the active list really differs. */
+  async sync(clients) {
+    const list = (clients || []).slice(0, 500);
+    if (!REALITY.state || !REALITY.state.on || sameList(list, REALITY.clients)) return false;
+    REALITY.clients = list; REALITY.state.clients = list; writeState(REALITY.state);
+    if (REALITY.status !== 'starting') await startXray();
+    return true;
+  },
+};
+/** First bytes decide: TLS ClientHello → the Xray inbound of its SNI; anything else → the panel's HTTP server. */
+export function attachRealityMux(srv) {
+  const emit = srv.emit;
+  srv.emit = function (ev, sock, ...rest) {
+    if (ev !== 'connection' || !REALITY.ports) return emit.call(this, ev, sock, ...rest);
+    const self = this;
+    let buf = Buffer.alloc(0);
+    const t = setTimeout(() => sock.destroy(), 15000);
+    sock.on('error', () => {});
+    const onData = (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf[0] === 0x16 && buf.length < 16384) {
+        const sni = parseClientHelloSni(buf);
+        if (sni === null) return; // the rest of the hello is still on its way
+        const port = (REALITY.ports || {})[sni] || (REALITY.ports || {})[REALITY_PROFILES[0].sni];
+        if (!port) { clearTimeout(t); sock.destroy(); return; }
+        sock.off('data', onData); clearTimeout(t); sock.pause();
+        const up = net.connect(port, '127.0.0.1', () => { up.write(buf); sock.pipe(up); up.pipe(sock); sock.resume(); });
+        up.on('error', () => sock.destroy()); sock.on('close', () => up.destroy());
+        return;
+      }
+      sock.off('data', onData); clearTimeout(t); sock.pause();
+      sock.unshift(buf);
+      emit.call(self, 'connection', sock, ...rest);
+      process.nextTick(() => sock.resume());
+    };
+    sock.on('data', onData);
+    return true;
+  };
+}
+if (realityAllowed()) {
+  globalThis.__catReality = realityApi;
+  attachRealityMux(server);
+  process.once('exit', () => stopXray()); // never leave an orphan Xray behind a restarted panel
+  const st = readState();
+  if (st && st.on && st.priv) { REALITY.state = st; REALITY.clients = Array.isArray(st.clients) ? st.clients : []; setTimeout(() => { startXray().catch(() => {}); }, 1500); }
+}
+
+export default server;
