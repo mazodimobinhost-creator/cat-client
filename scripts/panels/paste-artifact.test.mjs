@@ -88,7 +88,10 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised 860 000 → 890 000 for 6.76.0 «🔗 link panels»: pairing code + peer API (hello/info/ips/users/sub/bye),
   // the link-exit chain in dialTarget, mirrored users, the combined subscription, 7 owner routes and the bilingual
   // page with its plain-words guide — measured 854 849 B (release guard stays at 900 000).
-  ok('raw size is in the paste range (300–890 KB)', asset.length >= 300_000 && asset.length <= 890_000, asset.length);
+  // Raised 890 000 → 930 000 for 6.80.0 «four owner requests»: clean-IP repository picker with the browser test,
+  // advanced ECH (live ECH names × DNS → saved list), automatic usage reset, today's Cloudflare requests and the
+  // optional KataBump Reality card + API — measured 907 451 B (release guard moves 900 000 → 940 000).
+  ok('raw size is in the paste range (300–930 KB)', asset.length >= 300_000 && asset.length <= 930_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
@@ -136,7 +139,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // per-platform hiding of the Cloudflare-only sections) — measured 261 954 B before the raise.
   // Raised 264 000 → 266 000 for 6.79.4 «every config added must work»: node-side test of each typed IP (WS 101 with
   // SNI = the host), per-host capability list, extra-IP box with save & test — measured 263 909 B before the raise.
-  ok('gzip stays under the 266 KB regression budget', gz < 266_000, gz);
+  // Raised 266 000 → 278 000 for 6.80.0 (see the raw-size note above; most of it the bilingual plain-words texts)
+  // — measured 273 462 B.
+  ok('gzip stays under the 278 KB regression budget', gz < 278_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

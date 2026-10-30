@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta235] — 2026-10-30 (Panel 6.80.0)
+
+### Added — the four owner requests
+- **🗃️ Clean-IP repository picker** (Clean IP → IP tab): tick IPv4 / IPv6 / domain (several = mixed), pick the operator (All / MCI / Irancell / TCI / Rightel) and how many. `GET /api/ip-repo` only *proposes* (healthy repo IPs + edge ranges for that operator; IPv6 in the edge's own shape; domains only if they resolve to Cloudflare right now); the owner's browser then tests each one on their own internet (an answer under 40 ms is a local refusal, a timeout is dead; IPv6 is skipped with a note when the device has no IPv6). Only the ones that answered are added, each on the port it answered on (`IP:443`, `[v6]:443`, `name:443`).
+- **🔐 Advanced ECH** (Settings → SNI & fingerprint): fetch names that publish an ECH config *now* (live HTTPS-record check, `GET /api/ech-pool`) and DNS IPs, combine into `domain+udp://IP` and — only for resolvers with an IP certificate — `domain+https://IP/dns-query`, save as `echPool`. Every TLS config of the sub takes the next line (round-robin) while ECH is on with its default value; `tcp://` is never produced (Xray's `ech.go` has no such scheme — the config would fail). The ECH record lookup now accepts answer type 65 (HTTPS) as well as 64.
+- **♻️ Automatic usage reset** per user («reset used traffic every N days», 0–365): checked whenever the user's usage is read and by the cron (≤ 60 users per run).
+- **☁️ Today's Cloudflare requests** on the dashboard (Workers free plan: 100 000/day, resets 00:00 UTC): the account's real number through the deploy token when it may read analytics, else this panel's own count marked «approx»; one Telegram warning a day at 80 %. Hidden on Node/Vercel.
+- **🔒 Optional Reality on KataBump** (direct-port hosts only, OFF until the owner turns it on with a confirmation): the adapter downloads the official Xray-core `v26.10.21` (SHA2-256 checked against the release `.dgst`), makes an X25519 key pair on the host, and runs one VLESS-Reality (Vision) inbound per operator profile on 127.0.0.1 (`www.speedtest.net` · `www.microsoft.com` · `www.cloudflare.com` · `cdn.jsdelivr.net`). The one public port carries both: a TLS ClientHello goes to the inbound of its SNI, everything else is the panel (HTTP / WebSocket) as before. The panel proves the path through the public port (the real site certificate for the SNI) before any Reality line reaches a sub; Reality traffic is not metered, so only the owner and users without a volume quota get it (and only they are in Xray's list). Private ranges are blackholed. `GET/POST /api/node/reality`.
+
+### Tests
+- New `scripts/panels/panel-680.test.mjs` (ECH list forms + round-robin, `/api/ech-pool`, `/api/ip-repo` by kind/operator, resetDays, `/api/cf-quota`, Reality line rules; also on the minified/obfuscated builds) and `scripts/panels/node-reality.test.mjs` (real launcher + adapter with a stand-in Xray and a test CA: off by default, confirm required, proof through the public port, 4 lines in the sub, TLS routed by SNI while HTTP and the WebSocket tunnel keep working on the same port, metered users excluded, off removes the lines; ClientHello parser on a real hello, unzip, X25519 pair, Xray JSON).
+- `panel-dom.test.mjs`: repo picker adds exactly the answering candidates (instant refusal and timeout left out); ECH fetch → combine → save; reset field; Reality card hidden on Cloudflare.
+- Budgets: paste raw 890 000 → 930 000 (release guard 900 000 → 940 000), gzip 266 000 → 278 000 — measured 907 451 / 273 462 B.
+
 ## [1.10.0-beta234] — 2026-10-30 (Panel 6.79.4)
 
 ### Changed — node hosts: «if I add 10 configs, all 10 must work»

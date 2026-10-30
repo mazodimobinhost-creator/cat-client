@@ -50,7 +50,7 @@ test('canonical Worker keeps conservative probe and subscription limits', async 
   assert.match(sourceText, /mapBounded\(repos, 3,/);
   assert.doesNotMatch(sourceText, /access-control-allow-origin[^\n]+\*[^\n]+api\/colo/);
   assert.match(sourceText, /readResponseJsonBounded\(response/);
-  assert.match(sourceText, /for \(const task of \[refreshRepos, refreshProxyRepos, cronSelfCheck, cronCountryQuality\]\)/);
+  assert.match(sourceText, /for \(const task of \[refreshRepos, refreshProxyRepos, cronSelfCheck, cronCountryQuality(, cronUsageReset, cronQuotaWarn)?\]\)/);
   assert.doesNotMatch(sourceText, /Promise\.allSettled\(\[refreshRepos\(env\), refreshProxyRepos/);
   assert.match(sourceText, /GEO_CACHE_MAX = 256/);
   assert.match(sourceText, /while \(GEO_CACHE\.size > GEO_CACHE_MAX\)/);

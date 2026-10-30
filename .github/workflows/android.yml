@@ -313,6 +313,8 @@ jobs:
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/smarterasp-linux.test.mjs
             # 6.79.3 node hosts: server IPs in the configs, exits on a node, the Clean IP page
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node --test scripts/panels/node-server-ips.test.mjs
+            # 6.80.0 optional KataBump Reality: real launcher + adapter, one port for TLS (by SNI) and HTTP/WS, stand-in Xray
+            CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/node-reality.test.mjs
             CAT_PANEL_WORKER="$PWD/app/src/main/assets/panels/catclient.worker.js" node scripts/panels/tunnel-grain.test.mjs
             # the SNI Lab suite runs on artifacts too: its source-shape checks gate themselves,
             # the behavioral ones (endpoint, KV, payload, «never writes settings») must pass here
@@ -887,7 +889,8 @@ jobs:
           node --check catclient.worker.js
           # Guards against shipping the ~1.9 MB obfuscated build here; kept in step with the paste budget in
           # scripts/panels/paste-artifact.test.mjs (6.75.0: 823 182 B — beta201 failed only on the old 800 000 line).
-          test "$(wc -c < catclient.worker.js)" -lt 900000
+          # 6.80.0: 907 451 B → 940 000.
+          test "$(wc -c < catclient.worker.js)" -lt 940000
           cp deploy-bot/worker.js cat-deploy-bot.worker.js
           # 6.69.45 Cat Panel on any Node host: the launcher zip (index.js + package.json + README) fetches
           # catclient.worker.js + cat-panel-adapter.mjs from this release and checks them against

@@ -43,6 +43,16 @@ const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', preten
       if (emptySubscription && url.pathname.startsWith('/sub/')) {
         return new Response('\n', { status: 200, headers: { 'content-type': 'text/plain' } });
       }
+      // 6.80.0: canned repo answers + the browser's own reachability test of candidates (no real network)
+      if (url.pathname === '/api/ip-repo') return new Response(JSON.stringify({ ok: true, op: 'mtn', cands: [{ a: '188.114.97.7:443', k: 'v4' }, { a: '[2606:4700:3030::6815:30c9]:443', k: 'v6' }, { a: 'www.visa.com:443', k: 'dom' }, { a: '188.114.98.9:443', k: 'v4' }, { a: '188.114.96.1:443', k: 'v4' }] }), { headers: { 'content-type': 'application/json' } });
+      if (url.pathname === '/api/ech-pool') return new Response(JSON.stringify(url.searchParams.get('what') === 'dns' ? { ok: true, dns: [{ ip: '8.8.8.8', doh: true }, { ip: '84.200.69.80', doh: false }] } : { ok: true, domains: ['crypto.cloudflare.com'], checked: 4 }), { headers: { 'content-type': 'application/json' } });
+      if (url.hostname !== new URL(HOST).hostname) {
+        const h = url.hostname;
+        if (h === '[2606:4700:4700::1111]' || h === '2606:4700:4700::1111') return new Promise((res) => setTimeout(() => res(new Response('')), 50));
+        if (h === '188.114.96.1') return Promise.reject(new TypeError('refused')); // instant → local refusal, not alive
+        if (h === '188.114.98.9') return new Promise((res, rej) => { const t = setTimeout(() => res(new Response('')), 9000); if (init.signal) init.signal.addEventListener('abort', () => { clearTimeout(t); rej(new Error('abort')); }); });
+        return new Promise((res) => setTimeout(() => res(new Response('')), 60));
+      }
       const r = await worker.fetch(new Request(url, { method: init.method||'GET', headers: init.headers||{}, body: init.body }), env, {});
       return r;
     };
@@ -322,6 +332,36 @@ check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyfr
   check('pasting the code in the same panel shows a clear refusal', /❌/.test(document.querySelector('#lkMsg').textContent), document.querySelector('#lkMsg').textContent);
   check('the plain-words guide is on the page', document.querySelectorAll('#v-link ul li').length >= 5);
 }
+
+// 6.80.0 🗃️ clean-IP repository: the browser tests, only answering ones (≥ 40 ms, not timed out) are added on :443
+{
+  document.querySelector('#repoKinds input[value="v6"]').checked = true;
+  document.querySelector('#repoKinds input[value="dom"]').checked = true;
+  document.querySelector('#repoN').value = '5';
+  document.querySelector('#repoGo').click();
+  for (let i = 0; i < 60 && document.querySelector('#repoGo').disabled; i++) await sleep(150);
+  const out = document.querySelector('#repoOut').textContent;
+  check('repo picker: candidates listed with a result each', /188\.114\.97\.7:443/.test(out) && /www\.visa\.com:443/.test(out) && /3 \/ 5/.test(out), out.slice(0, 300));
+  check('repo picker: «add» appears once something answered', document.querySelector('#repoAdd').style.display === '');
+  document.querySelector('#repoAdd').click(); await sleep(400);
+  const ips = JSON.parse(await KV.get('cat:v6:settings')).ips;
+  check('repo picker: exactly the 3 that answered are added, each on :443 (instant refusal + timeout left out)', ['188.114.97.7:443', '[2606:4700:3030::6815:30c9]:443', 'www.visa.com:443'].every((a) => ips.includes(a)) && !ips.some((a) => /188\.114\.9[68]\./.test(a)), JSON.stringify(ips));
+}
+// 6.80.0 🔐 advanced ECH: fetch → combine (UDP for all, DoH only for IP-certificate resolvers, never TCP) → save
+{
+  document.querySelector('#echDomsGet').click(); await sleep(150);
+  document.querySelector('#echDnsGet').click(); await sleep(150);
+  check('ECH: fetched names and DNS fill the boxes', /crypto\.cloudflare\.com/.test(document.querySelector('#echDoms').value) && /8\.8\.8\.8/.test(document.querySelector('#echDns').value) && /84\.200\.69\.80/.test(document.querySelector('#echDns').value));
+  document.querySelector('#echMix').click();
+  const lines = document.querySelector('#echPoolTa').value.split('\n').filter(Boolean);
+  check('ECH: combine = UDP for each DNS + DoH only where the resolver has an IP certificate, no tcp://', lines.includes('crypto.cloudflare.com+udp://8.8.8.8') && lines.includes('crypto.cloudflare.com+udp://84.200.69.80') && lines.includes('crypto.cloudflare.com+https://8.8.8.8/dns-query') && !lines.some((l) => /84\.200\.69\.80\/dns-query|tcp:/.test(l)), lines.join(' | '));
+  document.querySelector('#echPoolSave').click(); await sleep(300);
+  const pool = JSON.parse(await KV.get('cat:v6:settings')).echPool;
+  check('ECH: «save» stores the list in the panel settings', Array.isArray(pool) && pool.length === lines.length, JSON.stringify(pool));
+}
+// 6.80.0 user modal: «reset every N days» exists; ☁️ quota line + 🔒 Reality card stay hidden where they do not apply
+check('user modal has the auto-reset field', !!document.querySelector('#fUser [name="resetdays"]'));
+check('Reality card hidden on a Cloudflare panel', document.querySelector('#rlCard').style.display === 'none');
 
 // lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
 check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));

@@ -22,6 +22,10 @@ import dns from 'node:dns';
 import tls from 'node:tls';
 import { Readable, Duplex } from 'node:stream';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
+import os from 'node:os';
 import { WebSocketServer } from 'ws';
 
 /* ------------------------------ sockets ------------------------------ */
@@ -553,5 +557,246 @@ server.on('upgrade', (req, socket, head) => reqScope.run({ tunnel: true }, async
     socket.destroy();
   }
 }));
+
+/* ----------------------- 🔒 Reality on a direct host ----------------------- */
+// 6.80.0 — KataBump / any Pterodactyl server with its own port and nothing in front (CAT_HOST_DIRECT=1) only, and OFF
+// until the owner turns it on in the panel (warning + confirmation). The one host port then carries both: the first
+// bytes of a connection decide — a TLS ClientHello goes to a local Xray VLESS-Reality inbound chosen by its SNI (one
+// per operator profile), anything else is the panel (HTTP / WebSocket) exactly as before. Xray-core (MPL-2.0) comes
+// from its own GitHub release and must match that release's SHA2-256 (.dgst); the X25519 key pair is made here and
+// only the public half leaves the host. After start the panel proves the path: a TLS handshake through the public
+// port with a profile's SNI must reach the real site's certificate (that is what Reality shows a stranger).
+export const XRAY_VERSION = 'v26.10.21';
+export const REALITY_PROFILES = [
+  { id: 'all', sni: 'www.speedtest.net' }, { id: 'mtn', sni: 'www.microsoft.com' },
+  { id: 'rtl', sni: 'www.cloudflare.com' }, { id: 'tci', sni: 'cdn.jsdelivr.net' },
+];
+const REALITY = { state: null, proc: null, ports: null, status: 'off', err: '', verified: false, clients: [], restarts: [] };
+const realityAllowed = () => PLATFORM === 'node' && process.env.CAT_HOST_DIRECT === '1';
+const realityDir = () => pathMod.join(process.env.CAT_KV_DIR || pathMod.join(os.tmpdir(), 'cat-data'), 'reality');
+
+/** SNI of a complete TLS ClientHello record; null = not TLS / not complete yet, '' = TLS without SNI. */
+export function parseClientHelloSni(buf) {
+  try {
+    if (buf.length < 9 || buf[0] !== 0x16 || buf[5] !== 1) return null;
+    if (buf.length < 5 + buf.readUInt16BE(3)) return null;
+    let p = 5 + 4 + 2 + 32;
+    p += 1 + buf[p];
+    p += 2 + buf.readUInt16BE(p);
+    p += 1 + buf[p];
+    const end = Math.min(buf.length, p + 2 + buf.readUInt16BE(p));
+    p += 2;
+    while (p + 4 <= end) {
+      const type = buf.readUInt16BE(p);
+      const len = buf.readUInt16BE(p + 2);
+      p += 4;
+      if (type === 0) return buf.subarray(p + 5, p + 5 + buf.readUInt16BE(p + 3)).toString('latin1').toLowerCase();
+      p += len;
+    }
+    return '';
+  } catch (e) { return null; }
+}
+/** One file out of a .zip (stored or deflate) — enough for the Xray release zip, no dependency. */
+export function unzipOne(zip, name) {
+  let e = zip.length - 22;
+  while (e >= 0 && zip.readUInt32LE(e) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('not a zip');
+  let p = zip.readUInt32LE(e + 16);
+  for (let i = zip.readUInt16LE(e + 10); i > 0; i--) {
+    if (zip.readUInt32LE(p) !== 0x02014b50) break;
+    const method = zip.readUInt16LE(p + 10);
+    const csize = zip.readUInt32LE(p + 20);
+    const nl = zip.readUInt16LE(p + 28);
+    const xl = zip.readUInt16LE(p + 30);
+    const cl = zip.readUInt16LE(p + 32);
+    const off = zip.readUInt32LE(p + 42);
+    if (zip.toString('utf8', p + 46, p + 46 + nl) === name) {
+      const data = zip.subarray(off + 30 + zip.readUInt16LE(off + 26) + zip.readUInt16LE(off + 28)).subarray(0, csize);
+      if (method === 0) return Buffer.from(data);
+      if (method === 8) return zlib.inflateRawSync(data);
+      throw new Error('zip method ' + method);
+    }
+    p += 46 + nl + xl + cl;
+  }
+  throw new Error(name + ' not in zip');
+}
+/** X25519 pair in Xray's own text form (base64url, no padding): privateKey for the server, pbk for the links. */
+export function realityKeyPair() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('x25519');
+  return { priv: privateKey.export({ format: 'jwk' }).d, pub: publicKey.export({ format: 'jwk' }).x, sid: crypto.randomBytes(4).toString('hex') };
+}
+export function realityXrayJson(state, clients, base) {
+  return {
+    log: { loglevel: 'warning' },
+    inbounds: REALITY_PROFILES.map((p, i) => ({
+      tag: 'r-' + p.id, listen: '127.0.0.1', port: base + i, protocol: 'vless',
+      settings: { clients: clients.map((id) => ({ id, flow: 'xtls-rprx-vision' })), decryption: 'none' },
+      streamSettings: { network: 'tcp', security: 'reality', realitySettings: { target: p.sni + ':443', serverNames: [p.sni], privateKey: state.priv, shortIds: [state.sid] } },
+    })),
+    outbounds: [{ protocol: 'freedom', tag: 'direct' }, { protocol: 'blackhole', tag: 'block' }],
+    // never a way into the host's own network
+    routing: { rules: [{ type: 'field', ip: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', 'fc00::/7', '::1/128'], outboundTag: 'block' }] },
+  };
+}
+function readState() { try { return JSON.parse(fs.readFileSync(pathMod.join(realityDir(), 'reality.json'), 'utf8')); } catch (e) { return null; } }
+function writeState(st) { fs.mkdirSync(realityDir(), { recursive: true }); fs.writeFileSync(pathMod.join(realityDir(), 'reality.json'), JSON.stringify(st), { mode: 0o600 }); }
+async function ensureXray() {
+  if (process.env.CAT_XRAY_BIN) return process.env.CAT_XRAY_BIN;
+  const arch = os.arch() === 'arm64' ? 'arm64-v8a' : os.arch() === 'x64' ? '64' : '';
+  if (!arch || os.platform() !== 'linux') throw new Error('no Xray build for ' + os.platform() + '/' + os.arch());
+  const dir = pathMod.join(realityDir(), 'xray-' + XRAY_VERSION);
+  const bin = pathMod.join(dir, 'xray');
+  if (fs.existsSync(bin)) return bin;
+  const url = 'https://github.com/XTLS/Xray-core/releases/download/' + XRAY_VERSION + '/Xray-linux-' + arch + '.zip';
+  const [zr, dr] = await Promise.all([fetch(url), fetch(url + '.dgst')]);
+  if (!zr.ok || !dr.ok) throw new Error('Xray download HTTP ' + zr.status + '/' + dr.status);
+  const zip = Buffer.from(await zr.arrayBuffer());
+  const want = (/SHA2-256=\s*([0-9a-f]{64})/i.exec(await dr.text()) || [])[1];
+  const got = crypto.createHash('sha256').update(zip).digest('hex');
+  if (!want || want.toLowerCase() !== got) throw new Error('Xray zip SHA-256 mismatch — not used');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(bin + '.part', unzipOne(zip, 'xray'), { mode: 0o755 });
+  fs.renameSync(bin + '.part', bin);
+  return bin;
+}
+function portFree(port) {
+  return new Promise((res) => { const t = net.createServer(); t.once('error', () => res(false)); t.listen(port, '127.0.0.1', () => t.close(() => res(true))); });
+}
+async function freeBase(n) {
+  for (let i = 0; i < 40; i++) {
+    const base = 20000 + Math.floor(Math.random() * 20000);
+    let ok = true;
+    for (let k = 0; k < n && ok; k++) ok = await portFree(base + k);
+    if (ok) return base;
+  }
+  throw new Error('no free local ports');
+}
+function waitPort(port, ms) {
+  const until = Date.now() + ms;
+  return new Promise((res, rej) => {
+    const tryOnce = () => {
+      const c = net.connect(port, '127.0.0.1');
+      c.once('connect', () => { c.destroy(); res(); });
+      c.once('error', () => { c.destroy(); if (Date.now() > until) rej(new Error('Xray did not open its port')); else setTimeout(tryOnce, 150); });
+    };
+    tryOnce();
+  });
+}
+/** The stranger's view through the PUBLIC port: a profile SNI must give that site's real, valid certificate. */
+function realityVerify(sni) {
+  const port = Number(process.env.CAT_PUBLIC_PORT) || (server.address() && server.address().port);
+  return new Promise((res) => {
+    const c = tls.connect({ host: '127.0.0.1', port, servername: sni, ALPNProtocols: ['h2', 'http/1.1'] });
+    const done = (ok, why) => { clearTimeout(t); c.destroy(); res({ ok, why }); };
+    const t = setTimeout(() => done(false, 'timeout'), 10000);
+    c.once('secureConnect', () => done(c.authorized, c.authorized ? '' : String(c.authorizationError || 'cert')));
+    c.once('error', (e) => done(false, String((e && e.code) || (e && e.message) || e)));
+  });
+}
+function stopXray() { const p = REALITY.proc; REALITY.proc = null; REALITY.ports = null; if (p) { p.removeAllListeners('exit'); try { p.kill('SIGTERM'); } catch (e) { /* gone */ } } }
+async function startXray() {
+  // a restart for a new user list keeps the proven state (the sub keeps its lines) unless the new start fails
+  if (!(REALITY.status === 'running' && REALITY.verified)) { REALITY.status = 'starting'; REALITY.verified = false; }
+  REALITY.err = '';
+  try {
+    const bin = await ensureXray();
+    const base = await freeBase(REALITY_PROFILES.length);
+    const cfg = pathMod.join(realityDir(), 'xray.json');
+    fs.writeFileSync(cfg, JSON.stringify(realityXrayJson(REALITY.state, REALITY.clients, base)), { mode: 0o600 });
+    stopXray();
+    const proc = spawn(bin, ['run', '-c', cfg], { stdio: ['ignore', 'ignore', 'pipe'], env: Object.assign({}, process.env, { GOMEMLIMIT: '64MiB' }) });
+    let tail = '';
+    proc.stderr.on('data', (d) => { tail = (tail + d).slice(-400); });
+    REALITY.proc = proc;
+    proc.once('exit', (code) => {
+      if (REALITY.proc !== proc) return;
+      REALITY.proc = null; REALITY.ports = null; REALITY.verified = false;
+      REALITY.status = 'error'; REALITY.err = 'Xray stopped (' + code + ') ' + tail.trim().split('\n').pop();
+      const now = Date.now();
+      REALITY.restarts = REALITY.restarts.filter((t) => now - t < 600000).concat(now);
+      if (REALITY.state && REALITY.state.on && REALITY.restarts.length <= 5) setTimeout(() => { startXray().catch(() => {}); }, 3000);
+    });
+    await waitPort(base + REALITY_PROFILES.length - 1, 10000);
+    REALITY.ports = Object.fromEntries(REALITY_PROFILES.map((p, i) => [p.sni, base + i]));
+    const v = await realityVerify(REALITY_PROFILES[0].sni);
+    REALITY.verified = v.ok;
+    REALITY.status = 'running';
+    if (!v.ok) REALITY.err = 'check through the public port failed: ' + v.why;
+  } catch (e) {
+    stopXray();
+    REALITY.status = 'error';
+    REALITY.err = String((e && e.message) || e).slice(0, 200);
+  }
+}
+function sameList(a, b) { return a.length === b.length && a.every((x, i) => x === b[i]); }
+export const realityApi = {
+  allowed: realityAllowed,
+  status() {
+    const st = REALITY.state || {};
+    return { allowed: realityAllowed(), on: !!st.on, status: REALITY.status, verified: REALITY.verified, err: REALITY.err, pub: st.on ? st.pub : '', sid: st.on ? st.sid : '',
+      profiles: REALITY_PROFILES, ver: XRAY_VERSION, clients: REALITY.clients.length };
+  },
+  async enable(clients) {
+    if (!realityAllowed()) throw new Error('Reality runs only on a direct host (KataBump)');
+    const st = Object.assign({}, readState() || {});
+    if (!st.priv) Object.assign(st, realityKeyPair());
+    st.on = true; st.clients = (clients || []).slice(0, 500);
+    writeState(st);
+    REALITY.state = st; REALITY.clients = st.clients; REALITY.restarts = [];
+    await startXray();
+    return this.status();
+  },
+  async disable() {
+    const st = readState() || {};
+    st.on = false; writeState(st);
+    REALITY.state = st; stopXray(); REALITY.status = 'off'; REALITY.err = ''; REALITY.verified = false;
+    return this.status();
+  },
+  /** Users changed → restart Xray only if the active list really differs. */
+  async sync(clients) {
+    const list = (clients || []).slice(0, 500);
+    if (!REALITY.state || !REALITY.state.on || sameList(list, REALITY.clients)) return false;
+    REALITY.clients = list; REALITY.state.clients = list; writeState(REALITY.state);
+    if (REALITY.status !== 'starting') await startXray();
+    return true;
+  },
+};
+/** First bytes decide: TLS ClientHello → the Xray inbound of its SNI; anything else → the panel's HTTP server. */
+export function attachRealityMux(srv) {
+  const emit = srv.emit;
+  srv.emit = function (ev, sock, ...rest) {
+    if (ev !== 'connection' || !REALITY.ports) return emit.call(this, ev, sock, ...rest);
+    const self = this;
+    let buf = Buffer.alloc(0);
+    const t = setTimeout(() => sock.destroy(), 15000);
+    sock.on('error', () => {});
+    const onData = (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf[0] === 0x16 && buf.length < 16384) {
+        const sni = parseClientHelloSni(buf);
+        if (sni === null) return; // the rest of the hello is still on its way
+        const port = (REALITY.ports || {})[sni] || (REALITY.ports || {})[REALITY_PROFILES[0].sni];
+        if (!port) { clearTimeout(t); sock.destroy(); return; }
+        sock.off('data', onData); clearTimeout(t); sock.pause();
+        const up = net.connect(port, '127.0.0.1', () => { up.write(buf); sock.pipe(up); up.pipe(sock); sock.resume(); });
+        up.on('error', () => sock.destroy()); sock.on('close', () => up.destroy());
+        return;
+      }
+      sock.off('data', onData); clearTimeout(t); sock.pause();
+      sock.unshift(buf);
+      emit.call(self, 'connection', sock, ...rest);
+      process.nextTick(() => sock.resume());
+    };
+    sock.on('data', onData);
+    return true;
+  };
+}
+if (realityAllowed()) {
+  globalThis.__catReality = realityApi;
+  attachRealityMux(server);
+  process.once('exit', () => stopXray()); // never leave an orphan Xray behind a restarted panel
+  const st = readState();
+  if (st && st.on && st.priv) { REALITY.state = st; REALITY.clients = Array.isArray(st.clients) ? st.clients : []; setTimeout(() => { startXray().catch(() => {}); }, 1500); }
+}
 
 export default server;

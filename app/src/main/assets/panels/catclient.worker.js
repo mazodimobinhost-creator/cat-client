@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.79.4';
+const CAT_PANEL_VERSION = '6.80.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1198,6 +1198,7 @@ function defaultSettings() {
     // (a base64 ECHConfigList OR a «domain+dns://server» live-query value).
     // Only applied when a subscription asks for ECH: ?ech=1 (builder toggle).
     echList: '',
+    echPool: [],         // 6.80.0: «domain+udp://IP» / «domain+https://IP/dns-query» lines, one per ECH config (round-robin)
     panelPath: '',       // stealth: panel UI lives at /<panelPath>; root answers a neutral 404 ('' = legacy open panel)
     stealthOn: false,    // one-time latch: first normalize flips it and defaults panelPath to 'panel' (opt-out = clear panelPath afterwards)
     countryFallback: 'auto', // 'auto' = fastest other country when preferred is dead, 'none' = never leave it
@@ -1337,6 +1338,7 @@ function normalizeSettings(raw) {
   s.alpn = ['http/1.1', 'h2,http/1.1', 'h2', 'h3,h2,http/1.1'].includes(s.alpn) ? s.alpn : 'http/1.1';
   s.cipherSuites = String(s.cipherSuites || '').replace(/[^A-Za-z0-9_:,]/g, '').slice(0, 2000);
   s.echList = String(s.echList == null ? '' : s.echList).replace(/\s+/g, '').slice(0, 300);
+  s.echPool = echPoolOf(s.echPool);
   s.panelPath = /^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(String(s.panelPath || '').trim().toLowerCase()) ? String(s.panelPath).trim().toLowerCase() : '';
   // One-time stealth default (beta57): existing panels wake up camouflaged —
   // / serves a harmless landing, the real UI sits at /panel. Clearing the path
@@ -1396,6 +1398,8 @@ function normalizeUser(raw) {
     // Simultaneous client IPs (0 → unlimited), counted over USER_IP_WINDOW_MS.
     maxIps: Math.max(0, Math.min(50, Math.floor(Number(u.maxIps) || 0))),
     usageResetAt: Number(u.usageResetAt) || 0,
+    // ♻️ 6.80.0 automatic volume reset every N days (0 → off), counted from the start of the current usage period.
+    resetDays: Math.max(0, Math.min(365, Math.floor(Number(u.resetDays) || 0))),
     // Validity that starts at the FIRST real tunnel connection: N days (0 → off). While
     // expiresAt is 0 the clock has not started; admitLimitedUser starts it exactly once.
     firstUseDays: Math.max(0, Math.min(3650, Math.floor(Number(u.firstUseDays) || 0))),
@@ -1420,6 +1424,7 @@ async function readUsers(env) {
 async function writeUsers(env, users) {
   const list = (users || []).map(normalizeUser).slice(0, 500);
   const persisted = await kvPutJson(env, KV_KEYS.users, list);
+  REALITY_SYNC.at = 0; // 🔒 the next request re-syncs Reality's user list
   return { users: list, persisted };
 }
 
@@ -1463,6 +1468,21 @@ async function readTraffic(env, id, fresh) {
   }
   const pending = trafficPending.get(id);
   return pending ? { up: stored.up + pending.up, down: stored.down + pending.down, since: stored.since } : stored;
+}
+
+/** readTraffic + ♻️ the user's automatic reset: once the period is over the meter starts again (one KV write). */
+async function trafficOf(env, user, fresh) {
+  const t = await readTraffic(env, user.id, fresh);
+  if (!(user.resetDays > 0) || !(t.up + t.down > 0)) return t;
+  const from = t.since || user.usageResetAt || user.createdAt || 0;
+  if (!from || Date.now() - from < user.resetDays * 86400000) return t;
+  await resetTraffic(env, user.id);
+  return { up: 0, down: 0, since: Date.now() };
+}
+/** Cron: reset the due ones even if they are not connecting right now (≤ 60 users per run). */
+async function cronUsageReset(env) {
+  const users = (await readUsers(env)).filter((u) => u.resetDays > 0).slice(0, 60);
+  for (const u of users) { try { await trafficOf(env, u, true); } catch (e) { /* next run */ } }
 }
 
 async function flushTraffic(env, id) {
@@ -3955,7 +3975,7 @@ async function startFirstUseClock(env, user) {
 async function admitLimitedUser(env, user, clientIp, ws, log) {
   if (user.firstUseDays > 0 && !user.expiresAt) await startFirstUseClock(env, user).catch(() => {});
   if (user.quotaBytes > 0) {
-    const traffic = await readTraffic(env, user.id).catch(() => null);
+    const traffic = await trafficOf(env, user).catch(() => null);
     if (userBlockedReason(user, traffic) === 'quota') { log('quota reached'); safeCloseWs(ws, 1008, 'quota'); return false; }
   }
   if (user.maxIps > 0 && !(await admitUserIp(env, user, String(clientIp || '').slice(0, 64)))) {
@@ -4661,6 +4681,157 @@ const ECH_CACHE_KEY = 'cat_ech_v1';
  * SNI gets its real SNI encrypted on the wire, and because the client resolves
  * it at connect time, Cloudflare key rotation can never stale it. */
 const DEFAULT_ECH_VALUE = 'cloudflare-ech.com+udp://1.1.1.1';
+/* 6.80.0 🔐 ECH pool. Xray (transport/internet/tls/ech.go) fetches the ECH config of «domain» from «server» by
+ * itself and knows only udp://IP[:port] and https://IP/dns-query (a tcp:// value never resolves → that config
+ * cannot connect, so it is not offered). A DoH IP must show a certificate for the IP itself over HTTP/2, so DoH
+ * lines are made only for resolvers that do (ECH_DOH). The sub hands the pool out round-robin, one line per config. */
+const ECH_COMBO_RE = /^[a-z0-9][a-z0-9.-]{0,252}\+(udp:\/\/(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\])(:\d{1,5})?|https:\/\/(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\])\/dns-query)$/;
+const ECH_DOH = ['1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4', '9.9.9.9', '149.112.112.112', '94.140.14.14', '94.140.15.15'];
+const ECH_DNS = ECH_DOH.concat(['208.67.222.222', '208.67.220.220', '185.228.168.9', '185.228.169.9', '8.26.56.26', '8.20.247.20',
+  '84.200.69.80', '84.200.70.40', '76.76.2.0', '76.76.10.0', '77.88.8.8', '77.88.8.1', '64.6.64.6', '64.6.65.6']);
+// Cloudflare-hosted names; only those whose HTTPS record carries an ECH config right now are handed out (checked live).
+const ECH_DOMAIN_CANDIDATES = ['cloudflare-ech.com', 'crypto.cloudflare.com', 'cdnjs.cloudflare.com', 'www.cloudflare.com',
+  'blog.cloudflare.com', 'developers.cloudflare.com', 'radar.cloudflare.com', 'speed.cloudflare.com', 'one.one.one.one',
+  'cloudflare-dns.com', 'cloudflareinsights.com', 'workers.dev', 'pages.dev', 'discord.com', 'discordapp.com', 'canva.com',
+  'medium.com', 'skk.moe', 'icook.tw', 'creativecommons.org', 'hackerone.com', 'www.patreon.com', 'www.udemy.com', 'www.fiverr.com'];
+const ECH_HAS = new Map();
+/** Does this name publish an ECH config now? (DoH HTTPS record, 6 h memory cache, no KV write.) */
+async function dohHasEch(name) {
+  const hit = ECH_HAS.get(name);
+  if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.ok;
+  let ok = false;
+  try {
+    const res = await fetchTimed('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=HTTPS', { headers: { accept: 'application/dns-json' } }, 4000);
+    const j = res.ok ? await readResponseJsonBounded(res) : null;
+    ok = !!(j && Array.isArray(j.Answer) && j.Answer.some((a) => (a.type === 65 || a.type === 64) && /ech=/.test(String(a.data || ''))));
+  } catch (e) { ok = false; }
+  ECH_HAS.set(name, { at: Date.now(), ok });
+  return ok;
+}
+function echPoolOf(list) {
+  return uniq((Array.isArray(list) ? list : String(list || '').split(/[\s,]+/)).map((v) => String(v || '').trim().toLowerCase()).filter((v) => ECH_COMBO_RE.test(v))).slice(0, 48);
+}
+/** The ECH value for the next config: the pool round-robin when one is on, else the single value. */
+function echNext(ctx) {
+  const p = ctx.echPool;
+  if (!ctx.ech || !p || !p.length) return ctx.ech;
+  ctx.echI = (ctx.echI || 0) + 1;
+  return p[(ctx.echI - 1) % p.length];
+}
+function shuffled(list) { const a = list.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+
+/* 6.80.0 🗃️ clean-IP repository: candidates by kind (IPv4 / IPv6 / domain) and operator. The panel only PROPOSES;
+ * the owner's browser then tests each one from their own network and only the ones that answer are added, each on
+ * the port it answered on (443). The operator only changes which ranges are tried first. */
+const IPREPO_V4 = { all: ['104.16', '104.17', '104.18', '104.19', '104.21', '172.64', '172.66', '172.67', '162.159', '188.114.96', '188.114.97', '188.114.98', '188.114.99'],
+  mtn: ['188.114.96', '188.114.97', '188.114.98', '188.114.99'], mci: ['104.16', '104.17', '104.18', '104.19', '162.159'], tci: ['172.64', '172.66', '172.67', '104.21'], rtl: ['104.16', '172.67', '188.114.97'] };
+const IPREPO_V6 = { all: ['2606:4700:3030::', '2606:4700:3031::', '2606:4700:3033::', '2606:4700:3034::', '2606:4700:3035::', '2606:4700:3036::', '2606:4700:3037::', '2a06:98c1:3101::', '2a06:98c1:3120::', '2a06:98c1:3121::'],
+  mci: ['2a06:98c1:3101::', '2a06:98c1:3120::', '2a06:98c1:3121::', '2606:4700:3030::'] };
+const IPREPO_DOMAINS = ['www.visa.com', 'cdnjs.cloudflare.com', 'creativecommons.org', 'discord.com', 'www.canva.com', 'medium.com', 'www.udemy.com',
+  'www.patreon.com', 'hackerone.com', 'www.fiverr.com', 'skk.moe', 'icook.tw', 'icook.hk', 'www.zula.ir', 'www.digitalocean.com', 'www.coinbase.com',
+  'gitlab.com', 'www.npmjs.com', 'www.shopify.com', 'wordpress.org', 'japan.com', 'www.speedtest.net'];
+const IPREPO_DOM_OK = new Map();
+function rnd255() { return 1 + Math.floor(Math.random() * 254); }
+function genV4(prefix) { const parts = prefix.split('.'); while (parts.length < 4) parts.push(String(parts.length === 3 ? rnd255() : Math.floor(Math.random() * 256))); return parts.join('.'); }
+function genV6(prefix) {
+  // the edge's own shape: the last 32 bits are an IPv4 of its HTTP ranges (…::6815:30c9 = 104.21.48.201)
+  const v4 = genV4(prefix.startsWith('2a06') ? (Math.random() < 0.5 ? '104.18' : '104.16') : (Math.random() < 0.5 ? '104.21' : '172.67')).split('.').map(Number);
+  const h = (a, b) => ((a << 8) | b).toString(16);
+  return prefix + h(v4[0], v4[1]) + ':' + h(v4[2], v4[3]);
+}
+async function domIsCf(name) {
+  const hit = IPREPO_DOM_OK.get(name);
+  if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.ok;
+  let ok = false;
+  try {
+    const res = await fetchTimed('https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=A', { headers: { accept: 'application/dns-json' } }, 3000);
+    const j = res.ok ? await readResponseJsonBounded(res) : null;
+    const ips = ((j && j.Answer) || []).filter((a) => a.type === 1).map((a) => String(a.data));
+    ok = ips.length > 0 && ips.every((ip) => isCloudflareIp(ip));
+  } catch (e) { ok = false; }
+  IPREPO_DOM_OK.set(name, { at: Date.now(), ok });
+  return ok;
+}
+async function ipRepoCandidates(env, kinds, op, n) {
+  const want = Math.max(3, Math.min(90, n * 3));
+  const per = Math.ceil(want / kinds.length);
+  const lists = [];
+  if (kinds.includes('v4')) {
+    const pre = IPREPO_V4[op] || IPREPO_V4.all;
+    let pool = [];
+    try { pool = (await repoHealthyPool(env, 300)).map((r) => r.ip).filter((ip) => isIpv4(ip) && pre.some((p) => ip.startsWith(p + '.'))); } catch (e) { pool = []; }
+    const out = shuffled(pool).slice(0, Math.ceil(per / 2));
+    for (let i = 0; out.length < per && i < per * 4; i++) out.push(genV4(pre[i % pre.length]));
+    lists.push(uniq(out).map((ip) => ({ a: ip + ':443', k: 'v4' })));
+  }
+  if (kinds.includes('v6')) {
+    const pre = IPREPO_V6[op] || IPREPO_V6.all;
+    const out = [];
+    for (let i = 0; out.length < per && i < per * 4; i++) out.push(genV6(pre[i % pre.length]));
+    lists.push(uniq(out).map((ip) => ({ a: '[' + ip + ']:443', k: 'v6' })));
+  }
+  if (kinds.includes('dom')) {
+    const out = [];
+    const cands = shuffled(IPREPO_DOMAINS);
+    for (let i = 0; i < cands.length && out.length < Math.min(per, cands.length); i += 4) {
+      const part = cands.slice(i, i + 4);
+      const oks = await Promise.all(part.map((d) => domIsCf(d)));
+      part.forEach((d, j) => { if (oks[j]) out.push(d); });
+    }
+    lists.push(out.slice(0, per).map((d) => ({ a: d + ':443', k: 'dom' })));
+  }
+  const mixed = [];
+  for (let i = 0; mixed.length < want && lists.some((l) => i < l.length); i++) for (const l of lists) if (l[i]) mixed.push(l[i]);
+  return mixed.slice(0, want);
+}
+
+/* 6.80.0 ☁️ Cloudflare daily request quota (100 000 / day for the whole account, resets 00:00 UTC). With the token the
+ * panel already keeps for self-update it asks Cloudflare's GraphQL analytics (the real number for every Worker on the
+ * account); without one — or if the token may not read analytics — this panel's own counter (marked «approx»). */
+const CF_DAY_LIMIT = 100000;
+const CFQ = { at: 0, v: null };
+async function cfQuota(env, fresh) {
+  if (!fresh && CFQ.v && Date.now() - CFQ.at < 10 * 60 * 1000) return CFQ.v;
+  const saved = (await kvGetJson(env, KV_KEYS.cfDeploy, null)) || {};
+  const token = String((env && env[CF_TOKEN_KEY]) || saved.token || '').trim();
+  const acc = String((env && env[CF_ACCOUNT_KEY]) || saved.accountId || '').trim();
+  const day = usageDay();
+  let v = null;
+  if (token && acc) {
+    try {
+      const query = 'query($a:String!,$d:Date!){viewer{accounts(filter:{accountTag:$a}){workersInvocationsAdaptive(limit:1000,filter:{date_geq:$d,date_leq:$d}){sum{requests}}}}}';
+      const res = await fetchTimed('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ query, variables: { a: acc, d: day } }) }, 6000);
+      const j = await readResponseJsonBounded(res);
+      const accs = j && j.data && j.data.viewer && j.data.viewer.accounts;
+      const rows = Array.isArray(accs) && accs[0] ? accs[0].workersInvocationsAdaptive : null;
+      if (Array.isArray(rows)) v = { src: 'cf', reqs: rows.reduce((t, r) => t + (Number(r && r.sum && r.sum.requests) || 0), 0) };
+    } catch (e) { v = null; }
+  }
+  if (!v) {
+    const u = await readUsage(env);
+    v = { src: 'local', reqs: (u.day === day ? u.reqs : 0) + __logState.reqs };
+  }
+  v.day = day;
+  v.limit = CF_DAY_LIMIT;
+  v.pct = Math.min(100, Math.round((v.reqs * 100) / CF_DAY_LIMIT));
+  CFQ.at = Date.now();
+  CFQ.v = v;
+  return v;
+}
+/** Cron: one Telegram warning a day when the account passes 80 % (one KV write that day). */
+async function cronQuotaWarn(env) {
+  if (isNodePlatform(env) || isVercelPlatform(env)) return;
+  const settings = await readSettings(env);
+  const cfg = tgConfig(env, settings);
+  const kv = kvBinding(env);
+  if (!cfg || !cfg.admins.length || !kv) return;
+  const v = await cfQuota(env, true);
+  if (v.pct < 80) return;
+  const st = await readJsonKv(env, 'cat_quota_warn_v1', { day: '' });
+  if (st.day === v.day) return;
+  await kv.put('cat_quota_warn_v1', JSON.stringify({ day: v.day }));
+  for (const id of cfg.admins) tgApi(cfg.token, 'sendMessage', { chat_id: id, text: '🟠 Cat Panel — ' + v.pct + '% of today\'s Cloudflare requests used (' + v.reqs + ' / ' + v.limit + (v.src === 'cf' ? '' : ', approx') + '). Resets 00:00 UTC.' }).catch(() => {});
+}
 async function echConfigList(sni, env) {
   const kv = kvBinding(env);
   if (!kv || !sni) return '';
@@ -4674,7 +4845,7 @@ async function echConfigList(sni, env) {
     const j = await readResponseJsonBounded(res);
     let ech = '';
     for (const a of (j && j.Answer) || []) {
-      if (a.type !== 64) continue;
+      if (a.type !== 65 && a.type !== 64) continue;
       const m = /ech=([A-Za-z0-9+\/=]+)/.exec(String(a.data || ''));
       if (m) { ech = m[1]; break; }
     }
@@ -4900,6 +5071,34 @@ async function nodeVerifyTyped(env, settings, host, force) {
   if (NODE_IP_CHECK.size > 256) NODE_IP_CHECK.delete(NODE_IP_CHECK.keys().next().value);
   return todo.length;
 }
+/* 6.80.0 🔒 Reality on a direct host (KataBump): the adapter runs Xray behind the same port (globalThis.__catReality);
+ * the panel only lists its lines once the adapter proved them (status running + verified). Reality traffic is not
+ * metered, so it is offered to the owner and to users WITHOUT a volume quota only — and Xray knows only those. */
+const REALITY_LABEL = { all: 'MCI/All', mtn: 'Irancell', rtl: 'Rightel', tci: 'TCI/Shatel' };
+const REALITY_SYNC = { at: 0 };
+function realityApi() { const r = globalThis.__catReality; return r && typeof r.status === 'function' ? r : null; }
+async function realityClients(env, masterUuid) {
+  const now = Date.now();
+  const users = (await readUsers(env)).filter((u) => u.enabled && (!u.expiresAt || u.expiresAt > now) && !(u.quotaBytes > 0));
+  return uniq([String(masterUuid).toLowerCase()].concat(users.map((u) => u.id))).filter(isUuid);
+}
+async function realitySyncMaybe(env, masterUuid) {
+  const r = realityApi();
+  if (!r || !r.status().on || Date.now() - REALITY_SYNC.at < 60000) return;
+  REALITY_SYNC.at = Date.now();
+  await r.sync(await realityClients(env, masterUuid));
+}
+function realityLines(host, env, uuid, user, q) {
+  const r = realityApi();
+  if (!r || !isNodePlatform(env) || nodeEdge(env) !== 'plain' || (q && ((q.addr && q.addr.length) || q.limit))) return [];
+  if (user && user.quotaBytes > 0) return [];
+  const st = r.status();
+  if (!st.on || st.status !== 'running' || !st.verified || !st.pub) return [];
+  const port = nodePort(env);
+  return st.profiles.map((p) => PROTO_VLESS + '://' + String(uuid).toLowerCase() + '@' + formatAddr(String(host)) + ':' + port +
+    '?encryption=none&flow=xtls-rprx-vision&security=reality&sni=' + p.sni + '&fp=chrome&pbk=' + encodeURIComponent(st.pub) + '&sid=' + st.sid +
+    '&type=tcp#' + encodeURIComponent('🐱 Cat · 🔒 Reality · ' + (REALITY_LABEL[p.id] || p.id)));
+}
 function nodeHostIpsCached(host) { const c = NODE_IPS.get(String(host || '').toLowerCase()); return c ? c.ips : []; }
 /** Waits only when nothing is known yet; a stale entry is refreshed in the background. */
 async function nodeHostIps(host, force) {
@@ -5075,7 +5274,7 @@ function vlessLink(ctx, addr, port, tls, cc, opts) {
   const path = (opts && opts.path) || ctx.paths[PROTO_VLESS + 'Path'];
   const alpn = (ctx.settings && ctx.settings.alpn) || 'http/1.1';
   return PROTO_VLESS + '://' + ctx.uuid + '@' + formatAddr(addr) + ':' + port + '?encryption=none&' +
-    wsParams(ctx.hostHeader || ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
+    wsParams(ctx.hostHeader || ctx.host, path, ctx.sni, ctx.fp, tls, echNext(ctx), alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 function trojanLink(ctx, addr, port, tls, cc, opts) {
@@ -5083,7 +5282,7 @@ function trojanLink(ctx, addr, port, tls, cc, opts) {
   const path = (opts && opts.path) || ctx.paths[TROJAN_KEY + 'Path'];
   const alpn = (ctx.settings && ctx.settings.alpn) || 'http/1.1';
   return 'trojan://' + encodeURIComponent(ctx[TROJAN_KEY + 'Pass']) + '@' + formatAddr(addr) + ':' + port + '?' +
-    wsParams(ctx.hostHeader || ctx.host, path, ctx.sni, ctx.fp, tls, ctx.ech, alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
+    wsParams(ctx.hostHeader || ctx.host, path, ctx.sni, ctx.fp, tls, echNext(ctx), alpn) + maskParams(ctx, tls) + '#' + encodeURIComponent(name);
 }
 
 /** Link context for one identity (master or a panel user). */
@@ -5099,6 +5298,7 @@ function linkContext(host, env, settings, uuid, user) {
     sni: effectiveSni(host, env, settings),
     fp: settings.fingerprint || 'chrome',
     ech: settings.echList || '',
+    echPool: settings.echList && settings.echPoolOn ? echPoolOf(settings.echPool) : null,
     paths: tunnelPaths(env),
     protocols,
     settings,
@@ -5631,9 +5831,10 @@ function buildClashYaml(host, env, settings, uuid, user, q) {
         // the «domain+…» form becomes query-server-name, a base64 list becomes config.
         // must require the scheme after '+' — a base64 ECH list may itself
         // contain '+' (e.g. «AEX+DQ…»), which must NOT parse as domain+query
-        const em = /^([A-Za-z0-9][A-Za-z0-9.-]{0,252})\+(?:udp|tcp|https|h2c|tls):\/\//.exec(String(ctx.ech));
+        const ev = String(echNext(ctx));
+        const em = /^([A-Za-z0-9][A-Za-z0-9.-]{0,252})\+(?:udp|tcp|https|h2c|tls):\/\//.exec(ev);
         base.push('    ech-opts:', '      enable: true');
-        base.push(em ? '      query-server-name: ' + yamlStr(em[1]) : '      config: ' + yamlStr(String(ctx.ech)));
+        base.push(em ? '      query-server-name: ' + yamlStr(em[1]) : '      config: ' + yamlStr(ev));
       }
       base.push('    alpn: ["http/1.1"]');
     } else if (e.proto === 'vless') {
@@ -6050,7 +6251,7 @@ function buildXrayConfigs(host, env, settings, uuid, user, q) {
       if (settings.cipherSuites && !ctx.ech) stream.tlsSettings.cipherSuites = settings.cipherSuites;
       // ECH per Xray docs: tlsSettings.echConfigList accepts a base64 ECHConfig
       // OR the «domain+udp://server» live-query form.
-      if (ctx.ech) stream.tlsSettings.echConfigList = ctx.ech;
+      if (ctx.ech) stream.tlsSettings.echConfigList = echNext(ctx);
       if (finalMask) stream.finalmask = finalMask;
     }
     return stream;
@@ -6275,7 +6476,7 @@ async function readJsonBody(request, maxBytes = 256 * 1024) {
 
 async function subResponse(kind, host, env, settings, uuid, user, url, request) {
   const title = panelTitle(env, settings) + (user ? ' · ' + user.name : '');
-  const traffic = user && user.quotaBytes > 0 ? await readTraffic(env, user.id).catch(() => null) : null;
+  const traffic = user && user.quotaBytes > 0 ? await trafficOf(env, user).catch(() => null) : null;
   const headers = subscriptionHeaders(user, title, url && url.origin ? url.origin + '/info/' + uuid : '', traffic);
   // ⏱️ timed rotation on → ask clients that honour it to refresh at least that often (header unit = hours).
   if (settings.rotTimed === true) headers['profile-update-interval'] = String(Math.max(1, Math.ceil((Number(settings.rotMinutes) || 30) / 60)));
@@ -6332,11 +6533,14 @@ async function subResponse(kind, host, env, settings, uuid, user, url, request) 
       if (kw === 'auto') echList = (await echConfigList(effectiveSni(host, env, settings), env)) || 'off';
       else if (!rawVal) echList = DEFAULT_ECH_VALUE; // '' = the shared CF default
       if (kw === 'off' || echList === 'off') echList = '';
+      // 🔐 the owner's ECH pool replaces the shared default (and the MCI-ECH preset's) — one line per config
+      const pool = echList === DEFAULT_ECH_VALUE ? echPoolOf(settings.echPool) : [];
+      if (pool.length) echList = pool[0];
       settings = Object.assign(
         {},
         settings,
         echList
-          ? { echList, fmLinks: false, sniFront: false, sniRotate: false, cipherSuites: '', finalMaskProfile: '', finalMaskCipherSuites: '' }
+          ? { echList, echPoolOn: pool.length > 0, fmLinks: false, sniFront: false, sniRotate: false, cipherSuites: '', finalMaskProfile: '', finalMaskCipherSuites: '' }
           : { echList: '' }
       );
     } catch { /* ECH is best-effort */ }
@@ -6364,6 +6568,8 @@ async function subResponse(kind, host, env, settings, uuid, user, url, request) 
   }
   const { entries } = buildConfigEntries(host, env, settings, uuid, user, q);
   let body = entries.map((e) => e.link).join('\n') + '\n';
+  const rl = realityLines(host, env, uuid, user, q);
+  if (rl.length) body += rl.join('\n') + '\n';
   // External subs (URI lists) are appended AFTER our own configs — ?noext=1 or
   // single-exit links (?addr/?limit) skip them.
   if (!q.noext && !(q.addr && q.addr.length) && !q.limit && (settings.extSubs || []).length && kind !== 'clash' && kind !== 'singbox') {
@@ -7509,7 +7715,7 @@ async function handleApi(request, url, env, ctx) {
     const decorate = (u, lastOnline, traffic) => Object.assign({}, u, { status: userBlockedReason(u, traffic) || 'active', lastOnline: lastOnline || 0, traffic: traffic || null, activeIps: activeIpCount(u), links: subLinks(origin, masterUuid, u) });
     if (method === 'GET' && !id) {
       const seen = await mapBounded(users, 4, (u) => readSeen(env, u.id).catch(() => 0));
-      const traffic = await mapBounded(users, 4, (u) => (u.quotaBytes > 0 ? readTraffic(env, u.id).catch(() => null) : Promise.resolve(null)));
+      const traffic = await mapBounded(users, 4, (u) => (u.quotaBytes > 0 ? trafficOf(env, u).catch(() => null) : Promise.resolve(null)));
       return json({ ok: true, users: users.map((u, i) => decorate(u, seen[i], traffic[i])) });
     }
     if (method === 'POST' && !id) {
@@ -7525,6 +7731,7 @@ async function handleApi(request, url, env, ctx) {
         quotaBytes: body.quotaBytes,
         maxIps: body.maxIps,
         firstUseDays: body.firstUseDays,
+        resetDays: body.resetDays,
         fw: body.fw,
         dnsFilter: body.dnsFilter,
         ips: body.ips,
@@ -7569,6 +7776,7 @@ async function handleApi(request, url, env, ctx) {
         if (typeof body.enabled === 'boolean') next.enabled = body.enabled;
         if (body.protocols) next.protocols = body.protocols;
         if (body.firstUseDays !== undefined) next.firstUseDays = body.firstUseDays;
+        if (body.resetDays !== undefined) next.resetDays = body.resetDays;
         if (body.fw !== undefined) next.fw = body.fw;
         if (body.dnsFilter !== undefined) next.dnsFilter = body.dnsFilter;
         if (Array.isArray(body.ips)) next.ips = body.ips;
@@ -7965,6 +8173,50 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, pool: settings.locPool || [], countries: locSummary(settings, await readUsers(env)), avail,
       choices: LOC_CHOICES.map((cc) => ({ cc, flag: flagOf(cc), fa: PX_FA_NAMES[cc] || cc, en: COUNTRY_NAMES[cc] || cc })), vercel: isVercelPlatform(env), node: nodeDirect(env) });
   }
+  /* 6.80.0 🔐 ECH pool helpers: ?what=dom → names whose ECH config is live now; ?what=dns → resolvers (doh = DoH ok) */
+  if (path === '/api/ech-pool' && method === 'GET') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const n = Math.max(1, Math.min(10, Number(url.searchParams.get('n')) || 2));
+    if (url.searchParams.get('what') === 'dns') return json({ ok: true, dns: shuffled(ECH_DNS).slice(0, n).map((ip) => ({ ip, doh: ECH_DOH.includes(ip) })) });
+    const skip = new Set(String(url.searchParams.get('skip') || '').toLowerCase().split(',').filter(Boolean));
+    const out = [];
+    let checked = 0;
+    for (const d of shuffled(ECH_DOMAIN_CANDIDATES.filter((x) => !skip.has(x)))) {
+      if (out.length >= n || checked >= 12) break;
+      checked++;
+      if (await dohHasEch(d)) out.push(d);
+    }
+    return json({ ok: true, domains: out, checked });
+  }
+  /* 6.80.0 🗃️ clean-IP repository: candidates only — the page tests them from the owner's network before adding */
+  if (path === '/api/ip-repo' && method === 'GET') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const kinds = String(url.searchParams.get('kinds') || 'v4').split(',').filter((k) => ['v4', 'v6', 'dom'].includes(k));
+    const op = String(url.searchParams.get('op') || 'all');
+    const n = Math.max(1, Math.min(30, Number(url.searchParams.get('n')) || 15));
+    return json({ ok: true, op, cands: await ipRepoCandidates(env, kinds.length ? uniq(kinds) : ['v4'], op, n) });
+  }
+  /* 6.80.0 ☁️ today's Cloudflare requests */
+  if (path === '/api/cf-quota' && method === 'GET') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    if (isNodePlatform(env) || isVercelPlatform(env)) return json({ ok: true, na: true });
+    return json(Object.assign({ ok: true }, await cfQuota(env, url.searchParams.get('fresh') === '1')));
+  }
+  /* 6.80.0 🔒 Reality (KataBump only, off until confirmed) */
+  if (path === '/api/node/reality') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const r = realityApi();
+    if (!r || !nodeDirect(env) || !r.allowed()) return json({ ok: true, allowed: false });
+    if (method === 'POST') {
+      const body = (await readJsonBody(request)) || {};
+      if (body.on === true) {
+        if (body.confirm !== true) return json({ ok: false, error: 'confirm' }, 400);
+        r.enable(await realityClients(env, masterUuid)).catch(() => {});
+        await new Promise((res) => setTimeout(res, 300));
+      } else if (body.on === false) await r.disable();
+    }
+    return json(Object.assign({ ok: true }, r.status()));
+  }
   /* 6.79.3 node hosts: the server's own IPs (found automatically, already in every config) */
   if (path === '/api/node/ips' && method === 'GET') {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
@@ -8192,6 +8444,7 @@ async function handleRequest(request, env, ctx) {
 
   const settings = await readSettings(env);
   const masterUuid = await resolveUuid(host, env);
+  if (nodeDirect(env) && realityApi()) realitySyncMaybe(env, masterUuid).catch(() => {});
   // The key EVERY master link must carry: the subscription token once the owner rotated one
   // (6.67.0), the UUID otherwise. A link built from the raw UUID answers 404 the moment a
   // rotation happens — and the Config Builder fetches the link it just built (bGen), so it
@@ -9352,6 +9605,7 @@ ${vNote}${nNote}
   <div style="margin-top:6px" data-i="kv_warn_body"></div>
   <button class="btn sm" type="button" style="margin-top:8px" id="kvWarnOk" data-i="kv_warn_ok"></button>
  </div>
+ <div class="note i small" id="cfqLine" style="display:none"></div>
 ${(() => {
   // Server-rendered only when the app's own report disagrees with this panel —
   // see appSeenMismatch(). It is a note, not an error: both halves work.
@@ -9556,6 +9810,12 @@ ${(() => {
   <textarea id="nipTyped" rows="3" dir="ltr" placeholder="1.2.3.4"></textarea>
   <button class="btn sm p" type="button" id="nipSave" style="margin-top:8px">💾 ${tr2('ذخیره و تست', 'Save & test')}</button>
   <div class="note i small">${tr2('اگر دامنه باز نشد، کانفیگ «🏠 Server IP» همان سرور را بدون DNS می‌زند.', 'If the name is blocked, the «🏠 Server IP» config reaches the same server without DNS.')}</div>
+ </div>
+ <div class="card sec" id="rlCard" style="display:none">
+  <h2><span class="ic">🔒</span><span>${tr2('Reality (اختیاری)', 'Reality (optional)')}</span><span class="chip" id="rlState" style="margin-inline-start:auto">…</span></h2>
+  <div class="note w small">${tr2('خاموش است تا خودت روشنش کنی. روشن که شود، هستهٔ رسمی Xray (با چک SHA-256) روی همین سرور اجرا می‌شود و روی همین پورت، کنار پنل، ۴ کانفیگ VLESS-Reality می‌دهد (یکی برای هر اپراتور). حدود ۶۰ مگ رم می‌گیرد. حجم Reality شمرده نمی‌شود، پس فقط برای خودت و کاربرهای بدون سقف حجم در ساب می‌آید. تا تست از پورت عمومی موفق نشود در ساب نمی‌آید. اگر قوانین هاستت اجازه نمی‌دهد، روشنش نکن.', 'Off until you turn it on. Then the official Xray core (SHA-256 checked) runs on this server and serves 4 VLESS-Reality configs on this same port next to the panel (one per operator). About 60 MB RAM. Reality traffic is not metered, so only you and users without a volume cap get it. Nothing goes into the sub until a test through the public port passes. If your host’s rules forbid it, leave it off.')}</div>
+  <div class="small" id="rlErr" style="margin-top:6px"></div>
+  <div class="row" style="margin-top:8px;gap:8px"><button class="btn sm p" type="button" id="rlOn">🔒 ${tr2('روشن کن', 'Turn on')}</button><button class="btn sm" type="button" id="rlOff" style="display:none">⏹ ${tr2('خاموش کن', 'Turn off')}</button></div>
  </div>
 </section>
 <section class="view" id="v-addrtab" data-sec="addr">
@@ -10058,6 +10318,21 @@ ${vDoctor}
   </div>
   <div class="note w small" style="margin-top:8px" data-i="rp_dead_note"></div>
  </div>
+ <div class="card sec" data-atab="ip" id="repoCard">
+  <h2><span class="ic">🗃️</span><span>${tr2('مخزن آی‌پی تمیز', 'Clean-IP repository')}</span></h2>
+  <div class="note i small">${tr2('نوع و اپراتورت را بزن، بعد «پیدا کن». پنل نامزد می‌دهد و همین مرورگر روی اینترنت خودت تستشان می‌کند؛ فقط آن‌هایی که جواب دادند با پورت 443 به لیست می‌روند. چند تیک با هم = ترکیبی.', 'Pick the type and your operator, then «Find». The panel proposes, this browser tests them on your own internet; only the ones that answer are added, on port 443. Several ticks = mixed.')}</div>
+  <div class="row small" id="repoKinds" style="flex-wrap:wrap;gap:16px;margin-top:8px">
+   <label class="row"><input type="checkbox" value="v4" checked> IPv4</label>
+   <label class="row"><input type="checkbox" value="v6"> IPv6</label>
+   <label class="row"><input type="checkbox" value="dom"> ${tr2('دامنه', 'Domain')}</label>
+  </div>
+  <div class="two" style="margin-top:8px">
+   <div><label for="repoOp">${tr2('اپراتور', 'Operator')}</label><select id="repoOp"><option value="all">${tr2('همه', 'All')}</option><option value="mci">${tr2('همراه اول', 'MCI')}</option><option value="mtn">${tr2('ایرانسل', 'Irancell')}</option><option value="tci">${tr2('مخابرات / ثابت', 'TCI / fixed')}</option><option value="rtl">${tr2('رایتل', 'Rightel')}</option></select></div>
+   <div><label for="repoN">${tr2('چندتا لازم داری؟', 'How many?')}</label><input id="repoN" type="number" min="1" max="30" value="10" dir="ltr"></div>
+  </div>
+  <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><button class="btn p" id="repoGo" type="button">🔎 ${tr2('پیدا کن و تست کن', 'Find & test')}</button><button class="btn" id="repoAdd" type="button" style="display:none">➕ ${tr2('افزودن سالم‌ها به لیست', 'Add the working ones')}</button></div>
+  <div id="repoOut" class="res" style="margin-top:10px"></div>
+ </div>
  <div class="card sec" data-atab="ip">
   <h2><span class="ic">📥</span><span data-i="ip_import"></span></h2>
   <div class="small mute" data-i="ip_import_hint"></div>
@@ -10230,6 +10505,19 @@ ${vDoctor}
    <div><label data-i="s_ech"></label><input name="echList" class="mono" data-ph="s_ech_ph"><div class="small mute" data-i="s_ech_hint"></div></div>
    <div><label data-i="s_fp"></label><select name="fingerprint"><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>android</option><option>edge</option><option>random</option><option>randomized</option><option>unsafe</option></select></div>
   </div>
+  <details id="echAdv" style="margin-top:12px"><summary class="small" style="cursor:pointer;min-height:44px;display:flex;align-items:center">🔐 ${tr2('ECH پیشرفته (همراه اول / مخابرات)', 'Advanced ECH (MCI / TCI)')}</summary>
+  <div class="note i small">${tr2('دامنه‌هایی که همین الان ECH دارند + DNSی که اپ با آن ECH را می‌گیرد؛ «ترکیب» از آن‌ها یک لیست می‌سازد و هر کانفیگ ساب یکی را برمی‌دارد (چرخشی). وقتی اعمال می‌شود که ECH پایین روی مقدار پیش‌فرض روشن باشد.', 'Names that publish ECH right now + the DNS the app fetches it with; «Combine» makes one list and every sub config takes the next line. Applies while ECH below is on with its default value.')}</div>
+  <div class="two" style="margin-top:8px">
+   <div><label for="echDoms">${tr2('دامنه‌ها', 'Domains')}</label><textarea id="echDoms" rows="3" dir="ltr" placeholder="cloudflare-ech.com"></textarea><button class="btn sm" type="button" id="echDomsGet" style="margin-top:6px">📥 ${tr2('دریافت از مخزن (چک زنده)', 'Fetch (live-checked)')}</button></div>
+   <div><label for="echDns">${tr2('آی‌پی DNS', 'DNS IPs')}</label><textarea id="echDns" rows="3" dir="ltr" placeholder="1.1.1.1"></textarea><button class="btn sm" type="button" id="echDnsGet" style="margin-top:6px">📥 ${tr2('دریافت از مخزن', 'Fetch')}</button></div>
+  </div>
+  <div class="row small" style="margin-top:8px;gap:16px;flex-wrap:wrap"><label class="row"><input type="checkbox" id="echUdp" checked> UDP</label><label class="row"><input type="checkbox" id="echDoh" checked> DoH</label></div>
+  <div class="small dim" style="margin-top:4px">${tr2('TCP را هستهٔ اپ‌ها نمی‌شناسد (کانفیگ خراب می‌شود)، پس نیست. DoH فقط برای DNSهایی ساخته می‌شود که گواهی آی‌پی دارند.', 'Clients do not know TCP here (the config would break), so it is left out. DoH is only made for resolvers with an IP certificate.')}</div>
+  <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="echMix">🔀 ${tr2('ترکیب', 'Combine')}</button></div>
+  <label for="echPoolTa" style="margin-top:8px">${tr2('لیست نهایی (هر خط یکی، حداکثر ۴۸)', 'Final list (one per line, up to 48)')}</label>
+  <textarea id="echPoolTa" rows="4" dir="ltr" placeholder="cloudflare-ech.com+udp://1.1.1.1"></textarea>
+  <div class="row" style="margin-top:8px;gap:8px;align-items:center"><button class="btn p sm" type="button" id="echPoolSave">💾 ${tr2('ذخیره', 'Save')}</button><span class="small mute" id="echPoolMsg"></span></div>
+  </details>
   <div class="two">
    <div><label data-i="s_limit"></label><input name="entryLimit" type="number" min="4" max="96"></div>
    <div><label data-i="s_flags"></label><div class="row small" style="margin-top:6px"><span class="sw" id="swDefaults"></span><span data-i="s_defaults"></span></div><div class="row small" style="margin-top:8px"><span class="sw" id="swHost"></span><span data-i="s_host"></span></div></div>
@@ -10471,6 +10759,7 @@ ${vDoctor}
    <div><label data-i="u_quota"></label><input name="quota" type="number" min="0" step="0.5" placeholder="0" dir="ltr"></div>
    <div><label data-i="u_maxips"></label><input name="maxips" type="number" min="0" max="50" placeholder="0" dir="ltr"></div>
   </div>
+  <div><label for="uReset">${tr2('صفر شدن خودکار حجم مصرفی هر چند روز (0 = خاموش)', 'Reset used traffic every N days (0 = off)')}</label><input name="resetdays" id="uReset" type="number" min="0" max="365" placeholder="0" dir="ltr"></div>
   <div class="note w small" style="margin-top:14px" data-i="u_noquota"></div>
   </div>
   <div class="upane" data-up="conn">
@@ -10974,7 +11263,7 @@ function saveTune(){
   if(out)out.textContent=t('tune_saved');toast(t('tune_saved'));loadTune();
  }).catch(function(){if(out)out.textContent=t('tune_fail')});
 }
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();if(location.hash==='#inbounds')renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();vipRender();brRender();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune();tfaRender();auditLoad();arLoad()})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();if(location.hash==='#inbounds')renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();vipRender();brRender();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune();tfaRender();auditLoad();arLoad();echAdvFill();cfqLoad()})}
 var tfaPending=null;
 function tfaRender(){var st=$('#tfaState');if(!st||!CFG||!CFG.settings)return;var on=!!CFG.settings.totpEnabled;st.textContent=t(on?'tfa_on':'tfa_off');st.className='chip '+(on?'ok':'bad');$('#tfaBtn').textContent=t(on?'tfa_disable':(tfaPending?'tfa_confirm':'tfa_enable'));$('#tfaCode').style.display=(on||tfaPending)?'':'none';$('#tfaSetup').style.display=(!on&&tfaPending)?'block':'none'}
 function auditLoad(){var box=$('#auditList');if(!box)return;api('/api/login-audit').then(function(j){var list=(j&&j.entries)||[];box.innerHTML=list.length?list.slice(0,20).map(function(e){return '<div class="lk" style="gap:8px;flex-wrap:wrap"><span>'+(e.ok?'✅':'❌')+'</span><span class="mono" dir="ltr">'+esc(new Date(e.at).toLocaleString())+'</span><span class="mono" dir="ltr">'+esc(e.ip||'')+'</span><span>'+esc(e.cc||'')+(e.asn?' AS'+esc(String(e.asn)):'')+'</span><span class="dim">'+esc(e.reason||'')+'</span></div>'}).join(''):'<div class="dim">'+t('audit_empty')+'</div>'}).catch(function(){})}
@@ -11292,7 +11581,7 @@ function showQr(text,label){$('#qrBox').innerHTML='<img alt="QR" src="/qr.svg?te
 /* ---------- drawer ---------- */
 function openDrawer(u){editing=u||null;var f=$('#fUser');$('#dTitle').textContent=u?t('d_edit')+': '+u.name:t('d_new');f.elements.uname.value=u?u.name:randName();f.elements.note.value=u?u.note:'';
  f.elements.pv.checked=u?u.protocols.vless:true;f.elements.pt.checked=u?u.protocols.trojan:true;syncProto('#uVless','#uTrojan');
- var d=u?(u.expiresAt?Math.max(0,Math.ceil((u.expiresAt-Date.now())/86400000)):0):30;f.elements.days.value=d;f.elements.quota.value=u&&u.quotaBytes?+(u.quotaBytes/1073741824).toFixed(2):0;f.elements.maxips.value=u?(u.maxIps||0):0;$('#swEnabled').classList.toggle('on',u?u.enabled:true);
+ var d=u?(u.expiresAt?Math.max(0,Math.ceil((u.expiresAt-Date.now())/86400000)):0):30;f.elements.days.value=d;f.elements.quota.value=u&&u.quotaBytes?+(u.quotaBytes/1073741824).toFixed(2):0;f.elements.maxips.value=u?(u.maxIps||0):0;if(f.elements.resetdays)f.elements.resetdays.value=u?(u.resetDays||0):0;$('#swEnabled').classList.toggle('on',u?u.enabled:true);
  var pend=!!(u&&u.firstUseDays>0&&!u.expiresAt);$('#swFirst').classList.toggle('on',u?pend:true);if(pend)f.elements.days.value=u.firstUseDays;
  if($('#uDnsf'))$('#uDnsf').value=(u&&u.dnsFilter)||'';$('#uFw').innerHTML='<option value="">'+esc(t('u_fw_none'))+'</option>'+Object.keys(FIREWALL_PRESETS_UI).map(function(k){return '<option value="'+esc(k)+'"'+(u&&u.fw===k?' selected':'')+'>'+esc(t('b_fw_'+k.replace(/-/g,'_').replace('irancell_ff_98','irancell_ff98').replace('mci_ipv6_ff','mci_ff'))||k)+'</option>'}).join('');
  f.elements.uips.value=u&&u.ips?u.ips.join('\\n'):'';uIpNoticeSync();
@@ -11334,7 +11623,7 @@ $('#btnQuick').addEventListener('click',function(){var b=this;b.disabled=true;va
 var PWA=null;window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();PWA=e;$('#btnInstall').style.display=''});
 $('#btnInstall').addEventListener('click',function(){if(!PWA)return;PWA.prompt();PWA=null;this.style.display='none'});
 $('#fUser').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;if(!f.elements.pv.checked&&!f.elements.pt.checked){toast('protocol?',true);return}
- var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0,quotaGB:Math.max(0,Number(f.elements.quota.value)||0),maxIps:Math.max(0,Math.min(50,Math.floor(Number(f.elements.maxips.value)||0)))};
+ var body={name:f.elements.uname.value.trim(),note:f.elements.note.value,protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},enabled:$('#swEnabled').classList.contains('on'),days:Number(f.elements.days.value)||0,quotaGB:Math.max(0,Number(f.elements.quota.value)||0),maxIps:Math.max(0,Math.min(50,Math.floor(Number(f.elements.maxips.value)||0)))};if(f.elements.resetdays)body.resetDays=Math.max(0,Math.min(365,Math.floor(Number(f.elements.resetdays.value)||0)));
  if($('#swFirst').classList.contains('on')){body.firstUseDays=body.days;body.days=0}else body.firstUseDays=0;
  body.fw=f.elements.fw.value;if(f.elements.dnsf)body.dnsFilter=f.elements.dnsf.value;body.ips=f.elements.uips.value.split(/[\\s,]+/).filter(Boolean).slice(0,20);body.exits=UL.exits.slice(0,6);body.exitCc=UL.cc||'';
  var p=editing?api('/api/users/'+editing.id,{method:'PUT',body:body}):api('/api/users',{method:'POST',body:body});
@@ -11693,7 +11982,7 @@ function nipCaps(j){var p=j.platform||'',e=NIP_EDGE[p]===1,r=function(ic,t){retu
   r(e?'✅':'⚠️',e?tx('آی‌پی‌های دیگر Railway (با تست)','Other Railway IPs (tested)'):tx('آی‌پی دیگر فقط اگر همین سرور باشد','Other IPs only if this same server'))+
   r('✖️',tx('اسکنر CF و پورت‌های دیگر (پشت CF نیست)','CF scanner, other ports (not behind CF)'))+
   (p==='katabump'?r('💡',tx('دامنهٔ kdns.fr روی CF اینها را باز می‌کند','A kdns.fr name on CF unlocks them')):'')}
-function nipLoad(refresh){var box=$('#nipList');if(!box)return Promise.resolve();box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال پیدا کردن…','Looking up…'))+'</div>';
+function nipLoad(refresh){rlLoad();var box=$('#nipList');if(!box)return Promise.resolve();box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال پیدا کردن…','Looking up…'))+'</div>';
  return api('/api/node/ips'+(refresh?'?refresh=1':'')).then(function(j){if(!j||!j.ok){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag((j&&j.error)||'?'))+'</div>';return}
   var row=function(ic,a,k){return '<div class="lrow"><span>'+ic+'</span><span class="mono" dir="ltr">'+esc(a)+(j.port&&j.port!==443?':'+j.port:'')+'</span><span class="chip" style="margin-inline-start:auto">'+esc(k)+'</span></div>'};
   var cp=$('#nipCaps');if(cp)cp.innerHTML=nipCaps(j);var ta=$('#nipTyped');if(ta&&!ta.value)ta.value=(j.typed||[]).map(function(x){return x.ip}).join('\\n');
@@ -11702,6 +11991,70 @@ function nipLoad(refresh){var box=$('#nipList');if(!box)return Promise.resolve()
 if($('#nipSave'))$('#nipSave').addEventListener('click',function(){var b=this,l=String($('#nipTyped').value||'').split(/[\\s,]+/).filter(Boolean);b.disabled=true;
  api('/api/settings',{method:'PUT',body:{ips:l}}).then(function(){return nipLoad(true)}).then(function(){b.disabled=false;toast('✓')}).catch(function(e){b.disabled=false;toast(safeDiag(e&&e.message||e),true)})});
 if($('#nipRefresh'))$('#nipRefresh').addEventListener('click',function(){var b=this;b.disabled=true;nipLoad(true).then(function(){b.disabled=false;toast(tx('به‌روز شد؛ اشتراک را در اپ آپدیت کن','Updated; update the sub in your app'))})});
+/* 6.80.0 🔒 Reality card (direct host only) */
+var RL_T=null;
+function rlShow(j){var c=$('#rlCard');if(!c)return;if(!j||!j.ok||!j.allowed){c.style.display='none';return}c.style.display='';
+ var lbl=!j.on?tx('خاموش','off'):j.status==='starting'?'⏳ '+tx('در حال راه‌اندازی…','starting…'):(j.status==='running'&&j.verified)?'✅ '+tx('روشن و تست‌شده — در ساب','on & verified — in subs'):j.status==='running'?'⚠️ '+tx('اجرا شد ولی تست رد شد — در ساب نیست','running, test failed — not in subs'):'❌ '+tx('خطا — در ساب نیست','error — not in subs');
+ $('#rlState').textContent=lbl;var e=$('#rlErr');e.textContent=j.err?String(j.err):'';e.style.color=j.err?'var(--red)':'';
+ $('#rlOn').style.display=j.on?'none':'';$('#rlOff').style.display=j.on?'':'none';
+ clearTimeout(RL_T);if(j.on&&j.status==='starting')RL_T=setTimeout(rlLoad,2000)}
+function rlLoad(){if(!$('#rlCard'))return Promise.resolve();return api('/api/node/reality').then(rlShow).catch(function(){})}
+if($('#rlOn'))$('#rlOn').addEventListener('click',async function(){if(!(await ask(tx('Reality روشن شود؟ هستهٔ Xray دانلود و روی همین سرور اجرا می‌شود (حدود ۶۰ مگ رم). اگر قوانین هاستت اجازه نمی‌دهد، «انصراف» را بزن.','Turn Reality on? The Xray core is downloaded and runs on this server (about 60 MB RAM). If your host’s rules forbid it, press Cancel.'),{ok:'🔒 '+tx('روشن کن','Turn on')})))return;
+ var b=this;b.disabled=true;api('/api/node/reality',{method:'POST',body:{on:true,confirm:true}}).then(rlShow).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+if($('#rlOff'))$('#rlOff').addEventListener('click',function(){var b=this;b.disabled=true;api('/api/node/reality',{method:'POST',body:{on:false}}).then(function(j){rlShow(j);toast(tx('خاموش شد؛ ساب را در اپ آپدیت کن','Off; update the sub in your app'))}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+
+/* 6.80.0 🗃️ clean-IP repository: the panel proposes, this browser tests (a refusal under 40 ms is local, not the edge) */
+function repoProbe(x){return new Promise(function(res){var t0=performance.now(),ctl=('AbortController' in window)?new AbortController():null,to=false;
+ var tm=setTimeout(function(){to=true;if(ctl)ctl.abort()},4000),h=String(x.a).replace(/:443$/,'');
+ var url=x.k==='dom'?'https://'+h+'/cdn-cgi/trace?'+Date.now():'https://'+h+'/';
+ var end=function(){clearTimeout(tm);var ms=Math.round(performance.now()-t0);res(to?{ok:false}:(x.k!=='dom'&&ms<40)?{ok:false,fast:true}:{ok:true,ms:ms})};
+ try{fetch(url,{mode:'no-cors',cache:'no-store',signal:ctl?ctl.signal:undefined}).then(end,end)}catch(e){end()}})}
+window.__repoOk=[];
+if($('#repoGo'))$('#repoGo').addEventListener('click',function(){var kinds=[].filter.call(document.querySelectorAll('#repoKinds input'),function(c){return c.checked}).map(function(c){return c.value});
+ if(!kinds.length){toast(tx('حداقل یک نوع را تیک بزن','Tick at least one type'),true);return}
+ var n=Math.max(1,Math.min(30,Math.floor(+$('#repoN').value)||10)),op=$('#repoOp').value,box=$('#repoOut'),b=this,add=$('#repoAdd');b.disabled=true;add.style.display='none';window.__repoOk=[];
+ box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال گرفتن نامزدها…','Getting candidates…'))+'</div>';
+ var v6=kinds.indexOf('v6')>-1?repoProbe({a:'[2606:4700:4700::1111]:443',k:'v6'}):Promise.resolve({ok:true});
+ Promise.all([api('/api/ip-repo?kinds='+kinds.join(',')+'&op='+encodeURIComponent(op)+'&n='+n),v6]).then(function(r){var j=r[0],has6=r[1].ok;if(!j||!j.ok)throw new Error((j&&j.error)||'?');
+  var c=(j.cands||[]).filter(function(x){return has6||x.k!=='v6'});
+  box.innerHTML=(!has6&&kinds.indexOf('v6')>-1)?'<div class="note w small">'+esc(tx('اینترنت همین دستگاه IPv6 ندارد؛ IPv6ها تست نشدند (اگر روی گوشی IPv6 داری، از همان‌جا امتحان کن).','This device has no IPv6; IPv6 was skipped (try from a phone that has IPv6).'))+'</div>':'';
+  if(!c.length){box.innerHTML+='<div class="small">'+esc(tx('نامزدی پیدا نشد؛ نوع دیگری را امتحان کن.','No candidates; try another type.'))+'</div>';return}
+  var rows={};c.forEach(function(x){var d=document.createElement('div');d.className='lrow';d.innerHTML='<span>'+(x.k==='v6'?'6️⃣':x.k==='dom'?'🌐':'4️⃣')+'</span><span class="mono" dir="ltr">'+esc(x.a)+'</span><span class="dim" style="margin-inline-start:auto">…</span>';box.appendChild(d);rows[x.a]=d.lastChild});
+  var ok=[],i=0;function step(){if(i>=c.length||ok.length>=n)return Promise.resolve();var x=c[i++];return repoProbe(x).then(function(p){var el=rows[x.a];
+   if(p.ok&&ok.length<n){ok.push({a:x.a,ms:p.ms});el.innerHTML='<span style="color:'+(p.ms<400?'var(--green)':p.ms<900?'var(--amber)':'var(--red)')+'">'+p.ms+' ms</span>'}else el.innerHTML=p.ok?'<span class="dim">'+p.ms+' ms</span>':'<span style="color:var(--red)">✗</span>';return step()})}
+  return Promise.all([step(),step(),step(),step()]).then(function(){ok.sort(function(a,b2){return a.ms-b2.ms});window.__repoOk=ok.map(function(o){return o.a});
+   var sm=document.createElement('div');sm.className='small';sm.style.margin='6px 0';sm.innerHTML='<b>'+ok.length+' / '+n+'</b> '+esc(tx('روی اینترنت همین دستگاه جواب دادند','answered on this device’s internet'));box.insertBefore(sm,box.firstChild);
+   for(var k in rows){if(rows[k].textContent==='…')rows[k].parentNode.style.display='none'}
+   if(ok.length)add.style.display=''})
+ }).catch(function(e){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'}).then(function(){b.disabled=false})});
+if($('#repoAdd'))$('#repoAdd').addEventListener('click',function(){var l=window.__repoOk||[],b=this;if(!l.length)return;b.disabled=true;
+ api('/api/ips',{method:'POST',body:{ips:l,replace:false}}).then(function(j){if(!j||j.ok===false)throw new Error((j&&j.error)||'?');toast((j.count||l.length)+' ✓ '+tx('اضافه شد؛ ساب را در اپ آپدیت کن','added; update the sub in your app'));b.style.display='none';return load()}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+
+/* 6.80.0 🔐 advanced ECH: domains × DNS → one list, every sub config takes the next line */
+var ECH_DOH_C=['1.1.1.1','1.0.0.1','8.8.8.8','8.8.4.4','9.9.9.9','149.112.112.112','94.140.14.14','94.140.15.15'];
+var ECH_NL=String.fromCharCode(10);
+function echLines(id){return String(($('#'+id)||{}).value||'').split(/[\\s,]+/).map(function(x){return x.trim().toLowerCase()}).filter(Boolean)}
+function echAdvFill(){var ta=$('#echPoolTa');if(!ta||!CFG||!CFG.settings)return;var p=CFG.settings.echPool||[];if(document.activeElement!==ta)ta.value=p.join(ECH_NL);
+ var m=$('#echPoolMsg');if(m)m.textContent=p.length?(p.length+' '+tx('خط ذخیره‌شده','saved lines')+(CFG.settings.echList?'':' · ⚠️ '+tx('ECH پایین خاموش است','ECH below is off'))):''}
+if($('#echDomsGet'))$('#echDomsGet').addEventListener('click',function(){var b=this,have=echLines('echDoms');b.disabled=true;
+ api('/api/ech-pool?n=3&skip='+encodeURIComponent(have.join(','))).then(function(j){if(!j||!j.ok)throw new Error((j&&j.error)||'?');var add=(j.domains||[]).filter(function(d){return have.indexOf(d)<0});
+  $('#echDoms').value=have.concat(add).join(ECH_NL);toast(add.length?add.length+' ✓':tx('دامنهٔ تازه‌ای با ECH پیدا نشد','No new ECH name found'),!add.length)}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+if($('#echDnsGet'))$('#echDnsGet').addEventListener('click',function(){var b=this,have=echLines('echDns');b.disabled=true;
+ api('/api/ech-pool?what=dns&n=4').then(function(j){if(!j||!j.ok)throw new Error((j&&j.error)||'?');var add=(j.dns||[]).map(function(x){return x.ip}).filter(function(ip){return have.indexOf(ip)<0});
+  $('#echDns').value=have.concat(add).join(ECH_NL)}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+if($('#echMix'))$('#echMix').addEventListener('click',function(){var doms=echLines('echDoms').filter(function(d){return /^[a-z0-9][a-z0-9.-]+$/.test(d)}),dns=echLines('echDns').filter(function(ip){return /^[0-9.]+$/.test(ip)||/^[0-9a-f:]+$/.test(ip)}),udp=$('#echUdp').checked,doh=$('#echDoh').checked,out=[];
+ if(!doms.length||!dns.length){toast(tx('هم دامنه و هم DNS لازم است','Both a domain and a DNS are needed'),true);return}
+ if(!udp&&!doh){toast(tx('UDP یا DoH را تیک بزن','Tick UDP or DoH'),true);return}
+ doms.forEach(function(d){dns.forEach(function(ip){var h=ip.indexOf(':')>-1?'['+ip+']':ip;if(udp)out.push(d+'+udp://'+h);if(doh&&ECH_DOH_C.indexOf(ip)>-1)out.push(d+'+https://'+h+'/dns-query')})});
+ out=out.filter(function(x,i){return out.indexOf(x)===i}).slice(0,48);$('#echPoolTa').value=out.join(ECH_NL);toast(out.length+' '+tx('خط ساخته شد؛ «ذخیره» را بزن','lines made; press Save'))});
+if($('#echPoolSave'))$('#echPoolSave').addEventListener('click',function(){var b=this,l=echLines('echPoolTa');b.disabled=true;
+ api('/api/settings',{method:'PUT',body:{echPool:l}}).then(function(j){if(!j||!j.ok)throw new Error((j&&j.error)||'?');CFG.settings.echPool=(j.settings&&j.settings.echPool)||[];var bad=l.length-CFG.settings.echPool.length;
+  echAdvFill();toast(CFG.settings.echPool.length+' ✓'+(bad>0?' · '+bad+' '+tx('خط نامعتبر کنار رفت','invalid lines dropped'):''),bad>0)}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
+
+/* 6.80.0 ☁️ today's Cloudflare requests (Workers free plan: 100 000 a day) */
+function cfqLoad(){var el=$('#cfqLine');if(!el)return;api('/api/cf-quota').then(function(j){if(!j||!j.ok||j.na){el.style.display='none';return}
+ el.style.display='';el.className='note small '+(j.pct>=80?'w':'i');
+ el.textContent='☁️ '+tx('درخواست‌های امروز کلودفلر: ','Cloudflare requests today: ')+Number(j.reqs).toLocaleString()+' / '+Number(j.limit).toLocaleString()+' ('+j.pct+'%)'+(j.src==='local'?' · '+tx('تقریبی (فقط همین پنل)','approx (this panel only)'):'')+' · '+tx('صفر شدن: ۰۳:۳۰ تهران','resets 00:00 UTC')+(j.pct>=80?' · '+tx('نزدیک سقف؛ بعد از سقف تا ریست قطع می‌شود','near the cap; after it, down until reset'):'')}).catch(function(){})}
 function setAddrTab(tab){
   document.body.setAttribute('data-atab',tab);
   [].forEach.call(document.querySelectorAll('[data-atab]'),function(el){
@@ -12341,7 +12694,7 @@ export default {
       // invocation. Run the four maintenance groups sequentially; each feed
       // group has its own concurrency ceiling of three.
       const job = (async () => {
-        for (const task of [refreshRepos, refreshProxyRepos, cronSelfCheck, cronCountryQuality]) {
+        for (const task of [refreshRepos, refreshProxyRepos, cronSelfCheck, cronCountryQuality, cronUsageReset, cronQuotaWarn]) {
           try { await task(env); } catch (error) { recordError('cron-task', safeText(error, 120)); }
         }
       })();
@@ -12427,6 +12780,7 @@ export default {
 };
 
 export const _testing = {
+  echPoolOf, echNext, ECH_COMBO_RE, ipRepoCandidates, genV4, genV6, trafficOf, cronUsageReset, cfQuota, realityLines, realityClients, normalizeUser,
   nodeHostIps, nodeHostIpsCached, nodeVerifyTyped, nodeIpCheck, cfHostedName, withUserExits, configName,
   dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS, DEFAULT_PROXY_IPS,
   linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,

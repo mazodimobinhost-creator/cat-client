@@ -219,8 +219,8 @@
 | `DeploymentMeasurementStore.kt` | 55 | Stores only conclusive probe evidence. | — · — |
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
-| `NodeHost.kt` | 784 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, NodeHostTest · — |
-| `NodeHostController.kt` | 2300 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest · — |
+| `NodeHost.kt` | 795 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, NodeHostTest · — |
+| `NodeHostController.kt` | 2335 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest · — |
 | `PanelBackup.kt` | 63 | Local, private snapshot of the panel's last known-good settings and users. | — · — |
 | `PanelCredentials.kt` | 76 | — | — · — |
 | `PanelEndpointBatch.kt` | 33 | — | — · — |
@@ -290,11 +290,11 @@
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
 | `FoxPortPolicy.kt` | 55 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest · — |
-| `HostRegions.kt` | 63 | beta227 — «ask the user the country». | Beta227HostCountryTest · — |
+| `HostRegions.kt` | 65 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_236 Kotlin files, 105372 lines._
+_236 Kotlin files, 105420 lines._
 
 ## MainActivity screens — function index
 

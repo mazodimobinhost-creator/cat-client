@@ -42,3 +42,9 @@
 - 2026-10-30 beta232: SmarterASP Linux read-only site files — prebuilt cat-code in zip, temp code/data fallback.
 - 2026-10-30 beta233 (Panel 6.79.3): node hosts — auto server IPs in configs, Clean IP page for nodes, exits on nodes (SOCKS all sites, ProxyIP CF names by DNS).  CI fix: feed clean IPs (repoIps «IP:443») leaked into node subs; node lists only pinned user exits.
 - 2026-10-30 beta234 (Panel 6.79.4): node typed IPs verified by the panel (WS 101, SNI=host) before entering subs; per-host capability list + save & test on the node Clean IP page; 14 lost regex escapes in the page template fixed. Botkeep not added (its fair-use rules forbid proxies/VPN endpoints).
+
+## 2026-10-30 — beta235 / Panel 6.80.0 (four owner requests)
+- Worker: `/api/ip-repo` (+ page picker with browser test, ≥40 ms rule, IPv6 pre-check), `/api/ech-pool` + `echPool` round-robin (udp:// and IP-cert DoH only), `resetDays` + `trafficOf` + `cronUsageReset`, `/api/cf-quota` + `cronQuotaWarn`, `/api/node/reality` + `realityLines` (raw/b64 subs only, unmetered users only, only when verified).
+- Adapter: Reality module (Xray v26.10.21 download + SHA2-256 check, X25519, per-operator inbounds on 127.0.0.1, SNI mux on the public port, verify through the public port, restart with backoff, state in `<CAT_KV_DIR>/reality/reality.json`), active only with `CAT_HOST_DIRECT=1`.
+- Tests: `panel-680.test.mjs`, `node-reality.test.mjs` (fake Xray via `CAT_XRAY_BIN`, openssl test CA via `NODE_EXTRA_CA_CERTS`), panel-dom additions. Budgets raised (raw 930 000 / guard 940 000 / gzip 278 000). The cat-panel.html one-liner is now at android.yml line 331.
+
