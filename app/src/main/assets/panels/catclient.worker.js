@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.79.3';
+const CAT_PANEL_VERSION = '6.79.4';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -4869,6 +4869,37 @@ function nodeTypedIps(settings) {
     .map((r) => splitHostPort(splitAddrTag(r).addr, 0).hostname)
     .filter((a) => a && !isCloudflareIp(a)));
 }
+/* 6.79.4 «10 configs added → 10 work»: an IP typed for a node rides the sub only after the panel itself proved it
+ * reaches THIS host — TLS (or plain) to ip:port with SNI/Host = the host name and a WebSocket 101 on our tunnel
+ * path. Railway's edge answers any of its IPs by SNI (they pass); on a one-server host (SmarterASP, KataBump) only
+ * that server's IP passes. Results: ok 30 min, failures 10 min. */
+const NODE_IP_CHECK = new Map();
+function nodeIpCheck(host, ip) { return NODE_IP_CHECK.get(String(host).toLowerCase() + '|' + ip) || null; }
+function nodeIpPassed(host, ip) { const c = nodeIpCheck(host, ip); return !!(c && c.ok); }
+/** Checks the typed IPs not checked lately (≤ 12, 3 at a time). */
+async function nodeVerifyTyped(env, settings, host, force) {
+  const h = String(host || '').toLowerCase();
+  const own = nodeHostIpsCached(h);
+  const now = Date.now();
+  const todo = nodeTypedIps(settings).filter((ip) => ip.toLowerCase() !== h && own.indexOf(ip) < 0).slice(0, 12).filter((ip) => {
+    const c = nodeIpCheck(h, ip);
+    return force || !c || now - c.at > (c.ok ? 30 : 10) * 60 * 1000;
+  });
+  if (!todo.length) return 0;
+  const sockets = await loadSockets();
+  if (!sockets) return 0;
+  const port = nodePort(env);
+  const tls = nodeEdge(env) === 'tls';
+  const wsPath = String(tunnelPaths(env)[PROTO_VLESS + 'Path'] || '/');
+  for (let i = 0; i < todo.length; i += 3) {
+    await Promise.all(todo.slice(i, i + 3).map(async (ip) => {
+      const r = await vercelEdgeProbe(sockets, { ip, sni: h, host: h, port, plain: !tls }, wsPath);
+      NODE_IP_CHECK.set(h + '|' + ip, { at: Date.now(), ok: r.ok, status: r.status, ms: r.ms });
+    }));
+  }
+  if (NODE_IP_CHECK.size > 256) NODE_IP_CHECK.delete(NODE_IP_CHECK.keys().next().value);
+  return todo.length;
+}
 function nodeHostIpsCached(host) { const c = NODE_IPS.get(String(host || '').toLowerCase()); return c ? c.ips : []; }
 /** Waits only when nothing is known yet; a stale entry is refreshed in the background. */
 async function nodeHostIps(host, force) {
@@ -4972,7 +5003,7 @@ async function vercelEdgeProbe(sockets, c, wsPath) {
   let sock = null;
   const limit = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
   try {
-    sock = sockets.connect({ hostname: c.ip || '76.76.21.21', port: 443 }, { secureTransport: 'on', allowHalfOpen: false, servername: c.sni });
+    sock = sockets.connect({ hostname: c.ip || '76.76.21.21', port: c.port || 443 }, c.plain ? { allowHalfOpen: false } : { secureTransport: 'on', allowHalfOpen: false, servername: c.sni });
     await limit(sock.opened, 6000);
     const w = sock.writable.getWriter();
     await w.write(new TextEncoder().encode('GET ' + wsPath + ' HTTP/1.1\r\nHost: ' + c.host + '\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: Y2F0LXZlcmNlbC1kb2N0b3I=\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Mozilla/5.0\r\n\r\n'));
@@ -4996,7 +5027,8 @@ function addressList(host, env, settings) {
   if (nodeDirect(env)) {
     // the name + its own IPs (auto) + any IP the owner / this user typed — never a Cloudflare IP (it cannot reach a
     // host that is not behind Cloudflare). SNI / Host stay the host's name, so every one of them is the same server.
-    return uniq([String(host)].concat(nodeHostIpsCached(host), nodeTypedIps(settings)));
+    const own = nodeHostIpsCached(host);
+    return uniq([String(host)].concat(own, nodeTypedIps(settings).filter((ip) => own.indexOf(ip) >= 0 || nodeIpPassed(host, ip))));
   }
   const vercel = isVercelPlatform(env);
   const own = (settings.ips || []).filter((a) => !vercel || vercelDialable(a));
@@ -6252,6 +6284,7 @@ async function subResponse(kind, host, env, settings, uuid, user, url, request) 
   // sing-box would drop finalmask/ciphers, see below), so a user's Clash link keeps working.
   if (user && user.fw && !q.firewall && kind !== 'clash' && kind !== 'singbox') q = Object.assign({}, q, { firewall: user.fw });
   if (user && user.ips && user.ips.length) settings = Object.assign({}, settings, { ips: user.ips.slice() });
+  if (nodeDirect(env)) { try { await withTimeout(nodeVerifyTyped(env, settings, host), 9000, 'verify'); } catch (e) { /* unverified IPs just stay out */ } }
   ({ settings, q } = applyFirewallBypassPreset(settings, q));
   // BlueKnight-compatible firewall presets are Xray-only: returning a partial
   // Clash/sing-box document would silently discard finalmask/cipher settings.
@@ -7936,8 +7969,10 @@ async function handleApi(request, url, env, ctx) {
   if (path === '/api/node/ips' && method === 'GET') {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
     if (!nodeDirect(env)) return json({ ok: true, node: false, host, ips: [] });
-    const ips = await nodeHostIps(host, url.searchParams.get('refresh') === '1');
-    const typed = nodeTypedIps(settings).filter((a) => ips.indexOf(a) < 0);
+    const refresh = url.searchParams.get('refresh') === '1';
+    const ips = await nodeHostIps(host, refresh);
+    try { await withTimeout(nodeVerifyTyped(env, settings, host, refresh), 20000, 'verify'); } catch (e) { /* shown as unchecked */ }
+    const typed = nodeTypedIps(settings).filter((a) => ips.indexOf(a) < 0).map((ip) => { const c = nodeIpCheck(host, ip); return { ip, ok: !!(c && c.ok), ms: c ? c.ms : 0, status: c ? c.status : 0, checked: !!c }; });
     return json({ ok: true, node: true, host, ips, typed, port: nodePort(env), tls: nodeEdge(env) === 'tls', platform: String(env.CAT_HOST || '') });
   }
   if (path === '/api/locations/fetch' && method === 'POST') {
@@ -9235,7 +9270,7 @@ html[dir="rtl"] label,html[dir="rtl"] .tbl th,html[dir="rtl"] .frm label,html[di
 .pbar-fill{height:100%;width:0%;background:linear-gradient(90deg,#14b8a6,#38bdf8);transition:width .25s ease}
 ${CLEAN_CSS}
 [data-plat=vercel] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab),body:not([data-plat=node]) #v-nodeips{display:none!important}
-#nipList{display:flex;flex-direction:column;gap:8px;margin:10px 0}#nipList .lrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px}
+#nipTyped{width:100%;margin-top:6px}#nipCaps{margin:6px 0 4px}#nipList{display:flex;flex-direction:column;gap:8px;margin:10px 0}#nipList .lrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px}
 </style></head><body${nodeDirect(env) ? ' data-plat="node"' : isVercelPlatform(env) ? ' data-plat="vercel"' : ''}>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -9515,7 +9550,11 @@ ${(() => {
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(16,185,129,.40))">🏠</span><div><h1>${tr2('آی‌پی‌های همین سرور', 'This server’s IPs')}</h1><p>${tr2('پنل روی هاست است (نه کلودفلر)؛ آی‌پی سرور خودکار در همهٔ کانفیگ‌ها کنار دامنه است.', 'The panel runs on a host (not Cloudflare); the server IP is added to every config automatically.')}</p></div></div>
  <div class="card sec">
   <h2><span class="ic">🏠</span><span>${tr2('در کانفیگ‌ها', 'In the configs')}</span><button class="btn sm" type="button" id="nipRefresh" style="margin-inline-start:auto">🔄 ${tr2('دوباره پیدا کن', 'Find again')}</button></h2>
+  <div id="nipCaps"></div>
   <div id="nipList"><div class="small dim">⏳</div></div>
+  <label for="nipTyped">${tr2('آی‌پی اضافه (هر خط یکی، فقط با تست موفق)', 'Extra IPs (one per line, used once tested)')}</label>
+  <textarea id="nipTyped" rows="3" dir="ltr" placeholder="1.2.3.4"></textarea>
+  <button class="btn sm p" type="button" id="nipSave" style="margin-top:8px">💾 ${tr2('ذخیره و تست', 'Save & test')}</button>
   <div class="note i small">${tr2('اگر دامنه باز نشد، کانفیگ «🏠 Server IP» همان سرور را بدون DNS می‌زند.', 'If the name is blocked, the «🏠 Server IP» config reaches the same server without DNS.')}</div>
  </div>
 </section>
@@ -10612,10 +10651,10 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeThemePi
 var LAB={pool:{},net:{},busy:false};
 function labCandidates(){
  var own=String(location.hostname||'').toLowerCase(),list=[];
- String(($('#sniPoolCsv')&&$('#sniPoolCsv').value)||'').split(/[\s,]+/)
+ String(($('#sniPoolCsv')&&$('#sniPoolCsv').value)||'').split(/[\\s,]+/)
   .concat((CFG&&CFG.sniLabDefaults)||[]).forEach(function(x){
    x=String(x||'').trim().toLowerCase();
-   if(x&&x!==own&&/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x)&&list.indexOf(x)<0)list.push(x);
+   if(x&&x!==own&&/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x)&&list.indexOf(x)<0)list.push(x);
   });
  return list.slice(0,12);
 }
@@ -10944,7 +10983,7 @@ if($('#arReload'))$('#arReload').addEventListener('click',arLoad);
 if($('#arClear'))$('#arClear').addEventListener('click',async function(){if(!(await ask(t('ar_confirm'),{ok:t('del')})))return;api('/api/app-reports',{method:'DELETE'}).then(arLoad)});
 (function(){var btn=$('#tfaBtn'),inp=$('#tfaCode');if(!btn||!inp)return;
  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();btn.click()}});
- btn.addEventListener('click',function(){var on=!!(CFG&&CFG.settings&&CFG.settings.totpEnabled);var code=inp.value.replace(/\s+/g,'');
+ btn.addEventListener('click',function(){var on=!!(CFG&&CFG.settings&&CFG.settings.totpEnabled);var code=inp.value.replace(/\\s+/g,'');
   if(on){if(!/^[0-9]{6}$/.test(code)){toast(t('tfa_code_ph'),true);inp.focus();return}api('/api/2fa/disable',{method:'POST',body:{code:code}}).then(function(j){if(!j||!j.ok){toast(t('tfa_bad'),true);return}inp.value='';toast('✓');return load()}).catch(function(){toast('error',true)});return}
   if(!tfaPending){api('/api/2fa/setup',{method:'POST',body:{}}).then(function(j){if(!j||!j.ok)throw 0;tfaPending=j;$('#tfaQr').innerHTML='<img alt="QR" style="max-width:220px" src="/qr.svg?text='+encodeURIComponent(j.uri)+'">';$('#tfaSecret').textContent=j.secret;tfaRender();inp.focus()}).catch(function(){toast('error',true)});return}
   if(!/^[0-9]{6}$/.test(code)){toast(t('tfa_code_ph'),true);inp.focus();return}
@@ -11182,7 +11221,7 @@ $('#btnSetExport').addEventListener('click',function(){if(!CFG||!CFG.settings){t
 $('#btnSetImport').addEventListener('click',function(){toast(t('set_import_choose'));$('#setImportFile').click()});
 $('#setImportFile').addEventListener('change',function(){var f=this.files&&this.files[0];this.value='';if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(String(r.result));var st=j&&j.settings?j.settings:j;if(!st||typeof st!=='object'||Array.isArray(st))throw 0;delete st.tgToken;delete st.ghPat;delete st.passwordHash;delete st.hasPassword;delete st.password;api('/api/settings',{method:'PUT',body:st}).then(function(x){if(!x.ok)throw 0;toast(t('saved'));return load()}).catch(function(){toast('error',true)})}catch(e){toast(t('set_import_bad'),true)}};r.readAsText(f)});
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,echList:f.elements.echList.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),rotTimed:!!($('#rotTimed')&&$('#rotTimed').checked),rotMinutes:Number($('#rotMinutes')&&$('#rotMinutes').value)||30,dnsFilter:$('#setDnsf')?$('#setDnsf').value:'',protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),rotTimed:!!($('#rotTimed')&&$('#rotTimed').checked),rotMinutes:Number($('#rotMinutes')&&$('#rotMinutes').value)||30,dnsFilter:$('#setDnsf')?$('#setDnsf').value:'',protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
@@ -11333,7 +11372,7 @@ else if(/^[0-9a-f:]+$/.test(s)&&s.indexOf(':')>=0)v='['+s+']:'+port;
 else if(/^[a-z0-9.-]+\\.[a-z]{2,}$/.test(s)&&s.indexOf(':')<0)v=s+':'+port;
 return v}).filter(Boolean).map(function(s){return cc?s+'#'+cc:s});
 if(!ips.length){
-  var rawLines=String($('#manualIps').value||'').split(/[\s,]+/).filter(Boolean);
+  var rawLines=String($('#manualIps').value||'').split(/[\\s,]+/).filter(Boolean);
   if(rawLines.length){toast(t('ip_manual_bad')+' '+rawLines[0].slice(0,40),true);return}
   toast(t('ip_manual_none'),true);return}
 var save=function(list){api('/api/ips',{method:'POST',body:{ips:list,source:'manual'}}).then(function(j){toast(j.ok?(j.count+' ✓'):'error',!j.ok);$('#manualIps').value='';return load()})};
@@ -11351,12 +11390,12 @@ $('#btnIpCopy').addEventListener('click',function(){copy(CFG.settings.ips.join('
 var PLAIN_SET=[80,8080,8880,2052,2082,2086,2095];
 function pxSplit(list){var cf=[],sk=[];list.forEach(function(p){(/^socks5h?:\\/\\//i).test(p)?sk.push(p):cf.push(p)});return {cf:cf,sk:sk}}
 function renderLatency(){var TT=window.__ipTest||{},tags=CFG.settings.ipCountries||{},box=$('#ccLatency');if(!box)return;var by={};Object.keys(TT).forEach(function(a){var r=TT[a];if(!r||!r.ok||typeof r.ms!=='number')return;var cc=tags[a]||tags[String(a).split('#')[0]]||'🌐';(by[cc]=by[cc]||[]).push(r.ms)});var rows=Object.keys(by).map(function(cc){var a=by[cc].sort(function(x,y){return x-y});var pc=function(p){return a[Math.min(a.length-1,Math.floor(p/100*(a.length-1)+0.5))]};return {cc:cc,n:a.length,p50:pc(50),p95:pc(95)}}).sort(function(x,y){return x.p50-y.p50});$('#ccLatTitle').textContent=rows.length?'⚡ Worker → Exit (P50 · P95)':'';box.innerHTML=rows.map(function(r){var bar='<span style="display:inline-block;width:'+(20+Math.min(60,Math.round(r.p50/6)))+'px;height:4px;background:#34d399;border-radius:2px;vertical-align:middle"></span>';return '<span class="chip mono">'+(r.cc!=='🌐'?flag(r.cc)+' '+r.cc:'🌐')+' · P50 '+r.p50+' · P95 '+r.p95+'ms'+(r.n<3?' · 👤 داده کم':' ('+r.n+')')+' '+bar+'</span>'}).join('')}
-function renderSvc(){var S=window.__svcTest||{},box=$('#svcChips');if(!box)return;var ex=window.__svcExit||{};var exChip=ex.loc?'<span class="chip mono">🌐 خروجی ورکر: '+(ex.loc||'?')+(ex.colo?' · '+ex.colo:'')+(ex.ip?' · '+ex.ip:'')+'</span>':'';box.innerHTML='<span class="dim small">'+esc(t('svc_note'))+'</span><br>'+exChip+Object.keys(S).map(function(h){var r=S[h];var w=r.ok?'<span style="color:#34d399">\u2713 '+r.ms+'ms</span>':(r.status?'<span style="color:#f59e0b">\u26a0 '+r.status+'</span>':'<span style="color:#f87171">\u2717'+(r.error?' '+esc(String(r.error).slice(0,32)):'')+'</span>');var lbl=h.replace(/^(www|chat)\./,'');return '<span class="chip mono">'+esc(lbl)+' '+w+'</span>'}).join('')+exChip+((Object.keys(S).length&&S['gemini.google.com']&&!S['gemini.google.com'].ok)?'<span class="chip">💡 '+esc(t('svc_gemini_hint'))+'</span>':'')}
+function renderSvc(){var S=window.__svcTest||{},box=$('#svcChips');if(!box)return;var ex=window.__svcExit||{};var exChip=ex.loc?'<span class="chip mono">🌐 خروجی ورکر: '+(ex.loc||'?')+(ex.colo?' · '+ex.colo:'')+(ex.ip?' · '+ex.ip:'')+'</span>':'';box.innerHTML='<span class="dim small">'+esc(t('svc_note'))+'</span><br>'+exChip+Object.keys(S).map(function(h){var r=S[h];var w=r.ok?'<span style="color:#34d399">\u2713 '+r.ms+'ms</span>':(r.status?'<span style="color:#f59e0b">\u26a0 '+r.status+'</span>':'<span style="color:#f87171">\u2717'+(r.error?' '+esc(String(r.error).slice(0,32)):'')+'</span>');var lbl=h.replace(/^(www|chat)\\./,'');return '<span class="chip mono">'+esc(lbl)+' '+w+'</span>'}).join('')+exChip+((Object.keys(S).length&&S['gemini.google.com']&&!S['gemini.google.com'].ok)?'<span class="chip">💡 '+esc(t('svc_gemini_hint'))+'</span>':'')}
 function renderPxTest(){var px=CFG.settings.proxyIps||[],TT=window.__ipTest||{},box=$('#pxTestChips');if(!box)return;box.innerHTML=px.map(function(p){var st=TT[p];var w=st?(st.ok?'<span style="color:#34d399">relay\u2713 '+st.ms+'ms</span>':'<span style="color:#f87171">relay\u2717'+(st.error?' \u00b7 '+esc(String(st.error).slice(0,42)):'')+'</span>'):'<span class="dim">\u2014</span>';var isSk=(/^socks5h?:\\/\\//i).test(p);var lbl=isSk?'\ud83e\udde6 '+p.replace(/^socks5h?:\\/\\//i,'').replace(/^[^@\\/]*@/,''):'\ud83c\udfaf '+p;return '<span class="chip mono">'+lbl+' '+w+'</span>'}).join('')}
 $('#btnSvcTest').addEventListener('click',function(){var out=$('#ipTestOut');out.textContent='\u2026';$('#btnSvcTest').disabled=true;
 api('/api/svc-test',{method:'POST',body:{}}).then(function(j){window.__svcTest=j.results||{};window.__svcExit=j.exit||{};renderSvc();var o=Object.keys(window.__svcTest).length,k=Object.values(window.__svcTest).filter(function(r){return r.ok}).length;out.textContent='\ud83e\udea7 '+k+' / '+o}).catch(function(e){out.textContent='\u2717 '+esc(e&&e.message||e)}).finally(function(){$('#btnSvcTest').disabled=false})});
 function setIpTestProg(pct,lbl,show){var w=$('#ipTestProgWrap'),b=$('#ipTestProgBar'),l=$('#ipTestProgLbl');if(!w)return;w.style.display=show===false?'none':'block';if(b)b.style.width=Math.max(0,Math.min(100,pct))+'%';if(l)l.textContent=lbl+' ('+Math.max(0,Math.min(100,pct))+'%)'}
-$('#btnIpTest').addEventListener('click',function(){var ips=CFG.settings.ips.slice(0,48),pxs=(CFG.settings.proxyIps||[]).slice(0,16);if(!ips.length&&!pxs.length){toast(t('scan_empty'),true);return}var tests=ips.map(function(a){var m=a.match(/:(\d{1,5})$/);var port=m?+m[1]:443;return {addr:a,port:port,kind:PLAIN_SET.indexOf(port)>-1?'plain':'clean'}}).concat((function(){var sp=pxSplit(pxs),out=sp.cf.map(function(p){var m=p.match(/:(\d{1,5})$/);return {addr:m?p.slice(0,p.lastIndexOf(':')):p,port:m?+m[1]:443,kind:'proxyip',key:p}});return out.concat(sp.sk.map(function(p){return {addr:p,port:0,kind:'socks',key:p}}))})()).slice(0,64);var out=$('#ipTestOut');out.textContent='\u2026 0/'+tests.length;$('#btnIpTest').disabled=true;
+$('#btnIpTest').addEventListener('click',function(){var ips=CFG.settings.ips.slice(0,48),pxs=(CFG.settings.proxyIps||[]).slice(0,16);if(!ips.length&&!pxs.length){toast(t('scan_empty'),true);return}var tests=ips.map(function(a){var m=a.match(/:(\\d{1,5})$/);var port=m?+m[1]:443;return {addr:a,port:port,kind:PLAIN_SET.indexOf(port)>-1?'plain':'clean'}}).concat((function(){var sp=pxSplit(pxs),out=sp.cf.map(function(p){var m=p.match(/:(\\d{1,5})$/);return {addr:m?p.slice(0,p.lastIndexOf(':')):p,port:m?+m[1]:443,kind:'proxyip',key:p}});return out.concat(sp.sk.map(function(p){return {addr:p,port:0,kind:'socks',key:p}}))})()).slice(0,64);var out=$('#ipTestOut');out.textContent='\u2026 0/'+tests.length;$('#btnIpTest').disabled=true;
 setIpTestProg(25,lang==='fa'?'🩺 در حال تست سلامت '+tests.length+' اندپوینت (TCP/TLS)…':'🩺 Probing '+tests.length+' endpoints (TCP/TLS)…',true);
 var progTimer=setTimeout(function(){setIpTestProg(65,lang==='fa'?'🩺 در حال بررسی پاسخ لبه و رله‌ها…':'🩺 Verifying edge & relay handshakes…',true)},600);
 api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){clearTimeout(progTimer);window.__ipTest=j.results||{};renderIps();var cl=tests.filter(function(x){return x.kind!=='proxyip'}),ok=cl.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length,po=tests.filter(function(x){return x.kind==='proxyip'||x.kind==='socks'}),pok=po.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length;var best=null;cl.forEach(function(x){var r=window.__ipTest[x.key||x.addr];if(r&&r.ok&&r.ms!=null&&(best===null||r.ms<best))best=r.ms});var summary='🩺 \ud83d\udca6 '+ok+' / '+cl.length+(po.length?' \u00b7 \ud83c\udfaf '+pok+' / '+po.length:'')+(best!==null?' · کمترین: '+best+'ms':'');out.textContent=summary;setIpTestProg(100,summary,true)}).catch(function(e){clearTimeout(progTimer);out.textContent='\u2717 '+esc(e&&e.message||e);setIpTestProg(100,'✗ '+(e&&e.message||e),true)}).finally(function(){$('#btnIpTest').disabled=false})});
@@ -11470,7 +11509,7 @@ function ccName(cc){return (lang==='fa'&&CC_FA[cc])?CC_FA[cc]:cc}
 function ccFlag(cc){if(!cc||cc.length!==2)return '\u{1F3F3}';return String.fromCodePoint(127397+cc.charCodeAt(0),127397+cc.charCodeAt(1))}
 function famOf(a){var st=String(a);var c=st.lastIndexOf(':');
  if(c>-1&&/^\\d{1,5}$/.test(st.slice(c+1))&&st.indexOf(':')===c)st=st.slice(0,c);
- st=st.replace(/^\[/,'').replace(/\]$/,'');
+ st=st.replace(/^\\[/,'').replace(/\\]$/,'');
  if(/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(st))return 'v4';
  if(/^[0-9a-f:]+$/i.test(st)&&st.indexOf(':')>-1)return 'v6';
  return ''}
@@ -11648,11 +11687,20 @@ function renderSubLinks(){
 
 /* ---------- address section: three tabs ---------- */
 /* 6.79.3 node hosts: the server's own IPs (auto, already in every config) */
+var NIP_EDGE={railway:1};
+function nipCaps(j){var p=j.platform||'',e=NIP_EDGE[p]===1,r=function(ic,t){return '<div class="small">'+ic+' '+esc(t)+'</div>'};
+ return r('✅',tx('خروجی کشوری: 🧦 همه سایت‌ها، 🎯 سایت‌های CF','Exits: 🧦 all sites, 🎯 CF sites'))+
+  r(e?'✅':'⚠️',e?tx('آی‌پی‌های دیگر Railway (با تست)','Other Railway IPs (tested)'):tx('آی‌پی دیگر فقط اگر همین سرور باشد','Other IPs only if this same server'))+
+  r('✖️',tx('اسکنر CF و پورت‌های دیگر (پشت CF نیست)','CF scanner, other ports (not behind CF)'))+
+  (p==='katabump'?r('💡',tx('دامنهٔ kdns.fr روی CF اینها را باز می‌کند','A kdns.fr name on CF unlocks them')):'')}
 function nipLoad(refresh){var box=$('#nipList');if(!box)return Promise.resolve();box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال پیدا کردن…','Looking up…'))+'</div>';
  return api('/api/node/ips'+(refresh?'?refresh=1':'')).then(function(j){if(!j||!j.ok){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag((j&&j.error)||'?'))+'</div>';return}
   var row=function(ic,a,k){return '<div class="lrow"><span>'+ic+'</span><span class="mono" dir="ltr">'+esc(a)+(j.port&&j.port!==443?':'+j.port:'')+'</span><span class="chip" style="margin-inline-start:auto">'+esc(k)+'</span></div>'};
-  box.innerHTML=row('🔌',j.host,tx('دامنه','name'))+(j.ips||[]).map(function(a){return row('🏠',a,tx('آی‌پی سرور · خودکار','server IP · auto'))}).join('')+(j.typed||[]).map(function(a){return row('✍️',a,tx('نوشتهٔ تو','typed by you'))}).join('')+
+  var cp=$('#nipCaps');if(cp)cp.innerHTML=nipCaps(j);var ta=$('#nipTyped');if(ta&&!ta.value)ta.value=(j.typed||[]).map(function(x){return x.ip}).join('\\n');
+  box.innerHTML=row('🔌',j.host,tx('دامنه','name'))+(j.ips||[]).map(function(a){return row('🏠',a,tx('آی‌پی سرور · خودکار','server IP · auto'))}).join('')+(j.typed||[]).map(function(x){return row(x.ok?'✅':(x.checked?'❌':'⏳'),x.ip,x.ok?x.ms+' ms':(x.checked?tx('رد شد، در کانفیگ نیست','failed, left out'):'…'))}).join('')+
    ((j.ips||[]).length?'':'<div class="small dim">'+esc(tx('آی‌پی پیدا نشد؛ خود دامنه کار می‌کند.','No IP found; the name itself works.'))+'</div>')}).catch(function(e){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'})}
+if($('#nipSave'))$('#nipSave').addEventListener('click',function(){var b=this,l=String($('#nipTyped').value||'').split(/[\\s,]+/).filter(Boolean);b.disabled=true;
+ api('/api/settings',{method:'PUT',body:{ips:l}}).then(function(){return nipLoad(true)}).then(function(){b.disabled=false;toast('✓')}).catch(function(e){b.disabled=false;toast(safeDiag(e&&e.message||e),true)})});
 if($('#nipRefresh'))$('#nipRefresh').addEventListener('click',function(){var b=this;b.disabled=true;nipLoad(true).then(function(){b.disabled=false;toast(tx('به‌روز شد؛ اشتراک را در اپ آپدیت کن','Updated; update the sub in your app'))})});
 function setAddrTab(tab){
   document.body.setAttribute('data-atab',tab);
@@ -11670,7 +11718,7 @@ function maskCreds(x){return String(x||'').replace(CRED_RE,'//***@');}
 function renderLocPath(){
   var el=$('#locPathNow');if(!el)return;
   var raw=String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'');
-  var all=raw.split(/[\s,]+/).filter(Boolean);
+  var all=raw.split(/[\\s,]+/).filter(Boolean);
   var px=all.filter(function(x){return !isSock(x);}).length;
   var sk=all.filter(isSock).length;
   var cc=(CFG&&CFG.settings&&CFG.settings.country)||'';
@@ -11678,9 +11726,9 @@ function renderLocPath(){
 }
 
 function isSock(x){return SOCKS_RE.test(String(x||''));}
-function socksOf(){return String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[\s,]+/).filter(Boolean).filter(isSock);}
+function socksOf(){return String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[\\s,]+/).filter(Boolean).filter(isSock);}
 function saveSocks(list){
-  var others=String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[\s,]+/).filter(Boolean).filter(function(x){return !isSock(x);});
+  var others=String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[\\s,]+/).filter(Boolean).filter(function(x){return !isSock(x);});
   return api('/api/settings',{method:'PUT',body:{proxyIps:others.concat(list).join(String.fromCharCode(10))}}).then(function(j){
     if(j&&j.ignored&&j.ignored.length)toast(t('px_ignored')+' '+j.ignored.slice(0,3).join(' \u00b7 '),true);
     else toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);
@@ -11707,7 +11755,7 @@ function renderSocks(){
 var SOCKS_FULL=new RegExp('^socks5://[A-Za-z0-9._@:-]+(:\\d{1,5})?$','i');
 function addSock(){
   var v=$('#skInput');if(!v)return;
-  var lines=String(v.value||'').split(/[\s,]+/).filter(Boolean);
+  var lines=String(v.value||'').split(/[\\s,]+/).filter(Boolean);
   if(!lines.length)return;
   var bad=lines.filter(function(x){return !SOCKS_FULL.test(x);});
   if(bad.length){toast(t('sk_bad')+' '+bad[0].slice(0,40),true);return;}
@@ -12379,7 +12427,7 @@ export default {
 };
 
 export const _testing = {
-  nodeHostIps, nodeHostIpsCached, cfHostedName, withUserExits, configName,
+  nodeHostIps, nodeHostIpsCached, nodeVerifyTyped, nodeIpCheck, cfHostedName, withUserExits, configName,
   dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS, DEFAULT_PROXY_IPS,
   linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,
   admitLimitedUser, startFirstUseClock, subResponse,

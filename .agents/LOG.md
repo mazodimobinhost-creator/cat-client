@@ -41,3 +41,4 @@
 - 2026-10-30 beta231: SmarterASP Linux runner-load fix (autostarted) + cat-bundled first-start panel.
 - 2026-10-30 beta232: SmarterASP Linux read-only site files — prebuilt cat-code in zip, temp code/data fallback.
 - 2026-10-30 beta233 (Panel 6.79.3): node hosts — auto server IPs in configs, Clean IP page for nodes, exits on nodes (SOCKS all sites, ProxyIP CF names by DNS).  CI fix: feed clean IPs (repoIps «IP:443») leaked into node subs; node lists only pinned user exits.
+- 2026-10-30 beta234 (Panel 6.79.4): node typed IPs verified by the panel (WS 101, SNI=host) before entering subs; per-host capability list + save & test on the node Clean IP page; 14 lost regex escapes in the page template fixed. Botkeep not added (its fair-use rules forbid proxies/VPN endpoints).

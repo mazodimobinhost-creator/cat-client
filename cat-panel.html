@@ -632,7 +632,7 @@ html[data-theme=clean] .side button.on{background:var(--nav-bg);border-color:var
 html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 
 [data-plat=vercel] :is(#v-loc,#v-loc-cards,#v-socks),[data-plat=node] :is(#v-scan,#v-nodes,#fSpoof,#v-addrtab),body:not([data-plat=node]) #v-nodeips{display:none!important}
-#nipList{display:flex;flex-direction:column;gap:8px;margin:10px 0}#nipList .lrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px}
+#nipTyped{width:100%;margin-top:6px}#nipCaps{margin:6px 0 4px}#nipList{display:flex;flex-direction:column;gap:8px;margin:10px 0}#nipList .lrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px}
 </style></head><body>
 <!-- «Cat Glass» skin picker -->
 <div class="tpick" id="themePick"><div class="tpbg" data-tpclose></div><div class="tpbox" role="dialog" aria-modal="true" aria-label="Panel theme">
@@ -646,7 +646,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 <div class="mwrap" id="menu">
  <div class="mbg" data-mclose></div>
  <div class="mpanel">
-  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.79.3</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
+  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.79.4</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
   <div class="mlist">
    <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
    <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
@@ -665,7 +665,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 </div>
 
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.79.3</small></div></div>
+ <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.79.4</small></div></div>
  <div class="sb-nav">
   <button type="button" data-view="dash"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="lbl" data-i="n_dash"></span></button>
   <button type="button" data-view="clients"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="lbl" data-i="n_clients"></span></button>
@@ -688,7 +688,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 </div>
 <div class="top"><div class="topin">
  <button class="ib sbtog" type="button" id="btnSbToggle" title="جمع/باز کردن منو" aria-label="جمع/باز کردن منو"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg></button>
- <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.79.3</span></div>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.79.4</span></div>
  <div class="pgt"><b id="pgTitle">داشبورد</b><small id="pgSub"></small></div>
  <button class="tnew" type="button" id="btnTopNew"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">کاربر جدید</span></button>
  <div class="tools">
@@ -773,7 +773,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
    <div><span data-i="ov_seen"></span><span id="ovSeen">…</span></div>
    <div class="small mute" style="margin-top:-6px" data-i="ov_seen_hint"></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.79.3</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.79.4</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -900,7 +900,11 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(16,185,129,.40))">🏠</span><div><h1>آی‌پی‌های همین سرور</h1><p>پنل روی هاست است (نه کلودفلر)؛ آی‌پی سرور خودکار در همهٔ کانفیگ‌ها کنار دامنه است.</p></div></div>
  <div class="card sec">
   <h2><span class="ic">🏠</span><span>در کانفیگ‌ها</span><button class="btn sm" type="button" id="nipRefresh" style="margin-inline-start:auto">🔄 دوباره پیدا کن</button></h2>
+  <div id="nipCaps"></div>
   <div id="nipList"><div class="small dim">⏳</div></div>
+  <label for="nipTyped">آی‌پی اضافه (هر خط یکی، فقط با تست موفق)</label>
+  <textarea id="nipTyped" rows="3" dir="ltr" placeholder="1.2.3.4"></textarea>
+  <button class="btn sm p" type="button" id="nipSave" style="margin-top:8px">💾 ذخیره و تست</button>
   <div class="note i small">اگر دامنه باز نشد، کانفیگ «🏠 Server IP» همان سرور را بدون DNS می‌زند.</div>
  </div>
 </section>
@@ -1735,7 +1739,7 @@ x.com</textarea>
 <section class="view" id="v-about" data-sec="set">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><div><h1 data-i="n_about"></h1><p data-i="d_about"></p></div></div>
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.79.3</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.79.4</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -1870,7 +1874,7 @@ x.com</textarea>
    only matters on KV-less panels, where settings cannot persist — the cookie keeps the
    owner's choice instead of resetting to the default skin on every reload. */
 try{var tm=document.cookie.match(/(?:^|;\s*)catTheme=([a-z]+)/);if(tm&&["clean","aurora","nebula","ocean","ember","forest","steel","turquoise","cyberpunk","gold","amoled","nord","daylight"].indexOf(tm[1])>=0){document.documentElement.setAttribute('data-theme',tm[1])}}catch(e){}
-var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.79.3";
+var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.79.4";
 var FIREWALL_PRESETS_UI={"mci-ech":{"address":"188.114.97.6","fingerprint":"chrome","ech":true,"note":"b_fw_mci_ech_n","finalMask":false},"mci-ipv6":{"address":"2a06:98c1:3101::6812:202f","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ipv6_n","finalMask":false},"mci-ipv6-ff":{"address":"2a06:98c1:3121::7","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ff_n","finalMask":true},"irancell-ff":{"address":"188.114.97.6","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true},"irancell-ff-98":{"address":"188.114.98.0","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true}};
 var I18N={
 fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_clean:'تمیز روشن',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
@@ -1997,10 +2001,10 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeThemePi
 var LAB={pool:{},net:{},busy:false};
 function labCandidates(){
  var own=String(location.hostname||'').toLowerCase(),list=[];
- String(($('#sniPoolCsv')&&$('#sniPoolCsv').value)||'').split(/[s,]+/)
+ String(($('#sniPoolCsv')&&$('#sniPoolCsv').value)||'').split(/[\s,]+/)
   .concat((CFG&&CFG.sniLabDefaults)||[]).forEach(function(x){
    x=String(x||'').trim().toLowerCase();
-   if(x&&x!==own&&/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x)&&list.indexOf(x)<0)list.push(x);
+   if(x&&x!==own&&/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x)&&list.indexOf(x)<0)list.push(x);
   });
  return list.slice(0,12);
 }
@@ -2329,7 +2333,7 @@ if($('#arReload'))$('#arReload').addEventListener('click',arLoad);
 if($('#arClear'))$('#arClear').addEventListener('click',async function(){if(!(await ask(t('ar_confirm'),{ok:t('del')})))return;api('/api/app-reports',{method:'DELETE'}).then(arLoad)});
 (function(){var btn=$('#tfaBtn'),inp=$('#tfaCode');if(!btn||!inp)return;
  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();btn.click()}});
- btn.addEventListener('click',function(){var on=!!(CFG&&CFG.settings&&CFG.settings.totpEnabled);var code=inp.value.replace(/s+/g,'');
+ btn.addEventListener('click',function(){var on=!!(CFG&&CFG.settings&&CFG.settings.totpEnabled);var code=inp.value.replace(/\s+/g,'');
   if(on){if(!/^[0-9]{6}$/.test(code)){toast(t('tfa_code_ph'),true);inp.focus();return}api('/api/2fa/disable',{method:'POST',body:{code:code}}).then(function(j){if(!j||!j.ok){toast(t('tfa_bad'),true);return}inp.value='';toast('✓');return load()}).catch(function(){toast('error',true)});return}
   if(!tfaPending){api('/api/2fa/setup',{method:'POST',body:{}}).then(function(j){if(!j||!j.ok)throw 0;tfaPending=j;$('#tfaQr').innerHTML='<img alt="QR" style="max-width:220px" src="/qr.svg?text='+encodeURIComponent(j.uri)+'">';$('#tfaSecret').textContent=j.secret;tfaRender();inp.focus()}).catch(function(){toast('error',true)});return}
   if(!/^[0-9]{6}$/.test(code)){toast(t('tfa_code_ph'),true);inp.focus();return}
@@ -2567,7 +2571,7 @@ $('#btnSetExport').addEventListener('click',function(){if(!CFG||!CFG.settings){t
 $('#btnSetImport').addEventListener('click',function(){toast(t('set_import_choose'));$('#setImportFile').click()});
 $('#setImportFile').addEventListener('change',function(){var f=this.files&&this.files[0];this.value='';if(!f)return;var r=new FileReader();r.onload=function(){try{var j=JSON.parse(String(r.result));var st=j&&j.settings?j.settings:j;if(!st||typeof st!=='object'||Array.isArray(st))throw 0;delete st.tgToken;delete st.ghPat;delete st.passwordHash;delete st.hasPassword;delete st.password;api('/api/settings',{method:'PUT',body:st}).then(function(x){if(!x.ok)throw 0;toast(t('saved'));return load()}).catch(function(){toast('error',true)})}catch(e){toast(t('set_import_bad'),true)}};r.readAsText(f)});
 $('#fSettings').addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var body={title:f.elements.ptitle.value,panelPath:f.elements.panelPath.value.trim().toLowerCase(),lang:f.elements.plang.value,sni:f.elements.sni.value,echList:f.elements.echList.value,fingerprint:f.elements.fingerprint.value,entryLimit:Number(f.elements.entryLimit.value),
- subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),rotTimed:!!($('#rotTimed')&&$('#rotTimed').checked),rotMinutes:Number($('#rotMinutes')&&$('#rotMinutes').value)||30,dnsFilter:$('#setDnsf')?$('#setDnsf').value:'',protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
+ subRotate:(function(){var b=document.querySelector('#subRotatePick button.on');return b?b.getAttribute('data-v'):'fetch'})(),rotTimed:!!($('#rotTimed')&&$('#rotTimed').checked),rotMinutes:Number($('#rotMinutes')&&$('#rotMinutes').value)||30,dnsFilter:$('#setDnsf')?$('#setDnsf').value:'',protocols:{vless:f.elements.pv.checked,trojan:f.elements.pt.checked},tlsPorts:picked('#pickTls'),plainPorts:picked('#pickPlain'),plainEnabled:$('#swPlain').classList.contains('on'),useDefaults:$('#swDefaults').classList.contains('on'),includeHost:$('#swHost').classList.contains('on'),healthOrder:$('#swHealth').classList.contains('on'),chain:f.elements.chain.value.trim(),tgToken:f.elements.tgToken.value.trim(),tgAdmins:f.elements.tgAdmins.value.split(/[\s,]+/).filter(Boolean),ghRepo:f.elements.ghRepo.value.trim(),ghRef:f.elements.ghRef.value.trim(),ghPat:f.elements.ghPat.value.trim(),ghWorkflow:f.elements.ghWorkflow.value.trim(),bypassIran:$('#swIran').classList.contains('on'),blockAds:$('#swAds').classList.contains('on'),blockQuic:$('#swQuic').classList.contains('on'),bestPing:$('#swBestPing').classList.contains('on'),domToIp:$('#swDom2ip').classList.contains('on'),sniFront:$('#swSniRot').classList.contains('on'),sniRotate:$('#swSniRot').classList.contains('on'),fmLinks:$('#swFm').classList.contains('on'),sniPool:($('#sniPoolCsv').value||'').split(/[\s,]+/).map(function(x){return x.trim()}).filter(Boolean),fragment:{enabled:$('#swFrag').classList.contains('on'),packets:f.elements.fragPackets.value,length:f.elements.fragLength.value.trim(),interval:f.elements.fragInterval.value.trim()},alpn:f.elements.alpn.value,cipherSuites:f.elements.cipherSuites.value.trim(),chainMode:f.elements.chainMode.value,chainStrict:$('#swStrict').classList.contains('on')};
  if(f.elements.password.value)body.password=f.elements.password.value;var changedLang=body.lang!==lang;
  api('/api/settings',{method:'PUT',body:body}).then(function(j){if(!j.ok)throw 0;f.elements.password.value='';toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);if(changedLang){location.reload();return}return load()}).catch(function(){toast('error',true)})});
 
@@ -2718,7 +2722,7 @@ else if(/^[0-9a-f:]+$/.test(s)&&s.indexOf(':')>=0)v='['+s+']:'+port;
 else if(/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)&&s.indexOf(':')<0)v=s+':'+port;
 return v}).filter(Boolean).map(function(s){return cc?s+'#'+cc:s});
 if(!ips.length){
-  var rawLines=String($('#manualIps').value||'').split(/[s,]+/).filter(Boolean);
+  var rawLines=String($('#manualIps').value||'').split(/[\s,]+/).filter(Boolean);
   if(rawLines.length){toast(t('ip_manual_bad')+' '+rawLines[0].slice(0,40),true);return}
   toast(t('ip_manual_none'),true);return}
 var save=function(list){api('/api/ips',{method:'POST',body:{ips:list,source:'manual'}}).then(function(j){toast(j.ok?(j.count+' ✓'):'error',!j.ok);$('#manualIps').value='';return load()})};
@@ -2736,12 +2740,12 @@ $('#btnIpCopy').addEventListener('click',function(){copy(CFG.settings.ips.join('
 var PLAIN_SET=[80,8080,8880,2052,2082,2086,2095];
 function pxSplit(list){var cf=[],sk=[];list.forEach(function(p){(/^socks5h?:\/\//i).test(p)?sk.push(p):cf.push(p)});return {cf:cf,sk:sk}}
 function renderLatency(){var TT=window.__ipTest||{},tags=CFG.settings.ipCountries||{},box=$('#ccLatency');if(!box)return;var by={};Object.keys(TT).forEach(function(a){var r=TT[a];if(!r||!r.ok||typeof r.ms!=='number')return;var cc=tags[a]||tags[String(a).split('#')[0]]||'🌐';(by[cc]=by[cc]||[]).push(r.ms)});var rows=Object.keys(by).map(function(cc){var a=by[cc].sort(function(x,y){return x-y});var pc=function(p){return a[Math.min(a.length-1,Math.floor(p/100*(a.length-1)+0.5))]};return {cc:cc,n:a.length,p50:pc(50),p95:pc(95)}}).sort(function(x,y){return x.p50-y.p50});$('#ccLatTitle').textContent=rows.length?'⚡ Worker → Exit (P50 · P95)':'';box.innerHTML=rows.map(function(r){var bar='<span style="display:inline-block;width:'+(20+Math.min(60,Math.round(r.p50/6)))+'px;height:4px;background:#34d399;border-radius:2px;vertical-align:middle"></span>';return '<span class="chip mono">'+(r.cc!=='🌐'?flag(r.cc)+' '+r.cc:'🌐')+' · P50 '+r.p50+' · P95 '+r.p95+'ms'+(r.n<3?' · 👤 داده کم':' ('+r.n+')')+' '+bar+'</span>'}).join('')}
-function renderSvc(){var S=window.__svcTest||{},box=$('#svcChips');if(!box)return;var ex=window.__svcExit||{};var exChip=ex.loc?'<span class="chip mono">🌐 خروجی ورکر: '+(ex.loc||'?')+(ex.colo?' · '+ex.colo:'')+(ex.ip?' · '+ex.ip:'')+'</span>':'';box.innerHTML='<span class="dim small">'+esc(t('svc_note'))+'</span><br>'+exChip+Object.keys(S).map(function(h){var r=S[h];var w=r.ok?'<span style="color:#34d399">✓ '+r.ms+'ms</span>':(r.status?'<span style="color:#f59e0b">⚠ '+r.status+'</span>':'<span style="color:#f87171">✗'+(r.error?' '+esc(String(r.error).slice(0,32)):'')+'</span>');var lbl=h.replace(/^(www|chat)./,'');return '<span class="chip mono">'+esc(lbl)+' '+w+'</span>'}).join('')+exChip+((Object.keys(S).length&&S['gemini.google.com']&&!S['gemini.google.com'].ok)?'<span class="chip">💡 '+esc(t('svc_gemini_hint'))+'</span>':'')}
+function renderSvc(){var S=window.__svcTest||{},box=$('#svcChips');if(!box)return;var ex=window.__svcExit||{};var exChip=ex.loc?'<span class="chip mono">🌐 خروجی ورکر: '+(ex.loc||'?')+(ex.colo?' · '+ex.colo:'')+(ex.ip?' · '+ex.ip:'')+'</span>':'';box.innerHTML='<span class="dim small">'+esc(t('svc_note'))+'</span><br>'+exChip+Object.keys(S).map(function(h){var r=S[h];var w=r.ok?'<span style="color:#34d399">✓ '+r.ms+'ms</span>':(r.status?'<span style="color:#f59e0b">⚠ '+r.status+'</span>':'<span style="color:#f87171">✗'+(r.error?' '+esc(String(r.error).slice(0,32)):'')+'</span>');var lbl=h.replace(/^(www|chat)\./,'');return '<span class="chip mono">'+esc(lbl)+' '+w+'</span>'}).join('')+exChip+((Object.keys(S).length&&S['gemini.google.com']&&!S['gemini.google.com'].ok)?'<span class="chip">💡 '+esc(t('svc_gemini_hint'))+'</span>':'')}
 function renderPxTest(){var px=CFG.settings.proxyIps||[],TT=window.__ipTest||{},box=$('#pxTestChips');if(!box)return;box.innerHTML=px.map(function(p){var st=TT[p];var w=st?(st.ok?'<span style="color:#34d399">relay✓ '+st.ms+'ms</span>':'<span style="color:#f87171">relay✗'+(st.error?' · '+esc(String(st.error).slice(0,42)):'')+'</span>'):'<span class="dim">—</span>';var isSk=(/^socks5h?:\/\//i).test(p);var lbl=isSk?'🧦 '+p.replace(/^socks5h?:\/\//i,'').replace(/^[^@\/]*@/,''):'🎯 '+p;return '<span class="chip mono">'+lbl+' '+w+'</span>'}).join('')}
 $('#btnSvcTest').addEventListener('click',function(){var out=$('#ipTestOut');out.textContent='…';$('#btnSvcTest').disabled=true;
 api('/api/svc-test',{method:'POST',body:{}}).then(function(j){window.__svcTest=j.results||{};window.__svcExit=j.exit||{};renderSvc();var o=Object.keys(window.__svcTest).length,k=Object.values(window.__svcTest).filter(function(r){return r.ok}).length;out.textContent='🪧 '+k+' / '+o}).catch(function(e){out.textContent='✗ '+esc(e&&e.message||e)}).finally(function(){$('#btnSvcTest').disabled=false})});
 function setIpTestProg(pct,lbl,show){var w=$('#ipTestProgWrap'),b=$('#ipTestProgBar'),l=$('#ipTestProgLbl');if(!w)return;w.style.display=show===false?'none':'block';if(b)b.style.width=Math.max(0,Math.min(100,pct))+'%';if(l)l.textContent=lbl+' ('+Math.max(0,Math.min(100,pct))+'%)'}
-$('#btnIpTest').addEventListener('click',function(){var ips=CFG.settings.ips.slice(0,48),pxs=(CFG.settings.proxyIps||[]).slice(0,16);if(!ips.length&&!pxs.length){toast(t('scan_empty'),true);return}var tests=ips.map(function(a){var m=a.match(/:(d{1,5})$/);var port=m?+m[1]:443;return {addr:a,port:port,kind:PLAIN_SET.indexOf(port)>-1?'plain':'clean'}}).concat((function(){var sp=pxSplit(pxs),out=sp.cf.map(function(p){var m=p.match(/:(d{1,5})$/);return {addr:m?p.slice(0,p.lastIndexOf(':')):p,port:m?+m[1]:443,kind:'proxyip',key:p}});return out.concat(sp.sk.map(function(p){return {addr:p,port:0,kind:'socks',key:p}}))})()).slice(0,64);var out=$('#ipTestOut');out.textContent='… 0/'+tests.length;$('#btnIpTest').disabled=true;
+$('#btnIpTest').addEventListener('click',function(){var ips=CFG.settings.ips.slice(0,48),pxs=(CFG.settings.proxyIps||[]).slice(0,16);if(!ips.length&&!pxs.length){toast(t('scan_empty'),true);return}var tests=ips.map(function(a){var m=a.match(/:(\d{1,5})$/);var port=m?+m[1]:443;return {addr:a,port:port,kind:PLAIN_SET.indexOf(port)>-1?'plain':'clean'}}).concat((function(){var sp=pxSplit(pxs),out=sp.cf.map(function(p){var m=p.match(/:(\d{1,5})$/);return {addr:m?p.slice(0,p.lastIndexOf(':')):p,port:m?+m[1]:443,kind:'proxyip',key:p}});return out.concat(sp.sk.map(function(p){return {addr:p,port:0,kind:'socks',key:p}}))})()).slice(0,64);var out=$('#ipTestOut');out.textContent='… 0/'+tests.length;$('#btnIpTest').disabled=true;
 setIpTestProg(25,lang==='fa'?'🩺 در حال تست سلامت '+tests.length+' اندپوینت (TCP/TLS)…':'🩺 Probing '+tests.length+' endpoints (TCP/TLS)…',true);
 var progTimer=setTimeout(function(){setIpTestProg(65,lang==='fa'?'🩺 در حال بررسی پاسخ لبه و رله‌ها…':'🩺 Verifying edge & relay handshakes…',true)},600);
 api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){clearTimeout(progTimer);window.__ipTest=j.results||{};renderIps();var cl=tests.filter(function(x){return x.kind!=='proxyip'}),ok=cl.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length,po=tests.filter(function(x){return x.kind==='proxyip'||x.kind==='socks'}),pok=po.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length;var best=null;cl.forEach(function(x){var r=window.__ipTest[x.key||x.addr];if(r&&r.ok&&r.ms!=null&&(best===null||r.ms<best))best=r.ms});var summary='🩺 💦 '+ok+' / '+cl.length+(po.length?' · 🎯 '+pok+' / '+po.length:'')+(best!==null?' · کمترین: '+best+'ms':'');out.textContent=summary;setIpTestProg(100,summary,true)}).catch(function(e){clearTimeout(progTimer);out.textContent='✗ '+esc(e&&e.message||e);setIpTestProg(100,'✗ '+(e&&e.message||e),true)}).finally(function(){$('#btnIpTest').disabled=false})});
@@ -2855,7 +2859,7 @@ function ccName(cc){return (lang==='fa'&&CC_FA[cc])?CC_FA[cc]:cc}
 function ccFlag(cc){if(!cc||cc.length!==2)return '🏳';return String.fromCodePoint(127397+cc.charCodeAt(0),127397+cc.charCodeAt(1))}
 function famOf(a){var st=String(a);var c=st.lastIndexOf(':');
  if(c>-1&&/^\d{1,5}$/.test(st.slice(c+1))&&st.indexOf(':')===c)st=st.slice(0,c);
- st=st.replace(/^[/,'').replace(/]$/,'');
+ st=st.replace(/^\[/,'').replace(/\]$/,'');
  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(st))return 'v4';
  if(/^[0-9a-f:]+$/i.test(st)&&st.indexOf(':')>-1)return 'v6';
  return ''}
@@ -3033,11 +3037,20 @@ function renderSubLinks(){
 
 /* ---------- address section: three tabs ---------- */
 /* 6.79.3 node hosts: the server's own IPs (auto, already in every config) */
+var NIP_EDGE={railway:1};
+function nipCaps(j){var p=j.platform||'',e=NIP_EDGE[p]===1,r=function(ic,t){return '<div class="small">'+ic+' '+esc(t)+'</div>'};
+ return r('✅',tx('خروجی کشوری: 🧦 همه سایت‌ها، 🎯 سایت‌های CF','Exits: 🧦 all sites, 🎯 CF sites'))+
+  r(e?'✅':'⚠️',e?tx('آی‌پی‌های دیگر Railway (با تست)','Other Railway IPs (tested)'):tx('آی‌پی دیگر فقط اگر همین سرور باشد','Other IPs only if this same server'))+
+  r('✖️',tx('اسکنر CF و پورت‌های دیگر (پشت CF نیست)','CF scanner, other ports (not behind CF)'))+
+  (p==='katabump'?r('💡',tx('دامنهٔ kdns.fr روی CF اینها را باز می‌کند','A kdns.fr name on CF unlocks them')):'')}
 function nipLoad(refresh){var box=$('#nipList');if(!box)return Promise.resolve();box.innerHTML='<div class="small dim">⏳ '+esc(tx('در حال پیدا کردن…','Looking up…'))+'</div>';
  return api('/api/node/ips'+(refresh?'?refresh=1':'')).then(function(j){if(!j||!j.ok){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag((j&&j.error)||'?'))+'</div>';return}
   var row=function(ic,a,k){return '<div class="lrow"><span>'+ic+'</span><span class="mono" dir="ltr">'+esc(a)+(j.port&&j.port!==443?':'+j.port:'')+'</span><span class="chip" style="margin-inline-start:auto">'+esc(k)+'</span></div>'};
-  box.innerHTML=row('🔌',j.host,tx('دامنه','name'))+(j.ips||[]).map(function(a){return row('🏠',a,tx('آی‌پی سرور · خودکار','server IP · auto'))}).join('')+(j.typed||[]).map(function(a){return row('✍️',a,tx('نوشتهٔ تو','typed by you'))}).join('')+
+  var cp=$('#nipCaps');if(cp)cp.innerHTML=nipCaps(j);var ta=$('#nipTyped');if(ta&&!ta.value)ta.value=(j.typed||[]).map(function(x){return x.ip}).join('\n');
+  box.innerHTML=row('🔌',j.host,tx('دامنه','name'))+(j.ips||[]).map(function(a){return row('🏠',a,tx('آی‌پی سرور · خودکار','server IP · auto'))}).join('')+(j.typed||[]).map(function(x){return row(x.ok?'✅':(x.checked?'❌':'⏳'),x.ip,x.ok?x.ms+' ms':(x.checked?tx('رد شد، در کانفیگ نیست','failed, left out'):'…'))}).join('')+
    ((j.ips||[]).length?'':'<div class="small dim">'+esc(tx('آی‌پی پیدا نشد؛ خود دامنه کار می‌کند.','No IP found; the name itself works.'))+'</div>')}).catch(function(e){box.innerHTML='<div class="small" style="color:var(--red)">✗ '+esc(safeDiag(e&&e.message||e))+'</div>'})}
+if($('#nipSave'))$('#nipSave').addEventListener('click',function(){var b=this,l=String($('#nipTyped').value||'').split(/[\s,]+/).filter(Boolean);b.disabled=true;
+ api('/api/settings',{method:'PUT',body:{ips:l}}).then(function(){return nipLoad(true)}).then(function(){b.disabled=false;toast('✓')}).catch(function(e){b.disabled=false;toast(safeDiag(e&&e.message||e),true)})});
 if($('#nipRefresh'))$('#nipRefresh').addEventListener('click',function(){var b=this;b.disabled=true;nipLoad(true).then(function(){b.disabled=false;toast(tx('به‌روز شد؛ اشتراک را در اپ آپدیت کن','Updated; update the sub in your app'))})});
 function setAddrTab(tab){
   document.body.setAttribute('data-atab',tab);
@@ -3055,7 +3068,7 @@ function maskCreds(x){return String(x||'').replace(CRED_RE,'//***@');}
 function renderLocPath(){
   var el=$('#locPathNow');if(!el)return;
   var raw=String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'');
-  var all=raw.split(/[s,]+/).filter(Boolean);
+  var all=raw.split(/[\s,]+/).filter(Boolean);
   var px=all.filter(function(x){return !isSock(x);}).length;
   var sk=all.filter(isSock).length;
   var cc=(CFG&&CFG.settings&&CFG.settings.country)||'';
@@ -3063,9 +3076,9 @@ function renderLocPath(){
 }
 
 function isSock(x){return SOCKS_RE.test(String(x||''));}
-function socksOf(){return String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[s,]+/).filter(Boolean).filter(isSock);}
+function socksOf(){return String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[\s,]+/).filter(Boolean).filter(isSock);}
 function saveSocks(list){
-  var others=String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[s,]+/).filter(Boolean).filter(function(x){return !isSock(x);});
+  var others=String((CFG&&CFG.settings&&CFG.settings.proxyIps)||'').split(/[\s,]+/).filter(Boolean).filter(function(x){return !isSock(x);});
   return api('/api/settings',{method:'PUT',body:{proxyIps:others.concat(list).join(String.fromCharCode(10))}}).then(function(j){
     if(j&&j.ignored&&j.ignored.length)toast(t('px_ignored')+' '+j.ignored.slice(0,3).join(' · '),true);
     else toast(t(j.persisted?'saved':'saved_nokv'),!j.persisted);
@@ -3092,7 +3105,7 @@ function renderSocks(){
 var SOCKS_FULL=new RegExp('^socks5://[A-Za-z0-9._@:-]+(:\d{1,5})?$','i');
 function addSock(){
   var v=$('#skInput');if(!v)return;
-  var lines=String(v.value||'').split(/[s,]+/).filter(Boolean);
+  var lines=String(v.value||'').split(/[\s,]+/).filter(Boolean);
   if(!lines.length)return;
   var bad=lines.filter(function(x){return !SOCKS_FULL.test(x);});
   if(bad.length){toast(t('sk_bad')+' '+bad[0].slice(0,40),true);return;}

@@ -68,7 +68,7 @@ class WorkerArtifactManifestTest {
         val apkDecision = WorkerArtifactManifest.verify(WorkerArtifactChannel.APK_BUNDLE, pasteBytes)
         assertTrue("Expected APK bundle artifact to verify, got $apkDecision", apkDecision is WorkerManifestDecision.Verified)
         val apkRecord = (apkDecision as WorkerManifestDecision.Verified).record
-        assertEquals("6.79.3", apkRecord.version)
+        assertEquals("6.79.4", apkRecord.version)
 
         val releaseDecision = WorkerArtifactManifest.verify(
             WorkerArtifactChannel.RELEASE_ASSET,

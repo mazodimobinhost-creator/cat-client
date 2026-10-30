@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta234] — 2026-10-30 (Panel 6.79.4)
+
+### Changed — node hosts: «if I add 10 configs, all 10 must work»
+- **Every typed IP on a Node host is tested by the panel itself before it reaches a sub.** The panel connects to `IP:port` on its own edge (TLS with SNI = the host name on HTTPS hosts, plain on a single-port host) and asks for a WebSocket upgrade on its tunnel path; only a real `101` counts. Passed IPs ride the sub (cached 30 min), failed ones stay out (re-tested after 10 min). On Railway any of its edge IPs passes (the edge routes by SNI); on a one-server host (SmarterASP, KataBump) only that server's IP passes — so a pasted IP that cannot reach the server never becomes a dead config.
+- **Clean IP page on a node:** per-host capability list (✅ exits: 🧦 SOCKS for every site, 🎯 ProxyIP for Cloudflare-hosted sites; ✅/⚠️ extra IPs; ✖️ Cloudflare scanner and other ports — not behind Cloudflare; KataBump: a `kdns.fr` name on Cloudflare unlocks them), an «extra IPs» box with **💾 Save & test**, and each IP shown ✅ (ms) / ❌ (left out).
+- `/api/node/ips` returns each typed IP with its test result; `?refresh=1` re-tests.
+
+### Fixed
+- **Panel page regexes lost their backslashes inside the page template** (`/[\s,]+/` became `/[s,]+/`): manual clean IPs, the SNI pool, SOCKS/ProxyIP lists and the user's SOCKS picker were split on the letter «s» instead of spaces/new lines (`speedtest.net` / `socks5://…` broke), the port match in the scanner (`:\d{1,5}`), the TOTP space strip and IPv6 bracket strip did not work. All 14 escapes fixed; a test guards the rendered page.
+
+### Tests
+- `node-server-ips.test.mjs`: untested IP not in the sub, 404/refused IPs left out, probe uses SNI = Host = name on the node port, cache, plain-edge probe, `/api/node/ips` results, page widgets, rendered regexes. Gzip budget 264 000 → 266 000.
+
 ## [1.10.0-beta233] — 2026-10-30 (Panel 6.79.3)
 
 ### Fixed — a panel on a Node host (owner's SmarterASP screenshots: the panel is up, v6.79.2)
