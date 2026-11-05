@@ -10,6 +10,23 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## 2026-11-05 — Arena agent — beta243 / Panel 6.81.2 (review round 2: Grok panel + Claude app)
+- Version / commit: v1.10.0-beta243 / f840249 — all CI runs green (10 success, deploy-worker skipped), prerelease 20 assets
+- Done (every item checked against code; table in docs/REVIEW-BRIEF.md «پاسخ به دور دوم»):
+  Grok: `pages/wrangler.jsonc` OPEN_PANEL/OPEN_SUB were "true" → "false" + test; chain «all» non-Strict fallback was
+  silent → kept (Strict switch = owner's choice) but recorded: `/api/settings` `exitDown`, red toast on panel load;
+  COLLABORATION §3 now separates `portal/` (account portal, D1) from `pages/` (panel on Pages).
+  Claude: wizard remembers only reachable+confirmed peers; one `AetherFallbackStages` for AetherSession + carrier
+  (no repeated discovery, full search budget after a failed hint, one alternate table); chain carriers get the plan
+  budget; WiW alternate WireGuard→WoM (WireGuard+foreign = wiw again — found by the new behaviour test); learned-mode
+  window keeps first savedAt; failover retry session gets its own watchdog (learns only after its own prepare).
+- Evidence: `Beta241AetherNetworkPlanTest` 11/11 + `Beta243AetherReviewRound2Test` 7/7 locally (kotlinc harness with
+  real AetherConfig.kt + org.json stub) and in CI; `npm test` green; mesh / pages-target / deploy-bot pass. NOT phone-tested.
+- Drive folder 1uS0bj7aGXc-TzHTuEdChAQ6E6kAQdxwY: docs A (app diff), B (complete panel diff beta239→243), C 01–12
+  (full worker, ~95 KB parts), D (full Aether files). Links in brief §0.
+- Open / next owner: ملاد — CF panel → 6.81.2; chain «all» with Strict off + chain server down → panel shows the red
+  toast; Cat Warp WiW on a UDP-blocking line should fall to WoM (log `aether.plan*`). Reviewers — round 3 on beta243.
+
 ## 2026-11-05 — Arena agent — beta242 / Panel 6.81.1 (review round 1)
 - Version / commit: v1.10.0-beta242 / 376a1fc — all CI runs green, prerelease 20 assets
 - Done: a reviewer (no repo access) sent 5 hypotheses from the brief; each checked against the code:

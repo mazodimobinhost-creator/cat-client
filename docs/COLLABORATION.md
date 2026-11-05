@@ -50,7 +50,9 @@
 | پنل Cloudflare (Worker) | `app/src/main/assets/panels/catclient.worker.js` (+ `catpanel.min.js`، `dist-panel/`) | `npm test` (همهٔ `scripts/panels/*.test.mjs`) |
 | پنل Vercel | `app/src/main/assets/vercel/panel-adapter.mjs` | `vercel-*.test.mjs` |
 | پنل Node روی هاست‌ها | `node-panel/index.js` (= `app/src/main/assets/node-panel/index.js` بایت‌به‌بایت)، `NodeHost.kt`، `NodeHostController.kt`، `GitHostProfiles.kt`، `HostRegions.kt`، `ApiHostDeploy.kt` | `node-host.test.mjs`، `NodeHostTest`، `Beta225FreeHostsTest` |
-| صفحه‌های HTML (پورتال، fixer، wizard) | `scripts/pages/`، `assets/panels/catclient.wizard.js` | `portal-target.test.mjs`، `cat-fixer-html.test.mjs`، `wizard.test.mjs` |
+| پورتال حساب (جدا از پنل؛ D1 کاربر/نشست) | `portal/` (`portal/wrangler.jsonc` نام `cat-account-portal`، `portal/src/_worker.js`، `portal/public/`) | `scripts/pages/portal-target.test.mjs` — گردش‌کار «Cat account portal tests» |
+| پنل روی Cloudflare **Pages** (همان Worker پنل، نه پورتال) | `pages/wrangler.jsonc` + `scripts/pages/build.mjs` ⇐ `pages/dist/_worker.js` (ساختنی، در git نیست)؛ استقرار فقط با اجرای دستی `deploy-pages.yml` | `scripts/pages/pages-target.test.mjs` (از beta243: `OPEN_PANEL`/`OPEN_SUB` باید "false" باشد) |
+| صفحه‌های HTML (fixer، wizard) | `tools/cat-fixer.html`، `assets/panels/catclient.wizard.js` | `cat-fixer-html.test.mjs`، `wizard.test.mjs` |
 | CI و انتشار | `.github/workflows/android.yml` | خود CI (Android Build، panel tests، portal، UI e2e) |
 
 **هاست‌های پنل Node و پروفایلشان:**

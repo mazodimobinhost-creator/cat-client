@@ -6,16 +6,32 @@
 
 - **مخزن (عمومی):** https://github.com/mazodimobinhost-creator/cat-client
 - **شاخهٔ کار:** `arena/c5b36768-cat-client` (همهٔ کار فقط روی همین شاخه). **PR شمارهٔ ۹ ادغام نمی‌شود.**
-- **آخرین نسخه:** `v1.10.0-beta242` (versionCode 309) — پنل `6.81.1`. انتشارها: صفحهٔ Releases مخزن (pre-release).
+- **آخرین نسخه:** `v1.10.0-beta243` (versionCode 310) — پنل `6.81.2`. انتشارها: صفحهٔ Releases مخزن (pre-release).
 - **قرارداد کار و قوانین ثابت:** [`docs/COLLABORATION.md`](COLLABORATION.md) — اول این را بخوانید؛ بخش ۲ (قوانین) و بخش ۸ (چک‌لیست) الزامی است.
 
 ---
 
 ## ۰) اگر به GitHub دسترسی ندارید (صفحه‌های درخت بسته / شبکهٔ ابزار خاموش)
 
-کد در Google Drive هم هست (پوشهٔ «Cat Client — بازبینی beta242»):
-- **۱ — diff از beta240 تا beta242** (Kotlin + تست‌ها + پنل Worker): https://docs.google.com/document/d/1aPZBK3-ICbRj3HZoku2_DnMYOSiHHKczKifh6N629M8/edit
-- **۲ — فایل‌های کامل فعلی** (Aether، ویزارد اسکن، `dialTarget` پنل): https://docs.google.com/document/d/1fzqliv9t-uLYYdyPdTTfH34CWysoGtAuH3T7bFnweUQ/edit
+کد در Google Drive هم هست — پوشه: https://drive.google.com/drive/folders/1uS0bj7aGXc-TzHTuEdChAQ6E6kAQdxwY
+هر سند زیر ~۱۰۰ هزار نویسه است تا ابزار خواندن شما آن را نبُرد (سند ۱ قدیمی بخش پنلش بریده می‌شد).
+- **A — diff کامل اپ beta242 → beta243** (Kotlin + تست‌ها): https://docs.google.com/document/d/12uZVNjv1AEdi9xb0SKwamYBcUm6vmuZu6sx3P44_L8E/edit
+- **B — diff کامل پنل beta239 → beta243** (Worker 6.80 → 6.81.2 + `pages/` + تست‌های پنل؛ بدون برش): https://docs.google.com/document/d/1ZAHAn2lb73kW7FSMYBGh7UwWKfKIgFQ6PAgK-Hm7IFA/edit
+- **C — `catclient.worker.js` کامل** در ۱۲ بخش به ترتیب (سرآیند هر بخش بازهٔ خط‌ها را می‌گوید؛ `/api/ech-pool` با پارامتر `skip` حدود خط ۸۳۰۱، `dialTarget` حدود ۳۴۴۰):
+  - C 01/12: https://docs.google.com/document/d/1nR_Lw7yAibE4p1ZeCi7af6VnJ3Yy_V3NNGG2BQkLeDg/edit
+  - C 02/12: https://docs.google.com/document/d/12CxSS960t7VHKtiPNNDWriE3pt8lls1pFHg4B_eo3so/edit
+  - C 03/12: https://docs.google.com/document/d/11y6Gd4I9nRI_z3Va4cAHkTJGML6cpVv7xMDi0bvcylo/edit
+  - C 04/12: https://docs.google.com/document/d/1B8DhHhtWgFlqPHVAe-H4-lUCRuhF--ODRZlt1-XvjXc/edit
+  - C 05/12: https://docs.google.com/document/d/14Nv44jkTvi-1WMWVvjSg5uxUfzSrJ0Ef-_AKLcLATNc/edit
+  - C 06/12: https://docs.google.com/document/d/1sdizsfBlqNRPmh710HbboKG6N4LgE2-W9cxsHEZjMEs/edit
+  - C 07/12: https://docs.google.com/document/d/1G5UMWj9GbUhCY9gwnkqV-fzMhkUCmKl1ju8J1npq4Xw/edit
+  - C 08/12: https://docs.google.com/document/d/1yeXQfRGUbpWec79NnlQDN-WCMU1hKcZaMI66eH7rmwk/edit
+  - C 09/12: https://docs.google.com/document/d/1vYcK76FdrS8Ksj4hnf7HBvxYiqhXdrjKmkkBj9qtoQg/edit
+  - C 10/12: https://docs.google.com/document/d/10tWkUeBQXypt7w2R5APofTOzDPOOZo8W9jUN2UxKhFY/edit
+  - C 11/12: https://docs.google.com/document/d/1odHEBne2aLDYOVGC2B2afmm_44MG_Tp6P3fXaZZlqPA/edit
+  - C 12/12: https://docs.google.com/document/d/15NjLgm0mK3pNW1CXDvpjiYZas5JSvVO7QF5lBSTySIk/edit
+- **D — فایل‌های کامل Aether در beta243** (planner، `AetherFallbackStages`، session، carrier، Psiphon chain، startup سرویس، config، تست‌ها): https://docs.google.com/document/d/12KfQTdFZW9FkEnnfW02hJQ3xMEhIvkaNjdWBpYJKeRI/edit
+- قدیمی (beta242): diff beta240→242: https://docs.google.com/document/d/1aPZBK3-ICbRj3HZoku2_DnMYOSiHHKczKifh6N629M8/edit · فایل‌های کامل beta242: https://docs.google.com/document/d/1fzqliv9t-uLYYdyPdTTfH34CWysoGtAuH3T7bFnweUQ/edit
 
 فایل خام هر مسیر هم از این الگو باز می‌شود (بدون صفحهٔ درخت):
 `https://raw.githubusercontent.com/mazodimobinhost-creator/cat-client/arena/c5b36768-cat-client/<مسیر>`
@@ -50,13 +66,13 @@ python3 scripts/affected-tests.py
 
 | بخش | مدرک موجود | تست واقعی روی گوشی/خط ایران |
 |---|---|---|
-| ساخت اپ اندروید (همهٔ ABIها) و انتشار | CI سبز در هر نسخه؛ beta242 در `376a1fc`: همهٔ اجراهای push و PR سبز، pre-release با ۲۰ فایل | — |
+| ساخت اپ اندروید (همهٔ ABIها) و انتشار | CI سبز در هر نسخه؛ beta243 در `f840249`: همهٔ اجراهای push و PR سبز، pre-release با ۲۰ فایل | — |
 | تست‌های JVM اپ | ۶۹۷ تست در ۱۲۲ فایل؛ در CI سبز | — |
-| پنل Cloudflare (Worker) | ۸۳ فایل تست `scripts/panels/*.test.mjs`؛ ترافیک واقعی WebSocket در Miniflare (`worker-realtraffic` ۲۲/۲۲)؛ ورود و صفحه‌ها در UI e2e | پنل‌های CF کاربر باید به 6.81.1 به‌روز شوند و 🔌 (DATA_PLANE) زده شود — **تأیید نشده** |
+| پنل Cloudflare (Worker) | ۸۳ فایل تست `scripts/panels/*.test.mjs`؛ ترافیک واقعی WebSocket در Miniflare (`worker-realtraffic` ۲۲/۲۲)؛ ورود و صفحه‌ها در UI e2e | پنل‌های CF کاربر باید به 6.81.2 به‌روز شوند و 🔌 (DATA_PLANE) زده شود — **تأیید نشده** |
 | پنل Vercel | تست‌های `vercel-*.test.mjs` | پنل زنده هنوز روی **6.77.3** است (`cat-panel-v7k2m`) — به‌روزرسانی با ملاد |
 | پنل Node (KataBump، Bot-Hosting، Lucity، Shiprr، SmarterASP، Zerops، Seenode، Hostim) | `node-host.test.mjs` و تست‌های هاست | SmarterASP آزمایشی بالا آمده (6.79.2)؛ Zerops/Seenode/Hostim **تست نشده**؛ Reality روی KataBump فقط با Xray ساختگی |
 | پنل Railway (Xray واقعی) | گردش‌کار جدای «Railway panel tests» | تست زندهٔ اخیر ندارد |
-| Cat Warp (Aether: WireGuard، MASQUE-H2، WARP-in-WARP، WoM، MiM، Psiphon/Tor) | تست‌های JVM؛ رفع beta241/242 با `Beta241AetherNetworkPlanTest` (۱۱ تست) | رفع beta241/242 (کار روی خط دیگران) **روی گوشی تست نشده** |
+| Cat Warp (Aether: WireGuard، MASQUE-H2، WARP-in-WARP، WoM، MiM، Psiphon/Tor) | تست‌های JVM؛ رفع beta241–243 با `Beta241AetherNetworkPlanTest` (۱۱) و `Beta243AetherReviewRound2Test` (۷ تست رفتاری روی شیء واقعی `AetherRuntimeConfig`) | رفع beta241–243 (کار روی خط دیگران) **روی گوشی تست نشده** |
 | Cat Fox VPN (ورود موزیلا، WebChannel، رفع 406) | `Beta237FoxPassTest`، `Beta238FoxWebChannelTest`، تست‌های beta239 | **تست نشده** روی گوشی |
 | یابندهٔ پروکسی تلگرام (MTProto) | تست‌های beta239 | **تست نشده** |
 | تنظیمات beta240 (Sniffing، FakeDNS، پروکسی HTTP سیستم، آدرس پینگ) | `Beta240CoreOptionsTest` | **تست نشده** روی همراه اول/ایرانسل |
@@ -104,6 +120,22 @@ python3 scripts/affected-tests.py
 | 3 | `hits.firstOrNull()` در ویزارد | لیست خالی ⇐ `null` (endpoint ساختگی نمی‌آید). **ایراد واقعی:** نتیجه‌ای که تست اتصال کامل را رد کرده بود هم «✅ وصل می‌شود» نشان داده می‌شد | فیلد `confirmed`؛ نمایش «🟡 پاسخ داد ولی اتصال کامل تأیید نشد» و رتبهٔ پایین‌تر؛ پاسخ پروب TCP/UDP هم تأیید حساب نمی‌شود |
 | 4 | باگ ۴ زنجیره fail-open | **تأیید شد:** در پنل، «خروج از پنل لینک‌شده — همهٔ سایت‌ها» با قطع لینک بی‌صدا به direct / ProxyIP می‌رفت (آی‌پی و کشور عوض می‌شد) | حالت `all` حالا fail-closed: خطای روشن `link exit down (all sites)` و `/api/links` ⇐ `exitDown`؛ حالت `cf` همان fallback را دارد. پنل 6.81.1 |
 | 5 | ProxyIPهای سخت‌کدشده | فقط نمونه/بذر هستند؛ پنل از تنظیمات + فیدها می‌خواند؛ Lite Worker با `?proxyip=` یا `PROXYIP` عوض می‌شود. پورت‌ها به دستور صاحب پروژه ثابت‌اند | تغییری نکرد |
+
+### پاسخ به دور دوم (beta243) — Grok (پنل) و Claude (اپ)؛ هر مورد با کد بررسی شد
+
+| # | از | یافته | نتیجهٔ بررسی | کار انجام‌شده |
+|---|---|---|---|---|
+| G1 | Grok | `pages/wrangler.jsonc` با `OPEN_PANEL`/`OPEN_SUB` = "true" | **تأیید شد:** روی استقرار Pages، `/sub` بدون کلید لینک‌های اصلی را می‌داد و پنل تا گذاشتن رمز بدون ورود باز بود (ربات و نصب Worker از قبل false می‌گذاشتند) | هر دو "false"؛ `pages-target.test.mjs` آن را چک می‌کند |
+| G2 | Grok | نیمهٔ `settings.chain` باگ ۴ | **تأیید شد:** با زنجیره «همه» و کلید Strict خاموش (پیش‌فرض) قطع زنجیره به direct می‌رفت و چون لاگ در تولید خاموش است دیده نمی‌شد | کلید Strict («اگر سرور زنجیره در دسترس نبود، قطع شو») انتخاب صاحب پنل می‌ماند (عوض کردن پیش‌فرض کاربران را قطع می‌کرد)؛ ولی حالا fallback ثبت می‌شود: `/api/settings` ⇐ `exitDown` و با باز کردن پنل toast قرمز «⛓️✗ chain: …» (برای خروج لینک هم). پنل 6.81.2 |
+| G3 | Grok | ابهام پورتال / Pages در مستندات | **درست:** `portal/` پورتال حساب جدا (D1) است و `pages/` همان پنل روی Pages؛ COLLABORATION پورتال را زیر `scripts/pages/` نوشته بود | ردیف‌های جدا در COLLABORATION بخش ۳ |
+| G4 | Grok | پنل زنده قدیمی است | درست (Vercel روی 6.77.3) | کار محصولی؛ به‌روزرسانی با ملاد |
+| C1 | Claude | ویزارد peer را بدون تأیید در حافظهٔ شبکه می‌نوشت | **تأیید شد:** وقتی هیچ‌چیز جواب نمی‌داد peer ثابت جایگزین (rtt 9999) «تأییدشده در این شبکه» ثبت می‌شد | فقط `reachable && confirmed` ثبت می‌شود؛ پروفایل همچنان آن را به‌عنوان hint دارد. بقیهٔ فراخوانی‌ها (۸۵۲، ۱۱۸۰، ۲۳۳۴، ۲۳۷۵) پاسخ واقعی اسکن native همین خط‌اند |
+| C2 | Claude | بودجهٔ ۶۰ ثانیهٔ hint به مراحل بعد نشت می‌کند | **تأیید شد** (`config.copy` بودجه را نگه می‌داشت) | مراحل کشف و حالت دیگر همیشه بودجهٔ کامل جست‌وجو (`SEARCH_BUDGET_MS`) |
+| C3 | Claude | نیمهٔ زنجیرهٔ باگ ۴ | همان G2 | همان G2 |
+| C4 | Claude | `AetherProxyCarrier` رفع‌ها را ندارد + جدول جایگزین جدا | **تأیید شد:** کشف تکراری، بدون بودجه، جدول دیگر (WoM ⇐ MASQUE-H2 + خارج = باز هم `wom`) | یک زنجیرهٔ مشترک `AetherFallbackStages` برای session و carrier؛ carrierهای Psiphon/Tor بودجهٔ plan را می‌گیرند. **باگ تازه که تست رفتاری پیدا کرد:** جایگزین WARP-in-WARP یعنی WireGuard + خارج دوباره `wiw` می‌شد (همان ترابری UDP) ⇐ حالا WARP-over-MASQUE (دولایه، TCP/H2) |
+| C5 | Claude | پنجرهٔ ۷ روزهٔ حالت یادگرفته می‌لغزد | **تأیید شد** | زمان اولین یادگیری حفظ می‌شود؛ بعد از ۷ روز حالت درخواستی دوباره امتحان می‌شود |
+| C6 | Claude | جلسهٔ failover بدون watchdog | **تأیید شد** (و بدتر: با `state` باقی‌مانده از جلسهٔ قبل) | watchdog جدا برای جلسهٔ retry؛ یادگیری فقط بعد از تمام شدن prepare همان جلسه (`lastMode`) |
+| C7 | Claude | تست‌ها فقط grep منبع‌اند | منصفانه | تابع‌های خالص جدا شدند و با JVM تست رفتاری دارند: مراحل fallback، رکورد حالت یادگرفته، طبقهٔ آدرس IPv6 با `InetAddress`، رتبهٔ شبکه |
 
 ---
 
