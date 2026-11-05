@@ -74,4 +74,7 @@
 - App: `AntiSanctionRouting.kt` (pure) + `AntiSanctionSettings.kt` (row, dialog, `AntiSanctionProbe`); `MihomoRuntime` takes `antiSanction` (rules into the one `rules:` list, `nameserver-policy` in `dns:`).
 - Panel: SS-2022 inbound in the Reality Xray, mux non-HTTP → SS, `ssVerify` via a short-lived Xray client through the public port; worker `realityLines` adds `ss://` only when verified.
 - Local evidence: npm test 159/159 files; node-reality 24/24 (fake Xray); kotlinc harness Beta244AntiSanctionRoutingTest 6/6. Runtime YAML test + UI compile only in CI (no android.jar here). Real Xray could not run here (release assets blocked; Go deps not reachable) — config fields checked against the v26.10.21 source.
+- CI round 1 (`5ae596d`): Android JUnit caught that the runtime's forced-tunnel AI list (`SERVICE_DOMAINS`, injected first) shadowed the DIRECT rules of ticked services → `AntiSanctionRouting.covers` filters only ticked services out. ui-e2e failed outside our code (npm `playwright@latest` 1.65.0 without `playwright-core` 1.65.0) → pinned 1.64.1.
+- CI round 2 (`0811854`): all green (Android build + JUnit, Panel tests, UI e2e, Railway, portal). Release `v1.10.0-beta244` prerelease, 20 assets.
+- Open: phone test of the anti-sanction dialog (test while disconnected → save → connect → ChatGPT/Gemini direct); KataBump test of SS-2022 with real Xray (sandbox could not run Xray).
 

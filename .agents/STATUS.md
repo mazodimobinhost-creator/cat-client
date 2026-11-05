@@ -1,6 +1,6 @@
 # Project Status (`STATUS.md`)
 
-- **Overall State:** ⏳ `v1.10.0-beta244` / Panel `6.81.3` pushed (anti-sanction DNS routing + real per-service test in the app; SS-2022 on the KataBump single port with a public-port round trip). Previous green: beta243 (`f840249`).
+- **Overall State:** ✅ CI green — `v1.10.0-beta244` / Panel `6.81.3` at `0811854` (anti-sanction DNS routing + real per-service test; SS-2022 on the KataBump single port with a public-port round trip; ui-e2e pins playwright 1.64.1). Prerelease with 20 assets.
 - **Active Branch:** `arena/c5b36768-cat-client` (`pr_open` — PR #9 must not be merged per user constraint).
 - **Latest Release:** `v1.10.0-beta244` (`versionCode = 311`, Panel `6.81.3`) — see CHANGELOG; CI result in LOG.md. Previous: `v1.10.0-beta243` (`f840249`). Minified panel budget: 859 992 / 860 000 chars (full).
 - **Fox needs a phone test:** the sandbox cannot reach Mozilla/Fastly hosts, so the 406 fix is verified by unit tests + the reference client's behaviour only. On the phone: sign in, connect, and if it fails read the Persian error — it now names the failing step (e.g. «cookie not accepted on this line» = exit IP changed).
