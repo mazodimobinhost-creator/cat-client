@@ -1751,6 +1751,8 @@ class MainActivity : Activity() {
         val endpoint: String,
         val reachable: Boolean,
         val rttMs: Long,
+        /** beta241: true only when a real connection check passed (not just a scan reply / TCP probe). */
+        val confirmed: Boolean = reachable,
     )
 
     /**

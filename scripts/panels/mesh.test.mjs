@@ -117,7 +117,16 @@ await TA.dialTarget('93.184.216.34', 443, A.env, sa, null, null, fs1).catch(() =
 check('cf mode: a non-Cloudflare destination does NOT go through the link', fs1.log.length && !fs1.log[0].startsWith('b.vercel.app'), fs1.log.join(' | '));
 fs1 = fakeSockets();
 await TA.dialTarget('93.184.216.34', 443, A.env, Object.assign({}, sa, { linkExit: Object.assign({}, sa.linkExit, { mode: 'all' }) }), null, null, fs1).catch(() => {});
-check('all mode: every destination goes through the link first, then falls back', fs1.log[0] === 'b.vercel.app:443:starttls' && fs1.log.length > 1, fs1.log.join(' | '));
+check('all mode: every destination goes through the link first', fs1.log[0] === 'b.vercel.app:443:starttls', fs1.log.join(' | '));
+// beta241 (chain bug 4): «all sites» promises one stable exit — a dead link is a clear error, never a silent direct dial
+fs1 = fakeSockets();
+const allErr = await TA.dialTarget('93.184.216.34', 443, A.env, Object.assign({}, sa, { linkExit: Object.assign({}, sa.linkExit, { mode: 'all' }) }), null, null, fs1).then(() => null, (e) => e);
+check('all mode: a dead link is refused with a clear error and NOTHING else is dialled', allErr && /link exit down \(all sites\)/.test(allErr.message) && fs1.log.length === 1, (allErr && allErr.message) + ' :: ' + fs1.log.join(' | '));
+const lst = await call(A, '/api/links');
+check('/api/links reports the failure (exitDown)', lst.j && lst.j.exitDown && lst.j.exitDown.at > 0 && /offline/.test(lst.j.exitDown.err), lst.txt.slice(0, 300));
+fs1 = fakeSockets();
+await TA.dialTarget('104.16.1.1', 443, A.env, sa, null, null, fs1).catch(() => {});
+check('cf mode still falls back to the normal route when the link is down', fs1.log[0] === 'b.vercel.app:443:starttls' && fs1.log.length > 1, fs1.log.join(' | '));
 const src = fs.readFileSync(workerPath, 'utf8');
 check('no A→B→A loop: link-arrived traffic dials with linkExit cleared', /viaLink && settings\.linkExit \? Object\.assign\(\{\}, settings, \{ linkExit: null \}\)/.test(src) || process.env.CAT_PANEL_WORKER);
 

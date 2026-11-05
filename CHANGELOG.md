@@ -4,6 +4,21 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta242] — 2026-11-05 (Panel 6.81.1)
+
+Review round on beta241 (findings checked against the code; only confirmed ones changed).
+
+### Fixed
+- **Panel link «all sites» no longer leaves silently through another route (chain bug 4).** With 🔗 exit-through-linked-panel set to «all», a dead link used to fall through to direct / ProxyIP — a different exit IP and country without notice. It is now refused with a clear `link exit down (all sites)` error and `/api/links` reports `exitDown {at, err}`; «cf» mode keeps its fallback (there the link only replaces ProxyIP).
+- **Cat Warp learned mode kept the exit.** A learned alternate for a two-hop config (WARP-in-WARP with the «auto» exit → WireGuard) resolved to single-hop `wg`, i.e. an Iranian exit instead of a foreign one. One shared rule now (`AetherNetworkPlanner.alternateMode` / `exitForAlternate`) used by the planner, `AetherSession` and `AetherProxyCarrier`: an alternate of a two-hop mode stays two-hop. Only that one alternate is accepted from memory.
+- **Underlying network while the tunnel is up:** network key and IPv6 check now use one picker — the active non-VPN network, else validated first, Wi-Fi/Ethernet before mobile data — instead of whichever network Android listed first.
+- **Scan wizard honesty:** a scan hit that did not pass the real connection check (or a TCP/UDP probe answer) is shown as «🟡 answered, full connection not confirmed» and ranked after confirmed ones; previously it was shown as «✅ connects».
+
+### Checked, not changed
+- Wi-Fi network identity is a hash of gateway + DNS — no SSID/BSSID, no location permission.
+- IPv6 check already excludes link-local, ULA (fc00::/7), site-local and loopback; IPv6-only + 464XLAT lines count as IPv6 (correct).
+- ProxyIPs `103.237.102.191:11111` / `184.75.221.82:3118` are seeds/examples only; the panel uses its settings + feeds, the Lite worker takes `?proxyip=` / `PROXYIP`.
+
 ## [1.10.0-beta241] — 2026-11-05 (Panel 6.81.0)
 
 ### Fixed — Cat Warp configs built on one line failed on every other line / phone

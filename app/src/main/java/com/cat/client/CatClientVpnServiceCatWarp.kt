@@ -58,6 +58,7 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
     // budget for an endpoint scanned on another line). Nothing is remembered until a tunnel really works.
     val plan = AetherNetworkPlanner.plan(
         requestedMode = selection.mode,
+        requestedExitLocation = selection.exitLocation,
         requestedIpScan = selection.ipScan,
         linkEndpoint = selection.endpoint,
         hasIpv6 = AetherPreferenceStore.underlyingNetworkHasIpv6(this),
@@ -70,6 +71,7 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
     withContext(Dispatchers.IO) { aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(identityFile) }
     val effectiveSelection = selection.copy(
         mode = plan.mode,
+        exitLocation = plan.exitLocation,
         ipScan = plan.ipScan,
         endpoint = effectiveEndpoint,
         endpointScannedAt = if (effectiveEndpoint != null) System.currentTimeMillis() else 0L,

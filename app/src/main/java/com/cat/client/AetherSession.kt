@@ -62,14 +62,14 @@ internal class AetherSession(
                     effectiveJson = autoDiscovery
                 }.recoverCatching {
                     // Automatic fallback 2: switch between MASQUE and WireGuard while preserving Iran/Foreign exit policy.
-                    val altMode = when (config.mode) {
-                        AetherMode.MasqueInMasque -> AetherMode.WireGuardOverMasque
-                        AetherMode.WarpInWarp -> AetherMode.WireGuard
-                        AetherMode.WireGuard -> AetherMode.MasqueHttp2
-                        else -> AetherMode.WireGuard
-                    }
+                    val altMode = AetherNetworkPlanner.alternateMode(config.mode)
                     AetherEngineSlot.ensureCurrent(gen)
-                    val altCfg = config.copy(mode = altMode, endpoint = null, ipScan = "both")
+                    val altCfg = config.copy(
+                        mode = altMode,
+                        exitLocation = AetherNetworkPlanner.exitForAlternate(config.mode, config.exitLocation),
+                        endpoint = null,
+                        ipScan = "both",
+                    )
                     val altJson = altCfg.toNativeJson()
                     NativeAetherBridge.prepare(altJson).onSuccess {
                         effectiveConfig = altCfg

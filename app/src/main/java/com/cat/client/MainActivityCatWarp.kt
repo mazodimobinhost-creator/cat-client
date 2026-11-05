@@ -2665,13 +2665,15 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                 val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
                     runCatching { AetherOperations.scan(AetherMode.MasqueHttp2, tomlFile, "both") }.getOrNull()?.getOrNull()
                 } else null
-                val bestNative = nativeScan?.let { hits ->
+                val confirmedNative = nativeScan?.let { hits ->
                     hits.take(3).firstOrNull { hit ->
                         runCatching {
                             AetherOperations.confirmEndpoint(AetherMode.MasqueHttp2, tomlFile, hit.peer, "both", exitLocation, 8_000L).isSuccess
                         }.getOrDefault(false)
-                    } ?: hits.firstOrNull()
+                    }
                 }
+                // beta241 (review): a scan hit that did not pass the real connection check is shown as such.
+                val bestNative = confirmedNative ?: nativeScan?.firstOrNull()
                 if (bestNative != null) {
                     AetherNetworkProbeCandidate(
                         titleFa = "MASQUE-HTTP/2 (مناسب فایروال همراه اول و ایرانسل)",
@@ -2680,6 +2682,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                         ipScan = "both",
                         endpoint = bestNative.peer,
                         reachable = true,
+                        confirmed = confirmedNative != null,
                         rttMs = bestNative.rttMillis.coerceAtLeast(1L),
                     )
                 } else {
@@ -2700,6 +2703,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                         ipScan = "both",
                         endpoint = bestPeer,
                         reachable = bestRtt != null,
+                        confirmed = false, // a TCP / UDP probe answer is not a real connection check
                         rttMs = bestRtt ?: 9999L,
                     )
                 }
@@ -2712,13 +2716,15 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                 val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
                     runCatching { AetherOperations.scan(AetherMode.WireGuard, tomlFile, "v6") }.getOrNull()?.getOrNull()
                 } else null
-                val bestNative = nativeScan?.let { hits ->
+                val confirmedNative = nativeScan?.let { hits ->
                     hits.take(3).firstOrNull { hit ->
                         runCatching {
                             AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, "v6", exitLocation, 8_000L).isSuccess
                         }.getOrDefault(false)
-                    } ?: hits.firstOrNull()
+                    }
                 }
+                // beta241 (review): a scan hit that did not pass the real connection check is shown as such.
+                val bestNative = confirmedNative ?: nativeScan?.firstOrNull()
                 if (bestNative != null) {
                     AetherNetworkProbeCandidate(
                         titleFa = "WARP + IPv6 (مخصوص فایروال همراه اول)",
@@ -2727,6 +2733,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                         ipScan = "v6",
                         endpoint = bestNative.peer,
                         reachable = true,
+                        confirmed = confirmedNative != null,
                         rttMs = bestNative.rttMillis.coerceAtLeast(1L),
                     )
                 } else {
@@ -2747,6 +2754,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                         ipScan = "v6",
                         endpoint = bestPeer,
                         reachable = bestRtt != null,
+                        confirmed = false, // a TCP / UDP probe answer is not a real connection check
                         rttMs = bestRtt ?: 9999L,
                     )
                 }
@@ -2759,13 +2767,15 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                 val nativeScan = if (currentVpnServiceState == VpnState.Stopped) {
                     runCatching { AetherOperations.scan(AetherMode.WireGuard, tomlFile, "v4") }.getOrNull()?.getOrNull()
                 } else null
-                val bestNative = nativeScan?.let { hits ->
+                val confirmedNative = nativeScan?.let { hits ->
                     hits.take(3).firstOrNull { hit ->
                         runCatching {
                             AetherOperations.confirmEndpoint(AetherMode.WireGuard, tomlFile, hit.peer, "v4", exitLocation, 8_000L).isSuccess
                         }.getOrDefault(false)
-                    } ?: hits.firstOrNull()
+                    }
                 }
+                // beta241 (review): a scan hit that did not pass the real connection check is shown as such.
+                val bestNative = confirmedNative ?: nativeScan?.firstOrNull()
                 if (bestNative != null) {
                     AetherNetworkProbeCandidate(
                         titleFa = "WARP + IPv4 (مخصوص فایروال ایرانسل و همراه اول)",
@@ -2774,6 +2784,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                         ipScan = "v4",
                         endpoint = bestNative.peer,
                         reachable = true,
+                        confirmed = confirmedNative != null,
                         rttMs = bestNative.rttMillis.coerceAtLeast(1L),
                     )
                 } else {
@@ -2794,6 +2805,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                         ipScan = "v4",
                         endpoint = bestPeer,
                         reachable = bestRtt != null,
+                        confirmed = false, // a TCP / UDP probe answer is not a real connection check
                         rttMs = bestRtt ?: 9999L,
                     )
                 }
@@ -2802,7 +2814,7 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
             runCatching { progDlg.dismiss() }
 
             val allCandidates = listOf(masqueCandidate, warpV6Candidate, warpV4Candidate)
-                .sortedWith(compareBy<AetherNetworkProbeCandidate> { !it.reachable }.thenBy { it.rttMs })
+                .sortedWith(compareBy<AetherNetworkProbeCandidate> { !it.reachable }.thenBy { !it.confirmed }.thenBy { it.rttMs })
             val winner = allCandidates.first()
 
             fun buildSelectionForCandidate(cand: AetherNetworkProbeCandidate): AetherSelection {
@@ -2870,7 +2882,10 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
                 val name = if (isFarsi) c.titleFa else c.titleEn
                 val status = if (c.reachable) {
                     val star = if (idx == 0) (if (isFarsi) " ⭐ منتخب خودکار" else " ⭐ Auto-Selected") else ""
-                    if (isFarsi) "✅ وصل می‌شود (${c.rttMs}ms) · ${c.endpoint}$star"
+                    if (!c.confirmed) {
+                        if (isFarsi) "🟡 پاسخ داد ولی اتصال کامل تأیید نشد (${c.rttMs}ms) · ${c.endpoint}$star"
+                        else "🟡 Answered, full connection not confirmed (${c.rttMs}ms) · ${c.endpoint}$star"
+                    } else if (isFarsi) "✅ وصل می‌شود (${c.rttMs}ms) · ${c.endpoint}$star"
                     else "✅ Reachable (${c.rttMs}ms) · ${c.endpoint}$star"
                 } else {
                     if (isFarsi) "❌ روی خط فعلی پاسخ نداد (${c.endpoint})"

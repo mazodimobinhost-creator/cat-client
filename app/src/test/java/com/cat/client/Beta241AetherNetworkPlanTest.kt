@@ -14,7 +14,7 @@ class Beta241AetherNetworkPlanTest {
     @Test
     fun anIpv6ConfigOnANetworkWithoutIpv6SearchesIpv4AndDropsTheIpv6Endpoint() {
         val plan = AetherNetworkPlanner.plan(
-            requestedMode = AetherMode.WireGuard, requestedIpScan = "v6",
+            requestedMode = AetherMode.WireGuard, requestedExitLocation = "auto", requestedIpScan = "v6",
             linkEndpoint = "[2606:4700:d0::a29f:c001]:2408", hasIpv6 = false, learnedMode = null, verifiedFor = none,
         )
         assertEquals("v4", plan.ipScan)
@@ -26,7 +26,7 @@ class Beta241AetherNetworkPlanTest {
     @Test
     fun unknownIpv6StateChangesNothing() {
         val plan = AetherNetworkPlanner.plan(
-            AetherMode.WireGuard, "v6", "[2606:4700:d0::a29f:c001]:2408", hasIpv6 = null, learnedMode = null, verifiedFor = none,
+            AetherMode.WireGuard, "auto", "v6", "[2606:4700:d0::a29f:c001]:2408", hasIpv6 = null, learnedMode = null, verifiedFor = none,
         )
         assertEquals("v6", plan.ipScan)
         assertEquals("[2606:4700:d0::a29f:c001]:2408", plan.endpoint)
@@ -35,7 +35,7 @@ class Beta241AetherNetworkPlanTest {
     @Test
     fun anEndpointScannedOnAnotherLineIsOnlyAShortHint() {
         val plan = AetherNetworkPlanner.plan(
-            AetherMode.MasqueHttp2, "both", "162.159.198.235:443", hasIpv6 = true, learnedMode = null, verifiedFor = none,
+            AetherMode.MasqueHttp2, "auto", "both", "162.159.198.235:443", hasIpv6 = true, learnedMode = null, verifiedFor = none,
         )
         assertEquals("162.159.198.235:443", plan.endpoint)
         assertEquals(AetherNetworkPlanner.HINT_BUDGET_MS, plan.scanBudgetMillis)
@@ -45,7 +45,7 @@ class Beta241AetherNetworkPlanTest {
     @Test
     fun anEndpointThatReallyWorkedOnThisNetworkWins() {
         val plan = AetherNetworkPlanner.plan(
-            AetherMode.MasqueHttp2, "v4", "162.159.198.235:443", hasIpv6 = false, learnedMode = null,
+            AetherMode.MasqueHttp2, "auto", "v4", "162.159.198.235:443", hasIpv6 = false, learnedMode = null,
             verifiedFor = { mode, family -> if (mode == AetherMode.MasqueHttp2 && family == "both") "162.159.198.2:443" else null },
         )
         assertEquals("verified under «both» is found for a v4 plan", "162.159.198.2:443", plan.endpoint)
@@ -56,7 +56,7 @@ class Beta241AetherNetworkPlanTest {
     @Test
     fun aVerifiedIpv6EndpointIsNotUsedWhenTheNetworkHasNoIpv6() {
         val plan = AetherNetworkPlanner.plan(
-            AetherMode.WireGuard, "both", null, hasIpv6 = false, learnedMode = null,
+            AetherMode.WireGuard, "auto", "both", null, hasIpv6 = false, learnedMode = null,
             verifiedFor = { _, _ -> "[2606:4700:d0::a29f:c002]:2408" },
         )
         assertNull(plan.endpoint)
@@ -65,13 +65,70 @@ class Beta241AetherNetworkPlanTest {
     @Test
     fun aModeLearnedOnThisNetworkIsUsedAndTheOtherModesEndpointIsDropped() {
         val plan = AetherNetworkPlanner.plan(
-            AetherMode.WireGuard, "v4", "162.159.192.1:2408", hasIpv6 = false,
+            AetherMode.WireGuard, "auto", "v4", "162.159.192.1:2408", hasIpv6 = false,
             learnedMode = AetherMode.MasqueHttp2, verifiedFor = none,
         )
         assertEquals(AetherMode.MasqueHttp2, plan.mode)
         assertNull("a WireGuard port is not a MASQUE endpoint", plan.endpoint)
         assertTrue(plan.notes.contains("learned-mode"))
         assertTrue(plan.notes.contains("link-endpoint-dropped"))
+    }
+
+    @Test
+    fun aLearnedAlternateOfATwoHopConfigKeepsTheForeignExit() {
+        // WARP-in-WARP with the «auto» exit resolves to two-hop wiw; its learned alternate WireGuard must stay wiw.
+        val plan = AetherNetworkPlanner.plan(
+            AetherMode.WarpInWarp, "auto", "both", null, hasIpv6 = true, learnedMode = AetherMode.WireGuard, verifiedFor = none,
+        )
+        assertEquals(AetherMode.WireGuard, plan.mode)
+        assertEquals("foreign", plan.exitLocation)
+        assertTrue(AetherNetworkPlanner.isTwoHop(plan.mode, plan.exitLocation))
+        // single-hop stays single-hop (Iran exit is the point of it)
+        val single = AetherNetworkPlanner.plan(
+            AetherMode.WireGuard, "iran", "both", null, hasIpv6 = true, learnedMode = AetherMode.MasqueHttp2, verifiedFor = none,
+        )
+        assertEquals("iran", single.exitLocation)
+        assertFalse(AetherNetworkPlanner.isTwoHop(single.mode, single.exitLocation))
+    }
+
+    @Test
+    fun everyAlternateKeepsTheHopCountOfItsMode() {
+        for (mode in AetherMode.entries.filter { it != AetherMode.MasquePsiphon }) {
+            for (exit in listOf("auto", "iran", "foreign")) {
+                val before = AetherNetworkPlanner.isTwoHop(mode, exit)
+                val alt = AetherNetworkPlanner.alternateMode(mode)
+                val after = AetherNetworkPlanner.isTwoHop(alt, AetherNetworkPlanner.exitForAlternate(mode, exit))
+                assertEquals("$mode/$exit → $alt", before, after)
+            }
+        }
+    }
+
+    @Test
+    fun aRememberedModeThatIsNotTheAlternateIsIgnored() {
+        val plan = AetherNetworkPlanner.plan(
+            AetherMode.WireGuard, "auto", "both", null, hasIpv6 = true, learnedMode = AetherMode.MasqueInMasque, verifiedFor = none,
+        )
+        assertEquals(AetherMode.WireGuard, plan.mode)
+        assertFalse(plan.notes.contains("learned-mode"))
+    }
+
+    @Test
+    fun reviewFindingsAreWiredIntoTheApp() {
+        val main = File("src/main/java/com/cat/client")
+        val session = File(main, "AetherSession.kt").readText()
+        assertTrue(session.contains("AetherNetworkPlanner.alternateMode(config.mode)"))
+        assertTrue(session.contains("exitLocation = AetherNetworkPlanner.exitForAlternate(config.mode, config.exitLocation)"))
+        assertTrue(File(main, "AetherProxyCarrier.kt").readText().contains("AetherNetworkPlanner.exitForAlternate(requestedMode, config.exitLocation)"))
+        assertTrue(File(main, "CatClientVpnServiceCatWarp.kt").readText().contains("exitLocation = plan.exitLocation"))
+        val store = File(main, "AetherPreferenceStore.kt").readText()
+        assertTrue("both network functions use the same picker", store.split("pickUnderlyingNetwork(cm)").size == 3)
+        assertTrue(store.contains("NET_CAPABILITY_VALIDATED"))
+        val wizard = File(main, "MainActivityCatWarp.kt").readText()
+        assertFalse("an unconfirmed scan hit is never silently «confirmed»", wizard.contains("} ?: hits.firstOrNull()"))
+        assertEquals(3, wizard.split("confirmed = confirmedNative != null").size - 1)
+        assertEquals("TCP / UDP probe answers are not confirmations", 3, wizard.split("confirmed = false,").size - 1)
+        assertTrue(wizard.contains("thenBy { !it.confirmed }"))
+        assertTrue(wizard.contains("اتصال کامل تأیید نشد"))
     }
 
     @Test

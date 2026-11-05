@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.81.0';
+const CAT_PANEL_VERSION = '6.81.1';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -3437,6 +3437,8 @@ function markNoDirect(host, port) {
   NO_DIRECT.set(k, Date.now());
   if (NO_DIRECT.size > 4096) NO_DIRECT.delete(NO_DIRECT.keys().next().value);
 }
+/** beta241: last «all sites» link-exit failure in this isolate (shown by /api/links as exitDown). */
+const LINK_EXIT_DOWN = { at: 0, err: '' };
 async function dialTarget(host, port, env, settings, log, proxyOverride, socketsIn, opts) {
   const sockets = socketsIn || await loadSockets();
   if (!sockets) throw new Error('cloudflare:sockets unavailable');
@@ -3458,17 +3460,24 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
       if (settings && settings.chainStrict) throw e;
     }
   }
-  // 🔗 exit through a linked panel: «cf» = only for Cloudflare-hosted destinations (instead of ProxyIP),
-  // «all» = every destination. A failure falls back to the normal route below.
+  // 🔗 exit through a linked panel: «cf» = only for Cloudflare-hosted destinations (instead of ProxyIP; a failure
+  // falls back to the normal route below), «all» = every destination through ONE stable exit — beta241 (chain bug 4):
+  // a failure there is refused with a clear error, never sent out silently through another IP / country.
   const lchain = !useChain ? linkExitChain(settings) : null;
   if (lchain && (settings.linkExit.mode === 'all' || targetIsCf)) {
     try {
       const dialed = await dialViaChain(sockets, lchain, host, port);
+      LINK_EXIT_DOWN.at = 0;
       if (log) log('dial ok link:' + lchain.host + ' → ' + host + ':' + port);
       return { socket: dialed.socket, via: 'link', leftover: dialed.leftover };
     } catch (e) {
       lastError = e;
-      if (log) log('link exit failed: ' + (e && e.message ? e.message : e));
+      const why = String((e && e.message) || e).slice(0, 120);
+      if (log) log('link exit failed: ' + why);
+      if (settings.linkExit.mode === 'all') {
+        LINK_EXIT_DOWN.at = Date.now(); LINK_EXIT_DOWN.err = why;
+        throw new Error('link exit down (all sites): ' + why);
+      }
     }
   }
   const allAttempts = relayAttempts(targetIsCf, proxyOverride, proxyIpList(env, settings), socksRelayList(env, settings), host, port);
@@ -8150,7 +8159,7 @@ async function handleApi(request, url, env, ctx) {
   /* 🔗 Panel link (6.76.0) — owner side */
   if (path === '/api/links' && method === 'GET') {
     const links = await readLinks(env);
-    return json({ ok: true, self: linkSelfInfo(url, env, settings), exit: settings.linkExit || null, pending: links.pending.length, peers: links.peers.map((p) => linkPeerPublic(env, p)) });
+    return json({ ok: true, self: linkSelfInfo(url, env, settings), exit: settings.linkExit || null, exitDown: LINK_EXIT_DOWN.at ? LINK_EXIT_DOWN : null, pending: links.pending.length, peers: links.peers.map((p) => linkPeerPublic(env, p)) });
   }
   if (path === '/api/links/code' && method === 'POST') {
     const links = await readLinks(env);

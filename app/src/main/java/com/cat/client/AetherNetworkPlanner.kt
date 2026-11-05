@@ -18,6 +18,8 @@ package com.cat.client
  */
 internal data class AetherConnectPlan(
     val mode: AetherMode,
+    /** Exit kept by the plan: a learned alternate for a two-hop mode stays two-hop (foreign exit). */
+    val exitLocation: String,
     val ipScan: String,
     val endpoint: String?,
     val scanBudgetMillis: Long,
@@ -25,7 +27,7 @@ internal data class AetherConnectPlan(
     val notes: List<String>,
 ) {
     fun describe(): String =
-        "mode=${mode.wireName} ip=$ipScan endpoint=${endpoint ?: "search"} budget=${scanBudgetMillis / 1000}s ${notes.joinToString(",")}"
+        "mode=${mode.wireName} exit=$exitLocation ip=$ipScan endpoint=${endpoint ?: "search"} budget=${scanBudgetMillis / 1000}s ${notes.joinToString(",")}"
 }
 
 internal object AetherNetworkPlanner {
@@ -40,6 +42,29 @@ internal object AetherNetworkPlanner {
 
     fun isIpv6Peer(peer: String): Boolean = peer.trim().startsWith("[")
 
+    /** The one alternate tried when [mode] fails on a network (AetherSession) — also the only mode that may be learned. */
+    fun alternateMode(mode: AetherMode): AetherMode = when (mode) {
+        AetherMode.MasqueInMasque -> AetherMode.WireGuardOverMasque
+        AetherMode.WarpInWarp -> AetherMode.WireGuard
+        AetherMode.WireGuard -> AetherMode.MasqueHttp2
+        else -> AetherMode.WireGuard
+    }
+
+    /** Mirrors AetherRuntimeConfig.resolvedNativeTransport(): wiw / mim / wom are the two-hop (foreign exit) tunnels. */
+    fun isTwoHop(mode: AetherMode, exitLocation: String): Boolean = when (mode) {
+        AetherMode.MasqueInMasque, AetherMode.WarpInWarp -> true
+        AetherMode.WireGuard, AetherMode.MasqueHttp2 -> exitLocation == "foreign"
+        AetherMode.WireGuardOverMasque -> exitLocation != "iran"
+        AetherMode.MasquePsiphon -> false
+    }
+
+    /**
+     * beta241 (review): the alternate of a two-hop config must stay two-hop — WARP-in-WARP («auto» exit) → WireGuard
+     * used to become single-hop `wg`, silently swapping the foreign exit for an Iranian one.
+     */
+    fun exitForAlternate(mode: AetherMode, exitLocation: String): String =
+        if (isTwoHop(mode, exitLocation)) "foreign" else exitLocation
+
     /**
      * @param hasIpv6 whether the underlying (non-VPN) network has a global IPv6 address and route; null = unknown,
      *   in which case nothing is changed on that account.
@@ -49,6 +74,7 @@ internal object AetherNetworkPlanner {
      */
     fun plan(
         requestedMode: AetherMode,
+        requestedExitLocation: String,
         requestedIpScan: String,
         linkEndpoint: String?,
         hasIpv6: Boolean?,
@@ -56,7 +82,10 @@ internal object AetherNetworkPlanner {
         verifiedFor: (AetherMode, String) -> String?,
     ): AetherConnectPlan {
         val notes = mutableListOf<String>()
-        val mode = learnedMode?.takeIf { it != requestedMode }?.also { notes += "learned-mode" } ?: requestedMode
+        // Only the one alternate AetherSession itself would try is accepted from memory (stale / odd values ignored).
+        val learned = learnedMode?.takeIf { it != requestedMode && it == alternateMode(requestedMode) }
+        val mode = learned?.also { notes += "learned-mode" } ?: requestedMode
+        val exitLocation = if (learned != null) exitForAlternate(requestedMode, requestedExitLocation) else requestedExitLocation
         val ipScan = if (requestedIpScan == "v6" && hasIpv6 == false) {
             notes += "no-ipv6"
             "v4"
@@ -76,16 +105,16 @@ internal object AetherNetworkPlanner {
             .firstNotNullOfOrNull { family -> verifiedFor(mode, family)?.takeIf(::allowed) }
         if (verified != null) {
             notes += "verified-here"
-            return AetherConnectPlan(mode, ipScan, verified.trim(), VERIFIED_BUDGET_MS, notes)
+            return AetherConnectPlan(mode, exitLocation, ipScan, verified.trim(), VERIFIED_BUDGET_MS, notes)
         }
         // The link's endpoint belongs to the link's mode (WireGuard ports differ from MASQUE ones).
         val hint = linkEndpoint?.takeIf { mode == requestedMode && allowed(it) }
         if (hint != null) {
             notes += "link-hint"
-            return AetherConnectPlan(mode, ipScan, hint.trim(), HINT_BUDGET_MS, notes)
+            return AetherConnectPlan(mode, exitLocation, ipScan, hint.trim(), HINT_BUDGET_MS, notes)
         }
         if (!linkEndpoint.isNullOrBlank()) notes += "link-endpoint-dropped"
         notes += "search"
-        return AetherConnectPlan(mode, ipScan, null, SEARCH_BUDGET_MS, notes)
+        return AetherConnectPlan(mode, exitLocation, ipScan, null, SEARCH_BUDGET_MS, notes)
     }
 }

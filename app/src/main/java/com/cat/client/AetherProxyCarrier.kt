@@ -152,7 +152,12 @@ internal class AetherProxyCarrier(
                     else -> AetherMode.WireGuard
                 }
                 AetherEngineSlot.ensureCurrent(gen)
-                val altCfg = config.copy(mode = fallbackMode, endpoint = null, ipScan = "both")
+                val altCfg = config.copy(
+                    mode = fallbackMode,
+                    exitLocation = AetherNetworkPlanner.exitForAlternate(requestedMode, config.exitLocation),
+                    endpoint = null,
+                    ipScan = "both",
+                )
                 val altJson = altCfg.toNativeJson()
                 NativeAetherBridge.prepare(altJson).onSuccess {
                     effectiveConfig = altCfg

@@ -1081,18 +1081,38 @@ class AetherPreferenceStore(context: Context) {
 
     companion object {
         /**
+         * beta241 (review): the real, non-VPN network. The active network when it is not a VPN; otherwise (our own
+         * tunnel is up) the best other one — validated first, then Wi-Fi before mobile data (Android's own default
+         * order), instead of whichever `allNetworks` happened to list first.
+         */
+        internal fun pickUnderlyingNetwork(cm: android.net.ConnectivityManager): android.net.Network? {
+            fun caps(net: android.net.Network) = cm.getNetworkCapabilities(net)
+            fun usable(net: android.net.Network): Boolean {
+                val cap = caps(net) ?: return false
+                return cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            }
+            cm.activeNetwork?.takeIf(::usable)?.let { return it }
+            @Suppress("DEPRECATION")
+            val candidates = cm.allNetworks.filter(::usable)
+            return candidates.maxByOrNull { net ->
+                val cap = caps(net)
+                var score = 0
+                if (cap?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) score += 4
+                if (cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                    cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true) score += 2
+                else if (cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true) score += 1
+                score
+            }
+        }
+
+        /**
          * beta241: does the underlying (non-VPN) network have a global IPv6 address and an IPv6 default route?
          * null = could not tell (then [AetherNetworkPlanner] changes nothing on that account).
          */
         fun underlyingNetworkHasIpv6(context: Context): Boolean? = runCatching {
             val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return null
-            fun usable(net: android.net.Network): Boolean {
-                val cap = cm.getNetworkCapabilities(net) ?: return false
-                return cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    !cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
-            }
-            @Suppress("DEPRECATION")
-            val net = cm.activeNetwork?.takeIf(::usable) ?: cm.allNetworks.firstOrNull(::usable) ?: return null
+            val net = pickUnderlyingNetwork(cm) ?: return null
             val lp = cm.getLinkProperties(net) ?: return null
             val globalV6 = lp.linkAddresses.any { la ->
                 val a = la.address
@@ -1109,13 +1129,7 @@ class AetherPreferenceStore(context: Context) {
          */
         fun underlyingNetworkKey(context: Context): String = runCatching {
             val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return "default"
-            fun usable(net: android.net.Network): Boolean {
-                val cap = cm.getNetworkCapabilities(net) ?: return false
-                return cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    !cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
-            }
-            @Suppress("DEPRECATION")
-            val net = cm.activeNetwork?.takeIf(::usable) ?: cm.allNetworks.firstOrNull(::usable) ?: return "default"
+            val net = pickUnderlyingNetwork(cm) ?: return "default"
             val cap = cm.getNetworkCapabilities(net) ?: return "default"
             when {
                 cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> {
