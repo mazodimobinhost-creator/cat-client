@@ -56,6 +56,23 @@ const A = await import(pathToFileURL(path.join(lay, 'api', 'index.mjs')).href);
     ib.length === A.REALITY_PROFILES.length && ib.every((x, i) => x.listen === '127.0.0.1' && x.port === 30000 + i && x.settings.clients[0].flow === 'xtls-rprx-vision'
       && x.streamSettings.security === 'reality' && x.streamSettings.realitySettings.target === A.REALITY_PROFILES[i].sni + ':443' && x.streamSettings.realitySettings.privateKey === kp.priv));
   check('Xray JSON: the host\'s private ranges are blackholed', cfg.routing.rules[0].outboundTag === 'block' && cfg.routing.rules[0].ip.includes('127.0.0.0/8') && cfg.routing.rules[0].ip.includes('10.0.0.0/8'));
+  // beta244 🟣 SS-2022 on the same port
+  const U1 = '6b1f0c2e-3d4a-4b5c-8d6e-7f8091a2b3c4'; const U2 = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const ks = A.ssEnsureKeys({});
+  const k1 = A.ssUserKey(ks.ssSecret, U1);
+  check('SS-2022: server key 16 bytes, user key 16 bytes, stable per UUID, different per user',
+    Buffer.from(ks.ssKey, 'base64').length === 16 && Buffer.from(k1, 'base64').length === 16 && A.ssUserKey(ks.ssSecret, U1.toUpperCase()) === k1 && A.ssUserKey(ks.ssSecret, U2) !== k1);
+  check('SS-2022: ssEnsureKeys never replaces existing keys', A.ssEnsureKeys(Object.assign({}, ks)).ssKey === ks.ssKey && A.ssEnsureKeys(Object.assign({}, ks)).ssSecret === ks.ssSecret);
+  const cfg2 = A.realityXrayJson(Object.assign({}, kp, ks), [U1, U2], 30000);
+  const ssIb = cfg2.inbounds[cfg2.inbounds.length - 1];
+  check('Xray JSON: Reality inbounds keep their places, SS-2022 is the last one (127.0.0.1, base+4, TCP, one key per user)',
+    cfg2.inbounds.length === A.REALITY_PROFILES.length + 1 && cfg2.inbounds[0].protocol === 'vless' && ssIb.protocol === 'shadowsocks' && ssIb.listen === '127.0.0.1'
+      && ssIb.port === 30000 + A.REALITY_PROFILES.length && ssIb.settings.method === '2022-blake3-aes-128-gcm' && ssIb.settings.password === ks.ssKey && ssIb.settings.network === 'tcp'
+      && ssIb.settings.clients.length === 2 && ssIb.settings.clients[0].password === k1, JSON.stringify(ssIb));
+  const H = (x) => A.looksHttp(Buffer.from(x, 'latin1'));
+  check('mux: HTTP methods (incl. WebSocket GET and h2c PRI) → panel; random bytes → SS; a 3-byte start → wait',
+    H('GET /sub/x HTTP/1.1') === true && H('OPTIONS * HTTP/1.1') === true && H('PRI * HTTP/2.0') === true && H('CONNECT a:1 HTTP/1.1') === true
+      && A.looksHttp(crypto.randomBytes(64).fill(0x8f, 0, 1)) === false && H('GE') === null && H('GET') === null && H('GET ') === null && H('\x00\x01') === false && H('get / HTTP/1.1') === false);
   let zipOk = 'skipped';
   try {
     const zf = path.join(lay, 't.zip');
@@ -84,10 +101,34 @@ if (!ossl) {
   fs.writeFileSync(fake, `#!${process.execPath}
 import fs from 'node:fs'; import tls from 'node:tls';
 const cfg = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('-c') + 1], 'utf8'));
-fs.writeFileSync(${JSON.stringify(path.join(tmp, 'seen.json'))}, JSON.stringify(cfg));
-for (const ib of cfg.inbounds) tls.createServer({ key: fs.readFileSync(${JSON.stringify(key)}), cert: fs.readFileSync(${JSON.stringify(cert)}) }, (c) => {
-  c.on('data', () => c.end('REALITY-OK ' + c.servername + ' ' + ib.tag + '\\n')); c.on('error', () => {});
-}).listen(ib.port, '127.0.0.1');
+import net from 'node:net';
+const isClient = cfg.inbounds.some((ib) => ib.protocol === 'socks');
+if (!isClient) fs.writeFileSync(${JSON.stringify(path.join(tmp, 'seen.json'))}, JSON.stringify(cfg));
+for (const ib of cfg.inbounds) {
+  if (ib.protocol === 'shadowsocks') {
+    // stand-in SS server: accepts «SS <serverKey>:<userKey>» for a key it really knows
+    net.createServer((c) => { c.on('error', () => {}); c.once('data', (d) => {
+      const m = /^SS (\\S+)\\n/.exec(d.toString());
+      const ok = m && ib.settings.clients.some((u) => m[1] === ib.settings.password + ':' + u.password);
+      if (ok) c.write('OK\\n'); else c.destroy();
+    }); }).listen(ib.port, '127.0.0.1');
+  } else if (ib.protocol === 'socks') {
+    // stand-in SS client: SOCKS5 in, «SS <password>» out to the server address (= the PUBLIC port), 204 if accepted
+    const sv = cfg.outbounds[0].settings.servers[0];
+    net.createServer((c) => { c.on('error', () => {}); let step = 0;
+      c.on('data', (d) => {
+        if (step === 0) { step = 1; c.write(Buffer.from([5, 0])); return; }
+        if (step === 1) { step = 2;
+          const up = net.connect(sv.port, sv.address, () => up.write('SS ' + sv.password + '\\n'));
+          up.on('error', () => c.destroy());
+          up.once('data', (r) => { if (String(r).startsWith('OK')) c.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0])); else c.destroy(); up.destroy(); });
+          return; }
+        c.end('HTTP/1.1 204 No Content\\r\\n\\r\\n');
+      }); }).listen(ib.port, '127.0.0.1');
+  } else tls.createServer({ key: fs.readFileSync(${JSON.stringify(key)}), cert: fs.readFileSync(${JSON.stringify(cert)}) }, (c) => {
+    c.on('data', () => c.end('REALITY-OK ' + c.servername + ' ' + ib.tag + '\\n')); c.on('error', () => {});
+  }).listen(ib.port, '127.0.0.1');
+}
 `, { mode: 0o755 });
 
   const src = fs.mkdtempSync(path.join(os.tmpdir(), 'cat-reality-src-'));
@@ -126,7 +167,15 @@ for (const ib of cfg.inbounds) tls.createServer({ key: fs.readFileSync(${JSON.st
     for (let i = 0; i < 60; i++) { st = JSON.parse((await req('GET', '/api/node/reality')).body); if (st.status !== 'starting') break; await new Promise((r) => setTimeout(r, 250)); }
     check('Reality: Xray started and the path was proven through the public port (real cert for the SNI)', st.on && st.status === 'running' && st.verified === true && /^[A-Za-z0-9_-]{43}$/.test(st.pub), JSON.stringify(st));
     const seen = JSON.parse(fs.readFileSync(path.join(tmp, 'seen.json'), 'utf8'));
-    check('Reality: Xray knows the owner\'s UUID', seen.inbounds.every((x) => x.settings.clients.some((c) => c.id === UUID)));
+    check('Reality: Xray knows the owner\'s UUID', seen.inbounds.filter((x) => x.protocol === 'vless').every((x) => x.settings.clients.some((c) => c.id === UUID)));
+    const ssIn = seen.inbounds.find((x) => x.protocol === 'shadowsocks');
+    const ssL = (await subLines(UUID)).filter((l) => l.startsWith('ss://'));
+    const ssOk = ssIn && st.ss && st.ss.verified === true && ssL.length === 1 && (() => {
+      const u = new URL(ssL[0].replace(/^ss:\/\//, 'http://'));
+      return u.username === '2022-blake3-aes-128-gcm' && Number(u.port) === PORT && decodeURIComponent(u.password) === ssIn.settings.password + ':' + A.ssUserKey(JSON.parse(fs.readFileSync(path.join(app, 'cat-data', 'reality', 'reality.json'), 'utf8')).ssSecret, UUID)
+        && ssIn.settings.clients.some((c) => decodeURIComponent(u.password).endsWith(':' + c.password));
+    })();
+    check('SS-2022: the round trip through the PUBLIC port (mux → SS inbound, derived key) passed and ONE ss:// line is in the sub', ssOk, JSON.stringify(st.ss) + ' ' + ssL.join(' | '));
     const lines = (await subLines(UUID)).filter((l) => /security=reality/.test(l));
     const ok = lines.length === 4 && lines.every((l) => {
       const u = new URL(l.replace(/^vless:\/\//, 'http://'));
@@ -163,9 +212,10 @@ for (const ib of cfg.inbounds) tls.createServer({ key: fs.readFileSync(${JSON.st
     check('a restart for a new user list keeps the lines in the sub meanwhile', midLines.length === 4, midLines.length);
     const seen2 = JSON.parse(fs.readFileSync(path.join(tmp, 'seen.json'), 'utf8'));
     const ids = seen2.inbounds[0].settings.clients.map((c) => c.id);
+    check('SS-2022: the metered user gets no ss:// line, the unmetered one gets exactly one', !(await subLines(mu.id)).some((l) => l.startsWith('ss://')) && (await subLines(fu.id)).filter((l) => l.startsWith('ss://')).length === 1);
     check('a user with a volume quota gets no Reality lines and is not in Xray; a user without one is', mLines.length === 0 && fLines.length === 4 && ids.includes(fu.id) && !ids.includes(mu.id), JSON.stringify({ m: mLines.length, f: fLines.length, ids }));
     st = JSON.parse((await req('POST', '/api/node/reality', { on: false })).body);
-    check('Reality off → status off and the lines leave the sub', st.on === false && st.status === 'off' && !(await subLines(UUID)).some((l) => /security=reality/.test(l)), JSON.stringify(st));
+    check('Reality off → status off and the lines (Reality + SS-2022) leave the sub', st.on === false && st.status === 'off' && !(await subLines(UUID)).some((l) => /security=reality|^ss:\/\//.test(l)), JSON.stringify(st));
   } catch (e) {
     check('Reality end-to-end ran', false, (e && e.stack) || e);
   } finally {

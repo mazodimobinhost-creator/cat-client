@@ -4,6 +4,25 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta244] — 2026-11-05 (Panel 6.81.3)
+
+Review of four outside sources (a new Flutter companion app for BPB Panel, a single-port KataBump panel, two videos). Only ideas were taken (GPL-3 / no licence → own code); nothing was copied.
+
+### Added — app
+- **🌐 Sanction bypass via anti-sanction DNS** (Settings → routing, off by default). Ticked services (ChatGPT/OpenAI, Gemini/AI Studio, Claude, Copilot, Docker Hub, Android Developers/Firebase, NVIDIA, AMD, Intel, Oracle/Java, Adobe, Epic Games) go DIRECT on the user's line, resolved by an Iranian anti-sanction DNS (Shecan, Shecan 2, 403, Electro, Radar) through mihomo `nameserver-policy`. The DIRECT rules join the ONE existing `rules:` list after the measurement rules (ping / exit-IP probes still ride the tunnel), and an `IP-CIDR,<dns>/32,DIRECT` rule keeps the DNS queries themselves off the tunnel (`respect-rules` would otherwise send them abroad).
+- **🧪 Real per-service test** in the same dialog: A query to the chosen DNS on the user's line → direct TCP → TLS with a verified certificate and hostname → HTTP status + sanction markers in the body. Only services that pass are ticked. While connected the test refuses to run (it would measure the tunnel, not the direct path).
+
+### Added — panel (Node direct host / KataBump)
+- **🟣 Shadowsocks-2022 on the same port**, inside the Xray that the Reality switch already starts (one owner switch, still off by default with confirm). The mux sends TLS → Reality by SNI, HTTP methods → the panel/WebSocket, anything else → SS-2022 (`2022-blake3-aes-128-gcm`, multi-user; a user key = HMAC(server secret, UUID), nothing extra stored). Plain VLESS/Trojan over raw TCP were NOT added: without TLS the inner ClientHello (the blocked site's name) is visible to the filter.
+- The `ss://` line enters a sub only after a **real round trip through the public port** (a short-lived Xray SS client → mux → SS inbound → `www.gstatic.com/generate_204` = 204), only for active users without a volume cap (like Reality), and leaves when the switch goes off. Config fields checked against the Xray v26.10.21 source (`buildShadowsocks2022`, `ParsePSKList`). UDP is not carried (Xray SS-2022 has no UDP-over-TCP); browsers fall back from QUIC to TCP.
+
+### Not adopted (reasons in the report)
+- Xray Browser Dialer (the source app itself calls it a test), the M-F user self-registration portal (open sign-up on a free host invites abuse), the KataBump auto-renew bot (captcha + AUP), and the AWS free-tier method from the video (fake identity).
+
+### Tests
+- `Beta244AntiSanctionRoutingTest` (6, pure: store format, YAML pieces, DNS packet incl. compression/NXDOMAIN/truncation, verdicts), `Beta244AntiSanctionRuntimeTest` (3, real engine YAML in all routing modes), `node-reality.test.mjs` +7 (keys, inbound shape, mux classification, end-to-end SS line through the public port, metered user, off).
+- Minified panel is 859 992 / 860 000 characters — the size budget is used up; the next panel feature must free space first.
+
 ## [1.10.0-beta243] — 2026-11-05 (Panel 6.81.2)
 
 Review round 2 (Grok: panel; Claude: app). Every finding was checked against the code; all confirmed ones are fixed.

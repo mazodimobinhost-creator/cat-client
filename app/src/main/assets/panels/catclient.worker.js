@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.81.2';
+const CAT_PANEL_VERSION = '6.81.3';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -5205,11 +5205,15 @@ function realityLines(host, env, uuid, user, q) {
   if (!r || !isNodePlatform(env) || nodeEdge(env) !== 'plain' || (q && ((q.addr && q.addr.length) || q.limit))) return [];
   if (user && user.quotaBytes > 0) return [];
   const st = r.status();
-  if (!st.on || st.status !== 'running' || !st.verified || !st.pub) return [];
-  const port = nodePort(env);
-  return st.profiles.map((p) => PROTO_VLESS + '://' + String(uuid).toLowerCase() + '@' + formatAddr(String(host)) + ':' + port +
+  if (!st.on || st.status !== 'running') return [];
+  const at = '@' + formatAddr(String(host)) + ':' + nodePort(env);
+  // beta244 🟣 SS-2022 rides the same Xray; only after its own round trip through the public port passed
+  const pw = st.ss && st.ss.verified && r.ssPassword ? r.ssPassword(uuid) : '';
+  const ss = pw ? ['ss://' + st.ss.method + ':' + encodeURIComponent(pw) + at + '#' + encodeURIComponent('🐱 Cat · 🟣 SS-2022')] : [];
+  if (!st.verified || !st.pub) return ss;
+  return ss.concat(st.profiles.map((p) => PROTO_VLESS + '://' + String(uuid).toLowerCase() + at +
     '?encryption=none&flow=xtls-rprx-vision&security=reality&sni=' + p.sni + '&fp=chrome&pbk=' + encodeURIComponent(st.pub) + '&sid=' + st.sid +
-    '&type=tcp#' + encodeURIComponent('🐱 Cat · 🔒 Reality · ' + (REALITY_LABEL[p.id] || p.id)));
+    '&type=tcp#' + encodeURIComponent('🐱 Cat · 🔒 Reality · ' + (REALITY_LABEL[p.id] || p.id))));
 }
 function nodeHostIpsCached(host) { const c = NODE_IPS.get(String(host || '').toLowerCase()); return c ? c.ips : []; }
 /** Waits only when nothing is known yet; a stale entry is refreshed in the background. */
@@ -9958,7 +9962,7 @@ ${(() => {
  </div>
  <div class="card sec" id="rlCard" style="display:none">
   <h2><span class="ic">🔒</span><span>${tr2('Reality (اختیاری)', 'Reality (optional)')}</span><span class="chip" id="rlState" style="margin-inline-start:auto">…</span></h2>
-  <div class="note w small">${tr2('خاموش است تا خودت روشنش کنی. روشن که شود، هستهٔ رسمی Xray (با چک SHA-256) روی همین سرور اجرا می‌شود و روی همین پورت، کنار پنل، ۴ کانفیگ VLESS-Reality می‌دهد (یکی برای هر اپراتور). حدود ۶۰ مگ رم می‌گیرد. حجم Reality شمرده نمی‌شود، پس فقط برای خودت و کاربرهای بدون سقف حجم در ساب می‌آید. تا تست از پورت عمومی موفق نشود در ساب نمی‌آید. اگر قوانین هاستت اجازه نمی‌دهد، روشنش نکن.', 'Off until you turn it on. Then the official Xray core (SHA-256 checked) runs on this server and serves 4 VLESS-Reality configs on this same port next to the panel (one per operator). About 60 MB RAM. Reality traffic is not metered, so only you and users without a volume cap get it. Nothing goes into the sub until a test through the public port passes. If your host’s rules forbid it, leave it off.')}</div>
+  <div class="note w small">${tr2('روشن کنی، Xray رسمی (چک SHA-256، ~۶۰ مگ رم) روی همین پورت ۴ کانفیگ Reality (هر اپراتور یکی) + ۱ Shadowsocks-2022 می‌دهد. حجمش شمرده نمی‌شود، پس فقط برای تو و کاربرهای بی‌سقف. هر کدام فقط پس از تست پورت عمومی در ساب می‌آید. اگر هاستت اجازه نمی‌دهد، روشن نکن.', 'When on, official Xray (SHA-256 checked, ~60 MB RAM) serves 4 Reality configs (one per operator) + 1 Shadowsocks-2022 on this port. Not metered, so only you and uncapped users get them. Each joins the sub only after a public-port test. If your host forbids it, leave it off.')}</div>
   <div class="small" id="rlErr" style="margin-top:6px"></div>
   <div class="row" style="margin-top:8px;gap:8px"><button class="btn sm p" type="button" id="rlOn">🔒 ${tr2('روشن کن', 'Turn on')}</button><button class="btn sm" type="button" id="rlOff" style="display:none">⏹ ${tr2('خاموش کن', 'Turn off')}</button></div>
  </div>
@@ -12146,7 +12150,7 @@ if($('#nipRefresh'))$('#nipRefresh').addEventListener('click',function(){var b=t
 var RL_T=null;
 function rlShow(j){var c=$('#rlCard');if(!c)return;if(!j||!j.ok||!j.allowed){c.style.display='none';return}c.style.display='';
  var lbl=!j.on?tx('خاموش','off'):j.status==='starting'?'⏳ '+tx('در حال راه‌اندازی…','starting…'):(j.status==='running'&&j.verified)?'✅ '+tx('روشن و تست‌شده — در ساب','on & verified — in subs'):j.status==='running'?'⚠️ '+tx('اجرا شد ولی تست رد شد — در ساب نیست','running, test failed — not in subs'):'❌ '+tx('خطا — در ساب نیست','error — not in subs');
- $('#rlState').textContent=lbl;var e=$('#rlErr');e.textContent=j.err?String(j.err):'';e.style.color=j.err?'var(--red)':'';
+ $('#rlState').textContent=lbl;var s=j.ss||{},m=[j.err,s.err].filter(Boolean).join(' · ');if(j.status==='running')lbl+=' · SS '+(s.verified?'✅':'❌');var e=$('#rlErr');e.textContent=m?String(m):'';e.style.color=m?'var(--red)':'';
  $('#rlOn').style.display=j.on?'none':'';$('#rlOff').style.display=j.on?'':'none';
  clearTimeout(RL_T);if(j.on&&j.status==='starting')RL_T=setTimeout(rlLoad,2000)}
 function rlLoad(){if(!$('#rlCard'))return Promise.resolve();return api('/api/node/reality').then(rlShow).catch(function(){})}

@@ -68,3 +68,10 @@
 - **2026-11-05 (beta241 / Panel 6.81.0):** Cat Warp network planner (`AetherNetworkPlanner.kt`, `CatClientVpnServiceCatWarp.kt`, `AetherSession.kt`, `AetherPreferenceStore.kt`) — configs built on one line now adapt on other lines; remember-after-success only. Flaky `/api/ech-pool` test fixed. `docs/REVIEW-BRIEF.md` (full-project review for Claude/Grok). CI green at `88748b0`.
 - **2026-11-05 (beta242 / Panel 6.81.1):** review round 1 — chain bug 4 fixed (panel link «all» fails closed, `/api/links` exitDown); Cat Warp alternate keeps two-hop exit; shared underlying-network picker; wizard `confirmed`. CI green at `376a1fc`. Drive code bundle for reviewers.
 - **2026-11-05 (beta243 / Panel 6.81.2):** review round 2 — Grok: Pages OPEN_PANEL/OPEN_SUB false, chain non-Strict fallback now visible (`exitDown` toast), portal vs pages docs. Claude: wizard remembers only confirmed peers, shared `AetherFallbackStages` (session + carrier, full search budget), WiW alternate = WoM, learned-mode window fixed, failover watchdog, behaviour tests. CI green at `f840249`; Drive bundle A/B/C01–12/D.
+
+## 2026-11-05 — beta244 / Panel 6.81.3
+- Reviewed BPB VPN (GPL-3, Flutter), M-F-PANEL (no licence), YouTube NA9lokdUnxc (AWS fake identity — refused), Qa2spLnZpu4 (M-F on KataBump).
+- App: `AntiSanctionRouting.kt` (pure) + `AntiSanctionSettings.kt` (row, dialog, `AntiSanctionProbe`); `MihomoRuntime` takes `antiSanction` (rules into the one `rules:` list, `nameserver-policy` in `dns:`).
+- Panel: SS-2022 inbound in the Reality Xray, mux non-HTTP → SS, `ssVerify` via a short-lived Xray client through the public port; worker `realityLines` adds `ss://` only when verified.
+- Local evidence: npm test 159/159 files; node-reality 24/24 (fake Xray); kotlinc harness Beta244AntiSanctionRoutingTest 6/6. Runtime YAML test + UI compile only in CI (no android.jar here). Real Xray could not run here (release assets blocked; Go deps not reachable) — config fields checked against the v26.10.21 source.
+

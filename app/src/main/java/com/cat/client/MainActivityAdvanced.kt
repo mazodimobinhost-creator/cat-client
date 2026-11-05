@@ -1339,6 +1339,7 @@ internal fun MainActivity.buildAdvancedScreen(): View {
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
     )
     addCoreOptionRows(routingPanel) // beta240: sniffing · FakeDNS · system HTTP proxy (CoreOptionsSettings.kt)
+    addAntiSanctionRow(routingPanel) // beta244: sanctioned services direct via an anti-sanction DNS (AntiSanctionSettings.kt)
     connectionSettings.addView(
         advancedSectionLabel(getString(R.string.dns_privacy_section)),
         LinearLayout.LayoutParams(

@@ -23,7 +23,7 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `MainActivity.kt` | 3712 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAdvanced.kt` | 4057 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAdvanced.kt` | 4058 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAmneziaSstp.kt` | 623 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1813 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3355 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 9 JVM · 9 panel (see `affected-tests.py`) |
@@ -65,7 +65,7 @@
 | `EarlyCrashProvider.kt` | 43 | The earliest app code Android runs. | — · — |
 | `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, Beta223XrayEngineTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
 | `MihomoCoreLifecycle.kt` | 85 | Serializes setup and cleanup of the process-wide Mihomo core. | — · — |
-| `MihomoRuntime.kt` | 2851 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, Beta223XrayEngineTest, Beta240CoreOptionsTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
+| `MihomoRuntime.kt` | 2861 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | 12 JVM · 1 panel (see `affected-tests.py`) |
 | `MihomoShareLink.kt` | 563 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, Beta239ProtocolsTelegramTest, WhiteDnsSmartScannerTest · — |
 | `PathWatchdog.kt` | 178 | The multi-path watchdog: the tiny state machine that decides *when* the app stops insisting on the normal path and takes the Tor one instead — and… | PathWatchdogTest · orbot-engine |
 | `QuickSettingsTileState.kt` | 50 | — | — · — |
@@ -281,6 +281,8 @@
 |---|---:|---|---|
 | `Actions.kt` | 81 | — | Beta220WiringTest · — |
 | `AnalyticsEvents.kt` | 34 | AnalyticsEvents — Cat Client does NOT ship any third-party tracking. | — · — |
+| `AntiSanctionRouting.kt` | 160 | beta244 — anti-sanction routing (idea from other clients' «sanction rules»; own code, own list). | Beta244AntiSanctionRoutingTest, Beta244AntiSanctionRuntimeTest · — |
+| `AntiSanctionSettings.kt` | 242 | beta244 — one row in «مسیریابی» (next to ad block / sniffing / FakeDNS) that opens the anti-sanction dialog. | — · — |
 | `AppLock.kt` | 100 | App lock (PIN, optionally unlocked with the phone's own fingerprint / face / pattern through the system credential screen). | WhiteDnsToolkitTest · — |
 | `AppSettingsResetter.kt` | 29 | — | — · — |
 | `AppToolsController.kt` | 993 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | Beta238FoxWebChannelTest, Beta239ProtocolsTelegramTest · — |
@@ -303,7 +305,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_245 Kotlin files, 107880 lines._
+_247 Kotlin files, 108293 lines._
 
 ## MainActivity screens — function index
 
@@ -316,7 +318,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityAdvanced.kt` (59 functions)
 
-`buildInterfaceDesignBlock`:114, `buildAdvancedScreen`:262, `buildConnectionChainSettings`:2365, `advancedToggleRow`:2649, `showSplitTunnelSettings`:2731, `showResetSettingsDialog`:3185, `scrollFieldIntoView`:3200, `advancedSectionLabel`:3219, `connectionChainFixedLabel`:3234, `connectionChainSlotLabelRes`:3253, `editConnectionChainHopIp`:3263, `refreshChainExitCountries`:3325, `renderFragmentCarrierLine`:3348, `carrierLabelRes`:3365, `presetLabelRes`:3373, `updateConnectionChainSettings`:3383, `openConnectionChainSettingsFromHome`:3405, `cachedConnectionChainPickerOptions`:3410, `cachedConnectionChainSources`:3415, `connectionChainPickerOptions`:3435, `connectionChainFixedOptions`:3448, `advancedSectionDetail`:3464, `advancedSettingsPanel`:3478, `showThemeSelector`:3489, `showAccentSelector`:3511, `showLanguageSelector`:3582, `showDnsPrivacySelector`:3604, `showRoutingModeSelector`:3620, `renderOrbotRow`:3646, `probeOrbotEngine`:3684, `displayDnsPrivacyEndpoint`:3708, `setDnsPrivacyEndpointInputText`:3719, `showDnsPrivacyError`:3730, `showSplitTunnelSelector`:3736, `saveTlsIntegrityEnabled`:3771, `saveAdBlockEnabled`:3780, `refreshPanelTuneIfNeeded`:3788, `refreshPanelTune`:3797, `saveTlsFragmentEnabled`:3814, `saveLanSharingEnabled`:3827, `saveConnectionMode`:3835, `saveLanSharingPasswordRequired`:3850, `regenerateLanSharingPassword`:3859, `copyLanSharingSettings`:3867, `lanSharingDetails`:3875, `saveAmneziaNoiseEnabled`:3896, `applyAmneziaNoiseSettings`:3919, `readAmneziaNoiseInputs`:3939, `optionalAmneziaInt`:3964, `optionalAmneziaText`:3970, `optionalAmneziaBoolean`:3973, `showAmneziaNoiseError`:3982, `reconnectForConnectionOptionChange`:3987, `saveFrontingIps`:3994, `addFrontingIpTokens`:4012, `removeFrontingIp`:4026, `setFrontingIpInputText`:4033, `frontingIpInputHint`:4043, `showFrontingIpError`:4051
+`buildInterfaceDesignBlock`:114, `buildAdvancedScreen`:262, `buildConnectionChainSettings`:2366, `advancedToggleRow`:2650, `showSplitTunnelSettings`:2732, `showResetSettingsDialog`:3186, `scrollFieldIntoView`:3201, `advancedSectionLabel`:3220, `connectionChainFixedLabel`:3235, `connectionChainSlotLabelRes`:3254, `editConnectionChainHopIp`:3264, `refreshChainExitCountries`:3326, `renderFragmentCarrierLine`:3349, `carrierLabelRes`:3366, `presetLabelRes`:3374, `updateConnectionChainSettings`:3384, `openConnectionChainSettingsFromHome`:3406, `cachedConnectionChainPickerOptions`:3411, `cachedConnectionChainSources`:3416, `connectionChainPickerOptions`:3436, `connectionChainFixedOptions`:3449, `advancedSectionDetail`:3465, `advancedSettingsPanel`:3479, `showThemeSelector`:3490, `showAccentSelector`:3512, `showLanguageSelector`:3583, `showDnsPrivacySelector`:3605, `showRoutingModeSelector`:3621, `renderOrbotRow`:3647, `probeOrbotEngine`:3685, `displayDnsPrivacyEndpoint`:3709, `setDnsPrivacyEndpointInputText`:3720, `showDnsPrivacyError`:3731, `showSplitTunnelSelector`:3737, `saveTlsIntegrityEnabled`:3772, `saveAdBlockEnabled`:3781, `refreshPanelTuneIfNeeded`:3789, `refreshPanelTune`:3798, `saveTlsFragmentEnabled`:3815, `saveLanSharingEnabled`:3828, `saveConnectionMode`:3836, `saveLanSharingPasswordRequired`:3851, `regenerateLanSharingPassword`:3860, `copyLanSharingSettings`:3868, `lanSharingDetails`:3876, `saveAmneziaNoiseEnabled`:3897, `applyAmneziaNoiseSettings`:3920, `readAmneziaNoiseInputs`:3940, `optionalAmneziaInt`:3965, `optionalAmneziaText`:3971, `optionalAmneziaBoolean`:3974, `showAmneziaNoiseError`:3983, `reconnectForConnectionOptionChange`:3988, `saveFrontingIps`:3995, `addFrontingIpTokens`:4013, `removeFrontingIp`:4027, `setFrontingIpInputText`:4034, `frontingIpInputHint`:4044, `showFrontingIpError`:4052
 
 ### `MainActivityAmneziaSstp.kt` (10 functions)
 
@@ -425,6 +427,8 @@ for the dialog/button you want to change.
 | `AndroidSubscriptionSnapshotAdapter` | `SubscriptionSnapshot.kt` |
 | `AnimatedArrowIcon` | `DashboardViews.kt` |
 | `Anomaly` | `NetworkGenome.kt` |
+| `AntiSanctionProbe` | `AntiSanctionSettings.kt` |
+| `AntiSanctionRouting` | `AntiSanctionRouting.kt` |
 | `ApiHostClient` | `ApiHostDeploy.kt` |
 | `ApiHostException` | `ApiHostDeploy.kt` |
 | `ApiHostPlan` | `ApiHostDeploy.kt` |

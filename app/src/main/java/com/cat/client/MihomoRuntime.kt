@@ -332,6 +332,10 @@ class RoutingModePreferenceStore(context: Context) {
      */
     fun isSniffingEnabled(): Boolean = prefs.getBoolean(KEY_SNIFFING, false)
     fun saveSniffingEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_SNIFFING, enabled).apply() }
+
+    /** beta244 «دور زدن تحریم» (AntiSanctionRouting.kt): off by default. */
+    fun antiSanction(): AntiSanctionRouting.Settings = AntiSanctionRouting.decode(prefs.getString(KEY_ANTI_SANCTION, null))
+    fun saveAntiSanction(settings: AntiSanctionRouting.Settings) { prefs.edit().putString(KEY_ANTI_SANCTION, AntiSanctionRouting.encode(settings)).apply() }
     fun isFakeDnsEnabled(): Boolean = prefs.getBoolean(KEY_FAKE_DNS, true)
     fun saveFakeDnsEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_FAKE_DNS, enabled).apply() }
     fun isSystemHttpProxyEnabled(): Boolean = prefs.getBoolean(KEY_SYSTEM_HTTP_PROXY, false)
@@ -341,6 +345,7 @@ class RoutingModePreferenceStore(context: Context) {
         const val KEY_MODE = "mode"
         const val KEY_AD_BLOCK = "ad_block"
         const val KEY_SNIFFING = "sniffing"
+        const val KEY_ANTI_SANCTION = "anti_sanction"
         const val KEY_FAKE_DNS = "fake_dns"
         const val KEY_SYSTEM_HTTP_PROXY = "system_http_proxy"
     }
@@ -749,6 +754,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 orbot = document.orbot,
                 sniffing = RoutingModePreferenceStore(context).isSniffingEnabled(),
                 fakeDns = RoutingModePreferenceStore(context).isFakeDnsEnabled(),
+                antiSanction = RoutingModePreferenceStore(context).antiSanction(),
             ),
         )
         patchFinal.writeText(
@@ -907,6 +913,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             adBlock: Boolean = false,
             sniffing: Boolean = false,
             fakeDns: Boolean = true,
+            antiSanction: AntiSanctionRouting.Settings = AntiSanctionRouting.Settings(),
             orbot: OrbotProxySettings? = null,
         ): String {
             val orbotTarget = orbot?.let { settings ->
@@ -1005,8 +1012,10 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 val adBlockRules = (if (adBlock) "  - 'GEOSITE,category-ads-all,REJECT'\n" else "") +
                     // beta219: a TCP-only engine cannot carry QUIC; mihomo then sent UDP 443 DIRECT (filtered in Iran),
                     // and apps such as Instagram waited on QUIC before falling back. Refusing it makes them use TCP.
-                    (if (tcpOnlyEngine) "  - ${yamlSingleQuoted(TCP_ONLY_QUIC_RULE)}\n" else "")
-                if (measureTarget != null || adBlock || (tcpOnlyEngine && "rules:\n" in this)) {
+                    (if (tcpOnlyEngine) "  - ${yamlSingleQuoted(TCP_ONLY_QUIC_RULE)}\n" else "") +
+                    // beta244 anti-sanction: after the measurement rules (probes keep riding the tunnel), before the rest
+                    AntiSanctionRouting.rulesYaml(antiSanction)
+                if (measureTarget != null || adBlock || antiSanction.active || (tcpOnlyEngine && "rules:\n" in this)) {
                     val measurementRules = if (measureTarget != null) {
                         MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
                             "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
@@ -1077,6 +1086,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 dnsServers.forEach { server ->
                     append("    - ${yamlSingleQuoted("$server$proxySuffix")}\n")
                 }
+                append(AntiSanctionRouting.nameserverPolicyYaml(antiSanction))
                 append("  proxy-server-nameserver:\n")
                 bootstrapServers.forEach { server ->
                     append("    - ${yamlSingleQuoted(server)}\n")

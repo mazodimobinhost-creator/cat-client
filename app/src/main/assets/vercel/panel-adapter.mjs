@@ -571,7 +571,7 @@ export const REALITY_PROFILES = [
   { id: 'all', sni: 'www.speedtest.net' }, { id: 'mtn', sni: 'www.microsoft.com' },
   { id: 'rtl', sni: 'www.cloudflare.com' }, { id: 'tci', sni: 'cdn.jsdelivr.net' },
 ];
-const REALITY = { state: null, proc: null, ports: null, status: 'off', err: '', verified: false, clients: [], restarts: [] };
+const REALITY = { state: null, proc: null, ports: null, status: 'off', err: '', verified: false, clients: [], restarts: [], ssPort: 0, ssVerified: false, ssErr: '' };
 const realityAllowed = () => PLATFORM === 'node' && process.env.CAT_HOST_DIRECT === '1';
 const realityDir = () => pathMod.join(process.env.CAT_KV_DIR || pathMod.join(os.tmpdir(), 'cat-data'), 'reality');
 
@@ -625,14 +625,38 @@ export function realityKeyPair() {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('x25519');
   return { priv: privateKey.export({ format: 'jwk' }).d, pub: publicKey.export({ format: 'jwk' }).x, sid: crypto.randomBytes(4).toString('hex') };
 }
+/* 🟣 beta244 — Shadowsocks-2022 on the same port, inside the same Xray (one owner switch with Reality). Idea from
+ * single-port KataBump panels; own code. Only SS-2022: fully encrypted, so the filter never sees the inner site name
+ * (plain VLESS/Trojan over raw TCP would show it). A user's key is derived from the server secret + the user's UUID,
+ * so nothing more is stored; the line reaches the sub only after a real SS round trip through the public port. */
+export const SS_METHOD = '2022-blake3-aes-128-gcm';
+export function ssEnsureKeys(st) {
+  if (!st.ssKey) st.ssKey = crypto.randomBytes(16).toString('base64');
+  if (!st.ssSecret) st.ssSecret = crypto.randomBytes(32).toString('base64');
+  return st;
+}
+export function ssUserKey(secret, uuid) {
+  return crypto.createHmac('sha256', Buffer.from(String(secret), 'base64')).update('ss2022:' + String(uuid).toLowerCase()).digest().subarray(0, 16).toString('base64');
+}
+const HTTP_START = /^(GET|POST|HEAD|PUT|DELETE|OPTIONS|PATCH|CONNECT|TRACE|PRI) /;
+/** First bytes of a non-TLS connection: true = HTTP (the panel), false = not HTTP (SS-2022), null = need more bytes. */
+export function looksHttp(buf) {
+  if (buf.length >= 8) return HTTP_START.test(buf.toString('latin1', 0, 8));
+  const head = buf.toString('latin1');
+  return /^[A-Z]*$/.test(head) || /^[A-Z]{3,7} $/.test(head) ? null : false;
+}
 export function realityXrayJson(state, clients, base) {
+  const ss = state.ssKey && state.ssSecret ? [{
+    tag: 'ss', listen: '127.0.0.1', port: base + REALITY_PROFILES.length, protocol: 'shadowsocks',
+    settings: { method: SS_METHOD, password: state.ssKey, network: 'tcp', clients: clients.map((id) => ({ password: ssUserKey(state.ssSecret, id), email: id + '@cat' })) },
+  }] : [];
   return {
     log: { loglevel: 'warning' },
     inbounds: REALITY_PROFILES.map((p, i) => ({
       tag: 'r-' + p.id, listen: '127.0.0.1', port: base + i, protocol: 'vless',
       settings: { clients: clients.map((id) => ({ id, flow: 'xtls-rprx-vision' })), decryption: 'none' },
       streamSettings: { network: 'tcp', security: 'reality', realitySettings: { target: p.sni + ':443', serverNames: [p.sni], privateKey: state.priv, shortIds: [state.sid] } },
-    })),
+    })).concat(ss),
     outbounds: [{ protocol: 'freedom', tag: 'direct' }, { protocol: 'blackhole', tag: 'block' }],
     // never a way into the host's own network
     routing: { rules: [{ type: 'field', ip: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', 'fc00::/7', '::1/128'], outboundTag: 'block' }] },
@@ -693,14 +717,64 @@ function realityVerify(sni) {
     c.once('error', (e) => done(false, String((e && e.code) || (e && e.message) || e)));
   });
 }
-function stopXray() { const p = REALITY.proc; REALITY.proc = null; REALITY.ports = null; if (p) { p.removeAllListeners('exit'); try { p.kill('SIGTERM'); } catch (e) { /* gone */ } } }
+/** A real SS-2022 round trip as a stranger would make it: a short-lived Xray client → the PUBLIC port → the mux → our
+ * SS inbound → the internet; SOCKS5 through it to an HTTP 204 page. Only then does the line go into the sub. */
+async function ssVerify(bin) {
+  const port = Number(process.env.CAT_PUBLIC_PORT) || (server.address() && server.address().port);
+  const st = REALITY.state || {};
+  const id = REALITY.clients[0];
+  if (!id || !st.ssKey) return { ok: false, why: 'no user' };
+  const local = await freeBase(1);
+  const cfg = pathMod.join(realityDir(), 'ss-check.json');
+  fs.writeFileSync(cfg, JSON.stringify({
+    log: { loglevel: 'warning' },
+    inbounds: [{ listen: '127.0.0.1', port: local, protocol: 'socks', settings: { auth: 'noauth' } }],
+    outbounds: [{ protocol: 'shadowsocks', settings: { servers: [{ address: '127.0.0.1', port, method: SS_METHOD, password: st.ssKey + ':' + ssUserKey(st.ssSecret, id) }] } }],
+  }), { mode: 0o600 });
+  const proc = spawn(bin, ['run', '-c', cfg], { stdio: 'ignore', env: Object.assign({}, process.env, { GOMEMLIMIT: '32MiB' }) });
+  try {
+    await waitPort(local, 8000);
+    return await new Promise((res) => {
+      const c = net.connect(local, '127.0.0.1');
+      let step = 0; let got = Buffer.alloc(0);
+      const done = (ok, why) => { clearTimeout(t); c.destroy(); res({ ok, why }); };
+      const t = setTimeout(() => done(false, 'timeout'), 15000);
+      const host = Buffer.from('www.gstatic.com');
+      c.once('connect', () => c.write(Buffer.from([5, 1, 0])));
+      c.on('data', (d) => {
+        got = Buffer.concat([got, d]);
+        if (step === 0 && got.length >= 2) {
+          step = 1; got = got.subarray(2);
+          c.write(Buffer.concat([Buffer.from([5, 1, 0, 3, host.length]), host, Buffer.from([0, 80])]));
+        }
+        if (step === 1 && got.length >= 10) {
+          if (got[1] !== 0) return done(false, 'socks ' + got[1]);
+          step = 2; got = got.subarray(10);
+          c.write('GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n');
+        }
+        if (step === 2 && got.indexOf('\r\n') > 0) {
+          const line = got.toString('latin1', 0, got.indexOf('\r\n'));
+          done(/^HTTP\/1\.[01] 204/.test(line), line.slice(0, 40));
+        }
+      });
+      c.once('error', (e) => done(false, String((e && e.code) || e)));
+      c.once('close', () => done(false, 'closed'));
+    });
+  } catch (e) {
+    return { ok: false, why: String((e && e.message) || e).slice(0, 80) };
+  } finally {
+    try { proc.kill('SIGTERM'); } catch (e) { /* gone */ }
+  }
+}
+function stopXray() { const p = REALITY.proc; REALITY.proc = null; REALITY.ports = null; REALITY.ssPort = 0; if (p) { p.removeAllListeners('exit'); try { p.kill('SIGTERM'); } catch (e) { /* gone */ } } }
 async function startXray() {
   // a restart for a new user list keeps the proven state (the sub keeps its lines) unless the new start fails
   if (!(REALITY.status === 'running' && REALITY.verified)) { REALITY.status = 'starting'; REALITY.verified = false; }
   REALITY.err = '';
   try {
     const bin = await ensureXray();
-    const base = await freeBase(REALITY_PROFILES.length);
+    if (REALITY.state) ssEnsureKeys(REALITY.state);
+    const base = await freeBase(REALITY_PROFILES.length + 1);
     const cfg = pathMod.join(realityDir(), 'xray.json');
     fs.writeFileSync(cfg, JSON.stringify(realityXrayJson(REALITY.state, REALITY.clients, base)), { mode: 0o600 });
     stopXray();
@@ -710,16 +784,20 @@ async function startXray() {
     REALITY.proc = proc;
     proc.once('exit', (code) => {
       if (REALITY.proc !== proc) return;
-      REALITY.proc = null; REALITY.ports = null; REALITY.verified = false;
+      REALITY.proc = null; REALITY.ports = null; REALITY.ssPort = 0; REALITY.verified = false; REALITY.ssVerified = false;
       REALITY.status = 'error'; REALITY.err = 'Xray stopped (' + code + ') ' + tail.trim().split('\n').pop();
       const now = Date.now();
       REALITY.restarts = REALITY.restarts.filter((t) => now - t < 600000).concat(now);
       if (REALITY.state && REALITY.state.on && REALITY.restarts.length <= 5) setTimeout(() => { startXray().catch(() => {}); }, 3000);
     });
     await waitPort(base + REALITY_PROFILES.length - 1, 10000);
+    await waitPort(base + REALITY_PROFILES.length, 10000);
     REALITY.ports = Object.fromEntries(REALITY_PROFILES.map((p, i) => [p.sni, base + i]));
+    REALITY.ssPort = base + REALITY_PROFILES.length;
     const v = await realityVerify(REALITY_PROFILES[0].sni);
     REALITY.verified = v.ok;
+    const sv = await ssVerify(bin);
+    REALITY.ssVerified = sv.ok; REALITY.ssErr = sv.ok ? '' : 'SS-2022 check failed: ' + sv.why;
     REALITY.status = 'running';
     if (!v.ok) REALITY.err = 'check through the public port failed: ' + v.why;
   } catch (e) {
@@ -734,12 +812,21 @@ export const realityApi = {
   status() {
     const st = REALITY.state || {};
     return { allowed: realityAllowed(), on: !!st.on, status: REALITY.status, verified: REALITY.verified, err: REALITY.err, pub: st.on ? st.pub : '', sid: st.on ? st.sid : '',
-      profiles: REALITY_PROFILES, ver: XRAY_VERSION, clients: REALITY.clients.length };
+      profiles: REALITY_PROFILES, ver: XRAY_VERSION, clients: REALITY.clients.length,
+      ss: { on: !!(st.on && REALITY.ssPort), verified: REALITY.ssVerified, err: REALITY.ssErr, method: SS_METHOD } };
+  },
+  /** «serverKey:userKey» for an ACTIVE user once SS-2022 passed its round trip; '' otherwise (never a dead line). */
+  ssPassword(uuid) {
+    const st = REALITY.state || {};
+    const id = String(uuid || '').toLowerCase();
+    if (!st.on || !REALITY.ssPort || !REALITY.ssVerified || !st.ssKey || !REALITY.clients.includes(id)) return '';
+    return st.ssKey + ':' + ssUserKey(st.ssSecret, id);
   },
   async enable(clients) {
     if (!realityAllowed()) throw new Error('Reality runs only on a direct host (KataBump)');
     const st = Object.assign({}, readState() || {});
     if (!st.priv) Object.assign(st, realityKeyPair());
+    ssEnsureKeys(st);
     st.on = true; st.clients = (clients || []).slice(0, 500);
     writeState(st);
     REALITY.state = st; REALITY.clients = st.clients; REALITY.restarts = [];
@@ -749,7 +836,7 @@ export const realityApi = {
   async disable() {
     const st = readState() || {};
     st.on = false; writeState(st);
-    REALITY.state = st; stopXray(); REALITY.status = 'off'; REALITY.err = ''; REALITY.verified = false;
+    REALITY.state = st; stopXray(); REALITY.status = 'off'; REALITY.err = ''; REALITY.verified = false; REALITY.ssVerified = false; REALITY.ssErr = '';
     return this.status();
   },
   /** Users changed → restart Xray only if the active list really differs. */
@@ -782,6 +869,16 @@ export function attachRealityMux(srv) {
         up.on('error', () => sock.destroy()); sock.on('close', () => up.destroy());
         return;
       }
+      if (REALITY.ssPort && buf[0] !== 0x16) {
+        const http = looksHttp(buf);
+        if (http === null) return; // a few bytes only — wait for the rest of the first packet
+        if (!http) {
+          sock.off('data', onData); clearTimeout(t); sock.pause();
+          const up = net.connect(REALITY.ssPort, '127.0.0.1', () => { up.write(buf); sock.pipe(up); up.pipe(sock); sock.resume(); });
+          up.on('error', () => sock.destroy()); sock.on('close', () => up.destroy());
+          return;
+        }
+      }
       sock.off('data', onData); clearTimeout(t); sock.pause();
       sock.unshift(buf);
       emit.call(self, 'connection', sock, ...rest);
@@ -796,7 +893,7 @@ if (realityAllowed()) {
   attachRealityMux(server);
   process.once('exit', () => stopXray()); // never leave an orphan Xray behind a restarted panel
   const st = readState();
-  if (st && st.on && st.priv) { REALITY.state = st; REALITY.clients = Array.isArray(st.clients) ? st.clients : []; setTimeout(() => { startXray().catch(() => {}); }, 1500); }
+  if (st && st.on && st.priv) { if (!st.ssKey) { ssEnsureKeys(st); writeState(st); } REALITY.state = st; REALITY.clients = Array.isArray(st.clients) ? st.clients : []; setTimeout(() => { startXray().catch(() => {}); }, 1500); }
 }
 
 export default server;
