@@ -4,6 +4,29 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta238] — 2026-11-05 (Panel 6.80.0)
+
+### Fixed — Fox VPN sign-in (Mozilla account), checked against FoxyVPN 1.0.8 (MIT) and Mozilla's own web sign-in
+- **«406 Not Acceptable» / «account unconfirmed» after a correct password or 2FA code.** The sign-in page now talks to the app over Mozilla's official WebChannel (`account_updates`: `fxa_status`, `can_link_account`, `login`), the same channel Firefox desktop uses, and the app only continues with a session Mozilla marked **verified** (no pending e-mail code / TOTP). The OAuth token exchange runs inside the page (Hawk-signed `POST /v1/oauth/token`, grant `fxa-credentials`) — the request Mozilla's edge accepts — instead of from the app, which Fastly answered with 406.
+- Polling WebView storage (the old path) is kept only as a fallback and only accepts verified sessions, so the dialog no longer closes early on an unverified session; a «sign-in without a session» no longer calls Guardian activate blindly.
+- The page is opened at Mozilla's desktop sign-in entry (`context=fx_desktop_v3`, `service=sync`) with a Firefox-for-Android browser identity (no `; wv` marker); the «Done» button checks before closing instead of auto-dismissing.
+
+### Added — three more free/trial hosts for the Node panel (each with its own profile)
+- **Zerops** — the app writes `zerops.yml` (Node 22, port 8080, `httpSupport`) into the repository; guide: enable the Zerops subdomain (`…zerops.app`). $15 starting credit, 100 GB traffic per month.
+- **Seenode** — Git web service; the guide tells you to change the Port field from 80 to **8080**; `*.seenode.app` with TLS and WebSockets.
+- **Hostim.dev** — Git deploy needs a Dockerfile, so the app writes one (`node:22-alpine`, `EXPOSE 8080`); guide: HTTP Service «Public website», port 8080; `*.hostim.dev`. 5-day trial project.
+- All three: no permanent disk → `CAT_NO_DISK` (the main UUID lives in `cat-config.json` and survives every deploy); the panel names the host (`CAT_HOST`). Slipway was not added: it is a self-hosted deploy panel (your own server, or $29/month hosted), not a free host.
+
+### Added — encrypted DNS scan (DoH / DoT) with poisoning check (idea from WhiteDNS Clean IP Finder, written from scratch)
+- Tools → «🔒 اسکن DNS رمزدار (DoH / DoT)»: tests 9 well-known DoH/DoT resolvers (Cloudflare, Google, Quad9, AdGuard) or your own list (`https://host/dns-query`, `tls://host`), on protected sockets with full certificate + host-name check. Each line shows latency, the answer for a test domain, and ☣️ when the answer is an Iranian poisoned address (10.10.34.x etc.); a resolver whose own name resolves to a poisoned address is reported as such. «Copy» gives only the clean resolvers.
+
+### Added — working together (owner + Grok + ملاد)
+- `docs/COLLABORATION.md` (Persian): roles, fixed rules, where everything is, work flow, task board with acceptance criteria, bug-report template, review checklist, definition of done. `.agents/HANDOFF.md` for hand-overs.
+- `scripts/review-worktree.sh <commit|branch|PR#> [--base ref]` (idea from herdr-redline): checks the change out in its own detached git worktree, runs codemap / Kotlin syntax / node-panel copy / affected panel tests there and writes `REVIEW.md` + `REVIEW-PROMPT.md` for a human or AI reviewer. Works in shallow clones.
+
+### Tests
+- New `Beta238FoxWebChannelTest` (WebChannel messages and verified-session rule, in-page OAuth wiring, the three host profiles, DoH/DoT spec parsing and DNS answer parsing). `NodeHostTest` / `node-host.test.mjs` know the 9 host kinds.
+
 ## [1.10.0-beta237] — 2026-10-30 (Panel 6.80.0)
 
 ### Fixed — Cat Fox VPN, checked line by line against Firefox's own IP Protection code

@@ -15,7 +15,7 @@
 //   CAT_PANEL_SOURCE_DIR a folder that already holds catclient.worker.js + cat-panel-adapter.mjs (offline)
 //   CAT_BEHIND_IIS=1     Windows/IIS (SmarterASP): listen on 127.0.0.1, read the web.config edge tag
 //   CAT_CODE_DIR         where the downloaded panel is cached (inside this folder; default ./cat-code)
-//   CAT_HOST             which host this is (katabump, bothosting, railway, lucity, shiprr, smarterasp) — the app
+//   CAT_HOST             which host this is (katabump, bothosting, railway, lucity, shiprr, smarterasp, zerops, seenode, hostim) — the app
 //                        writes it; otherwise it is guessed (Railway's own variables, IIS → smarterasp)
 //   CAT_CF_FRONT         the name of your 🟧 Cloudflare front Worker (the app sets it) — adds its lines to the sub
 //   CAT_KEEPALIVE=0      SmarterASP/IIS: do not wake the site every 9 minutes (IIS stops an idle site)
@@ -129,7 +129,7 @@ export function codeDirOf(here, env) {
 /** Keys cat-config.json may set (never anything else — e.g. not PATH / NODE_OPTIONS). */
 export const CONFIG_KEYS = ['UUID', 'TROJAN_PASS', 'PANEL_PASSWORD', 'CAT_DATA_DIR', 'CAT_NO_DISK', 'CAT_PANEL_TAG', 'KV_REST_API_URL', 'KV_REST_API_TOKEN', 'CAT_HOST', 'CAT_CF_FRONT', 'CAT_KEEPALIVE'];
 
-export const HOSTS = ['katabump', 'bothosting', 'railway', 'lucity', 'shiprr', 'smarterasp'];
+export const HOSTS = ['katabump', 'bothosting', 'railway', 'lucity', 'shiprr', 'smarterasp', 'zerops', 'seenode', 'hostim'];
 /**
  * Which host runs us. The app writes CAT_HOST; otherwise: Railway's own variables → railway, IIS → smarterasp.
  * '' = unknown (a VPS…), which keeps the generic behaviour.

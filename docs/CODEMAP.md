@@ -27,12 +27,12 @@
 | `MainActivityAmneziaSstp.kt` | 623 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1813 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3338 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCloud.kt` | 2800 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCloud.kt` | 2804 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityConnectionTesting.kt` | 1883 | Connection testing page (ping/speed lists, chain picker). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDashboard.kt` | 1398 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4043 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFox.kt` | 1320 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFox.kt` | 1394 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 1000 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -101,7 +101,7 @@
 | `FenixHttp2.kt` | 925 | beta211: a small, dependency-free HTTP/2 client for Cat Fox VPN (RFC 9113 + HPACK RFC 7541). | Beta211FenixHttp2Test · — |
 | `FenixPassPolicy.kt` | 77 | beta237: when Cat Fox VPN renews its Mozilla ProxyPass, and what to do with each Guardian answer — the same rules Firefox's own IP Protection uses… | Beta237FoxPassTest · — |
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
-| `FirefoxVpnEngine.kt` | 3115 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, WhiteDnsSmartScannerTest · — |
+| `FirefoxVpnEngine.kt` | 3190 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3424 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
 | `MlmAndNextGenVpnHub.kt` | 1272 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
@@ -117,7 +117,7 @@
 | `VerifiedTunnelChain.kt` | 41 | — | — · — |
 | `WarpRegistration.kt` | 486 | Real Cloudflare WARP registration for `awg://auto@…` / `wireguard://auto@…` configs. | Beta209WarpEditorTest, Beta210WarpAutoKeyTest · — |
 | `WhiteDnsSmartScanner.kt` | 3267 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, WhiteDnsSmartScannerTest · — |
-| `WhiteDnsToolkit.kt` | 655 | Scanner toolkit inspired by the sections of WhiteDNS IP Scanner (independent implementation, no code copied): ASN → CIDR export, CIDR → IP list, op… | WhiteDnsToolkitTest · — |
+| `WhiteDnsToolkit.kt` | 853 | Scanner toolkit inspired by the sections of WhiteDNS IP Scanner (independent implementation, no code copied): ASN → CIDR export, CIDR → IP list, op… | Beta238FoxWebChannelTest, WhiteDnsToolkitTest · — |
 | `XrayEngine.kt` | 262 | Runs the official Xray-core (XTLS/Xray-core, MPL-2.0 — built unmodified from source in CI by `scripts/build-xray-core.sh` together with Cat's tiny… | Beta223XrayEngineTest · — |
 | `XrayRouting.kt` | 541 | beta223 — the Xray engine. | Beta223XrayEngineTest · — |
 
@@ -220,8 +220,8 @@
 | `DeploymentMeasurementStore.kt` | 55 | Stores only conclusive probe evidence. | — · — |
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
-| `NodeHost.kt` | 795 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, NodeHostTest · — |
-| `NodeHostController.kt` | 2335 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest · — |
+| `NodeHost.kt` | 805 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, Beta238FoxWebChannelTest, NodeHostTest · — |
+| `NodeHostController.kt` | 2375 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, Beta238FoxWebChannelTest · — |
 | `PanelBackup.kt` | 63 | Local, private snapshot of the panel's last known-good settings and users. | — · — |
 | `PanelCredentials.kt` | 76 | — | — · — |
 | `PanelEndpointBatch.kt` | 33 | — | — · — |
@@ -280,7 +280,7 @@
 | `AnalyticsEvents.kt` | 34 | AnalyticsEvents — Cat Client does NOT ship any third-party tracking. | — · — |
 | `AppLock.kt` | 100 | App lock (PIN, optionally unlocked with the phone's own fingerprint / face / pattern through the system credential screen). | WhiteDnsToolkitTest · — |
 | `AppSettingsResetter.kt` | 29 | — | — · — |
-| `AppToolsController.kt` | 896 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | — · — |
+| `AppToolsController.kt` | 930 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | Beta238FoxWebChannelTest · — |
 | `AppUpdate.kt` | 411 | — | — · app-prerelease-update |
 | `AppUpdateManager.kt` | 324 | — | — · — |
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
@@ -291,11 +291,13 @@
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
-| `HostRegions.kt` | 65 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest · — |
+| `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest · — |
+| `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
+| `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 
-_237 Kotlin files, 105775 lines._
+_239 Kotlin files, 106582 lines._
 
 ## MainActivity screens — function index
 
@@ -324,7 +326,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityCloud.kt` (46 functions)
 
-`addDeploymentProfilesSection`:111, `buildCloudScreen`:228, `renderCloudDeploymentHistory`:1092, `showPanelSecretsDialog`:1205, `showOptInGeminiWorkerReviewDialog`:1278, `showTechNamoozInstallDialog`:1376, `buildPanelStatusCard`:1470, `onPanelStatusCheck`:1511, `showPanelManageDialog`:1546, `confirmPanelDelete`:1581, `showPanelActivatingDialog`:1622, `showPanelRecoveryDialog`:1634, `runPanelRecovery`:1677, `showPanelRecoveryDone`:1737, `runTechNamoozDeployment`:1762, `showTechNamoozDeploymentResult`:1805, `newestPanelScript`:1852, `showPanelStatusDialog`:1861, `fetchPanelStatus`:1911, `onAddExistingPanel`:1971, `applyPanelVersionBadge`:2034, `blockPanelDowngrade`:2060, `showPanelUpdateDialog`:2071, `presentPanelUpdateDialog`:2094, `presentTokenlessPanelUpdate`:2118, `presentPanelTokenPrompt`:2162, `presentPanelUpdatePasswordDialog`:2241, `runPanelUpdate`:2269, `panelStatusLine`:2337, `showCloudUpdateDialog`:2375, `openCloudflareTokenPage`:2406, `cloudAccountLinkButton`:2424, `shareDeployButtonLink`:2439, `copyPanelPasteCode`:2465, `showWizardDeployedDialog`:2493, `wizardField`:2516, `wizardBody`:2531, `wizardText`:2538, `showPanelWizard`:2547, `showPanelWizardToken`:2557, `showPanelWizardOptions`:2596, `panelBaseUrl`:2640, `pickPanelBaseInteractive`:2646, `showCloudDeploymentDialog`:2661, `showPanelProbeDialog`:2714, `runPanelProbe`:2746
+`addDeploymentProfilesSection`:111, `buildCloudScreen`:228, `renderCloudDeploymentHistory`:1096, `showPanelSecretsDialog`:1209, `showOptInGeminiWorkerReviewDialog`:1282, `showTechNamoozInstallDialog`:1380, `buildPanelStatusCard`:1474, `onPanelStatusCheck`:1515, `showPanelManageDialog`:1550, `confirmPanelDelete`:1585, `showPanelActivatingDialog`:1626, `showPanelRecoveryDialog`:1638, `runPanelRecovery`:1681, `showPanelRecoveryDone`:1741, `runTechNamoozDeployment`:1766, `showTechNamoozDeploymentResult`:1809, `newestPanelScript`:1856, `showPanelStatusDialog`:1865, `fetchPanelStatus`:1915, `onAddExistingPanel`:1975, `applyPanelVersionBadge`:2038, `blockPanelDowngrade`:2064, `showPanelUpdateDialog`:2075, `presentPanelUpdateDialog`:2098, `presentTokenlessPanelUpdate`:2122, `presentPanelTokenPrompt`:2166, `presentPanelUpdatePasswordDialog`:2245, `runPanelUpdate`:2273, `panelStatusLine`:2341, `showCloudUpdateDialog`:2379, `openCloudflareTokenPage`:2410, `cloudAccountLinkButton`:2428, `shareDeployButtonLink`:2443, `copyPanelPasteCode`:2469, `showWizardDeployedDialog`:2497, `wizardField`:2520, `wizardBody`:2535, `wizardText`:2542, `showPanelWizard`:2551, `showPanelWizardToken`:2561, `showPanelWizardOptions`:2600, `panelBaseUrl`:2644, `pickPanelBaseInteractive`:2650, `showCloudDeploymentDialog`:2665, `showPanelProbeDialog`:2718, `runPanelProbe`:2750
 
 ### `MainActivityConnectionTesting.kt` (1 functions)
 
@@ -344,7 +346,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFox.kt` (7 functions)
 
-`buildFirefoxVpnFenixCard`:113, `showFirefoxAccountManagerDialog`:278, `showFirefoxEmailLoginDialog`:728, `showFirefoxVpnFenixHubDialog`:908, `connectFirefoxVpnDirectly`:1050, `showFirefoxCountryPickerDialog`:1201, `showFirefoxTokenImportDialog`:1262
+`buildFirefoxVpnFenixCard`:113, `showFirefoxAccountManagerDialog`:278, `showFirefoxEmailLoginDialog`:802, `showFirefoxVpnFenixHubDialog`:982, `connectFirefoxVpnDirectly`:1124, `showFirefoxCountryPickerDialog`:1275, `showFirefoxTokenImportDialog`:1336
 
 ### `MainActivityGuides.kt` (9 functions)
 
@@ -620,6 +622,7 @@ for the dialog/button you want to change.
 | `FoxHttpProxyRequest` | `FoxPortPolicy.kt` |
 | `FoxNetworkReset` | `FenixPassPolicy.kt` |
 | `FoxPortPolicy` | `FoxPortPolicy.kt` |
+| `FoxWebChannel` | `FoxWebChannel.kt` |
 | `FreeConfigs` | `FreeConfigs.kt` |
 | `FrontingEndpoint` | `FrontingIp.kt` |
 | `FrontingFailureMemory` | `FrontingFailureMemory.kt` |
@@ -627,6 +630,7 @@ for the dialog/button you want to change.
 | `FrontingIpPreferenceStore` | `FrontingIp.kt` |
 | `GeminiWorkerReviewDecision` | `WorkerStaticAnalyzer.kt` |
 | `GeminiWorkerReviewOutcome` | `WorkerStaticAnalyzer.kt` |
+| `GitHostProfiles` | `GitHostProfiles.kt` |
 | `GitHubReleaseClient` | `AppUpdate.kt` |
 | `GlobeDrawable` | `GlobeDrawable.kt` |
 | `HostRegions` | `HostRegions.kt` |

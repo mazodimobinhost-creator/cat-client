@@ -633,6 +633,39 @@ internal object FirefoxVpnEngine {
     }
 
     /**
+     * beta238: like [extractSessionFromWebViewStorageJson] but only an account the site marked as confirmed — while the
+     * e-mail code / 2FA is pending the stored account says `"verified": false` and its token cannot be exchanged yet.
+     */
+    fun extractVerifiedSessionFromWebViewStorageJson(rawStorageJson: String): Pair<String, String>? {
+        val cleaned = rawStorageJson.trim().let { raw ->
+            if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length >= 2) {
+                runCatching { JSONArray("[$raw]").optString(0) }.getOrDefault(raw)
+            } else {
+                raw
+            }
+        }.trim()
+        if (!cleaned.startsWith("{")) return null
+        return runCatching {
+            val root = JSONObject(cleaned)
+            fun pick(obj: JSONObject): Pair<String, String>? {
+                val tok = obj.optString("sessionToken").trim()
+                if (tok.length < 32) return null
+                if (obj.has("verified") && !obj.optBoolean("verified", false)) return null
+                if (obj.optString("verificationReason").isNotBlank() && !obj.optBoolean("verified", false)) return null
+                return tok to obj.optString("email").trim().ifBlank { "firefox-user@mozilla.org" }
+            }
+            pick(root) ?: run {
+                var found: Pair<String, String>? = null
+                val keys = root.keys()
+                while (found == null && keys.hasNext()) {
+                    root.optJSONObject(keys.next())?.let { found = pick(it) }
+                }
+                found
+            }
+        }.getOrNull()
+    }
+
+    /**
      * Completes sign-in using a `localStorage["__fxa_storage.accounts"]` JSON captured from the
      * in-app Mozilla WebView sign-in page.
      */
@@ -1484,9 +1517,56 @@ internal object FirefoxVpnEngine {
                 )
             }
 
+            completeLoginWithOAuthTokens(context, email, accessToken, refreshToken, sessionTokenHex)
+        }.getOrElse { err ->
+            LoginOutcome.Failure(
+                "خطا در تکمیل ورود فایرفاکس: ${err.message}",
+                "Failed completing Firefox login: ${err.message}",
+            )
+        }
+    }
+
+    /**
+     * beta238: the `fxa-credentials` token request for a verified session, signed here (Hawk) but SENT BY THE SIGN-IN
+     * PAGE itself (`fetch` inside the WebView): the request then carries the page's own Fastly anti-bot state, which a
+     * request from the app does not (HTTP 406). Same idea as the MIT-licensed FoxyVPN 1.0.8 (Vauth/FoxyVPN) —
+     * re-implemented here. Returns `(Authorization header, JSON body)`.
+     */
+    fun webViewOAuthRequest(sessionTokenHex: String): Pair<String, String> {
+        val clean = sessionTokenHex.trim().lowercase(Locale.US)
+        require(FoxWebChannel.isSessionToken(clean)) { "no usable session token" }
+        val url = "$FXA_AUTH_SERVER/oauth/token"
+        val body = JSONObject()
+            .put("client_id", FIREFOX_CLIENT_ID)
+            .put("grant_type", "fxa-credentials")
+            .put("scope", OAUTH_SCOPE)
+            .put("access_type", "offline")
+            .toString()
+        val (tokenId, hmacKey) = deriveHawkCredentials(clean)
+        val header = generateHawkHeader("POST", url, tokenId, hmacKey, body.toByteArray(StandardCharsets.UTF_8))
+        return header to body
+    }
+
+    /**
+     * The end of every sign-in path: OAuth tokens → Guardian enrollment → ProxyPass → saved account. When the session
+     * token is known it is used for enrollment and then closed on Mozilla's side (best effort).
+     */
+    fun completeLoginWithOAuthTokens(
+        context: Context,
+        email: String,
+        accessToken: String,
+        refreshToken: String,
+        sessionTokenHex: String? = null,
+    ): LoginOutcome {
+        if (accessToken.isBlank()) {
+            return LoginOutcome.Failure(
+                "توکن دسترسی (access_token) در پاسخ موزیلا نبود.",
+                "Missing access_token in OAuth response.",
+            )
+        }
+        if (!sessionTokenHex.isNullOrBlank()) {
             // Ensure account is enrolled in Guardian IP Protection before destroying sessionToken
             runCatching { enrollAccountInGuardianIfNeeded(sessionTokenHex, accessToken) }
-
             // Clean up temporary sign-in session on FxA server (best effort)
             runCatching {
                 fxaPostHawkJson(
@@ -1495,23 +1575,18 @@ internal object FirefoxVpnEngine {
                     bodyJson = "{}",
                 )
             }
-
-            val baseAccount = FirefoxVpnAccount(
-                email = email.ifBlank { "firefox-user@mozilla.org" },
-                accessToken = accessToken,
-                refreshToken = refreshToken,
-            )
-            val activated = runCatching {
-                refreshAndActivateAccountPass(context, baseAccount)
-            }.getOrDefault(baseAccount)
-            upsertAccount(context, activated)
-            LoginOutcome.Success(activated)
-        }.getOrElse { err ->
-            LoginOutcome.Failure(
-                "خطا در تکمیل ورود فایرفاکس: ${err.message}",
-                "Failed completing Firefox login: ${err.message}",
-            )
         }
+        // Without a session token, refreshAndActivateAccountPass still activates on a 403 from /fpn/token.
+        val baseAccount = FirefoxVpnAccount(
+            email = email.ifBlank { "firefox-user@mozilla.org" },
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+        )
+        val activated = runCatching {
+            refreshAndActivateAccountPass(context, baseAccount)
+        }.getOrDefault(baseAccount)
+        upsertAccount(context, activated)
+        return LoginOutcome.Success(activated)
     }
 
     @OptIn(ExperimentalEncodingApi::class)

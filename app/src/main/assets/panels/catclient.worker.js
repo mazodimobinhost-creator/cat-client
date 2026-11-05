@@ -9195,7 +9195,7 @@ function panelPage(env, settings, host, masterUuid) {
   // cannot dial an IP with a chosen SNI, so an honest IP scan from the user's own line needs the app).
   const nEdge = isNodePlatform(env) ? nodeEdge(env) : '';
   // 6.79.0: the note names the real host (the launcher passes CAT_HOST) and only offers what that host can do.
-  const nHost = { katabump: 'KataBump', bothosting: 'Bot-Hosting', railway: 'Railway', lucity: 'Lucity', shiprr: 'Shiprr', smarterasp: 'SmarterASP' }[String(env.CAT_HOST || '')] || '';
+  const nHost = { katabump: 'KataBump', bothosting: 'Bot-Hosting', railway: 'Railway', lucity: 'Lucity', shiprr: 'Shiprr', smarterasp: 'SmarterASP', zerops: 'Zerops', seenode: 'Seenode', hostim: 'Hostim' }[String(env.CAT_HOST || '')] || '';
   const nFront = nEdge ? vercelCfFront(env, settings) : '';
   const nCode = '<code>' + escapeHtml(String(host)) + (nEdge === 'plain' ? ':' + nodePort(env) : '') + '</code>';
   const nNote = !nEdge ? '' : '<div class="note i vnote" style="margin:10px 0">' + (nEdge === 'plain'

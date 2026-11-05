@@ -408,6 +408,7 @@ class AppToolsController(
         item(t("🔐 اسکنر SNI (دامنه‌فرانتینگ)", "🔐 SNI scanner (domain fronting)"), t("روی یک آی‌پی تمیز، دست‌دادن TLS با چند SNI را واقعاً امتحان می‌کند تا ببینی کدام SNI روی خطت رد می‌شود.", "Really tries TLS handshakes with many SNIs on one clean IP to see which pass on your line.")) { showSniScan() }
         item(t("⚡ رتبه‌بندی سرعت و افت بسته", "⚡ Speed & loss rank"), t("برای هر آی‌پی چند بار اتصال می‌گیرد (افت ٪، پینگ، نوسان) و برای بهترین‌ها سرعت دانلود واقعی را می‌سنجد.", "Several connects per IP (loss %, latency, jitter) plus a real download test for the best.")) { showSpeedRank() }
         item(t("📡 اسکن ریزالور DNS / آمادگی تانل", "📡 DNS resolver / tunnel-readiness scan"), t("بازگشتی بودن، EDNS0، عبور نام طولانی و TXT را می‌سنجد؛ امتیاز ۴ یعنی مناسب برای تانل DNS.", "Checks recursion, EDNS0, long names and TXT; score 4 means good for a DNS tunnel.")) { showResolverScan() }
+        item(t("🔒 اسکن DNS رمزدار (DoH / DoT) و تشخیص مسموم‌سازی", "🔒 Encrypted DNS scan (DoH / DoT) + poisoning check"), t("هر سرور DNS رمزدار را واقعاً روی خطت امتحان می‌کند: گواهی درست + جواب واقعی یک سایت فیلترشده. ✅ یعنی DNS سالم و مسموم‌نشده؛ ☣️ یعنی جواب جعلی (مثل 10.10.34.x) داد.", "Really tries each encrypted DNS server on your line: a valid certificate + a real answer for a filtered site. ✅ = clean, not poisoned; ☣️ = it gave a fake answer (like 10.10.34.x).")) { showEncryptedResolverScan() }
         dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(t("🧰 جعبه‌ابزار Cat Client", "🧰 Cat Client toolbox"))
             .setView(root)
@@ -882,6 +883,39 @@ class AppToolsController(
                         "  ${if (r.recursive) "REC" else "rec✗"} ${if (r.edns0) "EDNS" else "edns✗"} ${if (r.longQnameOk) "LONG" else "long✗"} ${if (r.txtOk) "TXT" else "txt✗"}"
                 }
                 text to ResultActions(copy = results.filter { it.tunnelScore >= 3 }.joinToString("\n") { it.endpoint })
+            }
+        }
+        page.show()
+    }
+
+    /** beta238: DoH / DoT servers tested for real — valid certificate + an unpoisoned answer for a filtered name. */
+    fun showEncryptedResolverScan() {
+        val page = ToolPage(
+            t("🔒 اسکن DNS رمزدار (DoH / DoT)", "🔒 Encrypted DNS scan (DoH / DoT)"),
+            t(
+                "هر خط یک سرور: https://…/dns-query (DoH) یا tls://… (DoT). برای هر کدام اتصال رمزدار با بررسی گواهی گرفته می‌شود و آی‌پی یک سایت فیلترشده پرسیده می‌شود.\n✅ = سالم (جواب واقعی) · ☣️ = مسموم (آی‌پی جعلی مثل 10.10.34.x) · ❌ = روی خطت باز نمی‌شود یا گواهی‌اش دستکاری شده.\nسالم‌ها را کپی کن و در بخش DNS کانفیگ/برنامه بگذار.",
+                "One server per line: https://…/dns-query (DoH) or tls://… (DoT). Each gets an encrypted connection with a certificate check and is asked for the address of a filtered site.\n✅ = clean (real answer) · ☣️ = poisoned (fake address like 10.10.34.x) · ❌ = does not open on your line or its certificate was tampered with.\nCopy the clean ones into the DNS field of a config or the app.",
+            ),
+        )
+        val targets = page.input(t("سرورها", "Servers"), WhiteDnsToolkit.DEFAULT_ENCRYPTED_RESOLVERS.joinToString("\n"), multiline = true)
+        val domain = page.input(t("دامنهٔ آزمایش (فیلترشده)", "Test domain (a filtered one)"), WhiteDnsToolkit.POISON_TEST_DOMAIN)
+        lateinit var runButton: MaterialButton
+        runButton = page.button(t("▶️ شروع", "▶️ Start")) {
+            val specs = targets.text?.toString().orEmpty().lines().mapNotNull { WhiteDnsToolkit.parseEncryptedResolver(it) }.distinct().take(64)
+            val name = domain.text?.toString().orEmpty().trim().ifEmpty { WhiteDnsToolkit.POISON_TEST_DOMAIN }
+            if (specs.isEmpty()) { toast(t("سرور وارد کن (https://… یا tls://…)", "Enter servers (https://… or tls://…)")); return@button }
+            page.run(runButton) {
+                val results = withContext(Dispatchers.IO) {
+                    WhiteDnsToolkit.scanEncryptedResolvers(specs, name, progress = { d, total -> page.progressPost("$d / $total") }, cancelled = { page.cancelled })
+                }
+                val text = results.joinToString("\n") { r ->
+                    val icon = when { r.usable -> "✅"; r.poisoned -> "☣️"; else -> "❌" }
+                    val what = if (r.answers.isEmpty()) r.detail else r.answers.take(2).joinToString(", ")
+                    "$icon ${r.spec.label}  ${r.latencyMs}ms  $what"
+                }
+                val clean = results.filter { it.usable }
+                ("# ${clean.size} / ${results.size} " + t("سالم", "clean") + "\n" + text) to
+                    ResultActions(copy = clean.joinToString("\n") { it.spec.label })
             }
         }
         page.show()

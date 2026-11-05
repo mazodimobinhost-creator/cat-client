@@ -20,7 +20,7 @@ internal object HostRegions {
     fun mode(kind: String): Mode = when (kind) {
         "railway" -> Mode.APP_SETS
         "shiprr", "smarterasp" -> Mode.YOU_PICK
-        "bothosting" -> Mode.HOST_DECIDES
+        "bothosting", "hostim" -> Mode.HOST_DECIDES
         else -> Mode.FIXED
     }
 
@@ -40,6 +40,10 @@ internal object HostRegions {
         )
         "katabump" -> listOf(Region("fr", "🇫🇷 فرانسه (OVH، Gravelines)", "🇫🇷 France (OVH, Gravelines)"))
         "lucity" -> listOf(Region("eu", "🇪🇺 اتحادیهٔ اروپا", "🇪🇺 European Union"))
+        // beta238: Seenode is hosted in the EU; a Zerops subdomain shows its region (prg1 = Prague); Hostim's docs name none.
+        "seenode" -> listOf(Region("eu", "🇪🇺 اتحادیهٔ اروپا", "🇪🇺 European Union"))
+        "zerops" -> listOf(Region("cz", "🇨🇿 چک (پراگ، prg1)", "🇨🇿 Czechia (Prague, prg1)"))
+        "hostim" -> listOf(Region("auto", "🎲 خود Hostim تعیین می‌کند (در مستنداتش کشور ننوشته)", "🎲 Hostim decides (its docs name no country)"))
         "bothosting" -> listOf(Region("auto", "🎲 خودکار: معمولاً 🇫🇮 فنلاند یا 🇩🇪 آلمان، گاهی 🇺🇸 آمریکا", "🎲 Automatic: usually 🇫🇮 Finland or 🇩🇪 Germany, sometimes 🇺🇸 USA"))
         else -> emptyList()
     }

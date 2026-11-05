@@ -1339,6 +1339,12 @@
     <string name="cloud_lucity_desc">Builds from GitHub. «⚡ Build automatically» makes a private GitHub repository with the panel; you pick it on Lucity (3 taps, shown step by step), then «✍️ Add my panel». TLS configs on 443.</string>
     <string name="cloud_shiprr_title">🟪 Shiprr — 5 EUR free credit</string>
     <string name="cloud_shiprr_desc">Builds from GitHub, address name.shiprr.dev. Same as Lucity: «⚡ Build automatically» → pick the repository on Shiprr → «✍️ Add my panel». The app checks for real whether WebSocket passes.</string>
+    <string name="cloud_zerops_title">🟫 Zerops — $15 free credit</string>
+    <string name="cloud_zerops_desc">Builds from GitHub with the zerops.yml the app writes; address …zerops.app (switch on «Zerops subdomain»). «⚡ Build automatically» → connect the repository → «✍️ Add my panel». 100 GB traffic a month on the free project plan.</string>
+    <string name="cloud_seenode_title">🟩 Seenode — 7-day free trial</string>
+    <string name="cloud_seenode_desc">Builds from GitHub, address name.seenode.app, WebSocket officially supported. Only one thing to type: set the «Port» field to 8080.</string>
+    <string name="cloud_hostim_title">🟦 Hostim — free 5-day trial</string>
+    <string name="cloud_hostim_desc">Builds from GitHub with the Dockerfile the app writes; address ….hostim.dev. Set «Public website» and HTTP port 8080. The app checks for real whether WebSocket passes.</string>
     <string name="cloud_bothosting_title">🤖 Bot-Hosting.net — free, fully automatic</string>
     <string name="cloud_bothosting_desc">Free 256 MB host with an official API. Paste one key (bhk_…) and the app creates the deployment, writes the files, turns on the free HTTPS domain, starts it and tests it for real. Renew with one click every 4 days (the app reminds you).</string>
     <string name="cloud_railway_title">🚂 Railway — automatic (paid after trial)</string>

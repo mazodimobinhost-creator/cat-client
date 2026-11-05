@@ -431,14 +431,9 @@ internal fun MainActivity.showFirefoxAccountManagerDialog(onChanged: () -> Unit 
             settings.databaseEnabled = true
             settings.javaScriptCanOpenWindowsAutomatically = true
             settings.loadsImagesAutomatically = true
-            // Use the device's genuine Chromium UA stripped of '; wv' and 'Version/4.0' so
-            // navigator.userAgent matches the Blink engine & Sec-CH-UA headers (preventing mismatch blocks).
-            val rawUa = runCatching { android.webkit.WebSettings.getDefaultUserAgent(this@showFirefoxWebViewLoginDialog) }
-                .getOrDefault("Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
-            settings.userAgentString = rawUa
-                .replace("; wv)", ")")
-                .replace("; wv;", ";")
-                .replace(Regex("""Version/\d+\.\d+\s*"""), "")
+            // beta238: the account site only hands the session over the Firefox WebChannel to a browser that says it
+            // is Firefox (see FoxWebChannel).
+            settings.userAgentString = FoxWebChannel.firefoxAndroidUserAgent(android.os.Build.VERSION.RELEASE.orEmpty())
             setOnTouchListener { v, event ->
                 if (event.action == android.view.MotionEvent.ACTION_DOWN ||
                     event.action == android.view.MotionEvent.ACTION_UP
@@ -525,8 +520,85 @@ internal fun MainActivity.showFirefoxAccountManagerDialog(onChanged: () -> Unit 
             addView(quickTypeBtn, LinearLayout.LayoutParams(-2, -2))
         }
 
+        fun finishFoxLogin(work: () -> FirefoxVpnEngine.LoginOutcome) {
+            activityScope.launch {
+                val outcome = withContext(Dispatchers.IO) { runCatching(work).getOrElse { err ->
+                    FirefoxVpnEngine.LoginOutcome.Failure("خطا در تکمیل ورود: ${err.message}", "Sign-in failed: ${err.message}")
+                } }
+                runCatching { dialogRef?.dismiss() }
+                runCatching { webView.destroy() }
+                when (outcome) {
+                    is FirefoxVpnEngine.LoginOutcome.Success -> {
+                        onChanged()
+                        Toast.makeText(
+                            this@showFirefoxWebViewLoginDialog,
+                            if (isFarsi) "✅ حساب «${outcome.account.email}» با ۵۰ گیگابایت سهمیه ماهانه فعال شد!"
+                            else "✅ Activated '${outcome.account.email}' with 50 GB monthly quota!",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    is FirefoxVpnEngine.LoginOutcome.Failure -> {
+                        Toast.makeText(
+                            this@showFirefoxWebViewLoginDialog,
+                            if (isFarsi) outcome.messageFa else outcome.messageEn,
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
+        // beta238: WebChannel bridge — the session is taken only once it is verified (e-mail code / 2FA done) and the
+        // token request is sent by the page itself (no 406 from the anti-bot check). Local storage stays a fallback.
+        var channelBusy = false
+        val channel = FoxWebChannel.Bridge(webView, object : FoxWebChannel.Bridge.Listener {
+            override fun onVerifiedSession(sessionToken: String, email: String) {
+                if (completed || isFinishing || isDestroyed) return
+                channelBusy = true
+                statusBanner.text = if (isFarsi) "✅ ورود تأیید شد؛ در حال گرفتن توکن از خود صفحهٔ موزیلا…"
+                else "✅ Sign-in verified; getting the token through Mozilla's page…"
+                val request = runCatching { FirefoxVpnEngine.webViewOAuthRequest(sessionToken) }.getOrNull()
+                if (request == null) {
+                    onTokenRequestFailed(sessionToken, email, "hawk")
+                    return
+                }
+                webView.evaluateJavascript(FoxWebChannel.oauthFetchJs(request.first, request.second), null)
+            }
+
+            override fun onTokens(sessionToken: String, email: String, accessToken: String, refreshToken: String) {
+                if (completed) return
+                completed = true
+                runCatching { DiagnosticLogger.info(this@showFirefoxWebViewLoginDialog, "fenix.login.webchannel", "ok") }
+                statusBanner.text = if (isFarsi) "✅ توکن گرفته شد! در حال فعال‌سازی سهمیه ۵۰ گیگابایت…"
+                else "✅ Token received! Activating the 50 GB quota…"
+                finishFoxLogin {
+                    FirefoxVpnEngine.completeLoginWithOAuthTokens(
+                        this@showFirefoxWebViewLoginDialog, email, accessToken, refreshToken, sessionToken,
+                    )
+                }
+            }
+
+            override fun onWaitingForCode() {
+                channelBusy = false
+                statusBanner.text = if (isFarsi) "✉️ کد تأیید را که موزیلا به ایمیلتان فرستاد در صفحه وارد کنید؛ بعدش خودکار ادامه می‌دهد."
+                else "✉️ Type the confirmation code Mozilla e-mailed you into the page; it continues automatically."
+            }
+
+            override fun onTokenRequestFailed(sessionToken: String, email: String, reason: String) {
+                if (completed) return
+                completed = true
+                runCatching { DiagnosticLogger.info(this@showFirefoxWebViewLoginDialog, "fenix.login.webchannel", "fallback=$reason") }
+                finishFoxLogin {
+                    FirefoxVpnEngine.completeSessionLogin(this@showFirefoxWebViewLoginDialog, sessionToken, email)
+                }
+            }
+        })
+        webView.addJavascriptInterface(channel, "catFxaChannel")
+
         fun checkWebViewForFxaSession() {
-            if (completed || isFinishing || isDestroyed) return
+            if (completed || channelBusy || isFinishing || isDestroyed) return
+            runCatching { webView.evaluateJavascript(FoxWebChannel.HOOK_JS, null) }
             webView.evaluateJavascript(
                 """
                 (function(){
@@ -549,37 +621,20 @@ internal fun MainActivity.showFirefoxAccountManagerDialog(onChanged: () -> Unit 
                 """.trimIndent(),
             ) { rawValue ->
                 if (completed || rawValue.isNullOrBlank() || rawValue == "null" || rawValue == "\"\"") return@evaluateJavascript
-                val pair = FirefoxVpnEngine.extractSessionFromWebViewStorageJson(rawValue) ?: return@evaluateJavascript
-                completed = true
+                if (channelBusy) return@evaluateJavascript
+                // beta238: only a confirmed session — an unconfirmed one (code not typed yet) used to end the dialog.
+                val pair = FirefoxVpnEngine.extractVerifiedSessionFromWebViewStorageJson(rawValue) ?: return@evaluateJavascript
                 statusBanner.text = if (isFarsi) {
                     "✅ نشست «${pair.second}» دریافت شد! در حال فعال‌سازی سهمیه ۵۰ گیگابایت…"
                 } else {
                     "✅ Session for '${pair.second}' captured! Activating 50 GB quota…"
                 }
-                activityScope.launch {
-                    val outcome = withContext(Dispatchers.IO) {
-                        FirefoxVpnEngine.loginFromWebViewStorageJson(this@showFirefoxWebViewLoginDialog, rawValue)
-                    }
-                    runCatching { dialogRef?.dismiss() }
-                    runCatching { webView.destroy() }
-                    when (outcome) {
-                        is FirefoxVpnEngine.LoginOutcome.Success -> {
-                            onChanged()
-                            Toast.makeText(
-                                this@showFirefoxWebViewLoginDialog,
-                                if (isFarsi) "✅ حساب «${outcome.account.email}» با ۵۰ گیگابایت سهمیه ماهانه فعال شد!"
-                                else "✅ Activated '${outcome.account.email}' with 50 GB monthly quota!",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                        is FirefoxVpnEngine.LoginOutcome.Failure -> {
-                            Toast.makeText(
-                                this@showFirefoxWebViewLoginDialog,
-                                if (isFarsi) outcome.messageFa else outcome.messageEn,
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                        else -> Unit
+                if (FoxWebChannel.isSessionToken(pair.first)) {
+                    channel.adoptSession(pair.first, pair.second)
+                } else {
+                    completed = true
+                    finishFoxLogin {
+                        FirefoxVpnEngine.completeSessionLogin(this@showFirefoxWebViewLoginDialog, pair.first, pair.second)
                     }
                 }
             }
@@ -647,10 +702,17 @@ internal fun MainActivity.showFirefoxAccountManagerDialog(onChanged: () -> Unit 
                         "⚠️ Google blocked embedded OAuth! Returned to Mozilla's direct email form:\nEnter your Gmail in Mozilla's top box and tap the blue button (a 6-digit code will be sent to your Gmail)."
                     }
                     view?.stopLoading()
-                    view?.loadUrl("https://accounts.firefox.com/")
+                    view?.loadUrl(FoxWebChannel.START_URL)
                     return
                 }
+                runCatching { view?.evaluateJavascript(FoxWebChannel.HOOK_JS, null) }
+                if (FoxWebChannel.isSuccessUrl(currentUrl)) channel.onSuccessPage()
                 injectFxaDirectEmailGuidance()
+            }
+
+            override fun doUpdateVisitedHistory(view: android.webkit.WebView?, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                if (FoxWebChannel.isSuccessUrl(url)) channel.onSuccessPage()
             }
 
             override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
@@ -659,9 +721,11 @@ internal fun MainActivity.showFirefoxAccountManagerDialog(onChanged: () -> Unit 
                 if (currentUrl.contains("accounts.google.com") &&
                     (currentUrl.contains("/signin/rejected") || currentUrl.contains("disallowed_useragent"))
                 ) {
-                    view?.loadUrl("https://accounts.firefox.com/")
+                    view?.loadUrl(FoxWebChannel.START_URL)
                     return
                 }
+                runCatching { view?.evaluateJavascript(FoxWebChannel.HOOK_JS, null) }
+                if (FoxWebChannel.isSuccessUrl(currentUrl)) channel.onSuccessPage()
                 injectFxaDirectEmailGuidance()
                 checkWebViewForFxaSession()
                 view?.postDelayed({ checkWebViewForFxaSession() }, 1200L)
@@ -720,7 +784,17 @@ internal fun MainActivity.showFirefoxAccountManagerDialog(onChanged: () -> Unit 
                     android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
             )
         }
-        webView.loadUrl("https://accounts.firefox.com/")
+        // beta238: «I signed in» must not close the dialog (closing it cancelled the very check it asked for).
+        runCatching {
+            dialogRef.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                if (channelBusy) {
+                    Toast.makeText(this, if (isFarsi) "⏳ در حال تکمیل ورود…" else "⏳ Finishing sign-in…", Toast.LENGTH_SHORT).show()
+                } else {
+                    checkWebViewForFxaSession()
+                }
+            }
+        }
+        webView.loadUrl(FoxWebChannel.START_URL)
         webView.requestFocus()
         mainHandler.postDelayed(pollRunnable, 2000L)
     }

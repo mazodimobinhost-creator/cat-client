@@ -168,6 +168,8 @@ class NodeHostController(
             val (uuid, pass) = identity(kind)
             out[NodeHostPanel.CONFIG_FILE] = NodeHostPanel.configJson(uuid, pass, noDisk = !keepsDisk, host = kind).toByteArray()
         }
+        // beta238: Zerops reads zerops.yml, Hostim builds from a Dockerfile.
+        GitHostProfiles.of(kind)?.let { p -> for ((f, text) in p.extraFiles) out[f] = text.toByteArray() }
         if (kind == NodeHostPanel.SMARTERASP) {
             // beta224: IIS needs web.config, a writable App_Data and node_modules/ws (no npm install there).
             out["web.config"] = asset(NodeHostPanel.SMARTERASP_ASSETS + "/web.config")
@@ -397,6 +399,7 @@ class NodeHostController(
                     "🔄 «🔁 Update» deploys the same service again. Railway has no permanent disk: the main UUID is fixed (it is in the variables) but users you create in the panel vanish on each deploy unless you add Upstash (KV_REST_API_URL/TOKEN) to Variables.",
             )
             NodeHostPanel.SMARTERASP -> smarterAspGuide()
+            NodeHostPanel.ZEROPS, NodeHostPanel.SEENODE, NodeHostPanel.HOSTIM -> gitProfileGuide(kind)
             NodeHostPanel.LUCITY -> t(
                 "Lucity یک هاست اروپایی است که برنامه را از یک مخزن GitHub می‌سازد. ۱۴ روز (۵ یورو اعتبار) رایگان، بعد پولی. کانفیگ‌ها TLS روی 443 هستند.\n📍 کشور: فقط اروپا (Lucity در اتحادیهٔ اروپا میزبانی می‌شود و انتخاب کشور ندارد). پورت: Lucity خودش PORT=8080 می‌دهد و لانچر همان را می‌خواند؛ فقط Generate Domain را بزنید.\n\n" +
                     "1) اگر GitHub ندارید: «⚡ ساخت خودکار» ← «ثبت‌نام GitHub».\n" +
@@ -433,6 +436,25 @@ class NodeHostController(
             )
         }
         message("❓ " + name(kind), text)
+    }
+
+    /** beta238 Zerops / Seenode / Hostim: one guide built from the host's profile. */
+    private fun gitProfileGuide(kind: String): String {
+        val p = GitHostProfiles.of(kind) ?: return ""
+        return t(
+            p.name + " برنامه را از یک مخزن خصوصی GitHub می‌سازد (" + p.creditFa + "). کانفیگ‌ها TLS روی 443 با نام خود هاست هستند.\n\n" +
+                "🟢 مخزن: «⚡ ساخت خودکار» ← «ساخت توکن» ← Generate token ← کپی ← «چسباندن» ← ادامه. برنامه مخزن را با فایل‌های پنل" +
+                (if (p.extraFiles.isEmpty()) "" else " و " + p.extraFiles.keys.joinToString("، ")) + " می‌سازد.\n\n" +
+                "👤 حساب:\n" + p.accountFa + "\n\n🚀 ساخت برنامه:\n" + p.appFa + "\n\n" +
+                "💾 دیسک دائمی ندارد: کاربرهای اضافهٔ پنل با هر دیپلوی پاک می‌شوند؛ کانفیگ اصلی می‌ماند (UUID در cat-config.json است).\n" +
+                "🔁 «به‌روزرسانی» فایل‌های همین نسخه را دوباره در مخزن می‌گذارد تا " + p.name + " از نو بسازد.",
+            p.name + " builds the app from a private GitHub repository (" + p.creditEn + "). Configs are TLS on 443 with the host's own name.\n\n" +
+                "🟢 Repository: «⚡ Build automatically» → «Create a token» → Generate token → copy → «Paste» → Continue. The app creates the repository with the panel files" +
+                (if (p.extraFiles.isEmpty()) "" else " and " + p.extraFiles.keys.joinToString(", ")) + ".\n\n" +
+                "👤 Account:\n" + p.accountEn + "\n\n🚀 Create the app:\n" + p.appEn + "\n\n" +
+                "💾 No permanent disk: extra panel users vanish on each deploy; the main config stays (its UUID is in cat-config.json).\n" +
+                "🔁 «Update» puts this version's files into the repository again so " + p.name + " rebuilds.",
+        )
     }
 
     // ------------------------------------------------------------------------------------
@@ -517,7 +539,11 @@ class NodeHostController(
             ),
             listOf(t("⚡ ساخت خودکار", "⚡ Build automatically") to { askGithubToken(kind) }),
         ),
-        if (kind == NodeHostPanel.LUCITY) Step(
+        GitHostProfiles.of(kind)?.let { p -> Step(
+            t("ساخت حساب ", "Create a ") + p.name + t("", " account"),
+            t(p.accountFa, p.accountEn),
+            listOf(t("🌐 ثبت‌نام ", "🌐 ") + p.name + t("", " sign-up") to { open(p.signup) }),
+        ) } ?: if (kind == NodeHostPanel.LUCITY) Step(
             t("ساخت حساب Lucity", "Create a Lucity account"),
             t(
                 "1) «🌐 باز کردن Lucity» ← Login with GitHub ← Authorize (اجازه بدهید).\n" +
@@ -540,7 +566,11 @@ class NodeHostController(
             ),
             listOf(t("🌐 ثبت‌نام Shiprr", "🌐 Shiprr sign-up") to { open(NodeHostPanel.SHIPRR_SIGNUP) }),
         ),
-        if (kind == NodeHostPanel.LUCITY) Step(
+        GitHostProfiles.of(kind)?.let { p -> Step(
+            t("ساخت برنامه در ", "Create the app on ") + p.name + t(" و افزودن پنل", " and add the panel"),
+            t(p.appFa, p.appEn),
+            listOf(t("✍️ پنلم را اضافه کن", "✍️ Add my panel") to { registerManual(kind) }, t("🌐 باز کردن ", "🌐 Open ") + p.name to { open(p.site) }),
+        ) } ?: if (kind == NodeHostPanel.LUCITY) Step(
             t("ساخت برنامه در Lucity و افزودن پنل", "Create the app on Lucity and add the panel"),
             t(
                 "1) New ← GitHub Repository ← cat-node-panel-xxxxx ← ساخت. پورت را لازم نیست بنویسید؛ Lucity خودش می‌دهد.\n" +
@@ -1211,7 +1241,7 @@ class NodeHostController(
         NodeHostPanel.BOTHOSTING -> ApiHostPlan.BOTHOSTING_DASHBOARD
         NodeHostPanel.RAILWAY -> ApiHostPlan.RAILWAY_DASHBOARD
         NodeHostPanel.SMARTERASP -> NodeHostPanel.SMARTERASP_CONTROL
-        else -> NodeHostPanel.SHIPRR_SIGNUP
+        else -> GitHostProfiles.of(kind)?.site ?: NodeHostPanel.SHIPRR_SIGNUP
     }
 
     private fun share(file: File) {
@@ -1532,6 +1562,9 @@ class NodeHostController(
             ) else if (kind == NodeHostPanel.SMARTERASP) t(
                 "آدرس موقت سایت را از کنترل‌پنل SmarterASP بچسبانید (همان‌طور که نوشته، با http:// یا https://)، یا دامنهٔ خودتان. اگر https جواب ندهد، برنامه خودش http را هم امتحان می‌کند.",
                 "Paste the site's temporary address from the SmarterASP control panel (as written, with http:// or https://), or your own domain. If https does not answer, the app also tries http.",
+            ) else if (GitHostProfiles.of(kind) != null) t(
+                "آدرس برنامه را از داشبورد " + name(kind) + " بچسبانید (مثل " + GitHostProfiles.of(kind)?.addressExample + ").",
+                "Paste the app address from the " + name(kind) + " dashboard (like " + GitHostProfiles.of(kind)?.addressExample + ").",
             ) else t(
                 "آدرس برنامه را بنویسید (مثل https://نام.shiprr.dev یا دامنه‌ای که Lucity ساخت).",
                 "Type the app address (like https://name.shiprr.dev or the domain Lucity generated).",
@@ -1542,7 +1575,7 @@ class NodeHostController(
             when (kind) {
                 NodeHostPanel.KATABUMP -> "1.2.3.4:25565"
                 NodeHostPanel.SMARTERASP -> "http://name-001-site1.….com"
-                else -> "https://….shiprr.dev"
+                else -> GitHostProfiles.of(kind)?.addressExample ?: "https://….shiprr.dev"
             },
             addressPrefill,
         )
@@ -1716,11 +1749,14 @@ class NodeHostController(
             NodeHostApi.githubLogin(token)
         }) { login, _ ->
             val repo = NodeHostPanel.repoName()
+            val extra = GitHostProfiles.of(kind)?.extraFiles?.keys.orEmpty()
             message2(
                 t("ساخت مخزن؟", "Create the repository?"),
                 t(
-                    "در حساب GitHub «" + login + "» یک مخزن خصوصی به نام " + repo + " ساخته می‌شود و ۴ فایل پنل (index.js، package.json، README.md، cat-config.json) داخلش گذاشته می‌شود. به مخزن‌های دیگر شما دست زده نمی‌شود.",
-                    "A private repository named " + repo + " is created in GitHub account «" + login + "» with the 4 panel files (index.js, package.json, README.md, cat-config.json). Your other repositories are not touched.",
+                    "در حساب GitHub «" + login + "» یک مخزن خصوصی به نام " + repo + " ساخته می‌شود و ۴ فایل پنل (index.js، package.json، README.md، cat-config.json" +
+                        extra.joinToString("") { "، $it" } + ") داخلش گذاشته می‌شود. به مخزن‌های دیگر شما دست زده نمی‌شود.",
+                    "A private repository named " + repo + " is created in GitHub account «" + login + "» with the 4 panel files (index.js, package.json, README.md, cat-config.json" +
+                        extra.joinToString("") { ", $it" } + "). Your other repositories are not touched.",
                 ),
                 t("بساز", "Create"),
             ) { createRepo(kind, token, repo) }
@@ -1743,7 +1779,11 @@ class NodeHostController(
 
     private fun showGitNext(kind: String, full: String) {
         val repoShort = full.substringAfter('/')
-        val steps = if (kind == NodeHostPanel.LUCITY) t(
+        val profile = GitHostProfiles.of(kind)
+        val steps = if (profile != null) t(
+            "✅ مخزن آماده است: " + full + "\n\nحالا در " + profile.name + ":\n" + profile.appFa.replace("cat-node-panel-xxxxx", repoShort),
+            "✅ The repository is ready: " + full + "\n\nNow on " + profile.name + ":\n" + profile.appEn.replace("cat-node-panel-xxxxx", repoShort),
+        ) else if (kind == NodeHostPanel.LUCITY) t(
             "✅ مخزن آماده است: " + full + "\n\nحالا در Lucity (۳ قدم):\n" +
                 "1) «🌐 باز کردن Lucity» ← Login with GitHub ← وقتی پرسید، دسترسی به " + repoShort + " را بدهید.\n" +
                 "2) New ← GitHub Repository ← " + repoShort + " ← ساخت.\n" +
@@ -1907,7 +1947,7 @@ class NodeHostController(
                     "You log in to " + name(item.kind) + " with your GitHub account (Login with GitHub) — no separate password.",
                 )
             }, 12.5f, palette.textPrimary, 4))
-            if (repo.isNotBlank() && (item.kind == NodeHostPanel.LUCITY || item.kind == NodeHostPanel.SHIPRR)) {
+            if (repo.isNotBlank() && NodeHostPanel.isGitHost(item.kind)) {
                 infoRow(box, t("مخزن خصوصی GitHub", "Private GitHub repository"), "https://github.com/" + repo)
             }
             box.addView(button(t("🌐 باز کردن ", "🌐 Open ") + name(item.kind), filled = true) { open(siteFor(item.kind)) }, lp(12))

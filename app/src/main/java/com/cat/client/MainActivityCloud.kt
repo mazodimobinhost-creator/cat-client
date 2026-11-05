@@ -321,6 +321,10 @@ internal fun MainActivity.buildCloudScreen(): View {
         Triple(NodeHostPanel.BOTHOSTING, R.string.cloud_bothosting_title, R.string.cloud_bothosting_desc),
         Triple(NodeHostPanel.RAILWAY, R.string.cloud_railway_title, R.string.cloud_railway_desc),
         Triple(NodeHostPanel.SMARTERASP, R.string.cloud_smarterasp_title, R.string.cloud_smarterasp_desc),
+        // beta238: three more hosts that build from the app's GitHub repository (GitHostProfiles).
+        Triple(NodeHostPanel.ZEROPS, R.string.cloud_zerops_title, R.string.cloud_zerops_desc),
+        Triple(NodeHostPanel.SEENODE, R.string.cloud_seenode_title, R.string.cloud_seenode_desc),
+        Triple(NodeHostPanel.HOSTIM, R.string.cloud_hostim_title, R.string.cloud_hostim_desc),
     )) {
         body.addView(nodeHostCard(kind, titleRes, descRes), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     }

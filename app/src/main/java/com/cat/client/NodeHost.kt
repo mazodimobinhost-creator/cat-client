@@ -54,6 +54,13 @@ object NodeHostPanel {
     const val BOTHOSTING = "bothosting"
     const val RAILWAY = "railway"
     const val SMARTERASP = "smarterasp"
+    // beta238: more hosts that build from the app's private GitHub repository (see GitHostProfiles).
+    const val ZEROPS = "zerops"
+    const val SEENODE = "seenode"
+    const val HOSTIM = "hostim"
+
+    /** Hosts that build the panel from the private GitHub repository the app creates. */
+    fun isGitHost(kind: String): Boolean = kind == LUCITY || kind == SHIPRR || GitHostProfiles.of(kind) != null
 
     /** Hosts the app drives end-to-end through their own REST/GraphQL API (no GitHub repo, no zip). */
     fun isApiHost(kind: String): Boolean = kind == BOTHOSTING || kind == RAILWAY
@@ -131,6 +138,9 @@ object NodeHostPanel {
         Host(BOTHOSTING, "Bot-Hosting.net", "https://bot-hosting.net", free = true),
         Host(RAILWAY, "Railway", "https://railway.com", free = false),
         Host(SMARTERASP, "SmarterASP.NET", "https://www.smarterasp.net", free = true),
+        Host(ZEROPS, "Zerops", "https://zerops.io", free = false),
+        Host(SEENODE, "Seenode", "https://seenode.com", free = false),
+        Host(HOSTIM, "Hostim", "https://hostim.dev", free = false),
     )
 
     fun hostName(kind: String): String = HOSTS.firstOrNull { it.id == kind }?.name ?: kind
@@ -179,7 +189,7 @@ object NodeHostPanel {
         return "{\n  " + parts.joinToString(",\n  ") + "\n}\n"
     }
 
-    val HOST_KINDS = listOf(KATABUMP, LUCITY, SHIPRR, BOTHOSTING, RAILWAY, SMARTERASP)
+    val HOST_KINDS = listOf(KATABUMP, LUCITY, SHIPRR, BOTHOSTING, RAILWAY, SMARTERASP, ZEROPS, SEENODE, HOSTIM)
 
     /**
      * beta225 🟧 Cloudflare front for a Node host: only hosts with their own HTTPS name on 443 can sit behind the

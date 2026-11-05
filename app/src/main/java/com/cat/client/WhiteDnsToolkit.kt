@@ -476,6 +476,204 @@ object WhiteDnsToolkit {
     }.getOrNull()
 
     // ---------------------------------------------------------------------------------------
+    // beta238 DoH / DoT resolver scan with a poisoning check (idea from WhiteDNS Clean IP Finder; independent code)
+    // ---------------------------------------------------------------------------------------
+
+    /** One encrypted resolver: DoH (`https://host/path`) or DoT (`tls://host`, port 853). */
+    data class EncryptedSpec(val protocol: String, val host: String, val port: Int, val path: String) {
+        val label: String get() = if (protocol == "doh") "https://${hostForUri(host)}${if (port == 443) "" else ":$port"}$path"
+            else "tls://${hostForUri(host)}${if (port == 853) "" else ":$port"}"
+    }
+
+    data class EncryptedResolverResult(
+        val spec: EncryptedSpec,
+        val ok: Boolean,
+        val latencyMs: Long,
+        val answers: List<String>,
+        val poisoned: Boolean,
+        val certOk: Boolean,
+        val detail: String,
+    ) {
+        /** Usable = answered over a valid certificate with a real (not Iran-poisoned) address. */
+        val usable: Boolean get() = ok && certOk && !poisoned && answers.isNotEmpty()
+    }
+
+    val DEFAULT_ENCRYPTED_RESOLVERS = listOf(
+        "https://cloudflare-dns.com/dns-query", "https://1.1.1.1/dns-query", "https://dns.google/dns-query",
+        "https://dns.quad9.net/dns-query", "https://dns.adguard-dns.com/dns-query",
+        "tls://1.1.1.1", "tls://dns.google", "tls://9.9.9.9", "tls://dns.adguard-dns.com",
+    )
+
+    /** The addresses of well-known resolvers, so a poisoned system DNS cannot send the scan somewhere else. */
+    private val ENCRYPTED_BOOTSTRAP = mapOf(
+        "cloudflare-dns.com" to "1.1.1.1", "one.one.one.one" to "1.1.1.1", "dns.google" to "8.8.8.8",
+        "dns.quad9.net" to "9.9.9.9", "dns.adguard-dns.com" to "94.140.14.14",
+    )
+
+    /** A filtered name: a poisoned resolver answers it with a 10.10.34.x-style address. */
+    const val POISON_TEST_DOMAIN = "www.youtube.com"
+
+    fun parseEncryptedResolver(line: String): EncryptedSpec? {
+        val raw = line.trim().substringBefore('#').trim()
+        if (raw.isEmpty()) return null
+        val lower = raw.lowercase(Locale.US)
+        val doh = lower.startsWith("https://")
+        val rest = when {
+            doh -> raw.substring(8)
+            lower.startsWith("tls://") -> raw.substring(6)
+            lower.contains("://") -> return null
+            else -> raw
+        }
+        val hostPort = rest.substringBefore('/')
+        val path = if (doh) ("/" + rest.substringAfter('/', "dns-query")).replace("//", "/") else ""
+        val hp = splitHostPort(hostPort) ?: return null
+        val host = hp.first.removePrefix("[").removeSuffix("]").lowercase(Locale.US)
+        if (host.isEmpty() || host.contains(' ')) return null
+        val port = hp.second ?: if (doh) 443 else 853
+        if (port !in 1..65535) return null
+        return EncryptedSpec(if (doh) "doh" else "dot", host, port, if (doh) path.ifEmpty { "/dns-query" } else "")
+    }
+
+    /** A / AAAA addresses in a DNS response (answer section only). */
+    fun parseAddressAnswers(resp: ByteArray): List<String> {
+        if (resp.size < 12) return emptyList()
+        fun u16(i: Int) = ((resp[i].toInt() and 0xFF) shl 8) or (resp[i + 1].toInt() and 0xFF)
+        val qd = u16(4)
+        val an = u16(6)
+        var i = 12
+        fun skipName() {
+            while (i < resp.size) {
+                val len = resp[i].toInt() and 0xFF
+                if (len == 0) { i += 1; return }
+                if ((len and 0xC0) == 0xC0) { i += 2; return }
+                i += 1 + len
+            }
+        }
+        repeat(qd) { skipName(); i += 4 }
+        val out = mutableListOf<String>()
+        repeat(an) {
+            if (i >= resp.size) return out
+            skipName()
+            if (i + 10 > resp.size) return out
+            val type = u16(i)
+            val rdLen = u16(i + 8)
+            i += 10
+            if (i + rdLen > resp.size) return out
+            if (type == 1 && rdLen == 4) {
+                out += (0 until 4).joinToString(".") { (resp[i + it].toInt() and 0xFF).toString() }
+            } else if (type == 28 && rdLen == 16) {
+                out += InetAddress.getByAddress(resp.copyOfRange(i, i + 16)).hostAddress.orEmpty()
+            }
+            i += rdLen
+        }
+        return out
+    }
+
+    fun scanEncryptedResolvers(
+        specs: List<EncryptedSpec>,
+        domain: String = POISON_TEST_DOMAIN,
+        timeoutMs: Int = 4_000,
+        progress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        cancelled: () -> Boolean = { false },
+    ): List<EncryptedResolverResult> {
+        val results = ConcurrentLinkedQueue<EncryptedResolverResult>()
+        runParallel(specs, 8, progress, cancelled) { s -> results += probeEncryptedResolver(s, domain, timeoutMs) }
+        return results.sortedWith(compareBy<EncryptedResolverResult>({ !it.usable }, { !it.ok }, { it.latencyMs }))
+    }
+
+    fun probeEncryptedResolver(spec: EncryptedSpec, domain: String = POISON_TEST_DOMAIN, timeoutMs: Int = 4_000): EncryptedResolverResult {
+        val started = System.nanoTime()
+        fun ms() = (System.nanoTime() - started) / 1_000_000
+        var rawRef: Socket? = null
+        return runCatching {
+            val address = ENCRYPTED_BOOTSTRAP[spec.host] ?: if (isIpLiteral(spec.host)) spec.host else {
+                val resolved = InetAddress.getByName(spec.host).hostAddress.orEmpty()
+                if (WhiteDnsSmartScanner.isPoisonedIranDnsIp(resolved)) {
+                    return EncryptedResolverResult(spec, false, ms(), listOf(resolved), true, false, "resolver name poisoned")
+                }
+                resolved
+            }
+            val raw = Socket()
+            rawRef = raw
+            protectOutboundSocket(raw) // test from THIS network even while a tunnel is up
+            raw.connect(InetSocketAddress(address, spec.port), timeoutMs)
+            raw.soTimeout = timeoutMs
+            val factory = javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory
+            val ssl = factory.createSocket(raw, spec.host, spec.port, true) as SSLSocket
+            ssl.use { socket ->
+                // The certificate must be valid AND carry this resolver's name (or IP): checked inside the handshake, so an
+                // intercepting middlebox fails here instead of answering with its own addresses.
+                socket.sslParameters = socket.sslParameters.apply {
+                    if (!isIpLiteral(spec.host)) serverNames = listOf(SNIHostName(spec.host))
+                    endpointIdentificationAlgorithm = "HTTPS"
+                }
+                val handshake = runCatching { socket.startHandshake() }.exceptionOrNull()
+                if (handshake != null) {
+                    val why = if (handshake is javax.net.ssl.SSLHandshakeException) "certificate/name rejected" else "TLS failed"
+                    return EncryptedResolverResult(spec, false, ms(), emptyList(), false, false, why + " (" + handshake.javaClass.simpleName + ")")
+                }
+                val query = buildDnsQuery(domain, 1, edns = false)
+                val reply = if (spec.protocol == "dot") {
+                    val out = socket.getOutputStream()
+                    out.write(byteArrayOf((query.size shr 8).toByte(), (query.size and 0xFF).toByte()) + query)
+                    out.flush()
+                    val input = socket.getInputStream()
+                    val lenBytes = ByteArray(2)
+                    if (!readFully(input, lenBytes)) null else {
+                        val len = ((lenBytes[0].toInt() and 0xFF) shl 8) or (lenBytes[1].toInt() and 0xFF)
+                        ByteArray(len).takeIf { len in 12..65535 && readFully(input, it) }
+                    }
+                } else {
+                    val head = "POST ${spec.path} HTTP/1.1\r\nHost: ${spec.host}\r\nUser-Agent: CatClient-Toolkit\r\n" +
+                        "Content-Type: application/dns-message\r\nAccept: application/dns-message\r\n" +
+                        "Content-Length: ${query.size}\r\nConnection: close\r\n\r\n"
+                    val out = socket.getOutputStream()
+                    out.write(head.toByteArray(Charsets.US_ASCII) + query)
+                    out.flush()
+                    val input = socket.getInputStream()
+                    val status = readLine(input)
+                    var length = -1
+                    var chunked = false
+                    while (true) {
+                        val h = readLine(input).trimEnd('\r')
+                        if (h.isEmpty()) break
+                        val hl = h.lowercase(Locale.US)
+                        if (hl.startsWith("content-length:")) length = h.substringAfter(':').trim().toIntOrNull() ?: -1
+                        if (hl.startsWith("transfer-encoding:") && hl.contains("chunked")) chunked = true
+                    }
+                    if (!status.contains(" 200")) {
+                        return EncryptedResolverResult(spec, false, ms(), emptyList(), false, true, status.trim().take(40))
+                    }
+                    when {
+                        chunked -> {
+                            val body = ByteArrayOutputStream()
+                            while (body.size() <= 65535) {
+                                val size = readLine(input).trimEnd('\r').substringBefore(';').trim().toIntOrNull(16) ?: break
+                                if (size <= 0) break
+                                val chunk = ByteArray(size)
+                                if (!readFully(input, chunk)) break
+                                body.write(chunk)
+                                readLine(input) // CRLF after the chunk
+                            }
+                            body.toByteArray().takeIf { it.size >= 12 }
+                        }
+                        length in 12..65535 -> ByteArray(length).takeIf { readFully(input, it) }
+                        else -> input.readBytes().takeIf { it.size >= 12 }
+                    }
+                }
+                val latency = ms()
+                if (reply == null) return EncryptedResolverResult(spec, false, latency, emptyList(), false, true, "no answer")
+                val answers = parseAddressAnswers(reply)
+                val poisoned = answers.any { WhiteDnsSmartScanner.isPoisonedIranDnsIp(it) }
+                EncryptedResolverResult(spec, true, latency, answers, poisoned, true, if (answers.isEmpty()) "no address" else "")
+            }
+        }.getOrElse { error ->
+            runCatching { rawRef?.close() }
+            EncryptedResolverResult(spec, false, ms(), emptyList(), false, false, error.javaClass.simpleName)
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
     // Config Maker
     // ---------------------------------------------------------------------------------------
 

@@ -450,7 +450,7 @@ internal fun MainActivity.nodeHostCard(kind: String, @StringRes titleRes: Int, @
         },
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
     )
-    val git = kind == NodeHostPanel.LUCITY || kind == NodeHostPanel.SHIPRR
+    val git = NodeHostPanel.isGitHost(kind)
     // Bot-Hosting / Railway are driven end-to-end by their API: «⚡» IS the from-zero path (no 🧭 wizard, and
     // Railway has no files to upload, so no 📦 zip there).
     val api = NodeHostPanel.isApiHost(kind)
