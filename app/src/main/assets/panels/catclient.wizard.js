@@ -391,6 +391,8 @@ async function* runInstall(input, env) {
   if (kind === 'panel') {
     uuid = isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid();
     bindings.push({ type: 'plain_text', name: 'UUID', text: uuid });
+    // beta240: tunnels on — a Worker without it serves the panel but refuses every VLESS/Trojan connection (403).
+    bindings.push({ type: 'plain_text', name: 'DATA_PLANE_ENABLED', text: 'true' });
     // Panel login is its own secret: the owner's password, or a random one generated
     // here. It is never derived from the UUID and never written to a log line.
     panelPassword = customPassword || randomPassword(24);

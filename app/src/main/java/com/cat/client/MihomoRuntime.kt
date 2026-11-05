@@ -326,9 +326,23 @@ class RoutingModePreferenceStore(context: Context) {
         prefs.edit().putBoolean(KEY_AD_BLOCK, enabled).apply()
     }
 
+    /**
+     * beta240 core options other clients carry in their settings (v2rayNG-style «Sniffing», «FakeDNS»,
+     * «Append HTTP proxy to VPN»). Defaults keep the behaviour Cat always had.
+     */
+    fun isSniffingEnabled(): Boolean = prefs.getBoolean(KEY_SNIFFING, false)
+    fun saveSniffingEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_SNIFFING, enabled).apply() }
+    fun isFakeDnsEnabled(): Boolean = prefs.getBoolean(KEY_FAKE_DNS, true)
+    fun saveFakeDnsEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_FAKE_DNS, enabled).apply() }
+    fun isSystemHttpProxyEnabled(): Boolean = prefs.getBoolean(KEY_SYSTEM_HTTP_PROXY, false)
+    fun saveSystemHttpProxyEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_SYSTEM_HTTP_PROXY, enabled).apply() }
+
     private companion object {
         const val KEY_MODE = "mode"
         const val KEY_AD_BLOCK = "ad_block"
+        const val KEY_SNIFFING = "sniffing"
+        const val KEY_FAKE_DNS = "fake_dns"
+        const val KEY_SYSTEM_HTTP_PROXY = "system_http_proxy"
     }
 }
 
@@ -733,6 +747,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 doh3Url = document.dns.doh3Url,
                 adBlock = RoutingModePreferenceStore(context).isAdBlockEnabled(),
                 orbot = document.orbot,
+                sniffing = RoutingModePreferenceStore(context).isSniffingEnabled(),
+                fakeDns = RoutingModePreferenceStore(context).isFakeDnsEnabled(),
             ),
         )
         patchFinal.writeText(
@@ -889,6 +905,8 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             doqEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
             doh3Url: String = DnsPrivacyPolicy.DEFAULT_DOH3_URL,
             adBlock: Boolean = false,
+            sniffing: Boolean = false,
+            fakeDns: Boolean = true,
             orbot: OrbotProxySettings? = null,
         ): String {
             val orbotTarget = orbot?.let { settings ->
@@ -914,7 +932,9 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             } else {
                 FLCLASH_OVERRIDE_KEYS + ROUTING_OVERRIDE_KEYS
             }
-            val subscriptionYaml = stripTopLevelKeys(rawYaml, keysToReplace).let { base ->
+            // beta240: our «Sniffing» block replaces the subscription's own (a second `sniffer:` key is invalid YAML).
+            val strippedKeys = if (sniffing) keysToReplace + "sniffer" else keysToReplace
+            val subscriptionYaml = stripTopLevelKeys(rawYaml, strippedKeys).let { base ->
                 if (orbot == null) {
                     base
                 } else {
@@ -1042,8 +1062,13 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 append("  listen: ${MihomoRuntimeDefaults.CONTROLLER_HOST}:${MihomoRuntimeDefaults.DNS_LISTEN_PORT}\n")
                 append("  ipv6: false\n")
                 append("  respect-rules: ${dnsProxyGroup != null}\n")
-                append("  enhanced-mode: fake-ip\n")
-                append("  fake-ip-range: 198.18.0.1/16\n")
+                // beta240 «FakeDNS» off → real answers (redir-host); mihomo still maps IP → name for the rules.
+                if (fakeDns) {
+                    append("  enhanced-mode: fake-ip\n")
+                    append("  fake-ip-range: 198.18.0.1/16\n")
+                } else {
+                    append("  enhanced-mode: redir-host\n")
+                }
                 append("  default-nameserver:\n")
                 bootstrapServers.forEach { server ->
                     append("    - ${yamlSingleQuoted(server)}\n")
@@ -1058,7 +1083,29 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 }
                 append("tun:\n")
                 append("  enable: false\n")
+                if (sniffing) append(SNIFFER_BLOCK)
             }
+        }
+
+        /**
+         * beta240 «Sniffing»: read the real name from TLS SNI / HTTP Host / QUIC so domain rules (Iran direct,
+         * ad block, the owner's routing rules) also catch apps that connect to bare IPs or use their own DoH.
+         * override-destination stays false: the name is used for ROUTING only, the dialled address is never
+         * rewritten (what other clients call «route only»), so a working config cannot be broken by it.
+         */
+        internal val SNIFFER_BLOCK: String = buildString {
+            append("sniffer:\n")
+            append("  enable: true\n")
+            append("  force-dns-mapping: true\n")
+            append("  parse-pure-ip: true\n")
+            append("  override-destination: false\n")
+            append("  sniff:\n")
+            append("    HTTP:\n")
+            append("      ports: [80, 8080-8880]\n")
+            append("    TLS:\n")
+            append("      ports: [443, 8443]\n")
+            append("    QUIC:\n")
+            append("      ports: [443, 8443]\n")
         }
 
         private fun routingTarget(rawYaml: String): String? {

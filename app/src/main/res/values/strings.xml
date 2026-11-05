@@ -327,6 +327,16 @@
     <string name="ad_block_title">Block ads</string>
     <string name="ad_block_description">Reject known ad networks (GEOSITE category-ads-all) inside the tunnel. Fewer banners in apps and sites; takes effect on the next connect.</string>
     <string name="ad_block_toast">Ad blocking will apply on the next connection</string>
+    <string name="config_test_url_title">Ping address</string>
+    <string name="config_test_url_detail">The site every config\'s ping is measured against. If all configs suddenly look slow or fail on your network, try Cloudflare.</string>
+    <string name="config_test_url_google">Google</string>
+    <string name="config_test_url_cloudflare">Cloudflare</string>
+    <string name="core_sniffing_title">Sniffing (detect site names)</string>
+    <string name="core_sniffing_description">Turn on if your routing rules or ad blocking miss some apps. Cat reads the real site name from the connection (TLS / HTTP / QUIC), so apps that connect by IP or use their own DNS are routed correctly too. Used for routing only; the address is never changed. Applies immediately.</string>
+    <string name="core_fake_dns_title">FakeDNS (fast DNS)</string>
+    <string name="core_fake_dns_description">On (recommended): faster connection setup and the most accurate routing. Turn off only if an app such as a game or banking app refuses to work inside the VPN; Cat then returns real IP addresses. Applies immediately.</string>
+    <string name="core_http_proxy_title">System HTTP proxy</string>
+    <string name="core_http_proxy_description">Browsers and apps that support the Android system proxy connect straight to Cat\'s local port (127.0.0.1:2080), which often loads pages faster. Other apps still use the VPN as usual. Turn off if an app shows a proxy error. Applies immediately.</string>
     <string name="routing_mode_iran_detail">Connect to Iranian domains and IP addresses directly. Route everything else through the VPN.</string>
     <string name="routing_mode_global">Global proxy</string>
     <string name="routing_mode_global_detail">Route all traffic through the selected VPN connection.</string>

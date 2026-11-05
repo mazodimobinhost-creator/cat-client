@@ -196,5 +196,42 @@ check('anonymous update-download → 401, no network', b.status === 401 && reque
   }
 }
 
+// 11) beta240 tunnels: DATA_PLANE_ENABLED is added when missing, an owner value is kept, and the confirmed
+//     «turn tunnels on» (POST /api/data-plane) forces it to true. Without it every VLESS/Trojan got 403.
+{
+  const prevFetch = globalThis.fetch;
+  const run = async (existingDp, path, body) => {
+    let meta = null;
+    globalThis.fetch = async (u, init = {}) => {
+      const url = String(u);
+      if (url.includes(RELEASE)) return new Response(marked('6.99.9'), { status: 200 });
+      if (url.endsWith('/accounts/acc-direct/workers/scripts/edge-pedre/settings')) {
+        const bindings = [{ type: 'plain_text', name: 'UUID', text: UUID }, { type: 'kv_namespace', name: 'CAT_KV', namespace_id: 'kv-123' }, { type: 'secret_text', name: 'CF_API_TOKEN' }];
+        if (existingDp !== null) bindings.push({ type: 'plain_text', name: 'DATA_PLANE_ENABLED', text: existingDp });
+        return new Response(JSON.stringify({ success: true, result: { bindings } }), { status: 200 });
+      }
+      if (url.endsWith('/accounts/acc-direct/workers/scripts/edge-pedre') && init.method === 'PUT') {
+        meta = JSON.parse(await init.body.get('metadata').text());
+        return new Response(JSON.stringify({ success: true, result: { id: 'edge-pedre' } }), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+    const env = { CAT_KV: new FakeKV(), UUID, OPEN_PANEL: 'true', CF_API_TOKEN: 'cf-bound-tok', CF_ACCOUNT_ID: 'acc-direct', CF_WORKER_NAME: 'edge-pedre' };
+    const res = await worker.fetch(new Request(HOST + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), env, { waitUntil() {} });
+    const dps = (meta ? meta.bindings : []).filter((b) => b.name === 'DATA_PLANE_ENABLED');
+    return { status: res.status, dps };
+  };
+  try {
+    let r = await run(null, '/api/update-apply', {});
+    check('self-update adds DATA_PLANE_ENABLED=true when the Worker never had it', r.status === 200 && r.dps.length === 1 && r.dps[0].text === 'true', JSON.stringify(r));
+    r = await run('false', '/api/update-apply', {});
+    check('self-update keeps an owner-set DATA_PLANE_ENABLED=false (exactly one binding)', r.status === 200 && r.dps.length === 1 && r.dps[0].text === 'false', JSON.stringify(r));
+    r = await run('false', '/api/data-plane', { confirm: true });
+    check('confirmed «turn tunnels on» forces DATA_PLANE_ENABLED=true (exactly one binding)', r.status === 200 && r.dps.length === 1 && r.dps[0].text === 'true', JSON.stringify(r));
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+}
+
 console.log(failures ? '\nPANEL SELF-UPDATE TESTS FAILED (' + failures + ')' : '\nPANEL SELF-UPDATE TESTS PASSED');
 process.exit(failures ? 1 : 0);

@@ -199,6 +199,8 @@ async function deployPanel(F, c, ref) {
     { type: 'plain_text', name: 'OPEN_SUB', text: 'false' },
     ...old.extras,
   ];
+  // beta240: tunnels on unless the owner set the variable himself (then his value rode in via extras).
+  if (!bindings.some((b) => b && b.name === 'DATA_PLANE_ENABLED')) bindings.push({ type: 'plain_text', name: 'DATA_PLANE_ENABLED', text: 'true' });
   const meta = {
     main_module: 'worker.js',
     compatibility_date: '2026-09-01',

@@ -3434,6 +3434,11 @@ class CatClientVpnService : VpnService() {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 builder.setMetered(false)
+                // beta240 «system HTTP proxy»: apps that honour the system proxy (browsers, many SDKs) talk to the
+                // core's local mixed port directly instead of going through the TUN packet path.
+                if (RoutingModePreferenceStore(this).isSystemHttpProxyEnabled()) {
+                    builder.setHttpProxy(android.net.ProxyInfo.buildDirectProxy("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT))
+                }
             }
 
             applySplitTunnel(builder, splitTunnelPlan)

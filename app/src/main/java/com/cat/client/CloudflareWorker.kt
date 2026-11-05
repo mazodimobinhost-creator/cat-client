@@ -1081,6 +1081,8 @@ object CloudflareWorker {
         val effectivePanelPassword = panelPassword.ifBlank { defaults["PANEL_PASSWORD"] ?: "admin" }
         val authBindings = JSONArray().apply {
             put(JSONObject().put("type", "plain_text").put("name", "OPEN_SUB").put("text", defaults["OPEN_SUB"] ?: "false"))
+            // beta240: tunnels on — without it every VLESS/Trojan connection gets 403.
+            put(JSONObject().put("type", "plain_text").put("name", "DATA_PLANE_ENABLED").put("text", defaults["DATA_PLANE_ENABLED"] ?: "true"))
             put(JSONObject().put("type", "plain_text").put("name", "PANEL_USER").put("text", effectivePanelUser))
             put(JSONObject().put("type", "secret_text").put("name", "PANEL_PASSWORD").put("text", effectivePanelPassword))
             if (token.isNotBlank()) {
@@ -1271,6 +1273,11 @@ object CloudflareWorker {
                 }
                 else -> extras.put(JSONObject(binding.toString()))
             }
+        }
+        // beta240: older installs never set DATA_PLANE_ENABLED (panel up, every tunnel 403). Missing → true;
+        // a value the owner set stays as it is (it was carried above).
+        if (existing?.none { it.optString("name") == "DATA_PLANE_ENABLED" } != false) {
+            extras.put(JSONObject().put("type", "plain_text").put("name", "DATA_PLANE_ENABLED").put("text", "true"))
         }
         if (token.isNotBlank()) {
             extras.put(JSONObject().put("type", "secret_text").put("name", "CF_API_TOKEN").put("text", token))

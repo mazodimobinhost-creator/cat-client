@@ -25,12 +25,17 @@ internal data class WorkerBindingSet(
     }
 
     companion object {
-        /** Safe canonical defaults: OPEN_SUB stays false and default panel login stays admin/admin. */
+        /**
+         * Safe canonical defaults: OPEN_SUB stays false and default panel login stays admin/admin.
+         * DATA_PLANE_ENABLED=true (beta240): without it the Worker serves the panel but answers every
+         * VLESS/Trojan tunnel with 403 — the «panel is up but nothing connects» report.
+         */
         fun canonicalDefaults(): WorkerBindingSet = WorkerBindingSet(
             plainTextVars = mapOf(
                 "OPEN_SUB" to "false",
                 "PANEL_USER" to "admin",
                 "PANEL_PASSWORD" to "admin",
+                "DATA_PLANE_ENABLED" to "true",
             ),
         )
     }

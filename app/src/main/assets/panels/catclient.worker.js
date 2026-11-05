@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.80.0';
+const CAT_PANEL_VERSION = '6.81.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -421,12 +421,17 @@ async function selfUpdatePanelWorker(env, host, override) {
   const bindings = [];
   let keepSecrets = false;
   let hasUuid = false;
+  // beta240: tunnels need DATA_PLANE_ENABLED. Older Cloudflare deploys never set it (every VLESS/Trojan got 403).
+  // Missing → added as 'true'. An explicit value the owner set is kept, unless the owner just confirmed
+  // «turn the tunnels on» in the panel (ov.enableDataPlane).
+  let hasDataPlane = false;
   const provideFreshTokenSecret = Boolean(String(ov.token || '').trim()) || !oldBindings.some((b) => b && b.name === CF_TOKEN_KEY && b.type === 'secret_text');
   for (const b of oldBindings) {
     if (!b || !b.name) continue;
     if (b.name === CF_ACCOUNT_KEY || b.name === CF_WORKER_KEY) continue;
     if (b.name === 'OPEN_PANEL' || b.name === 'OPEN_SUB') continue;
     if (b.name === CF_TOKEN_KEY && provideFreshTokenSecret) continue;
+    if (b.name === 'DATA_PLANE_ENABLED') { hasDataPlane = true; if (ov.enableDataPlane === true) continue; }
     if (b.type === 'secret_text') {
       keepSecrets = true;
       continue;
@@ -439,6 +444,7 @@ async function selfUpdatePanelWorker(env, host, override) {
     if (isUuid(currentUuid)) bindings.push({ type: 'plain_text', name: 'UUID', text: currentUuid });
   }
   bindings.push({ type: 'plain_text', name: 'OPEN_SUB', text: 'false' });
+  if (!hasDataPlane || ov.enableDataPlane === true) bindings.push({ type: 'plain_text', name: 'DATA_PLANE_ENABLED', text: 'true' });
   bindings.push({ type: 'plain_text', name: CF_ACCOUNT_KEY, text: accountId });
   bindings.push({ type: 'plain_text', name: CF_WORKER_KEY, text: workerName });
   if (provideFreshTokenSecret) {
@@ -2124,9 +2130,8 @@ function websocketReadable(ws, earlyData) {
   return new ReadableStream({
     start(controller) {
       if (earlyData && earlyData.byteLength) controller.enqueue(earlyData);
-      ws.addEventListener('message', (event) => {
+      const deliver = (chunk) => {
         if (cancelled) return;
-        const chunk = toBytes(event.data);
         // An unauthenticated peer can otherwise enqueue data faster than the
         // socket dial consumes it and exhaust isolate memory. One MiB frames and
         // more than eight queued chunks are never valid Cat handshakes.
@@ -2137,14 +2142,33 @@ function websocketReadable(ws, earlyData) {
           return;
         }
         controller.enqueue(chunk);
+      };
+      // beta240: compatibility dates ≥ 2026-03-17 deliver binary frames as Blob (websocket_standard_binary_type).
+      // binaryType is pinned to 'arraybuffer' before accept(), but a runtime that still hands over a Blob is
+      // converted here IN ARRIVAL ORDER — toBytes(Blob) would read the text «[object Blob]» and every VLESS/Trojan
+      // handshake would be refused as unrecognised (the «panel is up but nothing connects» bug).
+      let order = null;
+      ws.addEventListener('message', (event) => {
+        if (cancelled) return;
+        const d = event.data;
+        const isBlob = !!d && typeof d.arrayBuffer === 'function' && !(d instanceof ArrayBuffer) && !ArrayBuffer.isView(d);
+        if (!isBlob && !order) { deliver(toBytes(d)); return; }
+        const job = (order || Promise.resolve())
+          .then(() => (isBlob ? d.arrayBuffer().then((ab) => new Uint8Array(ab)) : toBytes(d)))
+          .then(deliver, () => { if (!cancelled) { cancelled = true; try { controller.error(new Error('websocket frame read failed')); } catch (e) { } } });
+        const mine = job.then(() => { if (order === mine) order = null; });
+        order = mine;
       });
       ws.addEventListener('close', (event) => {
         // Complete the close handshake: the peer sent Close, we must answer with
         // our own or the runtime keeps the request open ("Worker's code had hung").
         try { ws.close(1000, 'client closed'); } catch (e) { /* already closed */ }
-        if (cancelled) return;
-        cancelled = true;
-        try { controller.close(); } catch (e) { /* already closed */ }
+        const finish = () => {
+          if (cancelled) return;
+          cancelled = true;
+          try { controller.close(); } catch (e) { /* already closed */ }
+        };
+        if (order) order.then(finish); else finish();
       });
       ws.addEventListener('error', (err) => {
         if (cancelled) return;
@@ -3395,10 +3419,28 @@ function relayAttempts(targetIsCf, proxyOverride, cfList, socksList, host, port)
   return targetIsCf ? cfAtt.concat(socksAtt) : socksAtt.concat([{ hostname: host, port, via: 'direct' }], cfAtt);
 }
 
-async function dialTarget(host, port, env, settings, log, proxyOverride, socketsIn) {
+// beta240: names whose DIRECT socket opened and then closed with zero bytes — what Cloudflare does to a Worker that
+// dials a Cloudflare-hosted site. Keyed by name:port (only what was proven). They go straight to ProxyIP / SOCKS for 30 minutes instead of failing every time.
+const NO_DIRECT = new Map();
+const NO_DIRECT_TTL = 30 * 60 * 1000;
+function noDirectKnown(host, port) {
+  const k = String(host || '').toLowerCase() + ':' + (Number(port) || 0);
+  const at = NO_DIRECT.get(k);
+  if (!at) return false;
+  if (Date.now() - at > NO_DIRECT_TTL) { NO_DIRECT.delete(k); return false; }
+  return true;
+}
+function markNoDirect(host, port) {
+  if (!host) return;
+  const k = String(host).toLowerCase() + ':' + (Number(port) || 0);
+  NO_DIRECT.delete(k);
+  NO_DIRECT.set(k, Date.now());
+  if (NO_DIRECT.size > 4096) NO_DIRECT.delete(NO_DIRECT.keys().next().value);
+}
+async function dialTarget(host, port, env, settings, log, proxyOverride, socketsIn, opts) {
   const sockets = socketsIn || await loadSockets();
   if (!sockets) throw new Error('cloudflare:sockets unavailable');
-  let targetIsCf = isCloudflareIp(host);
+  let targetIsCf = isCloudflareIp(host) || !!(opts && opts.noDirect) || noDirectKnown(host, port);
   if (!targetIsCf && isNodePlatform(env) && proxyOverride && !/^socks5h?:\/\//i.test(proxyOverride) && !isIpv4(host) && String(host).indexOf(':') < 0) {
     try { targetIsCf = await cfHostedName(host); } catch (e) { targetIsCf = false; }
   }
@@ -3459,7 +3501,7 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
  * downstream is a tight read loop that only prefixes the protocol response
  * to the first chunk. Nothing is counted — that was the CPU hog in v5.
  */
-async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover, meter) {
+async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover, meter, carry) {
   // Activity-reset idle timeout: unlike the proposed fixed ten-minute lifetime,
   // every real byte in either direction rearms the timer, so healthy long-lived
   // tunnels stay alive while abandoned sockets release their resources.
@@ -3482,7 +3524,8 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover, 
   const GRAIN_BYTES = 128 * 1024;
   const SILENT_MS = 1;
   const downstream = (async () => {
-    const reader = socket.readable.getReader();
+    // carry (beta240): the first-reply guard already holds the socket reader and maybe one outstanding read.
+    const reader = (carry && carry.reader) || socket.readable.getReader();
     let header = responseHeader;
     try {
       if (leftover && leftover.byteLength && ws.readyState === WS_OPEN) {
@@ -3494,7 +3537,7 @@ async function pumpTunnel(ws, clientReadable, socket, responseHeader, leftover, 
       const flushGrain = () => { if (grain && ws.readyState === WS_OPEN) { ws.send(grain); grain = null; } };
       // ONE outstanding read is kept across the silence race: a lost race must not orphan it (that
       // dropped the next chunk mid-stream — 6.41.0–6.69.41).
-      let pending = null;
+      let pending = (carry && carry.pending) || null;
       // Backpressure: where the runtime reports ws.bufferedAmount (Node/Vercel; Workers has none) stop
       // reading the remote while > 2 MB waits for a slow client, instead of buffering a whole
       // download in the function's memory. Progress keeps the idle timer alive.
@@ -3925,20 +3968,76 @@ async function handleTunnelConnection(ws, env, options = {}) {
   }
 
   let dialed;
+  const dialSettings = viaLink && settings.linkExit ? Object.assign({}, settings, { linkExit: null }) : settings;
   try {
     // 🔗 traffic that ARRIVED through a linked panel never leaves through a linked panel again (no A→B→A loop).
-    dialed = await dialTarget(target.host, target.port, env, viaLink && settings.linkExit ? Object.assign({}, settings, { linkExit: null }) : settings, log, pxRelay || null);
+    dialed = await dialTarget(target.host, target.port, env, dialSettings, log, pxRelay || null);
   } catch (e) {
     log('no route to ' + target.host + ':' + target.port);
     safeCloseWs(ws, 1011, 'dial failed');
     return;
   }
 
+  // beta240 first-reply guard (Cloudflare only): a DIRECT socket to a Cloudflare-hosted name opens and then closes
+  // with zero bytes. Send the first payload, race the server's first answer against the client's next frame, and
+  // on an empty close redial through ProxyIP / SOCKS (never direct) with the same payload. Nothing is lost: an
+  // outstanding read on either side is handed on to the pump instead of being dropped.
+  let clientPending = null;
+  let carry = null;
+  if (dialed.via === 'direct' && !isNodePlatform(env) && !isVercelPlatform(env)) {
+    try {
+      if (!(firstPayload && firstPayload.byteLength)) {
+        clientPending = reader.read();
+        const early = await Promise.race([clientPending, new Promise((r) => setTimeout(() => r(null), 800))]);
+        if (early) { clientPending = null; if (early.done) { try { dialed.socket.close(); } catch (e) { } safeCloseWs(ws, 1000, 'done'); return; } firstPayload = early.value; }
+      }
+      if (firstPayload && firstPayload.byteLength) {
+        const w = dialed.socket.writable.getWriter();
+        await w.write(firstPayload);
+        try { w.releaseLock(); } catch (e) { }
+        const sReader = dialed.socket.readable.getReader();
+        const sRead = sReader.read().then((v) => ({ v }), (err) => ({ err }));
+        const cRead = clientPending || reader.read();
+        const first = await Promise.race([sRead.then((x) => ({ s: x })), cRead.then((v) => ({ c: v }), () => ({ c: { done: true } }))]);
+        if (first.s && (first.s.err || first.s.v.done || !first.s.v.value || !first.s.v.value.byteLength)) {
+          log('direct ' + target.host + ':' + target.port + ' answered nothing → ProxyIP / SOCKS');
+          markNoDirect(target.host, target.port);
+          try { sReader.releaseLock(); } catch (e) { }
+          try { dialed.socket.close(); } catch (e) { }
+          clientPending = cRead;
+          try {
+            dialed = await dialTarget(target.host, target.port, env, dialSettings, log, pxRelay || null, null, { noDirect: true });
+          } catch (e) {
+            log('no route to ' + target.host + ':' + target.port + ' after direct gave nothing');
+            safeCloseWs(ws, 1011, 'dial failed');
+            return;
+          }
+          // firstPayload stays queued below: the new socket receives it first.
+        } else if (first.s) {
+          const v = first.s.v.value;
+          dialed = { socket: dialed.socket, via: dialed.via, leftover: dialed.leftover && dialed.leftover.byteLength ? concatBytes(dialed.leftover, v) : v };
+          carry = { reader: sReader };
+          clientPending = cRead;
+          firstPayload = null;
+        } else {
+          // The client spoke again before the server answered: commit to this socket, keep both reads.
+          carry = { reader: sReader, pending: sRead.then((x) => { if (x.err) throw x.err; return x.v; }) };
+          firstPayload = first.c && !first.c.done ? first.c.value : null;
+          clientPending = first.c && first.c.done ? Promise.resolve({ done: true }) : null;
+        }
+      }
+    } catch (e) {
+      log('first-reply guard: ' + ((e && e.message) || e));
+    }
+  }
+
   const upstreamReadable = new ReadableStream({
     start(controller) { if (firstPayload && firstPayload.byteLength) controller.enqueue(firstPayload); },
     async pull(controller) {
       try {
-        const chunk = await reader.read();
+        const next = clientPending;
+        clientPending = null;
+        const chunk = await (next || reader.read());
         if (chunk.done) controller.close(); else controller.enqueue(chunk.value);
       } catch (e) { controller.error(e); }
     },
@@ -3947,7 +4046,7 @@ async function handleTunnelConnection(ws, env, options = {}) {
 
   const meter = meteredUser ? { up: 0, down: 0 } : null;
   try {
-    await pumpTunnel(ws, upstreamReadable, dialed.socket, responseHeader, dialed.leftover, meter);
+    await pumpTunnel(ws, upstreamReadable, dialed.socket, responseHeader, dialed.leftover, meter, carry);
   } catch (e) {
     log('tunnel error');
   } finally {
@@ -7938,7 +8037,18 @@ async function handleApi(request, url, env, ctx) {
     const host = String(new URL(request.url).hostname).toLowerCase();
     const vpath = tunnelPaths(env)[PROTO_VLESS + 'Path'];
     const results = {};
+    // beta240: a Worker on Cloudflare cannot open a socket to a Cloudflare address, so a clean-IP «test» from here
+    // marked every GOOD edge IP dead and the manual add dropped it. Those come back as skip:'edge' and the panel
+    // tests them from the owner's own browser instead (the only place that sees the owner's line).
+    const onCfEdge = !isNodePlatform(env) && !isVercelPlatform(env);
+    const viewer = String((request.cf && request.cf.country) || request.headers.get('cf-ipcountry') || '').toUpperCase().slice(0, 2);
     await mapBounded(tests, 3, async (t) => {
+      if (onCfEdge && (t.kind === 'clean' || t.kind === 'plain')) {
+        const bare = splitHostPort(String(t.addr), t.port).hostname.replace(/^\[|\]$/g, '');
+        let edge = isCloudflareIp(bare);
+        if (!edge && !isIpv4(bare) && bare.indexOf(':') < 0) { try { edge = await cfHostedName(bare); } catch (e) { edge = false; } }
+        if (edge) { results[t.key || t.addr] = { ok: null, skip: 'edge', kind: t.kind, ms: 0 }; return null; }
+      }
       const r = await healthProbe(sockets, { addr: t.addr, port: t.port, kind: t.kind, host, path: vpath });
       r.kind = t.kind;
       results[t.key || t.addr] = r;
@@ -7946,7 +8056,7 @@ async function handleApi(request, url, env, ctx) {
       return r;
     });
     await pushEvent(env, 'ip-test', Object.values(results).filter((r) => r.ok).length + '/' + tests.length + ' healthy');
-    return json({ ok: true, results });
+    return json({ ok: true, results, viewer });
   }
 
   if (path === '/api/svc-test' && method === 'POST') {
@@ -8194,7 +8304,8 @@ async function handleApi(request, url, env, ctx) {
     const kinds = String(url.searchParams.get('kinds') || 'v4').split(',').filter((k) => ['v4', 'v6', 'dom'].includes(k));
     const op = String(url.searchParams.get('op') || 'all');
     const n = Math.max(1, Math.min(30, Number(url.searchParams.get('n')) || 15));
-    return json({ ok: true, op, cands: await ipRepoCandidates(env, kinds.length ? uniq(kinds) : ['v4'], op, n) });
+    const viewer = String((request.cf && request.cf.country) || request.headers.get('cf-ipcountry') || '').toUpperCase().slice(0, 2);
+    return json({ ok: true, op, viewer, cands: await ipRepoCandidates(env, kinds.length ? uniq(kinds) : ['v4'], op, n) });
   }
   /* 6.80.0 ☁️ today's Cloudflare requests */
   if (path === '/api/cf-quota' && method === 'GET') {
@@ -8318,6 +8429,23 @@ async function handleApi(request, url, env, ctx) {
     }
   }
 
+  /* beta240 🔌 tunnels on/off: a Worker without DATA_PLANE_ENABLED serves the panel but refuses every VLESS/Trojan
+   * connection (403). GET tells the panel; POST (owner, confirmed) re-uploads this panel with the variable set. */
+  if (path === '/api/data-plane') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const plat = isNodePlatform(env) ? 'node' : isVercelPlatform(env) ? 'vercel' : 'cf';
+    if (method === 'GET') return json({ ok: true, on: dataPlaneEnabled(env), platform: plat, canFix: plat === 'cf' && (await hasDirectUpdateCreds(env)) });
+    if (method === 'POST') {
+      const body = (await readJsonBody(request)) || {};
+      if (dataPlaneEnabled(env)) return json({ ok: true, on: true, already: true });
+      if (plat !== 'cf') return json({ ok: false, error: 'set DATA_PLANE_ENABLED=true in the host env', platform: plat }, 409);
+      if (body.confirm !== true) return json({ ok: false, error: 'confirm' }, 400);
+      const res = await selfUpdatePanelWorker(env, host, { token: body.token, enableDataPlane: true });
+      if (res.ok) await pushEvent(env, 'data-plane-on', 'DATA_PLANE_ENABLED=true');
+      return json(res, res.status || (res.ok ? 200 : 502));
+    }
+  }
+
   if (path === '/api/update-apply' && method === 'POST') {
     const body = (await readJsonBody(request)) || {};
     const res = await selfUpdatePanel(env, host, body);
@@ -8387,6 +8515,8 @@ async function handleRequest(request, env, ctx) {
     const pair = new WsPair();
     const client = pair[0];
     const server = pair[1];
+    // beta240: binary frames as ArrayBuffer whatever the compatibility date (≥ 2026-03-17 defaults to Blob).
+    try { server.binaryType = 'arraybuffer'; } catch (e) { /* older runtime: always ArrayBuffer */ }
     server.accept();
     const job = handleTunnelConnection(server, env, {
       earlyDataHeader: request.headers.get('sec-websocket-protocol') || '',
@@ -9605,6 +9735,7 @@ ${vNote}${nNote}
   <div style="margin-top:6px" data-i="kv_warn_body"></div>
   <button class="btn sm" type="button" style="margin-top:8px" id="kvWarnOk" data-i="kv_warn_ok"></button>
  </div>
+ <div class="note w" id="dpLine" style="display:none" role="alert"><b id="dpTitle"></b><div class="small" id="dpBody" style="margin-top:6px"></div><button class="btn p" type="button" id="dpFix" style="margin-top:8px;min-height:44px;display:none"></button><div class="small" id="dpMsg" style="margin-top:6px"></div></div>
  <div class="note i small" id="cfqLine" style="display:none"></div>
 ${(() => {
   // Server-rendered only when the app's own report disagrees with this panel —
@@ -11665,10 +11796,16 @@ if(!ips.length){
   if(rawLines.length){toast(t('ip_manual_bad')+' '+rawLines[0].slice(0,40),true);return}
   toast(t('ip_manual_none'),true);return}
 var save=function(list){api('/api/ips',{method:'POST',body:{ips:list,source:'manual'}}).then(function(j){toast(j.ok?(j.count+' ✓'):'error',!j.ok);$('#manualIps').value='';return load()})};
-if($('#manualTest').checked){api('/api/ip-test',{method:'POST',body:{tests:ips.map(function(a){var m=a.match(/:(\\d{1,5})$/);return {addr:a,port:m?+m[1]:443,kind:'clean'}})}}).then(function(j){var res=(j&&j.results)||{};var good=Object.keys(res).filter(function(k){return res[k]&&res[k].ok});var dead=Object.keys(res).length-good.length;
-if(!good.length){toast(t('ip_manual_dead'),true);return}
-if(dead>0)toast(good.length+' ✓ / '+dead+' ✗');
-save(good)}).catch(function(){save(ips)});return}
+if($('#manualTest').checked){api('/api/ip-test',{method:'POST',body:{tests:ips.map(function(a){var m=a.match(/:(\\d{1,5})$/);return {addr:a,port:m?+m[1]:443,kind:'clean'}})}}).then(function(j){var res=(j&&j.results)||{};
+ /* beta240: skip:'edge' = Cloudflare address, untestable from inside Cloudflare → test it from THIS browser; plain ports cannot be probed here and are kept */
+ var edge=Object.keys(res).filter(function(k){return res[k]&&res[k].skip==='edge'});
+ return Promise.all(edge.map(function(k){var pm=k.match(/:(\\d{1,5})$/),pt=pm?+pm[1]:443;if(PLAIN_P.indexOf(pt)>-1){res[k]={ok:true,unchecked:true};return null}
+  var host=k.replace(/:\\d{1,5}$/,''),isDom=/[a-z]/i.test(host)&&host.indexOf(':')<0;return repoProbe({a:k,k:isDom?'dom':'v4'}).then(function(p){res[k]={ok:!!p.ok,ms:p.ms||0,browser:true}})})).then(function(){
+ if(j&&j.viewer&&j.viewer!=='IR')toast(vpnNote(j.viewer),true);
+ var good=Object.keys(res).filter(function(k){return res[k]&&res[k].ok});var dead=Object.keys(res).length-good.length;
+ if(!good.length){toast(t('ip_manual_dead'),true);return}
+ if(dead>0)toast(good.length+' ✓ / '+dead+' ✗');
+ save(good)})}).catch(function(){save(ips)});return}
 save(ips)}
 $('#btnManualAdd').addEventListener('click',manualAdd);
 function importIps(replace){var raw=$('#ipPaste').value;var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(!s)return '';var tag='',tm=s.match(/([#|=])([A-Za-z]{2})$/i);if(tm){tag='#'+tm[2].toUpperCase();s=s.slice(0,-tm[0].length)}if(/^\\[[0-9a-f:.]+\\](?::\\d{1,5})?$/i.test(s))return s+tag;s=s.replace(/^\\[/,'').replace(/\\]$/,'');return /^(?:\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-f:]+|[a-z0-9.-]+\\.[a-z]{2,})(?::\\d{1,5})?$/i.test(s)?s+tag:''}).filter(Boolean);
@@ -12010,6 +12147,9 @@ function repoProbe(x){return new Promise(function(res){var t0=performance.now(),
  var end=function(){clearTimeout(tm);var ms=Math.round(performance.now()-t0);res(to?{ok:false}:(x.k!=='dom'&&ms<40)?{ok:false,fast:true}:{ok:true,ms:ms})};
  try{fetch(url,{mode:'no-cors',cache:'no-store',signal:ctl?ctl.signal:undefined}).then(end,end)}catch(e){end()}})}
 window.__repoOk=[];
+var PLAIN_P=[80,8080,8880,2052,2082,2086,2095];
+/* beta240: the browser tests the line it sits on — through a VPN that is the VPN, not MCI / Irancell */
+function vpnNote(cc){return '⚠️ '+tx('این صفحه از کشور '+cc+' باز شده (VPN روشن است)؛ این تست اینترنتِ همان VPN را می‌سنجد، نه خط خودت را. VPN را خاموش کن یا از اسکنر اپ Cat استفاده کن.','Opened from '+cc+' (VPN on): this test measures that VPN, not your line. Turn the VPN off or use the Cat app scanner.')}
 if($('#repoGo'))$('#repoGo').addEventListener('click',function(){var kinds=[].filter.call(document.querySelectorAll('#repoKinds input'),function(c){return c.checked}).map(function(c){return c.value});
  if(!kinds.length){toast(tx('حداقل یک نوع را تیک بزن','Tick at least one type'),true);return}
  var n=Math.max(1,Math.min(30,Math.floor(+$('#repoN').value)||10)),op=$('#repoOp').value,box=$('#repoOut'),b=this,add=$('#repoAdd');b.disabled=true;add.style.display='none';window.__repoOk=[];
@@ -12017,7 +12157,7 @@ if($('#repoGo'))$('#repoGo').addEventListener('click',function(){var kinds=[].fi
  var v6=kinds.indexOf('v6')>-1?repoProbe({a:'[2606:4700:4700::1111]:443',k:'v6'}):Promise.resolve({ok:true});
  Promise.all([api('/api/ip-repo?kinds='+kinds.join(',')+'&op='+encodeURIComponent(op)+'&n='+n),v6]).then(function(r){var j=r[0],has6=r[1].ok;if(!j||!j.ok)throw new Error((j&&j.error)||'?');
   var c=(j.cands||[]).filter(function(x){return has6||x.k!=='v6'});
-  box.innerHTML=(!has6&&kinds.indexOf('v6')>-1)?'<div class="note w small">'+esc(tx('اینترنت همین دستگاه IPv6 ندارد؛ IPv6ها تست نشدند (اگر روی گوشی IPv6 داری، از همان‌جا امتحان کن).','This device has no IPv6; IPv6 was skipped (try from a phone that has IPv6).'))+'</div>':'';
+  box.innerHTML=(j.viewer&&j.viewer!=='IR'?'<div class="note w small">'+esc(vpnNote(j.viewer))+'</div>':'')+((!has6&&kinds.indexOf('v6')>-1)?'<div class="note w small">'+esc(tx('اینترنت همین دستگاه IPv6 ندارد؛ IPv6ها تست نشدند (اگر روی گوشی IPv6 داری، از همان‌جا امتحان کن).','This device has no IPv6; IPv6 was skipped (try from a phone that has IPv6).'))+'</div>':'');
   if(!c.length){box.innerHTML+='<div class="small">'+esc(tx('نامزدی پیدا نشد؛ نوع دیگری را امتحان کن.','No candidates; try another type.'))+'</div>';return}
   var rows={};c.forEach(function(x){var d=document.createElement('div');d.className='lrow';d.innerHTML='<span>'+(x.k==='v6'?'6️⃣':x.k==='dom'?'🌐':'4️⃣')+'</span><span class="mono" dir="ltr">'+esc(x.a)+'</span><span class="dim" style="margin-inline-start:auto">…</span>';box.appendChild(d);rows[x.a]=d.lastChild});
   var ok=[],i=0;function step(){if(i>=c.length||ok.length>=n)return Promise.resolve();var x=c[i++];return repoProbe(x).then(function(p){var el=rows[x.a];
@@ -12052,6 +12192,21 @@ if($('#echPoolSave'))$('#echPoolSave').addEventListener('click',function(){var b
   echAdvFill();toast(CFG.settings.echPool.length+' ✓'+(bad>0?' · '+bad+' '+tx('خط نامعتبر کنار رفت','invalid lines dropped'):''),bad>0)}).catch(function(e){toast(safeDiag(e&&e.message||e),true)}).then(function(){b.disabled=false})});
 
 /* 6.80.0 ☁️ today's Cloudflare requests (Workers free plan: 100 000 a day) */
+/* beta240 🔌 tunnels off = the panel opens but no config connects (Worker without DATA_PLANE_ENABLED) */
+function dpLoad(){var el=$('#dpLine');if(!el)return;api('/api/data-plane').then(function(j){if(!j||!j.ok||j.on){el.style.display='none';return}
+ el.style.display='';$('#dpTitle').textContent='⛔ '+tx('تونل‌ها خاموش‌اند — هیچ کانفیگی وصل نمی‌شود','Tunnels are off — no config can connect');
+ var cf=j.platform==='cf';
+ $('#dpBody').textContent=cf?tx('متغیر DATA_PLANE_ENABLED نیست، پس همهٔ اتصال‌ها رد می‌شوند. دکمهٔ زیر آن را اضافه می‌کند (UUID و کاربران حفظ می‌شوند). یا دستی: ورکر ← Settings ← Variables ← DATA_PLANE_ENABLED = true ← Deploy.','DATA_PLANE_ENABLED is missing, so every connection is refused. The button adds it (UUID and users stay). Or: Worker → Settings → Variables → DATA_PLANE_ENABLED = true → Deploy.'):tx('در تنظیمات هاست متغیر DATA_PLANE_ENABLED = true را اضافه کن و دوباره دیپلوی کن.','Add DATA_PLANE_ENABLED = true to the host env and redeploy.');
+ var b=$('#dpFix');b.style.display=cf?'':'none';b.textContent='🔌 '+tx('روشن کردن تونل‌ها','Turn tunnels on')}).catch(function(){el.style.display='none'})}
+if($('#dpFix'))$('#dpFix').addEventListener('click',async function(){var b=this,m=$('#dpMsg');
+ if(!(await ask(tx('تونل‌ها روشن شوند؟ همین نسخهٔ پنل با متغیر DATA_PLANE_ENABLED=true دوباره روی ورکرت آپلود می‌شود (UUID، KV، کاربران و Secretها حفظ می‌شوند).','Turn the tunnels on? This panel is re-uploaded to your Worker with DATA_PLANE_ENABLED=true (UUID, KV, users and secrets are kept).'),{ok:'✓'})))return;
+ b.disabled=true;m.textContent='⏳ …';
+ try{var j=await api('/api/data-plane',{method:'POST',body:{confirm:true}});
+  if(j&&j.needsSetup){var tok=await ask(tx('یک بار توکن کلودفلر لازم است (همان توکنی که با آن پنل را ساختی؛ دسترسی Workers Scripts:Edit).','A one-time Cloudflare token is needed (Workers Scripts:Edit).'),{ph:'Cloudflare API token',ok:'✓'});
+   if(!tok||!String(tok).trim()){b.disabled=false;m.textContent='';return}j=await api('/api/data-plane',{method:'POST',body:{confirm:true,token:String(tok).trim()}})}
+  if(j&&j.ok){m.textContent='✅ '+tx('ثبت شد؛ ۳۰ ثانیه بعد صفحه را تازه کن و ساب را در اپ آپدیت کن.','Done; refresh this page in 30 s and update the sub in your app.');b.style.display='none'}
+  else{m.textContent='✗ '+safeDiag((j&&(j.message||j.error))||'?')}}catch(e){m.textContent='✗ '+safeDiag(e&&e.message||e)}b.disabled=false});
+dpLoad();
 function cfqLoad(){var el=$('#cfqLine');if(!el)return;api('/api/cf-quota').then(function(j){if(!j||!j.ok||j.na){el.style.display='none';return}
  el.style.display='';el.className='note small '+(j.pct>=80?'w':'i');
  el.textContent='☁️ '+tx('درخواست‌های امروز کلودفلر: ','Cloudflare requests today: ')+Number(j.reqs).toLocaleString()+' / '+Number(j.limit).toLocaleString()+' ('+j.pct+'%)'+(j.src==='local'?' · '+tx('تقریبی (فقط همین پنل)','approx (this panel only)'):'')+' · '+tx('صفر شدن: ۰۳:۳۰ تهران','resets 00:00 UTC')+(j.pct>=80?' · '+tx('نزدیک سقف؛ بعد از سقف تا ریست قطع می‌شود','near the cap; after it, down until reset'):'')}).catch(function(){})}

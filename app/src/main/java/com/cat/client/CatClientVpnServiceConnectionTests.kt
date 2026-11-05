@@ -637,7 +637,7 @@ internal suspend fun CatClientVpnService.realConnectionDelayMs(
         controller = controller,
         profile = profile,
         timeoutMs = timeoutMs,
-        url = MihomoRuntimeDefaults.DELAY_TEST_URL,
+        url = connectionTestSettingsPreferenceStore.read().delayTestUrl, // beta240: owner-chosen ping address
     )?.let { return it }
     // Direct endpoint fallback for local-bridge schemes when the temporary core hasn't spun up the bridge yet
     val directFallback = withContext(Dispatchers.IO) {

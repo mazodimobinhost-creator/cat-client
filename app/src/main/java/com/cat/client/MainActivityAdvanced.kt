@@ -784,6 +784,10 @@ internal fun MainActivity.buildAdvancedScreen(): View {
             bottomMargin = dp(12)
         },
     )
+    addDelayTestUrlRow(connectionTestPanel, connectionTestSettings.delayTestUrl) { url -> // beta240 (CoreOptionsSettings.kt)
+        connectionTestSettings = connectionTestSettings.copy(delayTestUrl = url)
+        connectionTestSettingsPreferenceStore.save(connectionTestSettings)
+    }
     testingSettings.addView(
         connectionTestPanel,
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
@@ -1334,6 +1338,7 @@ internal fun MainActivity.buildAdvancedScreen(): View {
         ),
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
     )
+    addCoreOptionRows(routingPanel) // beta240: sniffing · FakeDNS · system HTTP proxy (CoreOptionsSettings.kt)
     connectionSettings.addView(
         advancedSectionLabel(getString(R.string.dns_privacy_section)),
         LinearLayout.LayoutParams(

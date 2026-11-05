@@ -328,6 +328,16 @@
     <string name="ad_block_title">مسدودسازی تبلیغات</string>
     <string name="ad_block_description">شبکه‌های تبلیغاتی شناخته‌شده (GEOSITE category-ads-all) داخل تونل مسدود می‌شوند؛ بنرهای کمتر در اپ‌ها و سایت‌ها. از اتصال بعدی اعمال می‌شود.</string>
     <string name="ad_block_toast">مسدودسازی تبلیغات از اتصال بعدی اعمال می‌شود</string>
+    <string name="config_test_url_title">آدرس تست پینگ</string>
+    <string name="config_test_url_detail">پینگ همه‌ی کانفیگ‌ها با این سایت اندازه گرفته میشه. اگه روی اینترنتت یهو همه‌ی کانفیگ‌ها کند یا خراب نشون داده میشن، Cloudflare رو امتحان کن.</string>
+    <string name="config_test_url_google">Google</string>
+    <string name="config_test_url_cloudflare">Cloudflare</string>
+    <string name="core_sniffing_title">تشخیص نام سایت (Sniffing)</string>
+    <string name="core_sniffing_description">اگه قوانین مسیریابی یا مسدودسازی تبلیغات روی بعضی اپ‌ها کار نمی‌کنه، روشنش کن. Cat نام واقعی سایت رو از خود اتصال (TLS / HTTP / QUIC) می‌خونه تا اپ‌هایی که مستقیم با IP وصل میشن یا DNS خودشون رو دارن هم درست مسیریابی بشن. فقط برای مسیریابی استفاده میشه و آدرس مقصد تغییر نمی‌کنه. فوراً اعمال میشه.</string>
+    <string name="core_fake_dns_title">FakeDNS (DNS سریع)</string>
+    <string name="core_fake_dns_description">روشن (پیشنهادی): اتصال سریع‌تر و مسیریابی دقیق‌تر. فقط وقتی خاموشش کن که یه اپ (مثلاً بازی یا اپ بانکی) داخل VPN کار نمی‌کنه؛ اون‌وقت Cat آدرس‌های IP واقعی برمی‌گردونه. فوراً اعمال میشه.</string>
+    <string name="core_http_proxy_title">پروکسی HTTP سیستم</string>
+    <string name="core_http_proxy_description">مرورگرها و اپ‌هایی که از پروکسی سیستم اندروید پشتیبانی می‌کنن مستقیم به پورت محلی Cat (127.0.0.1:2080) وصل میشن؛ معمولاً صفحه‌ها سریع‌تر باز میشن. بقیه اپ‌ها مثل قبل از VPN رد میشن. اگه اپی خطای پروکسی داد، خاموشش کن. فوراً اعمال میشه.</string>
     <string name="routing_mode_iran_detail">دامنه‌ها و IPهای ایران مستقیم؛ بقیه از وی‌پی‌ان عبور می‌کنند.</string>
     <string name="routing_mode_global">پروکسی سراسری</string>
     <string name="routing_mode_global_detail">همهٔ ترافیک از اتصال انتخاب‌شدهٔ وی‌پی‌ان عبور می‌کند.</string>

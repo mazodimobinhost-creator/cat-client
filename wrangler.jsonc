@@ -89,6 +89,10 @@
   "vars": {
     // Keep management locked: fresh installs use admin/admin and must change it in settings.
     "OPEN_PANEL": "false",
-    "OPEN_SUB": "false"
+    "OPEN_SUB": "false",
+    // Tunnels (VLESS/Trojan WebSocket). Without it the panel opens but refuses every
+    // connection with 403. A deploy is declarative, so a value typed into the dashboard
+    // alone would be removed by the next `wrangler deploy` — it has to live here.
+    "DATA_PLANE_ENABLED": "true"
   }
 }

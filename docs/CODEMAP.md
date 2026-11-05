@@ -23,7 +23,7 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `MainActivity.kt` | 3710 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAdvanced.kt` | 4052 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAdvanced.kt` | 4057 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAmneziaSstp.kt` | 623 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1813 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3338 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -45,9 +45,9 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 4339 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnService.kt` | 4344 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatWarp.kt` | 367 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 11 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
@@ -57,7 +57,7 @@
 | `CatClientVpnServiceXray.kt` | 34 | Xray engine start/stop for the Cat core (beta223): F&F / finalMask proxies on the real Xray-core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `ConnectionDelayTestState.kt` | 112 | — | — · — |
 | `ConnectionLifecycle.kt` | 297 | Connect/disconnect state machine shared by UI, tile and widget. | — · — |
-| `ConnectionTestSettings.kt` | 63 | — | — · — |
+| `ConnectionTestSettings.kt` | 73 | — | Beta240CoreOptionsTest · — |
 | `ConnectionTestWakeLock.kt` | 62 | Shares one timed wake lock across preparation, probes, downloads, and cleanup. | — · — |
 | `ConnectionTestingPage.kt` | 56 | — | — · — |
 | `CrashWatch.kt` | 314 | Cat Client crash watchdog — turns silent launch failures into visible, copyable evidence. | Beta224HostFoxCrashTest · — |
@@ -65,7 +65,7 @@
 | `EarlyCrashProvider.kt` | 43 | The earliest app code Android runs. | — · — |
 | `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, Beta223XrayEngineTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
 | `MihomoCoreLifecycle.kt` | 85 | Serializes setup and cleanup of the process-wide Mihomo core. | — · — |
-| `MihomoRuntime.kt` | 2804 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, Beta223XrayEngineTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
+| `MihomoRuntime.kt` | 2851 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, Beta223XrayEngineTest, Beta240CoreOptionsTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
 | `MihomoShareLink.kt` | 563 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, Beta239ProtocolsTelegramTest, WhiteDnsSmartScannerTest · — |
 | `PathWatchdog.kt` | 178 | The multi-path watchdog: the tiny state machine that decides *when* the app stops insisting on the normal path and takes the Tor one instead — and… | PathWatchdogTest · orbot-engine |
 | `QuickSettingsTileState.kt` | 50 | — | — · — |
@@ -101,7 +101,7 @@
 | `FenixHttp2.kt` | 925 | beta211: a small, dependency-free HTTP/2 client for Cat Fox VPN (RFC 9113 + HPACK RFC 7541). | Beta211FenixHttp2Test · — |
 | `FenixPassPolicy.kt` | 77 | beta237: when Cat Fox VPN renews its Mozilla ProxyPass, and what to do with each Guardian answer — the same rules Firefox's own IP Protection uses… | Beta237FoxPassTest · — |
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
-| `FirefoxVpnEngine.kt` | 3198 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, WhiteDnsSmartScannerTest · — |
+| `FirefoxVpnEngine.kt` | 3199 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3424 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
 | `MlmAndNextGenVpnHub.kt` | 1272 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
@@ -217,7 +217,7 @@
 | `AppReport.kt` | 232 | beta220 «📨 report to panel» — ONE button, opt-in, nothing is sent without the user seeing the exact text first. | Beta220RealInternetTest, Beta220WiringTest · — |
 | `CloudflareAccountLinks.kt` | 42 | Cloudflare account/token entry links, and the invariant that makes the in-app «get a token» flow work for brand-new users. | — · — |
 | `CloudflareOperationApproval.kt` | 90 | Safety contract shared by the in-app Cloudflare installer UI. | — · — |
-| `CloudflareWorker.kt` | 2170 | PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09. | Beta225FreeHostsTest, PanelSubKeyTest · compat-consistency, multipart-upload, panel-update-contract, paste-artifact, route-pending |
+| `CloudflareWorker.kt` | 2177 | PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09. | Beta225FreeHostsTest, PanelSubKeyTest · compat-consistency, multipart-upload, panel-update-contract, paste-artifact, route-pending |
 | `DeploymentMeasurementStore.kt` | 55 | Stores only conclusive probe evidence. | — · — |
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
@@ -238,7 +238,7 @@
 | `VercelPanel.kt` | 631 | "Cat Panel on Vercel": the whole Cat Panel (the same script the app deploys to Cloudflare) runs as a Vercel Node.js Function in the user's own acco… | VercelPanelTest · — |
 | `WorkerArtifactCompatibility.kt` | 41 | — | — · — |
 | `WorkerArtifactManifest.kt` | 65 | Verifies canonical Cat Client Worker artifacts across APK bundle, GitHub release asset, Raw URL, Update and Repair channels using SHA-256 and versi… | — · — |
-| `WorkerDeploymentPipeline.kt` | 224 | — | — · — |
+| `WorkerDeploymentPipeline.kt` | 229 | — | — · — |
 | `WorkerSourceDownloader.kt` | 121 | Bounded Raw-URL downloader for the in-app installer. | — · — |
 | `WorkerSourceInspector.kt` | 25 | — | — · — |
 | `WorkerSourcePolicy.kt` | 53 | Input policy for the installer's Raw-URL mode. | — · — |
@@ -290,6 +290,7 @@
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
+| `CoreOptionsSettings.kt` | 72 | beta240 — three engine options that other clients show in their settings screen and Cat did not have. | Beta240CoreOptionsTest · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
 | `FoxFastlyChallenge.kt` | 205 | beta239: Mozilla's sign-in (accounts.firefox.com) and VPN (vpn.mozilla.org) servers sit behind Fastly's bot check. | Beta239FoxFastlyTest · — |
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
@@ -300,7 +301,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_242 Kotlin files, 107427 lines._
+_243 Kotlin files, 107579 lines._
 
 ## MainActivity screens — function index
 
@@ -313,7 +314,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityAdvanced.kt` (59 functions)
 
-`buildInterfaceDesignBlock`:114, `buildAdvancedScreen`:262, `buildConnectionChainSettings`:2360, `advancedToggleRow`:2644, `showSplitTunnelSettings`:2726, `showResetSettingsDialog`:3180, `scrollFieldIntoView`:3195, `advancedSectionLabel`:3214, `connectionChainFixedLabel`:3229, `connectionChainSlotLabelRes`:3248, `editConnectionChainHopIp`:3258, `refreshChainExitCountries`:3320, `renderFragmentCarrierLine`:3343, `carrierLabelRes`:3360, `presetLabelRes`:3368, `updateConnectionChainSettings`:3378, `openConnectionChainSettingsFromHome`:3400, `cachedConnectionChainPickerOptions`:3405, `cachedConnectionChainSources`:3410, `connectionChainPickerOptions`:3430, `connectionChainFixedOptions`:3443, `advancedSectionDetail`:3459, `advancedSettingsPanel`:3473, `showThemeSelector`:3484, `showAccentSelector`:3506, `showLanguageSelector`:3577, `showDnsPrivacySelector`:3599, `showRoutingModeSelector`:3615, `renderOrbotRow`:3641, `probeOrbotEngine`:3679, `displayDnsPrivacyEndpoint`:3703, `setDnsPrivacyEndpointInputText`:3714, `showDnsPrivacyError`:3725, `showSplitTunnelSelector`:3731, `saveTlsIntegrityEnabled`:3766, `saveAdBlockEnabled`:3775, `refreshPanelTuneIfNeeded`:3783, `refreshPanelTune`:3792, `saveTlsFragmentEnabled`:3809, `saveLanSharingEnabled`:3822, `saveConnectionMode`:3830, `saveLanSharingPasswordRequired`:3845, `regenerateLanSharingPassword`:3854, `copyLanSharingSettings`:3862, `lanSharingDetails`:3870, `saveAmneziaNoiseEnabled`:3891, `applyAmneziaNoiseSettings`:3914, `readAmneziaNoiseInputs`:3934, `optionalAmneziaInt`:3959, `optionalAmneziaText`:3965, `optionalAmneziaBoolean`:3968, `showAmneziaNoiseError`:3977, `reconnectForConnectionOptionChange`:3982, `saveFrontingIps`:3989, `addFrontingIpTokens`:4007, `removeFrontingIp`:4021, `setFrontingIpInputText`:4028, `frontingIpInputHint`:4038, `showFrontingIpError`:4046
+`buildInterfaceDesignBlock`:114, `buildAdvancedScreen`:262, `buildConnectionChainSettings`:2365, `advancedToggleRow`:2649, `showSplitTunnelSettings`:2731, `showResetSettingsDialog`:3185, `scrollFieldIntoView`:3200, `advancedSectionLabel`:3219, `connectionChainFixedLabel`:3234, `connectionChainSlotLabelRes`:3253, `editConnectionChainHopIp`:3263, `refreshChainExitCountries`:3325, `renderFragmentCarrierLine`:3348, `carrierLabelRes`:3365, `presetLabelRes`:3373, `updateConnectionChainSettings`:3383, `openConnectionChainSettingsFromHome`:3405, `cachedConnectionChainPickerOptions`:3410, `cachedConnectionChainSources`:3415, `connectionChainPickerOptions`:3435, `connectionChainFixedOptions`:3448, `advancedSectionDetail`:3464, `advancedSettingsPanel`:3478, `showThemeSelector`:3489, `showAccentSelector`:3511, `showLanguageSelector`:3582, `showDnsPrivacySelector`:3604, `showRoutingModeSelector`:3620, `renderOrbotRow`:3646, `probeOrbotEngine`:3684, `displayDnsPrivacyEndpoint`:3708, `setDnsPrivacyEndpointInputText`:3719, `showDnsPrivacyError`:3730, `showSplitTunnelSelector`:3736, `saveTlsIntegrityEnabled`:3771, `saveAdBlockEnabled`:3780, `refreshPanelTuneIfNeeded`:3788, `refreshPanelTune`:3797, `saveTlsFragmentEnabled`:3814, `saveLanSharingEnabled`:3827, `saveConnectionMode`:3835, `saveLanSharingPasswordRequired`:3850, `regenerateLanSharingPassword`:3859, `copyLanSharingSettings`:3867, `lanSharingDetails`:3875, `saveAmneziaNoiseEnabled`:3896, `applyAmneziaNoiseSettings`:3919, `readAmneziaNoiseInputs`:3939, `optionalAmneziaInt`:3964, `optionalAmneziaText`:3970, `optionalAmneziaBoolean`:3973, `showAmneziaNoiseError`:3982, `reconnectForConnectionOptionChange`:3987, `saveFrontingIps`:3994, `addFrontingIpTokens`:4012, `removeFrontingIp`:4026, `setFrontingIpInputText`:4033, `frontingIpInputHint`:4043, `showFrontingIpError`:4051
 
 ### `MainActivityAmneziaSstp.kt` (10 functions)
 

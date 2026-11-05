@@ -4,6 +4,25 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta240] — 2026-11-05 (Panel 6.81.0)
+
+### Fixed — Cloudflare Worker panel «opens but nothing works»
+- **Tunnels were switched off on every Cloudflare deploy.** No CF deploy path (app deployer, wizard, `wrangler.jsonc`, deploy bot, self-update) set `DATA_PLANE_ENABLED`, so the Worker served the panel and answered every VLESS/Trojan tunnel with 403. All paths now set it (self-update adds it when missing); the panel shows a red «tunnels are off» banner with a one-tap 🔌 fix (`/api/data-plane`, confirmation required; UUID/KV/users/secrets kept).
+- **Every handshake failed with 1002 on new compatibility dates.** From 2026-03-17 Cloudflare delivers binary WebSocket frames as `Blob`; the reader treated them as bytes. `binaryType = 'arraybuffer'` is set before `accept()` and the reader is Blob-safe.
+- **Sites hosted on Cloudflare (direct connect closes with 0 bytes) now retry through ProxyIP/SOCKS** instead of failing; the decision is cached per `host:port` for 30 minutes, and the pending client read is carried over, never dropped.
+- **The IP test no longer marks good Cloudflare clean IPs dead.** A Worker cannot reach Cloudflare addresses, so those entries are now tested from the owner's browser; plain-HTTP ports stay «unchecked» instead of «dead».
+- When the panel is opened through a VPN (viewer country ≠ IR), the IP test and the repository scan warn that the result measures the VPN, not the owner's line.
+
+### Added — settings other clients have and Cat lacked (Settings → Routing / Config test)
+- **Sniffing (detect site names)**: mihomo `sniffer` for TLS/HTTP/QUIC, route-only (`override-destination: false`), so routing rules and ad blocking also catch apps that connect by IP. Replaces the subscription's own `sniffer` instead of duplicating it. Off by default.
+- **FakeDNS** switch: on (default, unchanged) = `fake-ip`; off = `redir-host` (real IPs) for apps that refuse `198.18.x.x`.
+- **System HTTP proxy** (Android 10+): `VpnService.Builder.setHttpProxy(127.0.0.1:2080)` so browsers/apps that honour the system proxy use the core directly. Off by default.
+- **Ping address**: Google (default) or Cloudflare `generate_204` (HTTPS only) for every config's real delay test.
+- All four apply immediately (a running tunnel reconnects) and are cleared by «reset settings». «Mux» was deliberately not added: the core cannot speak the multiplexing Xray servers use, so the switch would break working configs.
+
+### Tests
+- New `scripts/panels/worker-realtraffic.test.mjs` (miniflare, real VLESS traffic through the Worker; fails on the beta239 Worker with `1002`), `panel-selfupdate` block 11 (DATA_PLANE binding), new `Beta240CoreOptionsTest`.
+
 ## [1.10.0-beta239] — 2026-11-05 (Panel 6.80.0)
 
 ### Fixed — Fox VPN: the persistent «406» after sign-in (rebuilt on FoxyVPN 2.0.1, MIT)
