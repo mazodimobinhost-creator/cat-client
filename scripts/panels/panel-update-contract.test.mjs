@@ -113,7 +113,9 @@ check("the panel's own update-check reads the shipped artifact's version line", 
 check('marker is the very first line (survives a truncated download)', /^\/\* CAT_PANEL_VERSION = '[0-9]+(?:\.[0-9]+)+' \*\/\n/.test(artifact));
 check("artifact passes PanelUpdate's module check (contains «export default»)", artifact.includes('export default'));
 // 6.76.0: 800 000 → 860 000 characters (🔗 link panels); the release guard counts bytes and stays at 900 000.
-check('normal minified artifact stays below 860 K characters', artifact.length < 860000, String(artifact.length));
+// 6.81.4 (beta245): 860 000 → 880 000 — several exit countries per user, ➕ library → panel list, 📶 per-operator
+// scanner memory and the one-tap Vercel storage fix — measured 872 076 characters.
+check('normal minified artifact stays below 880 K characters', artifact.length < 880000, String(artifact.length));
 
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;

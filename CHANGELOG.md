@@ -4,6 +4,26 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta245] — 2026-11-05 (Panel 6.81.4)
+
+Five owner requests from the KataBump «🌍 exit location» screen.
+
+### Added — panel
+- **🌍 Several exit countries per user** (up to 6, ≤12 exits). One country → its 4 fastest healthy ProxyIPs + 2 SOCKS (as before); several → 2 ProxyIPs + 1 SOCKS from each, fastest first, ports exactly as tested. The drawer's country grid is now a toggle (tap again = remove, «Panel default» = clear), and the finder list is a multi-select that searches the ticked countries one after another and adds a country to the user only when it really got healthy exits. The API stores `exitCcs`; `exitCc` stays the first one so older pages/apps keep working, and a legacy `exitCc` reads as `[cc]`. The users table shows a flag for every country.
+- **➕ Library → panel list.** A ➕ on every healthy library row and «➕ all to the panel» per country. `POST /api/locations/to-panel` takes only entries that passed the real test, with the exact address and port, and merges them into the panel's ProxyIP/SOCKS list (cap 32) and its country list.
+- **📶 Per-operator scanner memory.** The scanner tab detects the visitor's operator from the edge's ASN (MCI, Irancell, Rightel, TCI, other ISPs) and offers the IP:port pairs that passed on that operator, plus its starting ranges. After every scan the 40 best verified `ip:port` pairs are stored for that operator (≤60 each, 30 days). `GET/POST /api/scan-ops`.
+- **🗄️ One-tap Vercel storage.** «Update» with a Vercel token now attaches storage when the project has none: it creates a private Blob store `cat-<project>` and connects it to production + preview. A failure is reported as `vercel-storage-failed`, never as a fake success. Users on Vercel are kept after this; before it, a panel without storage used memory KV and lost new users on the next cold start. There is also a separate `POST /api/vercel-storage` (confirm) plus a button in the update card.
+
+### Added — app
+- **🟢 Live dot in front of every panel** in the Cloudflare history, «My Vercel projects», the Vercel scanner's «My panels» picker, the Node-host picker and the Node panel page. ⚪ checking → 🟢 answered `/health` / 🟡 route not live yet / 🔴 no answer. It comes only from a real request made from the phone when the list opens. Plain `http://IP:port` Node panels (KataBump) go through the raw-socket path, because cleartext is disabled app-wide and the HTTPS probe would always have said 🔴.
+- **📶 «Suggested IPs for my operator»** in the scanner. It fills the range box with IPs that already passed on this phone for the current network (chosen port first, fastest first), then the operator's starting ranges; «Start scan» re-tests all of them. After every scan the verified rows are remembered per network (`cat_operator_scan`). **Wi-Fi is its own bucket:** on Wi-Fi Android still reports the SIM operator, so the network type comes from `NetworkCapabilities`, never from the SIM.
+
+### Tests
+- `Beta245OperatorScanAndLiveDotTest` (6, pure: Wi-Fi never labelled with the SIM, merge keeps exact ports and drops expired rows, encode/decode rejects junk/port 0/CIDR, suggestion order, Node `/health` classification, dot colours).
+- New `loc-multi-dom.test.mjs` (15): drives the real panel page in jsdom (taps, finder order, the POSTed body, the real worker save → flags in the table).
+- `locations.test.mjs` (to-panel: only healthy, exact ports, cap; scan-ops: ASN → operator, ≤60, `ip:port` only; multi-country exits) and `vercel-self-update.test.mjs` 38 (storage attach / already attached / failure → 502).
+- Size budgets raised, each with the reason in place: minified 860 000 → 880 000 characters (now 872 202), raw 930 000 → 950 000 B (928 929), gzip 278 000 → 284 000 (280 882), release guard 940 000 → 960 000.
+
 ## [1.10.0-beta244] — 2026-11-05 (Panel 6.81.3)
 
 Review of four outside sources (a new Flutter companion app for BPB Panel, a single-port KataBump panel, two videos). Only ideas were taken (GPL-3 / no licence → own code); nothing was copied.

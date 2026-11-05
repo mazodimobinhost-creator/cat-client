@@ -12,6 +12,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.text.InputType
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -2265,14 +2266,33 @@ class NodeHostController(
     // 📋 my panels
     // ------------------------------------------------------------------------------------
 
+    /** Real `/health` of a Node panel, over a raw socket for `http://IP:port` (cleartext is off app-wide). */
+    private suspend fun liveState(base: String): String = withContext(Dispatchers.IO) {
+        runCatching { NodeHostApi.panelGet(base, "/health", 6_000) }
+            .map { PanelLiveDot.stateOf(it.first, it.second) }
+            .getOrDefault("DOWN")
+    }
+
     private fun pick(items: List<SavedNodeHost>, onPick: (SavedNodeHost) -> Unit) {
-        showDialog(
-            MaterialAlertDialogBuilder(activity)
-                .setTitle(t("کدام پنل؟", "Which panel?"))
-                .setItems(items.map { it.name + "  ·  " + it.base }.toTypedArray()) { _, i -> onPick(items[i]) }
-                .setNegativeButton(android.R.string.cancel, null)
-                .create(),
-        )
+        // beta245 🟢 each panel gets a live dot from a real /health request made now from this phone
+        val texts = items.map { it.name + "  ·  " + it.base }
+        val labels = texts.map { PanelLiveDot.label(null, it) }.toMutableList()
+        val adapter = ArrayAdapter(activity, android.R.layout.select_dialog_item, labels)
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(t("کدام پنل؟", "Which panel?"))
+            .setAdapter(adapter) { _, i -> onPick(items[i]) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        showDialog(dialog)
+        items.forEachIndexed { i, item ->
+            val base = PanelLiveDot.healthBase(item.base) ?: return@forEachIndexed
+            scope.launch {
+                val state = liveState(base)
+                if (!dialog.isShowing) return@launch
+                labels[i] = PanelLiveDot.label(state, texts[i])
+                adapter.notifyDataSetChanged()
+            }
+        }
     }
 
     fun showMine(kind: String) {
@@ -2298,6 +2318,15 @@ class NodeHostController(
             .append("UUID: ").append(item.uuid)
         if (item.kind == NodeHostPanel.KATABUMP || item.kind == NodeHostPanel.BOTHOSTING) info.append('\n').append(countdown(item))
         box.addView(label(info.toString(), 13f, palette.textPrimary, 2).apply { setTextIsSelectable(true) })
+        // beta245 🟢 live status of this panel (real /health request from this phone)
+        val live = label(PanelLiveDot.label(null, PanelLiveDot.word(null, isFarsi())), 12.5f, palette.textSecondary, 6)
+        box.addView(live)
+        PanelLiveDot.healthBase(item.base)?.let { base ->
+            scope.launch {
+                val state = liveState(base)
+                live.text = PanelLiveDot.label(state, PanelLiveDot.word(state, isFarsi()))
+            }
+        }
         box.addView(button(t("➕ گرفتن و اضافه کردن کانفیگ‌ها", "➕ Get and add the configs"), filled = true) {
             addChecked(item.kind, item.base, item.uuid)
         }, lp(10))

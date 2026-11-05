@@ -694,6 +694,7 @@ internal fun MainActivity.buildScannerScreen(): View {
         )
     }
     controls.addView(rangeRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+    controls.addView(operatorSuggestButton(), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
     // ✍️ Manual single-IP add (v4 / v6 / domain): probe NOW with the current
     // SNI/port and join the results only when it really answers.
     val manualIpInput = TextInputEditText(this).apply {
@@ -1530,6 +1531,7 @@ internal fun MainActivity.startIpScanner() {
         // 🏠/☁️ pass: real ping + jitter of the best rows on YOUR line (TCP) and
         // through the worker (warm TLS, request → first byte), per exact ip:port.
         saveScanHistoryRun(found.filter { it.tlsOk }.minByOrNull { it.pingMs }?.pingMs?.toInt(), found.count { it.tlsOk }, found.size)
+        rememberScanForOperator(found)
         renderScannerResults()
         val measureRows = scannerResults.filter { it.tlsOk }.take(SCANNER_MEASURE_ROWS)
         if (measureRows.isNotEmpty()) {
@@ -3971,4 +3973,47 @@ internal fun MainActivity.applyScannerResult(result: IpScanner.ScanResult? = nul
         getString(R.string.scanner_applied, entryAuthority, target.pingMs),
         Toast.LENGTH_LONG,
     ).show()
+}
+
+/* ---- beta245 📶 per-operator suggestions (learned on this phone + starting ranges; see OperatorScanHints) ---- */
+
+internal fun MainActivity.operatorSuggestButton(): View {
+    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    return MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+        text = if (fa) "📶 آی‌پی‌های پیشنهادی اپراتور من" else "📶 Suggested IPs for my operator"
+        textSize = 12f
+        typeface = CatClientBodyBoldTypeface
+        isAllCaps = false
+        cornerRadius = dp(10)
+        minHeight = dp(44)
+        strokeColor = ColorStateList.valueOf(withAlpha(TEAL, 160))
+        setTextColor(TEAL)
+        setOnClickListener {
+            val memory = OperatorScanMemory(this@operatorSuggestButton)
+            val bucket = memory.currentBucket()
+            val op = bucket.ifBlank { CarrierDetector.detect(this@operatorSuggestButton).id }
+            val learned = memory.learned(bucket)
+            val text = OperatorScanHints.suggestionText(op, learned, scannerPortPreference(), System.currentTimeMillis())
+            scannerSubnetsInput.setText(text)
+            saveScannerRanges(text)
+            val name = OperatorScanHints.displayName(bucket, fa)
+            val n = learned.map { it.ip }.distinct().size
+            scannerStatusText.text = if (fa) {
+                "📶 $name: " + (if (n > 0) "$n آی‌پی که قبلاً روی همین شبکه سالم بودند + رنج‌های شروع." else "هنوز آی‌پی آزموده‌ای روی این شبکه نیست؛ رنج‌های شروع گذاشته شد.") +
+                    " «شروع اسکن» همه را از خط خودت دوباره تست می‌کند."
+            } else {
+                "📶 $name: " + (if (n > 0) "$n IPs that already passed on this network + starting ranges." else "No tested IP on this network yet; starting ranges filled.") +
+                    " «Start scan» re-tests all of them from your own line."
+            }
+        }
+    }
+}
+
+/** After a scan: verified rows are remembered for the network they were found on (mobile operator or Wi-Fi). */
+internal fun MainActivity.rememberScanForOperator(found: List<IpScanner.ScanResult>) {
+    if (found.none { it.tlsOk }) return
+    runCatching {
+        val memory = OperatorScanMemory(this)
+        memory.record(memory.currentBucket(), found)
+    }.onFailure { DiagnosticLogger.info(this, "operator_scan_memory", it.message.orEmpty()) }
 }

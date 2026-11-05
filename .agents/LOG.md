@@ -78,3 +78,10 @@
 - CI round 2 (`0811854`): all green (Android build + JUnit, Panel tests, UI e2e, Railway, portal). Release `v1.10.0-beta244` prerelease, 20 assets.
 - Open: phone test of the anti-sanction dialog (test while disconnected → save → connect → ChatGPT/Gemini direct); KataBump test of SS-2022 with real Xray (sandbox could not run Xray).
 
+## 2026-11-05 — beta245 / Panel 6.81.4
+- Owner's 5 items (KataBump «🌍 exit location» screenshot): multi-country exits, Vercel user persistence, per-operator scanner IPs (panel + app), ➕ library → panel, green dots for working panels.
+- Panel: `userExitCcs` (≤6 countries, ≤12 exits, `exitCc` = first); `/api/locations/to-panel` (healthy only, exact address, `PXIPS_KEY` cap 32); `/api/scan-ops` (`cf.asn` → operator, ≤60 × 30 days); `ensureVercelStorage` in `selfUpdateVercelPanel` + `/api/vercel-storage`.
+- App: `PanelLiveDot.kt`, `OperatorScanHints.kt` (pure), `OperatorScanMemory.kt`; dots in `MainActivityCloud`, `VercelRelayController` (projects + scanner picker), `NodeHostController` (picker + page, raw-socket `/health` for http panels — cleartext is off app-wide); scanner «📶 Suggested IPs for my operator» + `rememberScanForOperator`.
+- Local evidence: npm test 160/160 files; vercel-self-update 38 ✓; locations 58 ✓; loc-multi-dom 15 ✓ (real page, real worker save); kotlinc harness Beta245OperatorScanAndLiveDotTest 6/6. Android UI files compile only in CI.
+- Open: Vercel live panel is 6.77.3 — owner must press «آپدیت» with a token (or Storage → Blob → Connect → Redeploy) to keep users.
+

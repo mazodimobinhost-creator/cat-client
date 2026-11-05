@@ -10,6 +10,17 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## 2026-11-05 — Arena agent — beta245 / Panel 6.81.4 (owner's 5 items)
+- Version / commit: v1.10.0-beta245 / (see LOG.md for the CI result)
+- Done: several exit countries per user (≤6, ≤12 exits, `exitCc` kept = first); ➕ library → panel ProxyIP/SOCKS list (healthy
+  only, exact ports); 📶 per-operator scanner memory (panel: `cf.asn` → operator, `/api/scan-ops`; app: «Suggested IPs for my
+  operator», Wi-Fi kept separate via `NetworkCapabilities`); one-tap Vercel Blob storage on «Update» (`ensureVercelStorage`);
+  🟢 live `/health` dots in every app panel list (Node http panels via the raw-socket path — cleartext is off app-wide).
+- Evidence: npm test 160/160; `loc-multi-dom.test.mjs` 15 (real page + real worker save); locations 58; vercel-self-update 38;
+  kotlinc harness `Beta245OperatorScanAndLiveDotTest` 6/6. Android UI files compile only in CI. NOT phone-tested.
+- Open / next owner: ملاد — phone check of the dots (KataBump http panel must turn 🟢) and of «📶» on MCI vs Irancell vs Wi-Fi;
+  owner — press «آپدیت» on the Vercel panel with a token so storage attaches (live panel is 6.77.3, users not persisted).
+
 ## 2026-11-05 — Arena agent — beta243 / Panel 6.81.2 (review round 2: Grok panel + Claude app)
 - Version / commit: v1.10.0-beta243 / f840249 — all CI runs green (10 success, deploy-worker skipped), prerelease 20 assets
 - Done (every item checked against code; table in docs/REVIEW-BRIEF.md «پاسخ به دور دوم»):

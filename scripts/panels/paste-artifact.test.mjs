@@ -91,7 +91,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised 890 000 → 930 000 for 6.80.0 «four owner requests»: clean-IP repository picker with the browser test,
   // advanced ECH (live ECH names × DNS → saved list), automatic usage reset, today's Cloudflare requests and the
   // optional KataBump Reality card + API — measured 907 451 B (release guard moves 900 000 → 940 000).
-  ok('raw size is in the paste range (300–930 KB)', asset.length >= 300_000 && asset.length <= 930_000, asset.length);
+  // Raised 930 000 → 950 000 for 6.81.4 (beta245): several exit countries per user, ➕ library → panel list, 📶
+  // per-operator scanner memory and the one-tap Vercel storage fix — measured 928 803 B (release guard 940 000 → 960 000).
+  ok('raw size is in the paste range (300–950 KB)', asset.length >= 300_000 && asset.length <= 950_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is
@@ -141,7 +143,8 @@ const source = readFileSync(sourcePath, 'utf8');
   // SNI = the host), per-host capability list, extra-IP box with save & test — measured 263 909 B before the raise.
   // Raised 266 000 → 278 000 for 6.80.0 (see the raw-size note above; most of it the bilingual plain-words texts)
   // — measured 273 462 B.
-  ok('gzip stays under the 278 KB regression budget', gz < 278_000, gz);
+  // Raised 278 000 → 284 000 for 6.81.4 (beta245, same four features as the raw-size note) — measured 280 857 B.
+  ok('gzip stays under the 284 KB regression budget', gz < 284_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

@@ -11,6 +11,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -1137,13 +1138,26 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             val panels = store.list().filter { it.runtime == PANEL_RUNTIME }
             if (panels.isEmpty()) toast(t("هنوز پنلی با برنامه نساخته‌اید.", "No panel built with the app yet."))
             else {
+                // beta245 🟢 the same live dot as «My projects»: pick a panel that is actually up to scan with
+                val names = panels.map { it.projectName }
+                val labels = names.map { PanelLiveDot.label(null, it) }.toMutableList()
+                val adapter = ArrayAdapter(activity, android.R.layout.select_dialog_item, labels)
                 val d = MaterialAlertDialogBuilder(activity)
-                    .setItems(panels.map { it.projectName }.toTypedArray()) { dd, which ->
+                    .setAdapter(adapter) { dd, which ->
                         dd.dismiss()
                         source.setText(panels[which].links.firstOrNull { VercelIpScanner.target(it) != null } ?: panels[which].sourceName)
                     }
                     .create()
                 showDialog(d)
+                panels.forEachIndexed { i, item ->
+                    val base = PanelLiveDot.healthBase(item.host) ?: return@forEachIndexed
+                    scope.launch {
+                        val state = withContext(Dispatchers.IO) { CloudflareWorker.checkPanelHealth(base).state }
+                        if (!d.isShowing) return@launch
+                        labels[i] = PanelLiveDot.label(state, names[i])
+                        adapter.notifyDataSetChanged()
+                    }
+                }
             }
         }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
         box.addView(row, lp(4))
@@ -1387,16 +1401,29 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             return
         }
         val format = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-        val labels = items.map { "${it.projectName} · ${it.runtime}\n${it.host} · ${format.format(Date(it.createdAt))}" }
+        val texts = items.map { "${it.projectName} · ${it.runtime}\n${it.host} · ${format.format(Date(it.createdAt))}" }
+        // beta245 🟢 a panel gets a live dot from a real /health request; relay projects have no /health, so no dot
+        val labels = items.indices.map { i -> if (items[i].runtime == PANEL_RUNTIME) PanelLiveDot.label(null, texts[i]) else texts[i] }.toMutableList()
+        val adapter = ArrayAdapter(activity, android.R.layout.select_dialog_item, labels)
         val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(t("📁 پروژه‌های Vercel من", "📁 My Vercel projects"))
-            .setItems(labels.toTypedArray()) { d, which ->
+            .setAdapter(adapter) { d, which ->
                 d.dismiss()
                 showProjectActions(items[which])
             }
             .setPositiveButton(android.R.string.ok, null)
             .create()
         showDialog(dialog)
+        items.forEachIndexed { i, item ->
+            val base = PanelLiveDot.healthBase(item.host) ?: return@forEachIndexed
+            if (item.runtime != PANEL_RUNTIME) return@forEachIndexed
+            scope.launch {
+                val state = withContext(Dispatchers.IO) { CloudflareWorker.checkPanelHealth(base).state }
+                if (!dialog.isShowing) return@launch
+                labels[i] = PanelLiveDot.label(state, texts[i])
+                adapter.notifyDataSetChanged()
+            }
+        }
     }
 
     private fun showProjectActions(item: SavedVercelRelay) {

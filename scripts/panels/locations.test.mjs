@@ -107,6 +107,58 @@ check('the pinned user’s relay reference resolves on the server', T.resolveRel
 const up = await (await req('/api/users/' + cu.user.id, { method: 'PUT', headers: auth, body: { exits: [], exitCc: '' } })).json();
 check('clearing the location returns the user to the panel default', up.user && up.user.exits.length === 0 && up.user.exitCc === '');
 
+// ── beta245: several countries per user ──
+{
+  const nlExit = pool.filter((p) => p.cc === 'NL' && p.ok).map((p) => p.addr);
+  const mu = await (await req('/api/users', { method: 'POST', headers: auth, body: { name: 'multi', exits: deExits.concat(nlExit), exitCcs: ['de', 'NL', 'de', 'zz!'], protocols: { vless: true, trojan: true } } })).json();
+  check('beta245: a user keeps several countries (deduped, valid only) and exitCc = the first', mu.user && JSON.stringify(mu.user.exitCcs) === '["DE","NL"]' && mu.user.exitCc === 'DE', JSON.stringify(mu.user && [mu.user.exitCcs, mu.user.exitCc]));
+  check('beta245: …with exits from both countries, exact ports', mu.user && mu.user.exits.includes('10.2.0.1:2053') && mu.user.exits.includes('10.2.0.2:443'), JSON.stringify(mu.user && mu.user.exits));
+  const many = Array.from({ length: 14 }, (_, i) => '10.9.0.' + (i + 1) + ':2053');
+  const cap = await (await req('/api/users/' + mu.user.id, { method: 'PUT', headers: auth, body: { exits: many, exitCcs: ['DE', 'NL', 'FR', 'US', 'GB', 'JP', 'CA'] } })).json();
+  check('beta245: caps are 12 exits and 6 countries', cap.user && cap.user.exits.length === 12 && cap.user.exitCcs.length === 6, JSON.stringify(cap.user && [cap.user.exits.length, cap.user.exitCcs]));
+  const old = await (await req('/api/users/' + mu.user.id, { method: 'PUT', headers: auth, body: { exits: deExits, exitCc: 'FR' } })).json();
+  check('beta245: an older page that only sends exitCc still works (one country)', old.user && JSON.stringify(old.user.exitCcs) === '["FR"]' && old.user.exitCc === 'FR', JSON.stringify(old.user && old.user.exitCcs));
+  await req('/api/users/' + mu.user.id, { method: 'PUT', headers: auth, body: { exits: deExits.concat(nlExit), exitCcs: ['DE', 'NL'] } });
+  const gc = await (await req('/api/locations', { headers: auth })).json();
+  const cDE = (gc.countries || []).find((c) => c.cc === 'DE'), cNL = (gc.countries || []).find((c) => c.cc === 'NL');
+  check('beta245: the library counts a 2-country user under BOTH countries', cDE && cNL && cNL.users >= 1 && cDE.users >= 1, JSON.stringify(gc.countries));
+  const s3 = await subText(mu.user);
+  check('beta245: that user’s sub carries both exits with exact ports', /10\.2\.0\.1(%3A|%253A|:)2053/i.test(s3) && /10\.2\.0\.2(%3A|%253A|:)443/i.test(s3), s3.split('\n').filter((l) => /proxyip/i.test(l)).slice(0, 4).join(' | '));
+  await req('/api/users/' + mu.user.id, { method: 'DELETE', headers: auth });
+}
+// ── beta245: ➕ library → the panel's own ProxyIP/SOCKS list ──
+{
+  const before = (await (await req('/api/settings', { headers: auth })).json()).settings;
+  const one = await (await req('/api/locations/to-panel', { method: 'POST', headers: auth, body: { addrs: ['10.2.0.1:2053'] } })).json();
+  const st = (await (await req('/api/settings', { headers: auth })).json()).settings;
+  const list = [].concat(st.proxyIps || []).join('\n');
+  check('beta245: ➕ adds a library ProxyIP to the panel list with its exact port + country tag', one.ok && one.added === 1 && list.includes('10.2.0.1:2053') && (st.proxyCountries || {})['10.2.0.1:2053'] === 'DE', JSON.stringify([one, list, st.proxyCountries]));
+  const all = await (await req('/api/locations/to-panel', { method: 'POST', headers: auth, body: { cc: 'DE' } })).json();
+  const list2 = [].concat((await (await req('/api/settings', { headers: auth })).json()).settings.proxyIps || []).join('\n');
+  check('beta245: «➕ all» adds the rest of the country (SOCKS too), never a duplicate', all.ok && all.added === 1 && all.skipped === 1 && list2.includes('socks5://10.1.0.1:10808') && list2.split('10.2.0.1:2053').length === 2, JSON.stringify([all, list2]));
+  const no = await req('/api/locations/to-panel', { method: 'POST', headers: auth, body: { addrs: ['9.9.9.9:443'] } });
+  check('beta245: an address that is not a tested library entry is refused (404)', no.status === 404);
+  check('beta245: anonymous callers cannot add', (await req('/api/locations/to-panel', { method: 'POST', body: { cc: 'DE' } })).status === 401);
+  await req('/api/settings', { method: 'PUT', headers: auth, body: { proxyIps: [].concat(before.proxyIps || []).join('\n') } });
+}
+// ── beta245: 📶 per-operator scanner memory ──
+{
+  const r1 = await (await req('/api/scan-ops', { method: 'POST', headers: auth, body: { op: 'mtn', hits: [{ a: '188.114.98.10:2053', ms: 80 }, { a: '[2606:4700::1]:443', ms: 120 }, { a: '1.2.3.4', ms: 5 }, { a: 'junk!!', ms: 5 }] } })).json();
+  check('beta245: scanner memory keeps only real IP:port hits (portless/junk dropped)', r1.ok && r1.op === 'mtn' && r1.kept === 2, JSON.stringify(r1));
+  const g1 = await (await req('/api/scan-ops', { headers: auth })).json();
+  const m = (g1.learned || {}).mtn || [];
+  check('beta245: …stored under the operator with exact ports and the measured ms', m.some((h) => h.a === '188.114.98.10:2053' && h.ms === 80) && m.some((h) => h.a === '[2606:4700::1]:443'), JSON.stringify(m));
+  await req('/api/scan-ops', { method: 'POST', headers: auth, body: { op: 'mtn', hits: [{ a: '188.114.98.10:2053', ms: 60 }] } });
+  const m2 = ((await (await req('/api/scan-ops', { headers: auth })).json()).learned || {}).mtn || [];
+  check('beta245: a re-test replaces the old entry (no duplicates, newest ms)', m2.filter((h) => h.a === '188.114.98.10:2053').length === 1 && m2[0].ms === 60, JSON.stringify(m2));
+  check('beta245: unknown operator without a network hint → 400', (await req('/api/scan-ops', { method: 'POST', headers: auth, body: { op: 'xx', hits: [] } })).status === 400);
+  const rq = new Request('https://loc.workers.dev/api/scan-ops', { headers: auth });
+  Object.defineProperty(rq, 'cf', { value: { asn: 44244, asOrganization: 'MTN Irancell' } });
+  const g2 = await (await worker.fetch(rq, ENV, { waitUntil(){} })).json();
+  check('beta245: operator auto-detected from the ASN of the request (44244 → Irancell)', g2.op === 'mtn' && g2.asn === 44244, JSON.stringify([g2.op, g2.asn]));
+  check('beta245: anonymous callers cannot read the memory', (await req('/api/scan-ops')).status === 401);
+}
+
 // ping all: the DE ProxyIP dies
 dead.add('10.2.0.1');
 const pg = await (await req('/api/locations/ping', { method: 'POST', headers: auth, body: {} })).json();
@@ -121,7 +173,12 @@ const html = T.panelPage({}, { lang: 'fa' }, 'loc.workers.dev', 'MASTER-UUID');
 for (const id of ['locLib', 'locCc', 'locKind', 'locFetch', 'locPingAll', 'locDropDead', 'locGrid', 'uLocBox', 'uLocGrid', 'uLocCc', 'uLocFetch', 'uLocPing'])
   check('page has #' + id, html.includes('id="' + id + '"'));
 check('page calls the location API', html.includes("'/api/locations/fetch'") && html.includes("'/api/locations/ping'") && html.includes("'/api/locations/remove'"));
-check('the user form saves exits + exitCc', html.includes('body.exits=UL.exits') && html.includes('body.exitCc=UL.cc'));
+check('the user form saves exits + every picked country (exitCcs) + exitCc for old apps', html.includes('body.exits=UL.exits.slice(0,12)') && html.includes('body.exitCcs=UL.ccs.slice(0,6)') && html.includes("body.exitCc=UL.ccs[0]||''"));
+check('beta245: both country pickers accept several countries', /id="uLocCc" multiple/.test(html) && /id="locCc" multiple/.test(html));
+check('beta245: tapping a country toggles it (several per user, max 6)', html.includes('else if(i>=0)UL.ccs.splice(i,1);else if(UL.ccs.length<6)UL.ccs.push(cc)'));
+check('beta245: «Find» runs each ticked country one after another', html.includes('async function locFetchMany(') && html.includes("locFetchMany(ccs,$('#uLocKind').value") && html.includes("locFetchMany(ccs,$('#locKind').value"));
+check('beta245: library rows + countries have ➕ to-panel buttons', html.includes('data-locadd="') && html.includes('data-locadd-cc="') && html.includes("'/api/locations/to-panel'"));
+check('beta245: scanner has the operator picker + suggestion button', html.includes('id="rsOp"') && html.includes('id="rsOpGo"') && html.includes("'/api/scan-ops'"));
 
 if (failures) { console.error('\n' + failures + ' LOCATION CHECK(S) FAILED'); process.exit(1); }
 console.log('\nlocations: all passed');

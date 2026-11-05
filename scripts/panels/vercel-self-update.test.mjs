@@ -22,6 +22,8 @@ const NEW_PANEL = "/* CAT_PANEL_VERSION='99.0.0' */\nconst CAT_PANEL_VERSION='99
 const ADAPTER = "const panelModule = await import('../lib/catpanel.mjs');\nconst server = {};\nexport default server;\n";
 let calls = [];
 let projectNeedsTeam = false;
+let projEnv = [{ key: 'UUID' }];
+let blobFail = false;
 globalThis.fetch = async (u, init = {}) => {
   const url = String(u);
   const method = (init.method || 'GET').toUpperCase();
@@ -33,8 +35,10 @@ globalThis.fetch = async (u, init = {}) => {
     if (p.pathname === '/v2/user') return Response.json({ user: { id: 'u1', defaultTeamId: 'team_abc' } });
     if (p.pathname.startsWith('/v9/projects/')) {
       if (projectNeedsTeam && p.searchParams.get('teamId') !== 'team_abc') return Response.json({ error: { code: 'not_found', message: 'Project not found' } }, { status: 404 });
-      return Response.json({ id: 'prj_123', name: decodeURIComponent(p.pathname.split('/').pop()), resourceConfig: { functionDefaultRegions: ['fra1'] } });
+      return Response.json({ id: 'prj_123', name: decodeURIComponent(p.pathname.split('/').pop()), env: projEnv, resourceConfig: { functionDefaultRegions: ['fra1'] } });
     }
+    if (p.pathname === '/v1/storage/stores/blob' && method === 'POST') return blobFail ? Response.json({ error: { message: 'store limit reached' } }, { status: 402 }) : Response.json({ store: { id: 'store_1' } });
+    if (p.pathname === '/v1/storage/stores/store_1/connections' && method === 'POST') return Response.json({});
     if (p.pathname === '/v2/files' && method === 'POST') return Response.json({});
     if (p.pathname === '/v13/deployments' && method === 'POST') return Response.json({ id: 'dpl_1', url: 'x.vercel.app', readyState: 'QUEUED' });
     return Response.json({ error: { message: 'unexpected ' + p.pathname } }, { status: 400 });
@@ -135,6 +139,44 @@ check('patcher: double quotes too', (T.vercelPatchPanel('x(' + IMP.replace(/'/g,
   check('update button carries the platform', src.includes('data-plat="\'+esc(j.platform||\'\')+\'"'));
   check('page asks for a Vercel token on Vercel panels', src.includes("ph:vc?'Vercel Token…':'Cloudflare API Token…'"));
   check('page waits for the new deployment via /api/version', src.includes("fetch('/api/version?r='"));
+}
+
+// 9) beta245: Vercel panel WITHOUT storage → update first creates + connects a private Blob store, then redeploys
+{
+  const env = { UUID, CAT_PLATFORM: 'vercel' };
+  calls = [];
+  const r = await T.selfUpdatePanel(env, HOST, { token: 'vt_once' });
+  const mk = calls.find((c) => c.url.includes('/v1/storage/stores/blob'));
+  const cn = calls.find((c) => c.url.includes('/v1/storage/stores/store_1/connections'));
+  const iMk = calls.indexOf(mk), iDep = calls.findIndex((c) => c.url.includes('/v13/deployments'));
+  check('no storage → Blob store created (private, region of the project)', mk && JSON.parse(mk.body).access === 'private' && JSON.parse(mk.body).region === 'fra1' && /^cat-.{1,28}$/.test(JSON.parse(mk.body).name), mk && mk.body);
+  check('…and connected to THIS project for production + preview', cn && JSON.parse(cn.body).projectId === 'prj_123' && JSON.parse(cn.body).envVarEnvironments.join() === 'production,preview', cn && cn.body);
+  check('…before the redeploy, which then succeeds', iMk >= 0 && iDep > iMk && r.ok === true && r.deploying === true && r.storage === 'added', JSON.stringify(r));
+  projEnv = [{ key: 'UUID' }, { key: 'BLOB_READ_WRITE_TOKEN' }];
+  calls = [];
+  const r2 = await T.selfUpdatePanel(env, HOST, { token: 'vt_once' });
+  check('storage already on the project (deployment just older) → no new store, only the redeploy', r2.ok === true && r2.storage === 'attached' && !calls.some((c) => c.url.includes('/v1/storage/')), JSON.stringify(r2));
+  projEnv = [{ key: 'UUID' }]; blobFail = true;
+  calls = [];
+  const r3 = await T.selfUpdatePanel(env, HOST, { token: 'vt_once' });
+  check('store creation refused → clear error, NO deployment made', r3.ok === false && r3.error === 'vercel-storage-failed' && /store limit/.test(r3.message) && !calls.some((c) => c.url.includes('/v13/deployments')), JSON.stringify(r3));
+  blobFail = false;
+  calls = [];
+  const r4 = await T.selfUpdatePanel({ CAT_KV: new FakeKV(), UUID, CAT_PLATFORM: 'vercel' }, HOST, { token: 'vt_once' });
+  check('panel that already has storage never touches the storage API', r4.ok === true && !calls.some((c) => c.url.includes('/v1/storage/')), JSON.stringify(r4));
+}
+
+// 10) the refusal carries a machine code; the page turns it into the one-tap «connect storage» flow
+{
+  const users = await mod.default.fetch(new Request('https://' + HOST + '/api/users', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64') }, body: JSON.stringify({ name: 'a' }) }), { UUID, CAT_PLATFORM: 'vercel' }, { waitUntil() {} });
+  const uj = await users.json().catch(() => ({}));
+  if (users.status === 409) check('user POST without storage → 409 + code vercel-no-store', uj.code === 'vercel-no-store', JSON.stringify(uj));
+  else console.log('· (user POST needs a session here: HTTP ' + users.status + ' — code checked in source instead)');
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(workerPath, 'utf8');
+  check('source: refusal tagged vercel-no-store', src.includes("code: isVercelPlatform(env) ? 'vercel-no-store' : 'node-no-store'"));
+  check('page: api() opens the connect-storage flow on that code', src.includes("if(j&&j.code==='vercel-no-store')setTimeout(vcStore,0);") && src.includes("api('/api/vercel-storage',{method:'POST',body:{confirm:true}})"));
+  check('page: waits until /api/version reports kv', src.includes('if(v&&v.kv){j.deploying=0;break}'));
 }
 
 if (failures) { console.error('\n' + failures + ' check(s) failed'); process.exit(1); }

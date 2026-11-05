@@ -69,7 +69,8 @@ python3 scripts/affected-tests.py
 | ساخت اپ اندروید (همهٔ ABIها) و انتشار | CI سبز در هر نسخه؛ beta243 در `f840249`: همهٔ اجراهای push و PR سبز، pre-release با ۲۰ فایل | — |
 | تست‌های JVM اپ | ۶۹۷ تست در ۱۲۲ فایل؛ در CI سبز | — |
 | پنل Cloudflare (Worker) | ۸۳ فایل تست `scripts/panels/*.test.mjs`؛ ترافیک واقعی WebSocket در Miniflare (`worker-realtraffic` ۲۲/۲۲)؛ ورود و صفحه‌ها در UI e2e | پنل‌های CF کاربر باید به 6.81.2 به‌روز شوند و 🔌 (DATA_PLANE) زده شود — **تأیید نشده** |
-| پنل Vercel | تست‌های `vercel-*.test.mjs` | پنل زنده هنوز روی **6.77.3** است (`cat-panel-v7k2m`) — به‌روزرسانی با ملاد |
+| پنل Vercel | تست‌های `vercel-*.test.mjs` (beta245: اتصال خودکار Blob هنگام «آپدیت»، ۳۸ ✓) | پنل زنده هنوز روی **6.77.3** و **بدون Storage** است (`cat-panel-v7k2m`) — کاربرها ماندگار نیستند تا «آپدیت» با توکن زده شود |
+| beta245: چند کشور خروجی، ➕ به پنل، اسکنر به تفکیک اپراتور، نقطهٔ سبز پنل‌ها | `loc-multi-dom` (۱۵، صفحهٔ واقعی)، `locations` (۵۸)، `Beta245OperatorScanAndLiveDotTest` (۶) | نقطه‌ها و «📶» روی گوشی **تست نشده** |
 | پنل Node (KataBump، Bot-Hosting، Lucity، Shiprr، SmarterASP، Zerops، Seenode، Hostim) | `node-host.test.mjs` و تست‌های هاست | SmarterASP آزمایشی بالا آمده (6.79.2)؛ Zerops/Seenode/Hostim **تست نشده**؛ Reality روی KataBump فقط با Xray ساختگی |
 | پنل Railway (Xray واقعی) | گردش‌کار جدای «Railway panel tests» | تست زندهٔ اخیر ندارد |
 | Cat Warp (Aether: WireGuard، MASQUE-H2، WARP-in-WARP، WoM، MiM، Psiphon/Tor) | تست‌های JVM؛ رفع beta241–243 با `Beta241AetherNetworkPlanTest` (۱۱) و `Beta243AetherReviewRound2Test` (۷ تست رفتاری روی شیء واقعی `AetherRuntimeConfig`) | رفع beta241–243 (کار روی خط دیگران) **روی گوشی تست نشده** |

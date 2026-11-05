@@ -27,7 +27,7 @@
 | `MainActivityAmneziaSstp.kt` | 623 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1813 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3355 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 9 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCloud.kt` | 2804 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 9 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCloud.kt` | 2818 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityConnectionTesting.kt` | 1883 | Connection testing page (ping/speed lists, chain picker). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDashboard.kt` | 1398 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -36,7 +36,7 @@
 | `MainActivityGuides.kt` | 1000 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityScanner.kt` | 3974 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivitySubscriptions.kt` | 2321 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 8 JVM · 9 panel (see `affected-tests.py`) |
 
@@ -115,7 +115,7 @@
 | `SlipNetCliEngine.kt` | 272 | Real DNS-tunnel engine. | Beta218ConnectFreezeTest · — |
 | `SstpClient.kt` | 1078 | One SSTP server: `sstp://user:pass@host:port?ip=1.2.3.4#remark`. | Beta212SstpTest · — |
 | `VercelRelay.kt` | 632 | Vercel XHTTP relay ("config on Vercel"). | VercelRelayTest · — |
-| `VercelRelayController.kt` | 1724 | "🔺 Config on Vercel": deploys an XHTTP relay into the user's own Vercel account with their token, then builds ready configs (vercel.com address, pr… | — · — |
+| `VercelRelayController.kt` | 1751 | "🔺 Config on Vercel": deploys an XHTTP relay into the user's own Vercel account with their token, then builds ready configs (vercel.com address, pr… | — · — |
 | `VerifiedTunnelChain.kt` | 41 | — | — · — |
 | `WarpRegistration.kt` | 486 | Real Cloudflare WARP registration for `awg://auto@…` / `wireguard://auto@…` configs. | Beta209WarpEditorTest, Beta210WarpAutoKeyTest · — |
 | `WhiteDnsSmartScanner.kt` | 3267 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, WhiteDnsSmartScannerTest · — |
@@ -174,12 +174,14 @@
 | `FrontingIp.kt` | 145 | — | FrontingMergeTest, IpHealthEntryAuthorityTest · — |
 | `IpGeolocation.kt` | 274 | IpGeolocation — what's-my-ip and country detection used on the main dashboard. | — · — |
 | `IpHealth.kt` | 363 | One tracked clean IP: last probe state plus the failure streak used for automatic eviction. | IpHealthEntryAuthorityTest · — |
-| `IpScanner.kt` | 1658 | IpScanner — clean-IP scanner that actually finishes on Iranian networks. | AetherSelectionTest, IpScannerIpv6Test, IpScannerPanelLineTest, IpScannerSourcesTest, PingJitterMeterTest · scanner-sources |
+| `IpScanner.kt` | 1658 | IpScanner — clean-IP scanner that actually finishes on Iranian networks. | AetherSelectionTest, Beta245OperatorScanAndLiveDotTest, IpScannerIpv6Test, IpScannerPanelLineTest, IpScannerSourcesTest, PingJitterMeterTest · scanner-sources |
 | `IspProtocolMatrix.kt` | 623 | 📡 1-Tap ISP Protocol Matrix — answers "which protocol is open on MY line right now?" with REAL network probes only (no simulated pings): • Baseline… | Beta212SstpTest, IspProtocolMatrixTest · — |
 | `LanSharing.kt` | 93 | — | — · — |
-| `MobileCarrier.kt` | 84 | The mobile carrier behind the current connection, as far as Android is willing to say. | PanelTuneTest · tune |
+| `MobileCarrier.kt` | 84 | The mobile carrier behind the current connection, as far as Android is willing to say. | Beta245OperatorScanAndLiveDotTest, PanelTuneTest · tune |
 | `NetworkGenome.kt` | 327 | CAT Network Cognitive Engine — phase A (on device). | — · — |
 | `OperatorPortRecommendation.kt` | 42 | Recommendations are derived exclusively from fresh runtime evidence measured on the current network and for the requested endpoint role. | — · — |
+| `OperatorScanHints.kt` | 82 | beta245 📶 per-operator scanner suggestions (pure logic, no Android — unit-tested on the JVM). | Beta245OperatorScanAndLiveDotTest · — |
+| `OperatorScanMemory.kt` | 39 | beta245 📶 the phone-side store for [OperatorScanHints] (SharedPreferences, this phone only). | — · — |
 | `PingJitterMeter.kt` | 472 | Real ping and jitter measured from THIS phone, two ways, for one exact `ip:port`. | PingJitterMeterTest · — |
 | `PingJitterPage.kt` | 253 | ⏱ Precise ping & jitter for ONE exact ip:port: «my line» (bare TCP round trips) next to «through the worker» (warm TLS, request → first byte), with… | — · — |
 | `ProfileDelaySelector.kt` | 46 | — | — · — |
@@ -224,7 +226,7 @@
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
 | `NodeHost.kt` | 805 | 6.69.45 Cat panel on other Node.js hosts — KataBump (free), Lucity, Shiprr. | ApiHostPlanTest, Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, Beta238FoxWebChannelTest, NodeHostTest · — |
-| `NodeHostController.kt` | 2375 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, Beta238FoxWebChannelTest · — |
+| `NodeHostController.kt` | 2404 | 6.69.45 Cloud tab → one card per Node host (KataBump · Lucity · Shiprr), each with the same buttons: ⚡ automatic install · 📦 save the files · ✍️ ad… | Beta224HostFoxCrashTest, Beta225FreeHostsTest, Beta226LinkRegionTest, Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta231SmarterAspRunnerTest, Beta238FoxWebChannelTest · — |
 | `PanelBackup.kt` | 63 | Local, private snapshot of the panel's last known-good settings and users. | — · — |
 | `PanelCredentials.kt` | 76 | — | — · — |
 | `PanelEndpointBatch.kt` | 33 | — | — · — |
@@ -232,6 +234,7 @@
 | `PanelEndpointPayload.kt` | 24 | — | — · — |
 | `PanelEndpointSync.kt` | 32 | Interprets an app/bot/panel write only after reading settings back. | — · — |
 | `PanelIpsReadBack.kt` | 62 | Verifies `POST /api/ips` responses by checking `persisted` (KV bound) and confirming each requested `host:port` authority is present in the read-ba… | — · — |
+| `PanelLiveDot.kt` | 49 | beta245 🟢 live dot in front of every panel in the app's panel lists (Cloudflare, Vercel, Node hosts). | Beta245OperatorScanAndLiveDotTest · — |
 | `PanelMonitor.kt` | 95 | Outward panel monitor (the app half — the worker's own cron is the inward half): every 30 minutes it asks /health of the user's deployed panel and… | — · — |
 | `PanelSettingsReadBack.kt` | 135 | Parses real `/api/settings` GET/PUT JSON responses into verified endpoints and serializes typed payloads so panel writes are checked against what t… | — · — |
 | `PanelTune.kt` | 142 | The owner's fragment recommendation, read from the deployed panel. | PanelTuneTest · tune |
@@ -281,7 +284,7 @@
 |---|---:|---|---|
 | `Actions.kt` | 81 | — | Beta220WiringTest · — |
 | `AnalyticsEvents.kt` | 34 | AnalyticsEvents — Cat Client does NOT ship any third-party tracking. | — · — |
-| `AntiSanctionRouting.kt` | 160 | beta244 — anti-sanction routing (idea from other clients' «sanction rules»; own code, own list). | Beta244AntiSanctionRoutingTest, Beta244AntiSanctionRuntimeTest · — |
+| `AntiSanctionRouting.kt` | 168 | beta244 — anti-sanction routing (idea from other clients' «sanction rules»; own code, own list). | Beta244AntiSanctionRoutingTest, Beta244AntiSanctionRuntimeTest · — |
 | `AntiSanctionSettings.kt` | 242 | beta244 — one row in «مسیریابی» (next to ad block / sniffing / FakeDNS) that opens the anti-sanction dialog. | — · — |
 | `AppLock.kt` | 100 | App lock (PIN, optionally unlocked with the phone's own fingerprint / face / pattern through the system credential screen). | WhiteDnsToolkitTest · — |
 | `AppSettingsResetter.kt` | 29 | — | — · — |
@@ -305,7 +308,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_247 Kotlin files, 108293 lines._
+_250 Kotlin files, 108586 lines._
 
 ## MainActivity screens — function index
 
@@ -334,7 +337,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityCloud.kt` (46 functions)
 
-`addDeploymentProfilesSection`:111, `buildCloudScreen`:228, `renderCloudDeploymentHistory`:1096, `showPanelSecretsDialog`:1209, `showOptInGeminiWorkerReviewDialog`:1282, `showTechNamoozInstallDialog`:1380, `buildPanelStatusCard`:1474, `onPanelStatusCheck`:1515, `showPanelManageDialog`:1550, `confirmPanelDelete`:1585, `showPanelActivatingDialog`:1626, `showPanelRecoveryDialog`:1638, `runPanelRecovery`:1681, `showPanelRecoveryDone`:1741, `runTechNamoozDeployment`:1766, `showTechNamoozDeploymentResult`:1809, `newestPanelScript`:1856, `showPanelStatusDialog`:1865, `fetchPanelStatus`:1915, `onAddExistingPanel`:1975, `applyPanelVersionBadge`:2038, `blockPanelDowngrade`:2064, `showPanelUpdateDialog`:2075, `presentPanelUpdateDialog`:2098, `presentTokenlessPanelUpdate`:2122, `presentPanelTokenPrompt`:2166, `presentPanelUpdatePasswordDialog`:2245, `runPanelUpdate`:2273, `panelStatusLine`:2341, `showCloudUpdateDialog`:2379, `openCloudflareTokenPage`:2410, `cloudAccountLinkButton`:2428, `shareDeployButtonLink`:2443, `copyPanelPasteCode`:2469, `showWizardDeployedDialog`:2497, `wizardField`:2520, `wizardBody`:2535, `wizardText`:2542, `showPanelWizard`:2551, `showPanelWizardToken`:2561, `showPanelWizardOptions`:2600, `panelBaseUrl`:2644, `pickPanelBaseInteractive`:2650, `showCloudDeploymentDialog`:2665, `showPanelProbeDialog`:2718, `runPanelProbe`:2750
+`addDeploymentProfilesSection`:111, `buildCloudScreen`:228, `renderCloudDeploymentHistory`:1096, `showPanelSecretsDialog`:1223, `showOptInGeminiWorkerReviewDialog`:1296, `showTechNamoozInstallDialog`:1394, `buildPanelStatusCard`:1488, `onPanelStatusCheck`:1529, `showPanelManageDialog`:1564, `confirmPanelDelete`:1599, `showPanelActivatingDialog`:1640, `showPanelRecoveryDialog`:1652, `runPanelRecovery`:1695, `showPanelRecoveryDone`:1755, `runTechNamoozDeployment`:1780, `showTechNamoozDeploymentResult`:1823, `newestPanelScript`:1870, `showPanelStatusDialog`:1879, `fetchPanelStatus`:1929, `onAddExistingPanel`:1989, `applyPanelVersionBadge`:2052, `blockPanelDowngrade`:2078, `showPanelUpdateDialog`:2089, `presentPanelUpdateDialog`:2112, `presentTokenlessPanelUpdate`:2136, `presentPanelTokenPrompt`:2180, `presentPanelUpdatePasswordDialog`:2259, `runPanelUpdate`:2287, `panelStatusLine`:2355, `showCloudUpdateDialog`:2393, `openCloudflareTokenPage`:2424, `cloudAccountLinkButton`:2442, `shareDeployButtonLink`:2457, `copyPanelPasteCode`:2483, `showWizardDeployedDialog`:2511, `wizardField`:2534, `wizardBody`:2549, `wizardText`:2556, `showPanelWizard`:2565, `showPanelWizardToken`:2575, `showPanelWizardOptions`:2614, `panelBaseUrl`:2658, `pickPanelBaseInteractive`:2664, `showCloudDeploymentDialog`:2679, `showPanelProbeDialog`:2732, `runPanelProbe`:2764
 
 ### `MainActivityConnectionTesting.kt` (1 functions)
 
@@ -368,9 +371,9 @@ for the dialog/button you want to change.
 
 `buildRealInternetCard`:31, `realInternetTexts`:106, `renderRealInternetCard`:126, `handleRealInternetBroadcast`:146, `currentNetworkKind`:150, `showAppReportDialog`:164
 
-### `MainActivityScanner.kt` (73 functions)
+### `MainActivityScanner.kt` (75 functions)
 
-`buildScannerScreen`:125, `renderScannerSources`:1304, `startIpScanner`:1406, `renderScannerIpHealth`:1563, `runScannerAiTest`:1646, `sendScanToPanelSuspend`:1730, `buildSniScannerCard`:1837, `showWhitelistSuperScannerDialog`:1946, `runCottenMaxDualUdpTcpScannerDialog`:2319, `injectScannedIpsIntoActiveSubscription`:2412, `scannerInput`:2522, `scannerFieldLayout`:2535, `recommendedScannerSnis`:2546, `scannerSniPreference`:2551, `buildSubscriptionFromScan`:2630, `saveScannerSni`:2693, `scannerPortPreference`:2700, `saveScannerPort`:2706, `scannerSourcePreference`:2719, `saveScannerSource`:2723, `scannerSourceEnabled`:2736, `scannerRangesPreference`:2744, `saveScannerRanges`:2749, `stopIpScanner`:2756, `runScannerSpeedTest`:2767, `renderIpHealthCountries`:2830, `startIpHealthLoop`:2892, `runCognitiveFailover`:2910, `runIpHealthSweep`:2946, `runNeighborScan`:2997, `scannerProfileRow`:3073, `refreshScannerProfileRow`:3112, `scannerPlainList`:3125, `copyScannerPlainList`:3140, `runScannerForeignTest`:3152, `probeForeignService`:3197, `foreignServiceVerdict`:3230, `scannerForeignResultRow`:3248, `shareScannerForeignReport`:3285, `shareScannerResults`:3313, `saveScanHistoryRun`:3331, `scanHistoryRaw`:3340, `renderScanHistory`:3343, `refreshScannerCountrySummary`:3372, `scannerVisibleCap`:3392, `scannerFilterVisible`:3394, `scannerFilterRow`:3401, `refreshScannerFilters`:3431, `scannerRowKey`:3450, `scannerSourceList`:3453, `scannerSortedRows`:3457, `scannerSelectedResults`:3473, `toggleScannerRow`:3479, `selectAllScannerResults`:3485, `selectVerifiedScannerResults`:3491, `copySelectedScannerResults`:3498, `sendSelectedScannerResults`:3510, `refreshScannerHeader`:3523, `scannerHeaderRow`:3532, `scannerSelectionBar`:3596, `scannerPlainRowsBlock`:3667, `verifyScannerRowsPainted`:3695, `fallbackScannerRow`:3722, `scannerMeasureLine`:3737, `scannerWorkerHost`:3773, `measureScannerRows`:3791, `scannerResultRow`:3812, `panelNeedsUsername`:3874, `updateScannerPanelPushProgress`:3885, `sendScanToPanel`:3897, `pushIpsToPanel`:3905, `copyScannerIp`:3937, `applyScannerResult`:3947
+`buildScannerScreen`:125, `renderScannerSources`:1305, `startIpScanner`:1407, `renderScannerIpHealth`:1565, `runScannerAiTest`:1648, `sendScanToPanelSuspend`:1732, `buildSniScannerCard`:1839, `showWhitelistSuperScannerDialog`:1948, `runCottenMaxDualUdpTcpScannerDialog`:2321, `injectScannedIpsIntoActiveSubscription`:2414, `scannerInput`:2524, `scannerFieldLayout`:2537, `recommendedScannerSnis`:2548, `scannerSniPreference`:2553, `buildSubscriptionFromScan`:2632, `saveScannerSni`:2695, `scannerPortPreference`:2702, `saveScannerPort`:2708, `scannerSourcePreference`:2721, `saveScannerSource`:2725, `scannerSourceEnabled`:2738, `scannerRangesPreference`:2746, `saveScannerRanges`:2751, `stopIpScanner`:2758, `runScannerSpeedTest`:2769, `renderIpHealthCountries`:2832, `startIpHealthLoop`:2894, `runCognitiveFailover`:2912, `runIpHealthSweep`:2948, `runNeighborScan`:2999, `scannerProfileRow`:3075, `refreshScannerProfileRow`:3114, `scannerPlainList`:3127, `copyScannerPlainList`:3142, `runScannerForeignTest`:3154, `probeForeignService`:3199, `foreignServiceVerdict`:3232, `scannerForeignResultRow`:3250, `shareScannerForeignReport`:3287, `shareScannerResults`:3315, `saveScanHistoryRun`:3333, `scanHistoryRaw`:3342, `renderScanHistory`:3345, `refreshScannerCountrySummary`:3374, `scannerVisibleCap`:3394, `scannerFilterVisible`:3396, `scannerFilterRow`:3403, `refreshScannerFilters`:3433, `scannerRowKey`:3452, `scannerSourceList`:3455, `scannerSortedRows`:3459, `scannerSelectedResults`:3475, `toggleScannerRow`:3481, `selectAllScannerResults`:3487, `selectVerifiedScannerResults`:3493, `copySelectedScannerResults`:3500, `sendSelectedScannerResults`:3512, `refreshScannerHeader`:3525, `scannerHeaderRow`:3534, `scannerSelectionBar`:3598, `scannerPlainRowsBlock`:3669, `verifyScannerRowsPainted`:3697, `fallbackScannerRow`:3724, `scannerMeasureLine`:3739, `scannerWorkerHost`:3775, `measureScannerRows`:3793, `scannerResultRow`:3814, `panelNeedsUsername`:3876, `updateScannerPanelPushProgress`:3887, `sendScanToPanel`:3899, `pushIpsToPanel`:3907, `copyScannerIp`:3939, `applyScannerResult`:3949, `operatorSuggestButton`:3980, `rememberScanForOperator`:4013
 
 ### `MainActivitySubscriptions.kt` (48 functions)
 
@@ -733,6 +736,8 @@ for the dialog/button you want to change.
 | `Observation` | `NetworkGenome.kt` |
 | `OperationFailure` | `ConnectionLifecycle.kt` |
 | `OperatorPortRecommendation` | `OperatorPortRecommendation.kt` |
+| `OperatorScanHints` | `OperatorScanHints.kt` |
+| `OperatorScanMemory` | `OperatorScanMemory.kt` |
 | `OrbotEnginePolicy` | `OrbotEngine.kt` |
 | `OrbotEnginePreferenceStore` | `OrbotEngine.kt` |
 | `OrbotProbe` | `OrbotEngine.kt` |
@@ -753,6 +758,7 @@ for the dialog/button you want to change.
 | `PanelEndpointSyncStatus` | `PanelEndpointSync.kt` |
 | `PanelIpsPushOutcome` | `PanelIpsReadBack.kt` |
 | `PanelIpsReadBack` | `PanelIpsReadBack.kt` |
+| `PanelLiveDot` | `PanelLiveDot.kt` |
 | `PanelMonitor` | `PanelMonitor.kt` |
 | `PanelSettingsReadBack` | `PanelSettingsReadBack.kt` |
 | `PanelSettingsSnapshot` | `PanelSettingsReadBack.kt` |

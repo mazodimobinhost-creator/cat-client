@@ -1109,6 +1109,14 @@ internal fun MainActivity.renderCloudDeploymentHistory() {
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         }
+        // beta245 🟢 live dot: a real /health request to this panel, made when the list is drawn
+        val liveDot = TextView(this).apply {
+            text = PanelLiveDot.CHECKING
+            textSize = 12f
+            contentDescription = PanelLiveDot.word(null, appLanguagePreferenceStore.read() == AppLanguage.Persian)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+        titleLine.addView(liveDot, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         titleLine.addView(
             TextView(this).apply {
                 text = "🐱  " + deployment.workerUrl.removePrefix("https://").take(42)
@@ -1181,6 +1189,12 @@ internal fun MainActivity.renderCloudDeploymentHistory() {
             if (index > 0) topMargin = dp(7)
         })
 
+        activityScope.launch {
+            val state = withContext(Dispatchers.IO) { CloudflareWorker.checkPanelHealth(deployment.workerUrl).state }
+            if (!liveDot.isAttachedToWindow) return@launch
+            liveDot.text = PanelLiveDot.of(state)
+            liveDot.contentDescription = PanelLiveDot.word(state, appLanguagePreferenceStore.read() == AppLanguage.Persian)
+        }
         // Live version check: deployed (/api/version) vs newest (release asset / bundle).
         activityScope.launch {
             val deployed = PanelUpdate.deployedVersion(deployment.workerUrl)
