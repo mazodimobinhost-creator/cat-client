@@ -197,3 +197,21 @@ internal object MethodFinderSources {
             .getOrDefault(text)
     }
 }
+
+/** The last run per network (Wi-Fi / each SIM separately): «on this line Hysteria2 worked, Cat Warp did not». */
+internal object MethodFinderStore {
+    private const val PREFS = "cat_method_finder"
+
+    fun save(ctx: Context, networkKey: String, results: List<FinderFamilyResult>) {
+        if (results.none { it.tested > 0 }) return
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("r:$networkKey", MethodFinderPlan.encode(results))
+            .putLong("t:$networkKey", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun read(ctx: Context, networkKey: String): Pair<List<FinderFamilyResult>, Long> {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return MethodFinderPlan.decode(p.getString("r:$networkKey", null)) to p.getLong("t:$networkKey", 0L)
+    }
+}

@@ -34,7 +34,7 @@
 | `MainActivityEngines.kt` | 4003 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1394 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 892 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityMethodFinder.kt` | 533 | The last run per network (Wi-Fi / each SIM separately): «on this line Hysteria2 worked, Cat Warp did not». | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityMethodFinder.kt` | 515 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -306,7 +306,7 @@
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
 | `MethodFinderPlan.kt` | 291 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest · — |
-| `MethodFinderSources.kt` | 199 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
+| `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
@@ -368,7 +368,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityMethodFinder.kt` (7 functions)
 
-`finderFa`:47, `methodFinderSummaryLine`:50, `buildMethodFinderCard`:59, `finderButton`:110, `showMethodFinderDialog`:135, `confirmFinderDisconnect`:492, `connectFinderCandidate`:510
+`finderFa`:29, `methodFinderSummaryLine`:32, `buildMethodFinderCard`:41, `finderButton`:92, `showMethodFinderDialog`:117, `confirmFinderDisconnect`:474, `connectFinderCandidate`:492
 
 ### `MainActivityNetworkTools.kt` (24 functions)
 
@@ -692,7 +692,7 @@ for the dialog/button you want to change.
 | `MaxWidthLinearLayout` | `DashboardViews.kt` |
 | `MethodFinderPlan` | `MethodFinderPlan.kt` |
 | `MethodFinderSources` | `MethodFinderSources.kt` |
-| `MethodFinderStore` | `MainActivityMethodFinder.kt` |
+| `MethodFinderStore` | `MethodFinderSources.kt` |
 | `MihomoAdaptiveSelectionPlan` | `MihomoRuntime.kt` |
 | `MihomoAutomaticRoutingBridge` | `MihomoRuntime.kt` |
 | `MihomoAutomaticRoutingBridgeResult` | `MihomoRuntime.kt` |
