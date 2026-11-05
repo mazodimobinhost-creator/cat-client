@@ -52,7 +52,7 @@ python3 scripts/affected-tests.py
 |---|---|---|
 | ساخت اپ اندروید (همهٔ ABIها) و انتشار | CI سبز در هر نسخه؛ beta242 در `376a1fc`: همهٔ اجراهای push و PR سبز، pre-release با ۲۰ فایل | — |
 | تست‌های JVM اپ | ۶۹۷ تست در ۱۲۲ فایل؛ در CI سبز | — |
-| پنل Cloudflare (Worker) | ۸۳ فایل تست `scripts/panels/*.test.mjs`؛ ترافیک واقعی WebSocket در Miniflare (`worker-realtraffic` ۲۲/۲۲)؛ ورود و صفحه‌ها در UI e2e | پنل‌های CF کاربر باید به 6.81.0 به‌روز شوند و 🔌 (DATA_PLANE) زده شود — **تأیید نشده** |
+| پنل Cloudflare (Worker) | ۸۳ فایل تست `scripts/panels/*.test.mjs`؛ ترافیک واقعی WebSocket در Miniflare (`worker-realtraffic` ۲۲/۲۲)؛ ورود و صفحه‌ها در UI e2e | پنل‌های CF کاربر باید به 6.81.1 به‌روز شوند و 🔌 (DATA_PLANE) زده شود — **تأیید نشده** |
 | پنل Vercel | تست‌های `vercel-*.test.mjs` | پنل زنده هنوز روی **6.77.3** است (`cat-panel-v7k2m`) — به‌روزرسانی با ملاد |
 | پنل Node (KataBump، Bot-Hosting، Lucity، Shiprr، SmarterASP، Zerops، Seenode، Hostim) | `node-host.test.mjs` و تست‌های هاست | SmarterASP آزمایشی بالا آمده (6.79.2)؛ Zerops/Seenode/Hostim **تست نشده**؛ Reality روی KataBump فقط با Xray ساختگی |
 | پنل Railway (Xray واقعی) | گردش‌کار جدای «Railway panel tests» | تست زندهٔ اخیر ندارد |
