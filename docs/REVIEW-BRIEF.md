@@ -6,8 +6,20 @@
 
 - **مخزن (عمومی):** https://github.com/mazodimobinhost-creator/cat-client
 - **شاخهٔ کار:** `arena/c5b36768-cat-client` (همهٔ کار فقط روی همین شاخه). **PR شمارهٔ ۹ ادغام نمی‌شود.**
-- **آخرین نسخه:** `v1.10.0-beta241` (versionCode 308) — پنل `6.81.0`. انتشارها: صفحهٔ Releases مخزن (pre-release).
+- **آخرین نسخه:** `v1.10.0-beta242` (versionCode 309) — پنل `6.81.1`. انتشارها: صفحهٔ Releases مخزن (pre-release).
 - **قرارداد کار و قوانین ثابت:** [`docs/COLLABORATION.md`](COLLABORATION.md) — اول این را بخوانید؛ بخش ۲ (قوانین) و بخش ۸ (چک‌لیست) الزامی است.
+
+---
+
+## ۰) اگر به GitHub دسترسی ندارید (صفحه‌های درخت بسته / شبکهٔ ابزار خاموش)
+
+کد در Google Drive هم هست (پوشهٔ «Cat Client — بازبینی beta242»):
+- **۱ — diff از beta240 تا beta242** (Kotlin + تست‌ها + پنل Worker): https://docs.google.com/document/d/1aPZBK3-ICbRj3HZoku2_DnMYOSiHHKczKifh6N629M8/edit
+- **۲ — فایل‌های کامل فعلی** (Aether، ویزارد اسکن، `dialTarget` پنل): https://docs.google.com/document/d/1fzqliv9t-uLYYdyPdTTfH34CWysoGtAuH3T7bFnweUQ/edit
+
+فایل خام هر مسیر هم از این الگو باز می‌شود (بدون صفحهٔ درخت):
+`https://raw.githubusercontent.com/mazodimobinhost-creator/cat-client/arena/c5b36768-cat-client/<مسیر>`
+مثلاً `…/app/src/main/java/com/cat/client/AetherNetworkPlanner.kt` یا `…/docs/COLLABORATION.md`.
 
 ---
 
@@ -24,7 +36,7 @@
 ```bash
 git clone https://github.com/mazodimobinhost-creator/cat-client && cd cat-client
 git checkout arena/c5b36768-cat-client
-scripts/review-worktree.sh origin/arena/c5b36768-cat-client --base 8f97a76   # فقط تغییرات beta241
+scripts/review-worktree.sh origin/arena/c5b36768-cat-client --base 8f97a76   # تغییرات beta241 + beta242
 scripts/review-worktree.sh origin/arena/c5b36768-cat-client --base c19589e   # همهٔ کار از beta172 به بعد
 npm install --no-save javascript-obfuscator@5 terser acorn jsdom ws@8 @vercel/blob@2 miniflare@4 && npm test
 python3 scripts/codemap.py --check
@@ -38,20 +50,20 @@ python3 scripts/affected-tests.py
 
 | بخش | مدرک موجود | تست واقعی روی گوشی/خط ایران |
 |---|---|---|
-| ساخت اپ اندروید (همهٔ ABIها) و انتشار | CI سبز در هر نسخه؛ beta241 در `88748b0`: هر ۸ اجرای push و PR سبز، pre-release با ۲۰ فایل | — |
+| ساخت اپ اندروید (همهٔ ABIها) و انتشار | CI سبز در هر نسخه؛ beta242 در `376a1fc`: همهٔ اجراهای push و PR سبز، pre-release با ۲۰ فایل | — |
 | تست‌های JVM اپ | ۶۹۷ تست در ۱۲۲ فایل؛ در CI سبز | — |
 | پنل Cloudflare (Worker) | ۸۳ فایل تست `scripts/panels/*.test.mjs`؛ ترافیک واقعی WebSocket در Miniflare (`worker-realtraffic` ۲۲/۲۲)؛ ورود و صفحه‌ها در UI e2e | پنل‌های CF کاربر باید به 6.81.0 به‌روز شوند و 🔌 (DATA_PLANE) زده شود — **تأیید نشده** |
 | پنل Vercel | تست‌های `vercel-*.test.mjs` | پنل زنده هنوز روی **6.77.3** است (`cat-panel-v7k2m`) — به‌روزرسانی با ملاد |
 | پنل Node (KataBump، Bot-Hosting، Lucity، Shiprr، SmarterASP، Zerops، Seenode، Hostim) | `node-host.test.mjs` و تست‌های هاست | SmarterASP آزمایشی بالا آمده (6.79.2)؛ Zerops/Seenode/Hostim **تست نشده**؛ Reality روی KataBump فقط با Xray ساختگی |
 | پنل Railway (Xray واقعی) | گردش‌کار جدای «Railway panel tests» | تست زندهٔ اخیر ندارد |
-| Cat Warp (Aether: WireGuard، MASQUE-H2، WARP-in-WARP، WoM، MiM، Psiphon/Tor) | تست‌های JVM؛ رفع beta241 با `Beta241AetherNetworkPlanTest` | رفع beta241 (کار روی خط دیگران) **روی گوشی تست نشده** |
+| Cat Warp (Aether: WireGuard، MASQUE-H2، WARP-in-WARP، WoM، MiM، Psiphon/Tor) | تست‌های JVM؛ رفع beta241/242 با `Beta241AetherNetworkPlanTest` (۱۱ تست) | رفع beta241/242 (کار روی خط دیگران) **روی گوشی تست نشده** |
 | Cat Fox VPN (ورود موزیلا، WebChannel، رفع 406) | `Beta237FoxPassTest`، `Beta238FoxWebChannelTest`، تست‌های beta239 | **تست نشده** روی گوشی |
 | یابندهٔ پروکسی تلگرام (MTProto) | تست‌های beta239 | **تست نشده** |
 | تنظیمات beta240 (Sniffing، FakeDNS، پروکسی HTTP سیستم، آدرس پینگ) | `Beta240CoreOptionsTest` | **تست نشده** روی همراه اول/ایرانسل |
 | اسکنر IP / CDN / اینترنت ملی، DNS رمزدار | تست‌های JVM و `scanner-sources.test.mjs` | اسکن DoH/DoT روی دو اپراتور **تست نشده** |
 | SSTP (VPN Gate)، تونل‌های DNS، Hysteria v1/hy2، WireGuard/Amnezia | تست‌های JVM و تبدیل لینک | گزارش تست زندهٔ جدید ندارد |
 
-**مشکلات باز شناخته‌شده:** باگ ۴ زنجیره (در حالت `all` نباید بی‌صدا به direct برگردد)؛ بهینه‌سازی از دادهٔ واقعی (بسته به به‌روزرسانی پنل زنده)؛
+**مشکلات باز شناخته‌شده:** (باگ ۴ زنجیره در beta242 بسته شد — پایین)؛ بهینه‌سازی از دادهٔ واقعی (بسته به به‌روزرسانی پنل زنده)؛
 منبع IP تمیز CF که در ایران تست شده باشد؛ ثبت‌نام WARP روی دستگاه تازه در ایران مسدود است (اپ کلید گرم دارد — بررسی کنید کافی است).
 
 ---
@@ -81,6 +93,17 @@ python3 scripts/affected-tests.py
 - آیا «حالت یادگرفته» (مثلاً WireGuard ⇐ MASQUE) ممکن است جایی خروجی ایران/خارج یا زنجیرهٔ Psiphon/Tor را عوض کند؟
 - آیا حذف مرحلهٔ تکراری «کشف خودکار» در `AetherSession` حالتی را جا انداخته است؟
 - آیا جای دیگری هنوز endpoint تأییدنشده را «سالم» حساب می‌کند (مثلاً `?: hits.firstOrNull()` در ویزارد `MainActivityCatWarp.kt` — نتیجهٔ اسکن هسته است، نه حدس؛ نظرتان؟)
+
+### پاسخ به دور اول بازبینی (beta242) — هر مورد با کد بررسی شد
+
+| # | فرضیهٔ بازبین | نتیجهٔ بررسی کد | کار انجام‌شده |
+|---|---|---|---|
+| 1 | تشخیص IPv6: ULA/link-local، VPN فعال، 464XLAT | ULA (fc00::/7)، link-local، site-local و loopback از قبل حذف بودند؛ 464XLAT واقعاً IPv6 دارد (درست). **ایراد واقعی:** وقتی تونل خودمان بالاست، «اولین شبکهٔ غیر VPN» دلخواه انتخاب می‌شد | یک انتخاب‌گر مشترک `pickUnderlyingNetwork`: شبکهٔ فعال غیر VPN، وگرنه اول validated، بعد Wi-Fi/Ethernet، بعد داده — برای کلید شبکه و تشخیص IPv6 |
+| 1b | IPv6 که آدرس و مسیر دارد ولی کار نمی‌کند | بدون پروب قابل تشخیص نیست؛ endpoint لینک فقط ۶۰ ثانیه فرصت دارد و بعد هسته روی هر دو خانواده جست‌وجو می‌کند | تغییری نکرد (محدودیت شناخته‌شده) |
+| 2 | کلید شبکه با SSID/BSSID؟ عوض شدن خروجی با «حالت یادگرفته»؟ | کلید Wi-Fi = هش gateway + DNS (بدون SSID، بدون مجوز مکان)؛ داده = `cell:<MCCMNC>`. **ایراد واقعی:** WARP-in-WARP با خروجی «auto» اگر WireGuard یاد گرفته می‌شد، تک‌لایه `wg` (آی‌پی ایران) می‌شد | قاعدهٔ مشترک `alternateMode` / `exitForAlternate`: جایگزینِ حالت دولایه همیشه دولایه (خارج) می‌ماند؛ در planner، `AetherSession` و `AetherProxyCarrier`؛ فقط همان یک جایگزین از حافظه پذیرفته می‌شود؛ تست برای همهٔ حالت‌ها × همهٔ خروجی‌ها |
+| 3 | `hits.firstOrNull()` در ویزارد | لیست خالی ⇐ `null` (endpoint ساختگی نمی‌آید). **ایراد واقعی:** نتیجه‌ای که تست اتصال کامل را رد کرده بود هم «✅ وصل می‌شود» نشان داده می‌شد | فیلد `confirmed`؛ نمایش «🟡 پاسخ داد ولی اتصال کامل تأیید نشد» و رتبهٔ پایین‌تر؛ پاسخ پروب TCP/UDP هم تأیید حساب نمی‌شود |
+| 4 | باگ ۴ زنجیره fail-open | **تأیید شد:** در پنل، «خروج از پنل لینک‌شده — همهٔ سایت‌ها» با قطع لینک بی‌صدا به direct / ProxyIP می‌رفت (آی‌پی و کشور عوض می‌شد) | حالت `all` حالا fail-closed: خطای روشن `link exit down (all sites)` و `/api/links` ⇐ `exitDown`؛ حالت `cf` همان fallback را دارد. پنل 6.81.1 |
+| 5 | ProxyIPهای سخت‌کدشده | فقط نمونه/بذر هستند؛ پنل از تنظیمات + فیدها می‌خواند؛ Lite Worker با `?proxyip=` یا `PROXYIP` عوض می‌شود. پورت‌ها به دستور صاحب پروژه ثابت‌اند | تغییری نکرد |
 
 ---
 

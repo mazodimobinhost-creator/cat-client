@@ -10,6 +10,22 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## 2026-11-05 — Arena agent — beta242 / Panel 6.81.1 (review round 1)
+- Version / commit: v1.10.0-beta242 / 376a1fc — all CI runs green, prerelease 20 assets
+- Done: a reviewer (no repo access) sent 5 hypotheses from the brief; each checked against the code:
+  (1) IPv6 check already excluded ULA/link-local; real gap = arbitrary non-VPN network while our tunnel is up →
+  shared `pickUnderlyingNetwork` (active non-VPN, else validated, Wi-Fi/Ethernet before cellular).
+  (2) Wi-Fi key = hash(gateway+DNS), no SSID; real gap = learned WireGuard for WARP-in-WARP «auto» became single-hop
+  `wg` (Iran exit) → `AetherNetworkPlanner.alternateMode`/`exitForAlternate` shared by planner, AetherSession, carrier.
+  (3) wizard showed a hit that failed the connection check as «✅» → `confirmed` flag, 🟡 text, ranked lower.
+  (4) chain bug 4 confirmed and fixed in the panel: link exit «all» fails closed (`link exit down (all sites)`),
+  `/api/links` → `exitDown`; «cf» keeps fallback. (5) ProxyIPs are seeds only — unchanged.
+- Evidence: `Beta241AetherNetworkPlanTest` 11/11 run locally via kotlinc + reflection runner from `app/`; `npm test`
+  159/159; `mesh.test.mjs` (3 new checks), `katabump-cf-link`, `worker-realtraffic` pass; CI green. NOT phone-tested.
+- Code for reviewers without GitHub: Drive folder «Cat Client — بازبینی beta242» (diff + full files), brief §0.
+- Open / next owner: ملاد — CF panel → 6.81.1; with a 🔗 link in «all», stop the peer and check that sites fail
+  (not direct) and the link page shows the error; Cat Warp across lines (log `aether.plan*`). Reviewers — round 2.
+
 ## 2026-11-05 — Arena agent — beta241 (Cat Warp on other people's lines)
 - Version / commit: v1.10.0-beta241 / 2fd70e9 (code) + 88748b0 (test fix, brief) — all 8 CI runs green, prerelease 20 assets
 - Done: «Cat Warp configs the app builds only work on my own internet». Cause: wizard configs carry the builder line's
