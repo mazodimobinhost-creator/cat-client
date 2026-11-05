@@ -85,13 +85,21 @@ object SubscriptionAutoRefresh {
             if (!isEnabled(ctx)) return Result.success()
             val manager = UserSubscriptionManager(ctx)
             val usageStore = SubscriptionUsageStore(ctx)
+            val providerStore = SubscriptionProviderInfoStore(ctx)
             val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val nowSec = System.currentTimeMillis() / 1000L
             manager.list()
                 .filter { it.sourceKind == UserSubscriptionSourceKind.Https }
                 .forEachIndexed { index, item ->
-                    runCatching { manager.update(item.id, item.name, item.input) }
-                        .onFailure { DiagnosticLogger.warn(ctx, "subscription.autoRefresh.failed", "id=${item.id}", it) }
+                    // beta239: a provider asking for a longer `profile-update-interval` is not refreshed early.
+                    val interval = providerStore.read(item.input)?.updateIntervalHours
+                    if (SubscriptionProviderInfoPolicy.shouldRefresh(item.updatedAt, interval, System.currentTimeMillis())) {
+                        runCatching { manager.update(item.id, item.name, item.input) }
+                            .onFailure { DiagnosticLogger.warn(ctx, "subscription.autoRefresh.failed", "id=${item.id}", it) }
+                    }
+                    providerStore.read(item.input)?.announce?.takeIf { providerStore.markAnnouncementSeen(item.input, it) }?.let { text ->
+                        notifyAnnouncement(ctx, NOTIFY_BASE + 50 + (index % 50), item.name, text)
+                    }
                     val alert = alertFor(usageStore.read(item.input), nowSec)
                     val stateKey = "alert_${item.id}"
                     val previous = prefs.getString(stateKey, null)
@@ -105,6 +113,31 @@ object SubscriptionAutoRefresh {
             prefs.edit().putLong(KEY_LAST_RUN, System.currentTimeMillis()).apply()
             return Result.success()
         }
+    }
+
+    /** beta239: one notification per new provider announcement (`announce` header). */
+    private fun notifyAnnouncement(context: Context, id: Int, name: String, text: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val fa = runCatching { AppLanguagePreferenceStore(context).read() == AppLanguage.Persian }.getOrDefault(true)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL, if (fa) "هشدار اشتراک (انقضا / حجم)" else "Subscription alerts", NotificationManager.IMPORTANCE_DEFAULT),
+            )
+        }
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent(context, MainActivity::class.java)
+        val pending = PendingIntent.getActivity(context, id, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_cloud_tab)
+            .setContentTitle(if (fa) "📢 پیام ارائه‌دهندهٔ «$name»" else "📢 Message from \"$name\"")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
     }
 
     private fun notify(context: Context, id: Int, name: String, alert: Alert, usage: SubscriptionUsage?) {

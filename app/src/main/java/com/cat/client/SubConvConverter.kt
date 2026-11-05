@@ -30,7 +30,7 @@ object SubConvConverter {
     )
 
     private val EXTRACTABLE_SCHEMES = listOf(
-        "vless://", "vmess://", "trojan://", "anytls://", "hysteria2://", "hy2://",
+        "vless://", "vmess://", "trojan://", "anytls://", "hysteria2://", "hy2://", "hysteria://",
         "socks://", "socks5://", "ss://", "ssr://", "tuic://", "juicity://",
         "wireguard://", "wg://", "awg://", "amneziawg://",
         "ssh://", "snell://", "mieru://", "naive+https://", "naive+quic://",
@@ -139,6 +139,7 @@ object SubConvConverter {
                     "trojan" -> parseTrojan(line, names)
                     "anytls" -> parseAnyTls(line, names)
                     "hysteria2", "hy2" -> parseHysteria2(line, names)
+                    "hysteria" -> parseHysteria(line, names)
                     "tuic", "juicity" -> parseTuic(line, names)
                     "socks", "socks5" -> parseSocks(line, names)
                     "http", "https", "naive+https", "naive+quic" -> parseHttpProxy(line, names)
@@ -422,8 +423,38 @@ object SubConvConverter {
             }
     }
 
+    /**
+     * beta239: Hysteria port hopping. `host:443,20000-30000` (or `mport=`) is not a valid URI authority, so the
+     * port list is moved out before parsing: the first port becomes `port`, the whole list becomes mihomo `ports`.
+     */
+    private fun splitHysteriaPorts(line: String): Pair<String, String?> {
+        val m = Regex("""^([a-z0-9]+://[^/?#]*?:)(\d{1,5})([,-][\d,-]+)(?=[/?#]|$)""", RegexOption.IGNORE_CASE).find(line)
+            ?: return line to null
+        val ports = (m.groupValues[2] + m.groupValues[3]).trim(',', '-')
+        return line.replaceRange(m.range, m.groupValues[1] + m.groupValues[2]) to ports
+    }
+
+    /** Valid mihomo `ports` list: `443`, `20000-30000`, `443,8443,20000-30000`. */
+    private fun hysteriaPorts(raw: String?): String? {
+        val v = raw?.replace(" ", "")?.trim(',')?.takeIf(String::isNotBlank) ?: return null
+        val ok = v.split(',').all { part ->
+            val bounds = part.split('-').map { it.toIntOrNull() }
+            when (bounds.size) {
+                1 -> bounds[0] in 1..65535
+                2 -> bounds[0] != null && bounds[1] != null && bounds[0]!! in 1..65535 && bounds[1]!! in bounds[0]!!..65535
+                else -> false
+            }
+        }
+        return v.takeIf { ok && (',' in it || '-' in it) }
+    }
+
+    /** `pinSHA256` (hex, with or without colons) → mihomo certificate `fingerprint`; anything else is dropped. */
+    private fun certPin(raw: String?): String? =
+        raw?.replace(":", "")?.trim()?.lowercase()?.takeIf { it.length == 64 && it.all { c -> c.isDigit() || c in 'a'..'f' } }
+
     private fun parseHysteria2(line: String, names: NameRegistry): JSONObject {
-        val uri = parseUri(line)
+        val (clean, authorityPorts) = splitHysteriaPorts(line)
+        val uri = parseUri(clean)
         val endpoint = endpoint(uri)
         if (endpoint.userInfo.isBlank()) throw ParseError()
         val query = parseQuery(uri.rawQuery)
@@ -433,11 +464,52 @@ object SubConvConverter {
             .put("server", endpoint.host)
             .put("port", endpoint.port)
             .put("password", endpoint.userInfo)
+            // Certificate validation stays on (see MihomoLinkConfigBuilder); self-signed servers are reachable
+            // through their published `pinSHA256` instead of `insecure=1`.
             .put("skip-cert-verify", false)
             .apply {
                 listOf("obfs", "obfs-password", "sni").forEach { key ->
                     query[key]?.takeIf(String::isNotBlank)?.let { put(key, it) }
                 }
+                if (!has("sni")) query["peer"]?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                hysteriaPorts(query["mport"] ?: authorityPorts)?.let { put("ports", it) }
+                certPin(query["pinSHA256"] ?: query["pinsha256"])?.let { put("fingerprint", it) }
+                query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", JSONArray(it.split(',').map(String::trim).filter(String::isNotEmpty))) }
+            }
+    }
+
+    /**
+     * beta239: Hysteria v1 (`hysteria://host:port?protocol=udp&auth=…&peer=sni&upmbps=…&downmbps=…&alpn=…&obfsParam=…`).
+     * The manifest already opened Cat for these links, but they were silently dropped. mihomo needs `up`/`down`,
+     * so links without them get a conservative 50/100 Mbps (only the congestion-control hint, not a cap on use).
+     */
+    private fun parseHysteria(line: String, names: NameRegistry): JSONObject {
+        val (clean, authorityPorts) = splitHysteriaPorts(line)
+        val uri = parseUri(clean)
+        val endpoint = endpoint(uri)
+        val query = parseQuery(uri.rawQuery)
+        fun mbps(vararg keys: String, fallback: Int): String {
+            val v = keys.firstNotNullOfOrNull { query[it]?.trim()?.takeIf(String::isNotBlank) } ?: return "$fallback Mbps"
+            return v.toIntOrNull()?.takeIf { it > 0 }?.let { "$it Mbps" } ?: v
+        }
+        val auth = query["auth"] ?: query["auth_str"] ?: query["auth-str"] ?: endpoint.userInfo
+        val protocol = query["protocol"]?.lowercase()?.takeIf { it in setOf("udp", "wechat-video", "faketcp") }
+        return JSONObject()
+            .put("name", names.register(name(uri)))
+            .put("type", "hysteria")
+            .put("server", endpoint.host)
+            .put("port", endpoint.port)
+            .put("up", mbps("upmbps", "up", fallback = 50))
+            .put("down", mbps("downmbps", "down", fallback = 100))
+            .put("skip-cert-verify", false)
+            .apply {
+                if (auth.isNotBlank()) put("auth-str", auth)
+                protocol?.let { put("protocol", it) }
+                (query["peer"] ?: query["sni"])?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                (query["obfsParam"] ?: query["obfs-password"])?.takeIf(String::isNotBlank)?.let { put("obfs", it) }
+                hysteriaPorts(query["mport"] ?: authorityPorts)?.let { put("ports", it) }
+                certPin(query["pinSHA256"])?.let { put("fingerprint", it) }
+                query["alpn"]?.takeIf(String::isNotBlank)?.let { put("alpn", JSONArray(it.split(',').map(String::trim).filter(String::isNotEmpty))) }
             }
     }
 

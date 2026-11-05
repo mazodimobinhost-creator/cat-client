@@ -48,8 +48,8 @@ class Beta238FoxWebChannelTest {
         assertFalse(FoxWebChannel.isSuccessUrl("https://accounts.firefox.com/signin_token_code"))
         assertFalse(FoxWebChannel.isSuccessUrl("https://evil.example/settings"))
         assertEquals("https://accounts.firefox.com/?context=fx_desktop_v3&service=sync&action=email", FoxWebChannel.START_URL)
-        assertTrue(FoxWebChannel.firefoxAndroidUserAgent("13").contains("Android 13; Mobile; rv:152.0"))
-        assertTrue(FoxWebChannel.firefoxAndroidUserAgent("").contains("Firefox/152.0"))
+        assertTrue(FoxWebChannel.firefoxAndroidUserAgent("13").contains("Android 13; Mobile; rv:159.0"))
+        assertTrue(FoxWebChannel.firefoxAndroidUserAgent("").contains("Firefox/159.0"))
     }
 
     @Test

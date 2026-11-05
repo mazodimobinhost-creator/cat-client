@@ -38,7 +38,12 @@ internal sealed interface SubscriptionSource {
     data class Inline(val content: String) : SubscriptionSource
 }
 
-internal data class LoadedSubscription(val content: String, val usageHeader: String?)
+internal data class LoadedSubscription(
+    val content: String,
+    val usageHeader: String?,
+    /** beta239: `profile-title`, `announce`, `support-url`… (see [SubscriptionProviderInfoPolicy]). */
+    val providerHeaders: Map<String, String> = emptyMap(),
+)
 
 internal object SubscriptionSourceLoader {
     suspend fun load(source: SubscriptionSource): String = loadDetailed(source).content
@@ -111,7 +116,10 @@ internal object SubscriptionSourceLoader {
             if (bytes.size > UserSubscriptionImporter.MAX_SUBSCRIPTION_BYTES) {
                 throw IOException("Subscription Source exceeds the maximum size")
             }
-            return LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"))
+            val provider = SubscriptionProviderInfoPolicy.HEADERS.mapNotNull { name ->
+                connection.getHeaderField(name)?.takeIf(String::isNotBlank)?.let { name to it }
+            }.toMap()
+            return LoadedSubscription(bytes.toString(Charsets.UTF_8), connection.getHeaderField("subscription-userinfo"), provider)
         } finally {
             connection.disconnect()
         }

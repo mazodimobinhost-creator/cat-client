@@ -4,6 +4,29 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta239] — 2026-11-05 (Panel 6.80.0)
+
+### Fixed — Fox VPN: the persistent «406» after sign-in (rebuilt on FoxyVPN 2.0.1, MIT)
+- **The bot check is now answered where it is raised, as the same client.** Mozilla's servers (sign-in and `vpn.mozilla.org`) sit behind Fastly's bot check, which answers `406` with a challenge page. The old code always solved it on the sign-in host, with a Chrome identity, and kept one global cookie list — so the cookie never matched the request being retried (above all the Guardian/VPN calls), and the 406 came back every time. Now the page that challenged us is solved on ITS host with the retried request's own User-Agent, cookies are kept per host (with `Domain` / `Max-Age` rules), and a solved cookie is copied to every Mozilla host the app talks to. Retries stop at 5 and stop at once when the challenge cannot be solved.
+- One fixed identity: desktop Firefox **159** for sign-in and the check, and the official app identity `MozillaVPN/2.35.0 (sys:android <version>; iap:true)` for the VPN service calls (plus `Accept: application/json`, as the official client sends).
+- After a successful answer the app checks that the cookie is really accepted from this line; when it is not (the exit IP changed), the error now says so in plain Persian instead of a bare «406», with the exact step that failed.
+- New pure helper `FoxFastlyChallenge.kt` (challenge detection, `init([…])` parsing with strings/escapes, trusted origins only: `https` on 443 for the four Mozilla hosts) + `FoxCookieJar`.
+
+### Added — Telegram proxy (MTProto) finder that really tests on your line
+- Tools → «✈️ پروکسی تلگرام (MTProto)»: downloads a public, frequently re-verified MTProxy list (MIT-licensed data, through jsDelivr first because raw GitHub is often filtered) — or tests your own pasted `tg://proxy` / `t.me/proxy` links — and tests every proxy from your network on protected sockets (outside the VPN).
+- FakeTLS proxies (`ee…` secrets, the kind that passes DPI best) get a **real FakeTLS handshake**: the ClientHello carries an HMAC of the proxy's secret, and only a genuine proxy can answer with the matching HMAC — ✅ means the proxy is alive AND your network let it through. Other secret types are honestly marked 🟡 (port open only). «✈️ Open the fastest in Telegram» hands the best one straight to Telegram; «Copy» gives `t.me/proxy` links.
+
+### Added — protocols / subscription features other clients had and Cat lacked
+- **Hysteria v1** (`hysteria://`): the manifest already opened Cat for these links but they were silently dropped. Now converted to mihomo `type: hysteria` (auth, peer/SNI, up/down with the required defaults, protocol, obfs, ALPN) and back to a share link.
+- **Hysteria2**: `pinSHA256` (certificate pin — the secure way self-signed servers are shared), port hopping (`mport=` or `host:443,20000-30000` → mihomo `ports`) and ALPN are kept; they were dropped before, so such links could not connect. Certificate checking stays on for imported proxies (`insecure=1` is still not honoured — a pin is).
+- **Subscription provider headers** (`profile-title`, `profile-update-interval`, `announce`, `support-url`, `profile-web-page-url`, plain or `base64:`): the card shows the provider's title and announcement, a «Support» action opens the support link, «Usage page» opens the provider's own page, the background refresh honours a longer refresh interval, and a NEW announcement raises one notification. Values are sanitised (control/bidi characters removed, length caps, links only `https://` or `tg://`). Cat Panel already sent title/interval/page — the app now uses them.
+
+### Docs
+- `docs/COLLABORATION.md` §10: optional developer tools for collaborators (skill scanner first, token-saving, memory/graph, research, free-model routing) — outside the repo, nothing copied into the app.
+
+### Tests
+- New `Beta239FoxFastlyTest` (init parsing with brackets in strings and `\u` escapes, challenge page/prefix, trusted origins, per-host cookie jar, copy to all hosts, one-identity source guards) and `Beta239ProtocolsTelegramTest` (Hysteria v1/v2 conversion + round trip, MTProxy link parsing and secret kinds, a real FakeTLS handshake against an in-process proxy incl. wrong-secret rejection, provider-header parsing/sanitising/interval).
+
 ## [1.10.0-beta238] — 2026-11-05 (Panel 6.80.0)
 
 ### Fixed — Fox VPN sign-in (Mozilla account), checked against FoxyVPN 1.0.8 (MIT) and Mozilla's own web sign-in

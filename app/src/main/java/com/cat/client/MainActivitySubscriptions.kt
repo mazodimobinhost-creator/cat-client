@@ -511,6 +511,7 @@ internal fun MainActivity.renderSubscriptions() {
         )
     }
     val usageStore = SubscriptionUsageStore(this)
+    val providerStore = SubscriptionProviderInfoStore(this)
     userSubscriptionManager.list().forEach { item ->
         val updated = item.updatedAt.takeIf { it > 0 }?.let {
             DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(it)
@@ -522,6 +523,9 @@ internal fun MainActivity.renderSubscriptions() {
             updated,
         )
         val usage = usageStore.read(item.input)
+        val provider = providerStore.read(item.input)
+        // shown on the card now, so the background job does not notify about the same message again
+        provider?.announce?.let { providerStore.markAnnouncementSeen(item.input, it) }
         val isRemote = item.input.trim().startsWith("https://", ignoreCase = true)
         val shareActions: List<Pair<Int, () -> Unit>> = if (isRemote) listOf(
             R.string.subscription_action_copy_link to { copySubscriptionLink(item) },
@@ -530,11 +534,18 @@ internal fun MainActivity.renderSubscriptions() {
             R.string.subscription_action_open_v2rayng to { openSubscriptionInApp(item, "v2rayng") },
             R.string.subscription_action_open_v2box to { openSubscriptionInApp(item, "v2box") },
             R.string.subscription_action_open_info to { openSubscriptionInfoPage(item) },
+        ) + listOfNotNull(
+            provider?.supportUrl?.takeIf(String::isNotBlank)?.let { url ->
+                R.string.subscription_action_support to {
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    Unit
+                }
+            },
         ) else emptyList()
         subscriptionsList.addView(
             subscriptionCard(
                 title = item.name,
-                detail = detail + subscriptionUsageLine(usage),
+                detail = detail + subscriptionUsageLine(usage) + SubscriptionProviderInfoPolicy.cardLines(provider, item.name),
                 selected = selectedId == item.id,
                 error = localizedSubscriptionError(item.lastError),
                 onTestConnections = { openSubscriptionConnectionTesting(item.id) },
@@ -2198,6 +2209,10 @@ internal fun MainActivity.openSubscriptionInApp(item: UserSubscription, app: Str
 
 /** Cat Panel per-user pages live at /info/<token>; other panels get the plain link. */
 internal fun MainActivity.openSubscriptionInfoPage(item: UserSubscription) {
+    // beta239: the provider's own page (`profile-web-page-url`) wins when the panel sent one.
+    SubscriptionProviderInfoStore(this).read(item.input)?.webPageUrl?.takeIf(String::isNotBlank)?.let { page ->
+        if (runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(page))) }.isSuccess) return
+    }
     val link = subscriptionLink(item)
     val info = Regex("^(https://[^/]+)/u/([^/?#]+)").find(link)
         ?.let { "${it.groupValues[1]}/info/${it.groupValues[2]}" }

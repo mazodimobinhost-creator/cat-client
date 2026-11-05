@@ -37,7 +37,7 @@
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 3974 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivitySubscriptions.kt` | 2306 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivitySubscriptions.kt` | 2321 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 8 JVM · 9 panel (see `affected-tests.py`) |
 
 ### VPN service, lifecycle & state
@@ -66,7 +66,7 @@
 | `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, Beta223XrayEngineTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
 | `MihomoCoreLifecycle.kt` | 85 | Serializes setup and cleanup of the process-wide Mihomo core. | — · — |
 | `MihomoRuntime.kt` | 2804 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | Beta206EngineTest, Beta212SstpTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta220FinalMaskTest, Beta223XrayEngineTest, DnsQuicModesTest, OrbotEngineTest, SmartRouteProbePolicyTest, WhiteDnsSmartScannerTest · orbot-engine |
-| `MihomoShareLink.kt` | 545 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, WhiteDnsSmartScannerTest · — |
+| `MihomoShareLink.kt` | 563 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, Beta239ProtocolsTelegramTest, WhiteDnsSmartScannerTest · — |
 | `PathWatchdog.kt` | 178 | The multi-path watchdog: the tiny state machine that decides *when* the app stops insisting on the normal path and takes the Tor one instead — and… | PathWatchdogTest · orbot-engine |
 | `QuickSettingsTileState.kt` | 50 | — | — · — |
 | `RealInternetCheck.kt` | 218 | beta220 «real internet test»: «connected» only means the tunnel came up (Session Readiness in CONTEXT.md); it does not prove pages load. | Beta220RealInternetJsonTest, Beta220RealInternetTest, Beta220WiringTest · — |
@@ -101,7 +101,7 @@
 | `FenixHttp2.kt` | 925 | beta211: a small, dependency-free HTTP/2 client for Cat Fox VPN (RFC 9113 + HPACK RFC 7541). | Beta211FenixHttp2Test · — |
 | `FenixPassPolicy.kt` | 77 | beta237: when Cat Fox VPN renews its Mozilla ProxyPass, and what to do with each Guardian answer — the same rules Firefox's own IP Protection uses… | Beta237FoxPassTest · — |
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
-| `FirefoxVpnEngine.kt` | 3190 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, WhiteDnsSmartScannerTest · — |
+| `FirefoxVpnEngine.kt` | 3198 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3424 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
 | `MlmAndNextGenVpnHub.kt` | 1272 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
@@ -133,16 +133,17 @@
 | `ConnectionDisplay.kt` | 203 | — | — · — |
 | `ConnectionLabelPolicy.kt` | 66 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest · — |
 | `DeltaKroneckerHub.kt` | 109 | 🔺 Delta-Kronecker feeds (github.com/Delta-Kronecker) — public, regularly re-tested lists, consumed BY URL on the user's own phone. | DeltaKroneckerFeedsTest · — |
-| `FreeConfigs.kt` | 420 | FreeConfigs — public, community-maintained config sources. | FreeConfigsRegistryBridgeTest, FreeConfigsSafetyTest · — |
+| `FreeConfigs.kt` | 420 | FreeConfigs — public, community-maintained config sources. | Beta239ProtocolsTelegramTest, FreeConfigsRegistryBridgeTest, FreeConfigsSafetyTest · — |
 | `QrCodes.kt` | 45 | QrCodes — offline QR rendering for config share-links. | — · — |
-| `SubConvConverter.kt` | 1782 | — | AetherRuntimeConfigTest, AetherSelectionTest, Beta212SstpTest, Beta214CatWarpListTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
-| `SubscriptionAutoRefresh.kt` | 147 | Background refresh of URL subscriptions (every 6 hours, only with network) plus one-shot warnings when a subscription is about to expire (≤ 3 days)… | — · — |
+| `SubConvConverter.kt` | 1854 | — | AetherRuntimeConfigTest, AetherSelectionTest, Beta212SstpTest, Beta214CatWarpListTest, Beta239ProtocolsTelegramTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
+| `SubscriptionAutoRefresh.kt` | 180 | Background refresh of URL subscriptions (every 6 hours, only with network) plus one-shot warnings when a subscription is about to expire (≤ 3 days)… | Beta239ProtocolsTelegramTest · — |
 | `SubscriptionCatalog.kt` | 6 | — | ConnectionChainTunnelTest · — |
 | `SubscriptionOptimizer.kt` | 253 | Independent subscription optimizer with non-destructive diff preview and lossless rollback. | — · — |
-| `SubscriptionSnapshot.kt` | 479 | — | Beta217PerformanceTest, WhiteDnsSmartScannerTest · — |
+| `SubscriptionProviderInfo.kt` | 138 | beta239 — the provider headers that subscription panels (Marzban, 3x-ui, Hiddify-style and others) send next to `subscription-userinfo`. | Beta239ProtocolsTelegramTest · — |
+| `SubscriptionSnapshot.kt` | 487 | — | Beta217PerformanceTest, Beta239ProtocolsTelegramTest, WhiteDnsSmartScannerTest · — |
 | `SubscriptionStore.kt` | 491 | — | SmartRouteMeasurementAdapterTest · — |
 | `SubscriptionUsage.kt` | 105 | Subscription usage reported by a panel through the `subscription-userinfo` response header (`upload=…; download=…; total=…; expire=…`). | — · — |
-| `UserSubscriptions.kt` | 831 | — | Beta220FinalMaskTest, Beta223XrayEngineTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
+| `UserSubscriptions.kt` | 835 | — | Beta220FinalMaskTest, Beta223XrayEngineTest, Beta239ProtocolsTelegramTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
 | `VerifiedConfigDiff.kt` | 28 | Preview shown before optimizer/failover applies a config change. | — · — |
 | `VerifiedConfigFailover.kt` | 120 | — | — · — |
 | `VerifiedConfigUri.kt` | 167 | — | — · — |
@@ -280,7 +281,7 @@
 | `AnalyticsEvents.kt` | 34 | AnalyticsEvents — Cat Client does NOT ship any third-party tracking. | — · — |
 | `AppLock.kt` | 100 | App lock (PIN, optionally unlocked with the phone's own fingerprint / face / pattern through the system credential screen). | WhiteDnsToolkitTest · — |
 | `AppSettingsResetter.kt` | 29 | — | — · — |
-| `AppToolsController.kt` | 930 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | Beta238FoxWebChannelTest · — |
+| `AppToolsController.kt` | 993 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | Beta238FoxWebChannelTest, Beta239ProtocolsTelegramTest · — |
 | `AppUpdate.kt` | 411 | — | — · app-prerelease-update |
 | `AppUpdateManager.kt` | 324 | — | — · — |
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
@@ -290,14 +291,16 @@
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
+| `FoxFastlyChallenge.kt` | 205 | beta239: Mozilla's sign-in (accounts.firefox.com) and VPN (vpn.mozilla.org) servers sit behind Fastly's bot check. | Beta239FoxFastlyTest · — |
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
-| `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest · — |
+| `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
+| `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_239 Kotlin files, 106582 lines._
+_242 Kotlin files, 107427 lines._
 
 ## MainActivity screens — function index
 
@@ -366,7 +369,7 @@ for the dialog/button you want to change.
 
 ### `MainActivitySubscriptions.kt` (48 functions)
 
-`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:562, `showSubscriptionDialog`:782, `optimizeUserSubscription`:1050, `fetchFreeConfigs`:1331, `freeConfigRow`:1378, `copyFreeConfig`:1447, `addSingleConfig`:1454, `showQuickConfigMenu`:1479, `showQuickConfigDialog`:1500, `testFreeConfigs`:1538, `importFreeConfigs`:1551, `ensureFreeSubscription`:1570, `showConfigQrCodes`:1589, `subscriptionUsageLine`:1641, `openSubscriptionConnectionTesting`:1664, `startSubscriptionQrScan`:1683, `showAddSubscriptionMenu`:1693, `saveAetherConfigIntoMainSubscriptionList`:1753, `connectCatWarpAfterSave`:1797, `addSubscriptionFromClipboard`:1806, `importAndConnectAetherSelection`:1830, `showAddSubscriptionDialog`:1882, `unescapeHtmlEntities`:1886, `pushChainToPanelSuspend`:1899, `pushChainToPanelApi`:1932, `showEditSubscriptionDialog`:1952, `testSubscription`:1954, `refreshSubscription`:1961, `refreshBuiltInSubscription`:1971, `runSubscriptionAction`:1981, `collectVerifiedEndpointsForFailover`:2002, `rotateProfileRouteInSubscription`:2056, `showConnectionShareMenu`:2087, `subscriptionLink`:2159, `copySubscriptionLink`:2161, `shareSubscriptionLink`:2167, `openSubscriptionInApp`:2181, `openSubscriptionInfoPage`:2200, `confirmDeleteSubscription`:2209, `onSubscriptionSelected`:2223, `connectionCountLabel`:2262, `localizedSubscriptionError`:2265, `selectedSubscriptionName`:2270, `builtInSubscriptionName`:2276, `showSubscriptionSelectorMenu`:2284
+`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:793, `optimizeUserSubscription`:1061, `fetchFreeConfigs`:1342, `freeConfigRow`:1389, `copyFreeConfig`:1458, `addSingleConfig`:1465, `showQuickConfigMenu`:1490, `showQuickConfigDialog`:1511, `testFreeConfigs`:1549, `importFreeConfigs`:1562, `ensureFreeSubscription`:1581, `showConfigQrCodes`:1600, `subscriptionUsageLine`:1652, `openSubscriptionConnectionTesting`:1675, `startSubscriptionQrScan`:1694, `showAddSubscriptionMenu`:1704, `saveAetherConfigIntoMainSubscriptionList`:1764, `connectCatWarpAfterSave`:1808, `addSubscriptionFromClipboard`:1817, `importAndConnectAetherSelection`:1841, `showAddSubscriptionDialog`:1893, `unescapeHtmlEntities`:1897, `pushChainToPanelSuspend`:1910, `pushChainToPanelApi`:1943, `showEditSubscriptionDialog`:1963, `testSubscription`:1965, `refreshSubscription`:1972, `refreshBuiltInSubscription`:1982, `runSubscriptionAction`:1992, `collectVerifiedEndpointsForFailover`:2013, `rotateProfileRouteInSubscription`:2067, `showConnectionShareMenu`:2098, `subscriptionLink`:2170, `copySubscriptionLink`:2172, `shareSubscriptionLink`:2178, `openSubscriptionInApp`:2192, `openSubscriptionInfoPage`:2211, `confirmDeleteSubscription`:2224, `onSubscriptionSelected`:2238, `connectionCountLabel`:2277, `localizedSubscriptionError`:2280, `selectedSubscriptionName`:2285, `builtInSubscriptionName`:2291, `showSubscriptionSelectorMenu`:2299
 
 ### `MainActivityUiKit.kt` (14 functions)
 
@@ -619,6 +622,8 @@ for the dialog/button you want to change.
 | `ForeignServiceProbeResult` | `ForeignServiceProbe.kt` |
 | `ForeignServiceStatus` | `ForeignServiceProbe.kt` |
 | `ForeignServiceTarget` | `ForeignServiceProbe.kt` |
+| `FoxCookieJar` | `FoxFastlyChallenge.kt` |
+| `FoxFastlyChallenge` | `FoxFastlyChallenge.kt` |
 | `FoxHttpProxyRequest` | `FoxPortPolicy.kt` |
 | `FoxNetworkReset` | `FenixPassPolicy.kt` |
 | `FoxPortPolicy` | `FoxPortPolicy.kt` |
@@ -876,6 +881,9 @@ for the dialog/button you want to change.
 | `SubscriptionOptimizationPlan` | `SubscriptionOptimizer.kt` |
 | `SubscriptionOptimizer` | `SubscriptionOptimizer.kt` |
 | `SubscriptionProfile` | `CleanIp.kt` |
+| `SubscriptionProviderInfo` | `SubscriptionProviderInfo.kt` |
+| `SubscriptionProviderInfoPolicy` | `SubscriptionProviderInfo.kt` |
+| `SubscriptionProviderInfoStore` | `SubscriptionProviderInfo.kt` |
 | `SubscriptionQrCaptureActivity` | `MainActivity.kt` |
 | `SubscriptionRefreshPolicy` | `SubscriptionSnapshot.kt` |
 | `SubscriptionSnapshotEntry` | `SubscriptionSnapshot.kt` |
@@ -890,6 +898,7 @@ for the dialog/button you want to change.
 | `SubscriptionUsagePolicy` | `SubscriptionUsage.kt` |
 | `SubscriptionUsageStore` | `SubscriptionUsage.kt` |
 | `TechNamoozWorkerSource` | `TechNamoozWorkerSource.kt` |
+| `TelegramProxyFinder` | `TelegramProxyFinder.kt` |
 | `TlsIntegrityException` | `MihomoRuntime.kt` |
 | `TlsIntegrityPolicy` | `MihomoRuntime.kt` |
 | `TlsIntegrityPreferenceStore` | `MihomoRuntime.kt` |

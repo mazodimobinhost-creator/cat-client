@@ -35,7 +35,7 @@ object FreeConfigs {
     /** Protocol prefixes we know how to turn into Route Profiles. */
     private val SHARE_PREFIXES = listOf(
         "vless://", "vmess://", "trojan://", "ss://", "ssr://",
-        "hysteria2://", "hy2://", "tuic://", "wireguard://", "wg://", "warp://",
+        "hysteria2://", "hy2://", "hysteria://", "tuic://", "wireguard://", "wg://", "warp://",
     )
 
     data class FreeSource(

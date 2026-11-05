@@ -280,6 +280,7 @@ object MihomoShareLink {
             "trojan" -> trojan(proxy, name, host, port)
             "ss" -> shadowsocks(proxy, name, host, port)
             "hysteria2", "hy2" -> hysteria2(proxy, name, host, port)
+            "hysteria" -> hysteria(proxy, name, host, port)
             "anytls" -> anytls(proxy, name, host, port)
             "socks5", "socks" -> socks(proxy, name, host, port)
             else -> null
@@ -373,7 +374,24 @@ object MihomoShareLink {
         proxy.str("obfs-password")?.let { params["obfs-password"] = it }
         proxy.list("alpn")?.takeIf { it.isNotEmpty() }?.let { params["alpn"] = it.joinToString(",") }
         proxy.str("fingerprint")?.let { params["pinSHA256"] = it }
+        proxy.str("ports")?.let { params["mport"] = it }
         return "hysteria2://${encode(password)}@$host:$port" + query(params) + fragment(name)
+    }
+
+    /** beta239: Hysteria v1 back to its share link (round-trips SubConvConverter.parseHysteria). */
+    private fun hysteria(proxy: Map<String, Any?>, name: String, host: String, port: Int): String {
+        val params = LinkedHashMap<String, String>()
+        proxy.str("protocol")?.let { params["protocol"] = it }
+        proxy.str("auth-str")?.let { params["auth"] = it }
+        (proxy.str("sni") ?: proxy.str("servername"))?.let { params["peer"] = it }
+        params["insecure"] = if (proxy.bool("skip-cert-verify")) "1" else "0"
+        proxy.str("up")?.let { params["upmbps"] = it.substringBefore(' ') }
+        proxy.str("down")?.let { params["downmbps"] = it.substringBefore(' ') }
+        proxy.list("alpn")?.takeIf { it.isNotEmpty() }?.let { params["alpn"] = it.joinToString(",") }
+        proxy.str("obfs")?.let { params["obfsParam"] = it }
+        proxy.str("ports")?.let { params["mport"] = it }
+        proxy.str("fingerprint")?.let { params["pinSHA256"] = it }
+        return "hysteria://$host:$port" + query(params) + fragment(name)
     }
 
     private fun anytls(proxy: Map<String, Any?>, name: String, host: String, port: Int): String? {

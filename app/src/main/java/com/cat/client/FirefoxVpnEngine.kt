@@ -89,11 +89,22 @@ internal object FirefoxVpnEngine {
         "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/vpn-serverlist/records"
     const val FIREFOX_CLIENT_ID = "5882386c6d801776"
     const val OAUTH_SCOPE = "profile https://identity.mozilla.com/apps/vpn"
+    /**
+     * beta239: ONE identity for every sign-in request and for answering Fastly's challenge on those hosts — the cookie
+     * a challenge earns is tied to the client identity (FoxyVPN 2.0.1 / the Go reference client do the same). Firefox
+     * 159 = current stable (Nov 2026).
+     */
     const val FIREFOX_DESKTOP_USER_AGENT =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0"
     const val FASTLY_SOLVER_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-    const val MOZILLA_VPN_USER_AGENT = FIREFOX_DESKTOP_USER_AGENT
+    /** beta239: vpn.mozilla.org (Guardian) is asked as the Mozilla VPN app, as FoxyVPN 2.0.1 does. */
+    const val MOZILLA_VPN_USER_AGENT_PREFIX = "MozillaVPN/2.35.0"
+
+    fun mozillaVpnUserAgent(): String {
+        val release = runCatching { Build.VERSION.RELEASE }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: "14"
+        return "$MOZILLA_VPN_USER_AGENT_PREFIX (sys:android $release; iap:true)"
+    }
     private const val PICL_NAMESPACE = "identity.mozilla.com/picl/v1/"
     const val DEFAULT_MONTHLY_QUOTA_BYTES = 50L * 1024L * 1024L * 1024L // 50 GB
     const val FAILOVER_USAGE_RATIO = 0.95 // Switch account at 95% usage
@@ -128,9 +139,13 @@ internal object FirefoxVpnEngine {
         "199.232.213.194",
     )
 
-    // Shared cookie store for Fastly anti-bot challenge cookies (`_fs_ch_*`)
-    private val fastlyCookieStore = ConcurrentHashMap<String, String>()
+    // beta239: control-plane cookies (Fastly challenge cookies `_fs_ch_*` …) per host — see FoxCookieJar.
+    private val controlCookies = FoxCookieJar()
     private val challengeSolveLock = Any()
+
+    /** What the last Fastly challenge attempt did (for the diagnostic log / error text). */
+    @Volatile var lastChallengeDetail: String = ""
+        private set
 
     data class FirefoxVpnAccount(
         val id: String = UUID.randomUUID().toString(),
@@ -756,8 +771,6 @@ internal object FirefoxVpnEngine {
     // 3. Fastly Anti-Bot Challenge Solver (`/_fs-ch-`) & Anti-DPI HTTP Client
     // =========================================================================
 
-    private val fastlyPrefixRegex = Regex("""/_fs-ch-[A-Za-z0-9]+""")
-    private val fastlyInitRegex = Regex("""init\((\[[^\]]*\]),\s*"([^"]+)",\s*"([^"]+)"""")
 
     private data class RawHttpResponse(
         val statusCode: Int,
@@ -768,26 +781,11 @@ internal object FirefoxVpnEngine {
             headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value?.firstOrNull()
     }
 
-    private fun storeCookiesFromHeaders(headers: Map<String, List<String>>) {
+    private fun storeCookiesFromHeaders(host: String, headers: Map<String, List<String>>, jar: FoxCookieJar) {
         headers.forEach { (k, values) ->
-            if (k.equals("Set-Cookie", ignoreCase = true)) {
-                values.forEach { rawCookie ->
-                    val pair = rawCookie.substringBefore(';').trim()
-                    val eqIdx = pair.indexOf('=')
-                    if (eqIdx > 0) {
-                        val name = pair.substring(0, eqIdx).trim()
-                        val value = pair.substring(eqIdx + 1).trim()
-                        if (name.isNotEmpty() && value.isNotEmpty()) {
-                            fastlyCookieStore[name] = value
-                        }
-                    }
-                }
-            }
+            if (k.equals("Set-Cookie", ignoreCase = true)) jar.store(host, values)
         }
     }
-
-    private fun buildCookieHeader(): String =
-        fastlyCookieStore.entries.joinToString("; ") { "${it.key}=${it.value}" }
 
     /**
      * Executes an HTTPS request using an Anti-DPI TLS socket (ClientHello split at SNI boundary +
@@ -800,8 +798,10 @@ internal object FirefoxVpnEngine {
         bodyBytes: ByteArray? = null,
         followRedirects: Boolean = true,
         timeoutMs: Int = 18_000,
+        jar: FoxCookieJar = controlCookies,
     ): RawHttpResponse {
-        val cookieHeader = buildCookieHeader()
+        val reqHost = runCatching { URI(urlStr).host }.getOrNull().orEmpty()
+        val cookieHeader = jar.header(reqHost)
         val mergedHeaders = LinkedHashMap<String, String>()
         mergedHeaders["User-Agent"] = FIREFOX_DESKTOP_USER_AGENT
         mergedHeaders["Accept"] = "*/*"
@@ -835,7 +835,7 @@ internal object FirefoxVpnEngine {
         }.getOrNull()
 
         if (rawSocketResp != null && rawSocketResp.statusCode > 0) {
-            storeCookiesFromHeaders(rawSocketResp.headers)
+            storeCookiesFromHeaders(reqHost, rawSocketResp.headers, jar)
             if (followRedirects && rawSocketResp.statusCode in listOf(301, 302, 303, 307, 308)) {
                 val loc = rawSocketResp.header("Location")
                 if (!loc.isNullOrBlank()) {
@@ -847,6 +847,7 @@ internal object FirefoxVpnEngine {
                         bodyBytes = if (rawSocketResp.statusCode == 303) null else bodyBytes,
                         followRedirects = false,
                         timeoutMs = timeoutMs,
+                        jar = jar,
                     )
                 }
             }
@@ -870,7 +871,7 @@ internal object FirefoxVpnEngine {
         conn.headerFields?.forEach { (k, v) ->
             if (k != null && v != null) respHeaders[k] = v
         }
-        storeCookiesFromHeaders(respHeaders)
+        storeCookiesFromHeaders(reqHost, respHeaders, jar)
         val stream = if (code in 200..299) conn.inputStream else conn.errorStream
         val text = stream?.use { it.readBytes().toString(StandardCharsets.UTF_8) }.orEmpty()
         return RawHttpResponse(code, text, respHeaders)
@@ -1053,155 +1054,163 @@ internal object FirefoxVpnEngine {
     }
 
     /**
-     * Automatically solves the Fastly Bot Protection challenge (`HTTP 406` -> `/_fs-ch-.../script.js`
-     * -> `pow` / `pat` / `clientmetrics` -> `POST /fst-post-back`) on Mozilla FxA hosts.
+     * Answers Fastly's bot check (`HTTP 406` → `/_fs-ch-…/script.js` → `pow` / `pat` / `clientmetrics` →
+     * `POST /fst-post-back`) and keeps the cookie it earns.
+     *
+     * beta239 (FoxyVPN 2.0.1 behaviour): the page that challenged us is answered first, on ITS host, with the SAME
+     * identity ([userAgent]) the retried request uses — the earned cookie is tied to it. Only when that page is not a
+     * challenge are the sign-in hosts probed. The cookies go to every Mozilla host the app talks to.
      */
-    fun solveFastlyChallenge(): Boolean = synchronized(challengeSolveLock) {
-        val hosts = listOf("https://api.accounts.firefox.com", "https://accounts.firefox.com")
-        for (base in hosts) {
-            val solved = runCatching { solveFastlyChallengeOnHost(base) }.getOrDefault(false)
-            if (solved) return true
+    fun solveFastlyChallenge(
+        challengedBody: String? = null,
+        origin: String = "https://api.accounts.firefox.com",
+        userAgent: String = FIREFOX_DESKTOP_USER_AGENT,
+    ): Boolean = synchronized(challengeSolveLock) {
+        val base = FoxFastlyChallenge.trustedOrigin(origin) ?: run {
+            lastChallengeDetail = "untrusted origin"
+            return false
         }
+        lastChallengeDetail = ""
+        if (FoxFastlyChallenge.isChallengePage(challengedBody)) {
+            if (runCatching { solveChallengePage(challengedBody.orEmpty(), base, userAgent) }
+                    .onFailure { lastChallengeDetail = "solve failed: ${it.javaClass.simpleName}" }
+                    .getOrDefault(false)
+            ) return true
+        }
+        val bases = listOf(base, FXA_WEB_ORIGIN, "https://api.accounts.firefox.com").distinct()
+        for (b in bases) {
+            val urls = if (b == FXA_WEB_ORIGIN) listOf("$b/", "$b/?context=fx_desktop_v3&service=sync&action=email") else listOf("$b/")
+            for (url in urls) {
+                for (ua in listOf(userAgent, FIREFOX_DESKTOP_USER_AGENT, FASTLY_SOLVER_USER_AGENT).distinct()) {
+                    val page = runCatching {
+                        executeAntiDpiHttpRequest(
+                            method = "GET",
+                            urlStr = url,
+                            headers = mapOf("User-Agent" to ua, "Accept" to FASTLY_HTML_ACCEPT),
+                            followRedirects = false,
+                            jar = FoxCookieJar(),
+                        )
+                    }.getOrNull() ?: continue
+                    if (!FoxFastlyChallenge.isChallengePage(page.body)) continue
+                    if (runCatching { solveChallengePage(page.body, b, ua) }.getOrDefault(false)) return true
+                }
+            }
+        }
+        if (lastChallengeDetail.isEmpty()) lastChallengeDetail = "no challenge page served"
         return false
     }
 
-    private fun solveFastlyChallengeOnHost(baseUrl: String): Boolean {
-        val pageResp = executeAntiDpiHttpRequest(
-            method = "GET",
-            urlStr = "$baseUrl/",
-            headers = mapOf(
-                "User-Agent" to FASTLY_SOLVER_USER_AGENT,
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            ),
-        )
-        if (!pageResp.body.contains("/_fs-ch-") || !pageResp.body.contains("Client Challenge")) {
-            return false
-        }
-        val prefix = fastlyPrefixRegex.find(pageResp.body)?.value ?: return false
-        val prefixUrl = "$baseUrl$prefix"
+    private const val FASTLY_HTML_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
-        val scriptResp = executeAntiDpiHttpRequest(
-            method = "GET",
-            urlStr = "$prefixUrl/script.js?reload=true",
-            headers = mapOf(
-                "User-Agent" to FASTLY_SOLVER_USER_AGENT,
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            ),
-        )
-        if (scriptResp.statusCode != 200) return false
+    /** One challenge page on [base], answered with [userAgent] in a fresh cookie jar; true when Fastly let us in. */
+    private fun solveChallengePage(page: String, base: String, userAgent: String): Boolean {
+        val jar = FoxCookieJar()
+        val prefix = FoxFastlyChallenge.prefix(page) ?: run { lastChallengeDetail = "no challenge prefix"; return false }
+        val prefixUrl = "$base$prefix"
+        fun call(method: String, url: String, headers: Map<String, String>, body: ByteArray? = null) =
+            executeAntiDpiHttpRequest(
+                method = method,
+                urlStr = url,
+                headers = mapOf("User-Agent" to userAgent) + headers,
+                bodyBytes = body,
+                followRedirects = false,
+                jar = jar,
+            )
 
-        val matches = fastlyInitRegex.findAll(scriptResp.body).toList()
-        val lastMatch = matches.lastOrNull() ?: return false
-        var challengesArr = runCatching { JSONArray(lastMatch.groupValues[1]) }.getOrNull() ?: return false
-        var token = lastMatch.groupValues[2]
+        val scriptResp = call("GET", "$prefixUrl/script.js?reload=true", mapOf("Accept" to FASTLY_HTML_ACCEPT))
+        if (scriptResp.statusCode != 200) { lastChallengeDetail = "script HTTP ${scriptResp.statusCode}"; return false }
+        val init = FoxFastlyChallenge.parseInit(scriptResp.body) ?: run { lastChallengeDetail = "script not understood"; return false }
+        var challengesArr = runCatching { JSONArray(init.first) }.getOrNull() ?: run { lastChallengeDetail = "bad challenge list"; return false }
+        var token = init.second
 
-        for (round in 0 until 5) {
+        repeat(FoxFastlyChallenge.MAX_ROUNDS) {
             val answers = JSONArray()
             for (i in 0 until challengesArr.length()) {
                 val chObj = challengesArr.optJSONObject(i) ?: continue
-                val ty = chObj.optString("ty")
                 val dataObj = chObj.optJSONObject("data") ?: JSONObject()
-                when (ty) {
+                when (val ty = chObj.optString("ty")) {
                     "pow" -> {
-                        val base = dataObj.optString("base")
-                        val hash = dataObj.optString("hash")
-                        val ans = solveFastlyPow(base, hash) ?: return false
+                        val powBase = dataObj.optString("base")
+                        val ans = solveFastlyPow(powBase, dataObj.optString("hash"))
+                            ?: run { lastChallengeDetail = "no proof-of-work answer"; return false }
                         answers.put(
                             JSONObject()
                                 .put("ty", "pow")
-                                .put("base", base)
+                                .put("base", powBase)
                                 .put("answer", ans)
-                                .put("hmac", dataObj.opt("hmac"))
-                                .put("expires", dataObj.opt("expires")),
+                                .put("hmac", dataObj.optString("hmac"))
+                                .put("expires", dataObj.optString("expires")),
                         )
                     }
                     "pat" -> {
-                        val encodedTok = URLEncoder.encode(token, "UTF-8")
                         val patResp = runCatching {
-                            executeAntiDpiHttpRequest(
-                                method = "POST",
-                                urlStr = "$prefixUrl/pat?token=$encodedTok",
-                                headers = mapOf(
-                                    "User-Agent" to FASTLY_SOLVER_USER_AGENT,
-                                    "Accept" to "text/plain",
-                                    "Content-Type" to "application/json",
-                                    "Origin" to baseUrl,
-                                ),
-                                bodyBytes = ByteArray(0),
+                            call(
+                                "POST",
+                                "$prefixUrl/pat?token=${URLEncoder.encode(token, "UTF-8")}",
+                                mapOf("Accept" to "text/plain", "Content-Type" to "application/json", "Origin" to base),
+                                ByteArray(0),
                             )
                         }.getOrNull()
+                        // 400/401: no PAT on this device — an empty answer makes Fastly send a proof of work next round.
                         val patAuth = if (patResp != null && patResp.statusCode == 200) {
                             runCatching { JSONObject(patResp.body).optString("auth") }.getOrDefault("")
-                        } else {
-                            // 400 or 401 triggers PoW fallback on next post-back round
-                            ""
-                        }
-                        answers.put(
-                            JSONObject()
-                                .put("ty", "pat")
-                                .put("auth", patAuth),
-                        )
+                        } else ""
+                        answers.put(JSONObject().put("ty", "pat").put("auth", patAuth))
                     }
-                    "clientmetrics" -> {
-                        answers.put(
-                            JSONObject()
-                                .put("ty", "clientmetrics")
-                                .put("webdriver", false)
-                                .put(
-                                    "bot_detection_result",
-                                    JSONObject().put("bot_detected", false).put("bot_kind", JSONObject.NULL),
-                                )
-                                .put(
-                                    "browser_metrics",
-                                    JSONObject().put("client_data", "{}").put("error_trace", JSONObject.NULL),
-                                )
-                                .put("detector_results", JSONObject())
-                                .put("v", 2),
-                        )
-                    }
-                    else -> return false
+                    "clientmetrics" -> answers.put(
+                        JSONObject()
+                            .put("ty", "clientmetrics")
+                            .put("webdriver", false)
+                            .put("bot_detection_result", JSONObject().put("bot_detected", false).put("bot_kind", JSONObject.NULL))
+                            .put("browser_metrics", JSONObject().put("client_data", "{}").put("error_trace", JSONObject.NULL))
+                            .put("detector_results", JSONObject())
+                            .put("v", 2),
+                    )
+                    "captcha" -> { lastChallengeDetail = "captcha"; return false }
+                    else -> { lastChallengeDetail = "unknown challenge '$ty'"; return false }
                 }
             }
 
-            val postBackBody = JSONObject()
-                .put("token", token)
-                .put("data", answers)
-                .toString()
-                .toByteArray(StandardCharsets.UTF_8)
-
-            val pbResp = executeAntiDpiHttpRequest(
-                method = "POST",
-                urlStr = "$prefixUrl/fst-post-back",
-                headers = mapOf(
-                    "User-Agent" to FASTLY_SOLVER_USER_AGENT,
-                    "Content-Type" to "application/json",
-                    "Accept" to "application/json",
-                    "Origin" to baseUrl,
-                ),
-                bodyBytes = postBackBody,
+            val postBack = JSONObject().put("token", token).put("data", answers).toString().toByteArray(StandardCharsets.UTF_8)
+            val pbResp = call(
+                "POST",
+                "$prefixUrl/fst-post-back",
+                mapOf("Content-Type" to "application/json", "Accept" to "application/json", "Origin" to base),
+                postBack,
             )
-            if (pbResp.statusCode !in 200..299) return false
-            val pbJson = runCatching { JSONObject(pbResp.body) }.getOrNull() ?: return false
+            if (pbResp.statusCode !in 200..299) { lastChallengeDetail = "post-back HTTP ${pbResp.statusCode}"; return false }
+            val pbJson = runCatching { JSONObject(pbResp.body) }.getOrNull() ?: run { lastChallengeDetail = "post-back not JSON"; return false }
             if (pbJson.optString("status") == "success") {
-                // Probe page once to ensure challenge cookie is committed
-                executeAntiDpiHttpRequest(
-                    method = "GET",
-                    urlStr = "$baseUrl/",
-                    headers = mapOf("User-Agent" to FASTLY_SOLVER_USER_AGENT),
-                )
+                // Make sure the cookie is really accepted from this line (it is not when the exit IP just changed).
+                val check = runCatching { call("GET", "$base/", mapOf("Accept" to FASTLY_HTML_ACCEPT)) }.getOrNull()
+                if (check != null && FoxFastlyChallenge.isChallengePage(check.body)) {
+                    lastChallengeDetail = "cookie not accepted on this line"
+                    return false
+                }
+                if (jar.isEmpty()) { lastChallengeDetail = "no cookie issued"; return false }
+                jar.copyInto(controlCookies, FoxFastlyChallenge.TRUSTED_HOSTS)
+                lastChallengeDetail = "solved on ${base.removePrefix("https://")}"
                 return true
             }
             val nextCh = pbJson.optJSONArray("ch")
             val nextTok = pbJson.optString("tok")
-            if (nextCh == null || nextCh.length() == 0 || nextTok.isBlank()) return false
+            if (nextCh == null || nextCh.length() == 0 || nextTok.isBlank()) { lastChallengeDetail = "unexpected post-back"; return false }
             challengesArr = nextCh
             token = nextTok
         }
+        lastChallengeDetail = "too many rounds"
         return false
     }
 
+    private fun originOf(url: String): String =
+        runCatching { URI(url).host?.let { "https://$it" } }.getOrNull() ?: "https://api.accounts.firefox.com"
+
+    private fun userAgentOf(headers: Map<String, String>): String =
+        headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value ?: FIREFOX_DESKTOP_USER_AGENT
+
     /**
-     * Performs an FxA or Guardian API call and transparently solves Fastly `HTTP 406` challenges.
+     * An FxA or Guardian call; a `406` challenge is answered (on the challenged host, with this request's identity)
+     * and the call repeated — at most [CHALLENGE_ATTEMPTS] times, and not again once the challenge could not be solved.
      */
     private fun fxaDoWithChallengeRetry(
         method: String,
@@ -1210,7 +1219,8 @@ internal object FirefoxVpnEngine {
         bodyBytes: ByteArray? = null,
         followRedirects: Boolean = true,
     ): RawHttpResponse {
-        for (attempt in 1..4) {
+        var attempt = 1
+        while (true) {
             val resp = executeAntiDpiHttpRequest(
                 method = method,
                 url = url,
@@ -1218,19 +1228,13 @@ internal object FirefoxVpnEngine {
                 bodyBytes = bodyBytes,
                 followRedirects = followRedirects,
             )
-            if (resp.statusCode != 406) {
-                return resp
-            }
-            solveFastlyChallenge()
+            if (resp.statusCode != 406 || attempt >= CHALLENGE_ATTEMPTS) return resp
+            if (!solveFastlyChallenge(resp.body, originOf(url), userAgentOf(headers))) return resp
+            attempt++
         }
-        return executeAntiDpiHttpRequest(
-            method = method,
-            url = url,
-            headers = headers,
-            bodyBytes = bodyBytes,
-            followRedirects = followRedirects,
-        )
     }
+
+    private const val CHALLENGE_ATTEMPTS = 5
 
     private fun executeAntiDpiHttpRequest(
         method: String,
@@ -1314,7 +1318,7 @@ internal object FirefoxVpnEngine {
                     103 -> "رمز عبور واردشده اشتباه است (یا این حساب با «ادامه با گوگل» ساخته شده و رمز مجزا ندارد؛ از دکمه «🌐 ورود با صفحه وب موزیلا» استفاده کنید)."
                     114 -> "تعداد تلاش‌ها زیاد بوده است؛ چند دقیقه صبر کنید یا با «🌐 ورود با صفحه وب موزیلا» وارد شوید."
                     else -> if (finalAttempt.statusCode == 406) {
-                        "چالش امنیتی Fastly نیاز به مرورگر دارد؛ روی دکمه «🌐 ورود آسان با صفحه رسمی موزیلا (WebView)» بزنید."
+                        "بررسی ضدربات موزیلا از این خط جواب نگرفت (${lastChallengeDetail.ifEmpty { "406" }})؛ وای‌فای ⇄ دیتا را عوض کنید یا «🌐 ورود با صفحه رسمی موزیلا» را بزنید."
                     } else {
                         "خطا در ورود به حساب فایرفاکس ($errno): $errMsg"
                     }
@@ -1729,6 +1733,9 @@ internal object FirefoxVpnEngine {
             (retryAfter?.trim()?.takeIf { it.isNotEmpty() }?.let { " — try again after $it" } ?: "") +
             " or add another Firefox account"
         status == 451 -> "Mozilla does not offer its free VPN in the region it sees for this request (451)"
+        status == 406 -> "Mozilla's bot check (406) could not be answered from this line" +
+            (lastChallengeDetail.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: "") +
+            " — switch Wi-Fi ⇄ mobile data and try again"
         status >= 500 -> "Mozilla's VPN service is having trouble ($status) — try again in a few minutes"
         else -> "Mozilla refused the proxy pass request ($status)"
     }
@@ -3094,7 +3101,7 @@ internal object FirefoxVpnEngine {
                 bodyBytes = bodyBytes,
             )
             if (resp.statusCode != 406) return resp
-            solveFastlyChallenge()
+            if (!solveFastlyChallenge(resp.body, originOf(url), FIREFOX_DESKTOP_USER_AGENT)) return resp
         }
         val hawk = generateHawkHeader("POST", url, tokenId, hmacKey, bodyBytes)
         return executeAntiDpiHttpRequest(
@@ -3120,6 +3127,8 @@ internal object FirefoxVpnEngine {
             method = method,
             url = url,
             headers = mapOf(
+                "User-Agent" to mozillaVpnUserAgent(),
+                "Accept" to "application/json",
                 "Content-Type" to "application/json",
                 "Cache-Control" to "max-age=0",
                 "Authorization" to "Bearer $accessToken",

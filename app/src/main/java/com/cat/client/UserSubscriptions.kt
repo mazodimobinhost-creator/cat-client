@@ -554,7 +554,7 @@ object JsonSubscriptionImporter {
     private fun isSupportedMihomoProxy(proxy: JSONObject): Boolean =
         proxy.optString("type").lowercase() in setOf(
             "vless", "vmess", "trojan", "ss", "socks5", "socks",
-            "wireguard", "hysteria2", "hy2", "tuic", "anytls",
+            "wireguard", "hysteria", "hysteria2", "hy2", "tuic", "anytls",
         ) &&
             proxy.optString("name").isNotBlank() &&
             proxy.optString("server").isNotBlank() &&
@@ -825,6 +825,10 @@ class UserSubscriptionManager(
         // latest numbers per Subscription Source so the list can show usage.
         SubscriptionUsagePolicy.parse(loaded.usageHeader)?.let { usage ->
             SubscriptionUsageStore(appContext).save(input, usage)
+        }
+        // beta239: provider title / announcement / support link / refresh interval.
+        SubscriptionProviderInfoPolicy.parse(loaded.providerHeaders)?.let { info ->
+            SubscriptionProviderInfoStore(appContext).save(input, info)
         }
         return SubscriptionCompiler.compile(loaded.content, System.currentTimeMillis())
     }

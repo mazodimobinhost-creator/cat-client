@@ -409,6 +409,7 @@ class AppToolsController(
         item(t("⚡ رتبه‌بندی سرعت و افت بسته", "⚡ Speed & loss rank"), t("برای هر آی‌پی چند بار اتصال می‌گیرد (افت ٪، پینگ، نوسان) و برای بهترین‌ها سرعت دانلود واقعی را می‌سنجد.", "Several connects per IP (loss %, latency, jitter) plus a real download test for the best.")) { showSpeedRank() }
         item(t("📡 اسکن ریزالور DNS / آمادگی تانل", "📡 DNS resolver / tunnel-readiness scan"), t("بازگشتی بودن، EDNS0، عبور نام طولانی و TXT را می‌سنجد؛ امتیاز ۴ یعنی مناسب برای تانل DNS.", "Checks recursion, EDNS0, long names and TXT; score 4 means good for a DNS tunnel.")) { showResolverScan() }
         item(t("🔒 اسکن DNS رمزدار (DoH / DoT) و تشخیص مسموم‌سازی", "🔒 Encrypted DNS scan (DoH / DoT) + poisoning check"), t("هر سرور DNS رمزدار را واقعاً روی خطت امتحان می‌کند: گواهی درست + جواب واقعی یک سایت فیلترشده. ✅ یعنی DNS سالم و مسموم‌نشده؛ ☣️ یعنی جواب جعلی (مثل 10.10.34.x) داد.", "Really tries each encrypted DNS server on your line: a valid certificate + a real answer for a filtered site. ✅ = clean, not poisoned; ☣️ = it gave a fake answer (like 10.10.34.x).")) { showEncryptedResolverScan() }
+        item(t("✈️ پروکسی تلگرام (MTProto) — پیدا کردن و تست روی خط خودت", "✈️ Telegram proxy (MTProto) — find and test on your line"), t("فهرست به‌روز پروکسی‌های تلگرام را می‌گیرد و هر کدام را واقعاً روی اینترنت خودت امتحان می‌کند. ✅ یعنی دست‌دادن واقعی با پروکسی انجام شد و فیلتر جلویش را نگرفت. دکمهٔ «باز کردن در تلگرام» سریع‌ترین را مستقیم به تلگرام می‌دهد.", "Gets a fresh list of Telegram proxies and really tries each one on your internet. ✅ = a real handshake with the proxy succeeded and the filter did not block it. “Open in Telegram” hands the fastest one straight to Telegram.")) { showTelegramProxyFinder() }
         dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(t("🧰 جعبه‌ابزار Cat Client", "🧰 Cat Client toolbox"))
             .setView(root)
@@ -632,6 +633,15 @@ class AppToolsController(
                 actions.addView(actionButton(t("📋 کپی", "📋 Copy"), false) { copy(extra.copy) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
                 actions.addView(actionButton(t("📤 اشتراک‌گذاری", "📤 Share"), false) { share(extra.copy) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             }
+            if (extra.openLink.isNotBlank()) {
+                actions.addView(
+                    actionButton(t("✈️ باز کردن سریع‌ترین در تلگرام", "✈️ Open the fastest in Telegram"), true) {
+                        val opened = runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(extra.openLink))) }.isSuccess
+                        if (!opened) toast(t("تلگرام نصب نیست؛ لینک را کپی کن.", "Telegram is not installed; copy the link instead."))
+                    },
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+                )
+            }
             if (extra.links.isNotEmpty()) {
                 actions.addView(
                     actionButton(t("➕ افزودن ${extra.links.size} کانفیگ به اشتراک‌ها", "➕ Add ${extra.links.size} configs as subscription"), true) {
@@ -658,6 +668,8 @@ class AppToolsController(
         val links: List<String> = emptyList(),
         val ranges: String = "",
         val subscriptionName: String = "Toolkit",
+        /** beta239: a `tg://` link the result can open directly (Telegram proxy finder). */
+        val openLink: String = "",
     )
 
     private fun copy(text: String) {
@@ -916,6 +928,57 @@ class AppToolsController(
                 val clean = results.filter { it.usable }
                 ("# ${clean.size} / ${results.size} " + t("سالم", "clean") + "\n" + text) to
                     ResultActions(copy = clean.joinToString("\n") { it.spec.label })
+            }
+        }
+        page.show()
+    }
+
+    /** beta239: public MTProxy list (or the user's own links) → real per-line test → open the fastest in Telegram. */
+    fun showTelegramProxyFinder() {
+        val page = ToolPage(
+            t("✈️ پروکسی تلگرام (MTProto)", "✈️ Telegram proxy (MTProto)"),
+            t(
+                "اینو بزنی این میشه: «شروع» فهرست تازهٔ پروکسی‌های تلگرام را می‌گیرد (هر ۱۵ دقیقه به‌روز می‌شود) و همه را روی خط خودت امتحان می‌کند.\n✅ = دست‌دادن واقعی FakeTLS با همان رمز پروکسی انجام شد؛ یعنی هم روشن است هم فیلتر خطت ردش کرد.\n🟡 = فقط پورت باز است (این نوع پروکسی قابل تأیید کامل نیست).\n❌ = روی خطت کار نمی‌کند.\nاگر لینک پروکسی خودت را داری (tg://proxy یا t.me/proxy) در کادر بگذار تا همان‌ها تست شوند. این ابزار فقط برای خود تلگرام است و VPN را روشن نمی‌کند.",
+                "Tap this and you get: “Start” downloads a fresh Telegram proxy list (updated every 15 minutes) and tries every proxy on your line.\n✅ = a real FakeTLS handshake with the proxy's own secret succeeded, so it is up AND your network's filter let it through.\n🟡 = only the port is open (this proxy type cannot be fully verified).\n❌ = does not work on your line.\nHave your own proxy links (tg://proxy or t.me/proxy)? Paste them in the box to test just those. This is for Telegram only and does not turn the VPN on.",
+            ),
+        )
+        val own = page.input(t("لینک‌های خودت (اختیاری؛ خالی = فهرست عمومی)", "Your own links (optional; empty = public list)"), multiline = true)
+        lateinit var runButton: MaterialButton
+        runButton = page.button(t("▶️ شروع", "▶️ Start")) {
+            val pasted = TelegramProxyFinder.parseLinks(own.text?.toString().orEmpty())
+            page.run(runButton) {
+                val (proxies, source) = withContext(Dispatchers.IO) {
+                    if (pasted.isNotEmpty()) pasted to t("لینک‌های خودت", "your links")
+                    else {
+                        page.progressPost(t("در حال گرفتن فهرست…", "Downloading the list…"))
+                        TelegramProxyFinder.fetchPublicList()
+                    }
+                }
+                if (proxies.isEmpty()) {
+                    return@run t(
+                        "فهرست دریافت نشد (اینترنت یا دسترسی به jsDelivr/GitHub). یک بار با VPN روشن امتحان کن یا لینک‌ها را دستی بگذار.",
+                        "Could not download the list (internet or jsDelivr/GitHub access). Try once with the VPN on, or paste links manually.",
+                    ) to ResultActions()
+                }
+                val results = withContext(Dispatchers.IO) {
+                    TelegramProxyFinder.scan(
+                        proxies,
+                        protect = { protectOutboundSocket(it) },
+                        progress = { d, total -> page.progressPost("$d / $total") },
+                        cancelled = { page.cancelled },
+                    )
+                }
+                val good = results.filter { it.verdict != TelegramProxyFinder.Verdict.FAILED }
+                val verified = results.count { it.verdict == TelegramProxyFinder.Verdict.VERIFIED }
+                val text = good.take(40).joinToString("\n") { r ->
+                    val icon = if (r.verdict == TelegramProxyFinder.Verdict.VERIFIED) "✅" else "🟡"
+                    "$icon ${r.latencyMs}ms  ${r.proxy.server}:${r.proxy.port}  ${r.detail}"
+                }
+                val header = "# ✅ $verified · 🟡 ${good.size - verified} · ❌ ${results.size - good.size}  ($source)\n"
+                (header + text.ifBlank { t("هیچ پروکسی‌ای روی خطت کار نکرد.", "No proxy worked on your line.") }) to ResultActions(
+                    copy = good.take(40).joinToString("\n") { TelegramProxyFinder.shareLink(it.proxy) },
+                    openLink = good.firstOrNull()?.let { TelegramProxyFinder.tgLink(it.proxy) }.orEmpty(),
+                )
             }
         }
         page.show()

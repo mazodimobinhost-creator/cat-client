@@ -31,7 +31,7 @@ internal object FoxWebChannel {
     /** The page only speaks the WebChannel to a browser that says it is Firefox. */
     fun firefoxAndroidUserAgent(androidRelease: String): String {
         val release = androidRelease.trim().ifEmpty { "14" }
-        return "Mozilla/5.0 (Android $release; Mobile; rv:152.0) Gecko/152.0 Firefox/152.0"
+        return "Mozilla/5.0 (Android $release; Mobile; rv:159.0) Gecko/159.0 Firefox/159.0"
     }
 
     private val SESSION_TOKEN = Regex("^[0-9a-f]{64}$")

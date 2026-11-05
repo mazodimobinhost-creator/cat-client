@@ -82,6 +82,7 @@
     <string name="subscription_action_open_v2rayng">باز کردن در v2rayNG</string>
     <string name="subscription_action_open_v2box">باز کردن در V2Box</string>
     <string name="subscription_action_open_info">صفحهٔ مصرف</string>
+    <string name="subscription_action_support">پشتیبانی</string>
     <string name="subscription_share_failed">هیچ برنامه‌ای برای دریافت لینک پیدا نشد.</string>
     <string name="connection_share_unavailable">این اتصال لینک قابل اشتراک‌گذاری ندارد.</string>
     <string name="connection_share_hint">برای کپی یا اشتراک‌گذاری، روی اتصال نگه دارید</string>
