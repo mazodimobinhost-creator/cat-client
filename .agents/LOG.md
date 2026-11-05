@@ -60,3 +60,9 @@
   - `SubConvConverter.kt` / `MihomoShareLink.kt` / `UserSubscriptions.kt` / `FreeConfigs.kt`: `hysteria://` v1, hy2 `pinSHA256` → `fingerprint`, `mport`/authority port list → `ports`, ALPN; round trip.
   - `SubscriptionProviderInfo.kt` (new) + `SubscriptionSnapshot.kt` / `UserSubscriptions.kt` / `MainActivitySubscriptions.kt` / `SubscriptionAutoRefresh.kt` / strings: `profile-title`, `profile-update-interval`, `announce`, `support-url`, `profile-web-page-url`.
   - Tests: `Beta239FoxFastlyTest`, `Beta239ProtocolsTelegramTest`. CI green at `a7439a5`.
+- **2026-11-05 (Worker really works + settings parity — `v1.10.0-beta240` / Panel `6.81.0`):**
+  - `catclient.worker.js`: Blob-safe `websocketReadable` + `binaryType='arraybuffer'` before `accept()`; first-reply guard with `NO_DIRECT` host:port cache and carried pending read; `selfUpdatePanelWorker` adds/forces `DATA_PLANE_ENABLED`; `/api/data-plane` + `#dpLine` banner; `/api/ip-test` `skip:'edge'` + `viewer`; `/api/ip-repo` `viewer`; client browser re-test + `vpnNote`/`PLAIN_P`.
+  - DATA_PLANE in `wrangler.jsonc`, `WorkerDeploymentPipeline.kt`, `CloudflareWorker.kt`, `catclient.wizard.js`, `deploy-bot/worker.js`.
+  - Settings: `CoreOptionsSettings.kt` (new), `MihomoRuntime.kt` (`sniffing`/`fakeDns` params, `SNIFFER_BLOCK`, prefs), `CatClientVpnService.kt` (`setHttpProxy`), `ConnectionTestSettings.kt` (`delayTestUrl`), strings en/fa.
+  - Tests: `worker-realtraffic.test.mjs` (new, in `npm test`), `panel-selfupdate` block 11, `Beta240CoreOptionsTest`.
+
