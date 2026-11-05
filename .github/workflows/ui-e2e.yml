@@ -53,7 +53,8 @@ jobs:
           LOG=/tmp/step-1.log
           set +e
           (
-            npm install --no-save --no-audit --no-fund playwright@latest workerd@latest
+            # pinned: playwright 1.65.0 went out without its playwright-core 1.65.0 (npm ETARGET, 2026-11-05)
+            npm install --no-save --no-audit --no-fund playwright@1.64.1 workerd@latest
             npx playwright install --with-deps chromium
             node -e "console.log('playwright', require('playwright/package.json').version)"
             ./node_modules/.bin/workerd --version

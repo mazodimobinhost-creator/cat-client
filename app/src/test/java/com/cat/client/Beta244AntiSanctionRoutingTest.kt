@@ -42,6 +42,15 @@ class Beta244AntiSanctionRoutingTest {
     }
 
     @Test
+    fun onlyTickedServicesLeaveTheForcedTunnelList() {
+        assertTrue(AntiSanctionRouting.covers(on, "chatgpt.com"))
+        assertTrue(AntiSanctionRouting.covers(on, "api.openai.com"))
+        assertFalse("not ticked", AntiSanctionRouting.covers(on, "gemini.google.com"))
+        assertFalse("suffix must be a label boundary", AntiSanctionRouting.covers(on, "notopenai.com"))
+        assertFalse("off covers nothing", AntiSanctionRouting.covers(on.copy(enabled = false), "chatgpt.com"))
+    }
+
+    @Test
     fun everyServiceHasDomainsAndAnHttpsTestTarget() {
         val ids = AntiSanctionRouting.SERVICES.map { it.id }
         assertEquals(ids.size, ids.toSet().size)

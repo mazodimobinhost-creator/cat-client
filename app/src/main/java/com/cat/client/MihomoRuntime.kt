@@ -1019,7 +1019,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                     val measurementRules = if (measureTarget != null) {
                         MihomoRuntimeDefaults.MEASUREMENT_DOMAINS.joinToString("") { domain ->
                             "  - ${yamlSingleQuoted("DOMAIN,$domain,$measureTarget")}\n"
-                        } + MihomoRuntimeDefaults.SERVICE_DOMAINS.joinToString("") { domain ->
+                        } + MihomoRuntimeDefaults.SERVICE_DOMAINS.filterNot { AntiSanctionRouting.covers(antiSanction, it) }.joinToString("") { domain ->
                             "  - ${yamlSingleQuoted("DOMAIN-SUFFIX,$domain,$measureTarget")}\n"
                         }
                     } else {

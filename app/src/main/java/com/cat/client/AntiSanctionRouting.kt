@@ -65,6 +65,14 @@ object AntiSanctionRouting {
 
     private fun q(v: String) = "'" + v.replace("'", "''") + "'"
 
+    /**
+     * True when [domain] belongs to a service the user ticked. The runtime then leaves it out of its «AI domains
+     * always ride the tunnel» list (those rules come first and would shadow the DIRECT rule); unticked services
+     * keep that protection.
+     */
+    fun covers(s: Settings, domain: String): Boolean =
+        s.active && s.chosen().any { svc -> svc.domains.any { domain == it || domain.endsWith(".$it") } }
+
     /** Rules for the ONE `rules:` list (already indented); empty when off. */
     fun rulesYaml(s: Settings): String {
         if (!s.active) return ""
