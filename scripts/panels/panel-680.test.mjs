@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 const WORKER = process.env.CAT_PANEL_WORKER || new URL('../../app/src/main/assets/panels/catclient.worker.js', import.meta.url).pathname;
 // DoH stub: names with ECH / names on Cloudflare
@@ -64,7 +65,12 @@ test('ECH list rides the sub round-robin while ECH is on with its default value;
 test('/api/ech-pool: names come back only if their HTTPS record has ECH now; DNS list marks DoH-capable resolvers', async () => {
   T.kvCacheClear();
   const { env } = mkEnv(null);
-  const r = await call(env, '/api/ech-pool?n=10');
+  // The endpoint shuffles its candidates and checks at most 12 per press; skip all but 5 non-ECH names so every
+  // remaining candidate is checked (the old form failed ~11% of runs when the 3 ECH names were shuffled past 12).
+  const allCands = eval(/const ECH_DOMAIN_CANDIDATES\s*=\s*(\[[^\]]*\])/.exec(readFileSync(WORKER, 'utf8'))[1]);
+  const skip = allCands.filter((d) => !ECH_NAMES.has(d)).slice(5);
+  assert.ok(allCands.length - skip.length <= 12 && [...ECH_NAMES].every((d) => allCands.includes(d)), 'candidate list shape');
+  const r = await call(env, '/api/ech-pool?n=10&skip=' + encodeURIComponent(skip.join(',')));
   assert.equal(r.status, 200);
   assert.ok(r.j.domains.length >= 1 && r.j.domains.every((d) => ECH_NAMES.has(d)), JSON.stringify(r.j));
   const d = await call(env, '/api/ech-pool?what=dns&n=10');

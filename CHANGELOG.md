@@ -13,6 +13,8 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 - The duplicate «automatic discovery» stage (identical to the first attempt when no endpoint and both IP families) is skipped, so the other mode is tried sooner.
 
 ### Tests
+- `panel-680.test.mjs` `/api/ech-pool`: was flaky (~11 % of runs) — the endpoint shuffles 24 candidates and checks 12 per press, the stub has 3 ECH names; the test now skips all but 5 non-ECH names so every candidate is checked (product behaviour unchanged).
+- New `docs/REVIEW-BRIEF.md`: full-project review brief for Claude / Grok (status with evidence per part, panel transports, checklist, report format).
 - New `Beta241AetherNetworkPlanTest` (IPv6 → IPv4, unknown IPv6 state unchanged, hint vs verified budgets, learned mode drops the other mode's endpoint, remember-after-success source guards).
 
 ## [1.10.0-beta240] — 2026-11-05 (Panel 6.81.0)
