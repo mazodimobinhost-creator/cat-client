@@ -2080,13 +2080,13 @@ internal fun MainActivity.showAmneziaAndProtonWgHubDialog() {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
     val options = if (isFarsi) {
         arrayOf(
-            "🚀 اسکن و اتصال فوری به سرورهای رایگان AmneziaWG 2.0 و Hysteria2",
+            "🆓 سرورهای رایگان WireGuard / Hysteria2 (واقعاً امتحان می‌شوند، سالم‌ها اول)",
             "📄 تبدیل فایل `.conf` پروتون (Proton VPN) یا وایرگارد به AmneziaWG ضد فیلتر و اتصال",
             "🌐 باز کردن سایت رسمی Proton VPN برای دریافت کانفیگ رایگان WireGuard",
         )
     } else {
         arrayOf(
-            "🚀 Scan & Connect Free AmneziaWG 2.0 & Hysteria2 Servers",
+            "🆓 Free WireGuard / Hysteria2 servers (really tested, working first)",
             "📄 Convert Proton VPN / WireGuard `.conf` into Anti-DPI AmneziaWG & Connect",
             "🌐 Open Official Proton VPN Account Page (Free WireGuard Configs)",
         )
@@ -2099,48 +2099,8 @@ internal fun MainActivity.showAmneziaAndProtonWgHubDialog() {
         )
         .setItems(options) { _, which ->
             when (which) {
-                0 -> {
-                    Toast.makeText(
-                        this,
-                        if (isFarsi) "🛡️ در حال دریافت و تست سرورهای AmneziaWG 2.0 و Hysteria2…"
-                        else "🛡️ Fetching & probing AmneziaWG 2.0 and Hysteria2 servers…",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    activityScope.launch {
-                        val nodes = withContext(Dispatchers.IO) {
-                            MlmAndNextGenVpnHub.fetchAndScanAmneziaAndProtonConfigs()
-                        }
-                        val uris = if (nodes.isNotEmpty()) {
-                            nodes.map { it.uri }
-                        } else {
-                            MlmAndNextGenVpnHub.BUILTIN_AWG_AND_HY2_URIS
-                        }
-                        val subTitle = "🛡️ سرورهای AmneziaWG 2.0 و Hysteria2"
-                        val raw = uris.joinToString("\n")
-                        val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
-                        val saved = withContext(Dispatchers.IO) {
-                            if (existing != null) {
-                                userSubscriptionManager.update(existing.id, subTitle, raw)
-                            } else {
-                                userSubscriptionManager.add(subTitle, raw)
-                            }
-                        }
-                        userSubscriptionManager.select(saved.id)
-                        val curAether = aetherPreferenceStore.read()
-                        if (curAether.enabled) aetherPreferenceStore.save(curAether.copy(enabled = false))
-                        orbotEnginePreferenceStore.setEnabled(false)
-                        prewarmWarpKeyInBackground()
-                        renderSubscriptions()
-                        onSubscriptionSelected()
-                        renderAdvancedControls()
-                        openScreen(SCREEN_HOME)
-                        if (currentVpnServiceState == VpnState.Started) {
-                            reconnectForConnectionOptionChange()
-                        } else {
-                            beginConnectFlow(Actions.CONNECT)
-                        }
-                    }
-                }
+                // beta246: the real free-server finder (tested through each server) replaces the TCP-only scan.
+                0 -> showMethodFinderDialog(FinderFamily.FREE_SERVERS, freeOnly = true)
                 1 -> {
                     val confInput = EditText(this).apply {
                         hint = "[Interface]\nPrivateKey = ...\nAddress = 10.2.0.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = ..."

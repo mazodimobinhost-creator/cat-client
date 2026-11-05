@@ -168,7 +168,11 @@ internal fun MainActivity.showAmneziaSectionDialog() {
     action(t("✍️ چسباندن یا نوشتن دستی (vpn:// یا متن ‎.conf)", "✍️ Paste or type it (vpn:// or .conf text)")) { showAmneziaPasteDialog() }
     action(t("📂 باز کردن فایل ‎.vpn یا ‎.conf", "📂 Open a .vpn or .conf file")) { appTools.openImportFilePicker() }
     action(t("📋 کانفیگ‌های Amnezia من (وصل شدن / حذف)", "📋 My Amnezia configs (connect / delete)")) { showMyAmneziaConfigsDialog() }
-    action(t("🛡️ سرور رایگان AmneziaWG (روی WARP) + تبدیل پروتون/وایرگارد", "🛡️ Free AmneziaWG (over WARP) + convert Proton/WireGuard")) { showAmneziaAndProtonWgHubDialog() }
+    // beta246: ready free servers, really tested on this internet, working ones first, one tap to connect.
+    action(t("🆓 سرورهای رایگان WireGuard / Hysteria2 (خودکار امتحان و وصل)", "🆓 Free WireGuard / Hysteria2 servers (auto-tested, one-tap)"), accent = true) {
+        showMethodFinderDialog(FinderFamily.FREE_SERVERS, freeOnly = true)
+    }
+    action(t("📄 تبدیل فایل پروتون/وایرگارد به AmneziaWG", "📄 Convert a Proton/WireGuard file to AmneziaWG")) { showAmneziaAndProtonWgHubDialog() }
     action(t("🔑 کلید WARP ردیف‌های رایگان (کجاست؟ ساختن)", "🔑 WARP key of the free rows (where? create)")) { showWarpKeysStatusDialog() }
     action(t("❓ کلید Amnezia را از کجا بیاورم؟ چه چیزهایی کار می‌کند؟", "❓ Where do I get a key? What works?")) { showAmneziaHelpDialog() }
     val scroll = ScrollView(this).apply { addView(box) }

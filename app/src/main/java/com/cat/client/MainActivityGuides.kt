@@ -346,132 +346,24 @@ internal fun MainActivity.buildPlainLanguageQuickGuideCard(): View {
  * Probes the user's own configs, Firefox VPN (FENIX), MLM Quick Connect Pool, Serverless Aether, and PaqetNG
  * on the user's current network, highlights the best working option with "⭐ پیشنهادی", and connects in 1 tap.
  */
+/**
+ * «🚀 I just want to connect». beta246: this used to rank methods by a TCP connect to their servers, which says
+ * nothing about whether a method gives internet. It now opens the 🧭 method finder: every method is really tried
+ * on this internet (best first, stop any time) and «⭐ connect to the best» connects with one tap.
+ */
 internal fun MainActivity.showRecommendedOneClickConnectWizardDialog() {
-    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-    Toast.makeText(
-        this,
-        if (isFarsi) "🔍 رادار Cat Scout در حال تست تمام مسیرهای اتصال روی اینترنت فعلی شما..."
-        else "🔍 Cat Scout probing all connection methods on your current ISP...",
-        Toast.LENGTH_SHORT,
-    ).show()
-
-    activityScope.launch {
-        val userLinks = withContext(Dispatchers.IO) {
-            val store = SubscriptionStore(this@showRecommendedOneClickConnectWizardDialog)
-            val selectedId = store.readSelectedSubscriptionId()
-            val snap = userSubscriptionManager.cachedSnapshot(selectedId)
-            val currentLinks = snap?.catalog?.profiles?.mapNotNull { it.shareLink }.orEmpty()
-            if (currentLinks.isNotEmpty()) {
-                currentLinks
-            } else {
-                userSubscriptionManager.list().flatMap { sub ->
-                    userSubscriptionManager.cachedSnapshot(sub.id)?.catalog?.profiles?.mapNotNull { it.shareLink }.orEmpty()
-                }
-            }
-        }
-        val recommendations = withContext(Dispatchers.IO) {
-            MlmAndNextGenVpnHub.runMlmScoutRecommendations(
-                userLinks,
-                timeoutMs = 1100,
-                fenixSignedIn = FirefoxVpnEngine.loadAccounts(this@showRecommendedOneClickConnectWizardDialog).any {
-                    it.enabled && (it.refreshToken.isNotBlank() || it.hasUnexpiredProxyPass())
-                },
-            )
-        }
-        if (recommendations.isEmpty()) return@launch
-
-        val best = recommendations.first()
-        val itemLabels = recommendations.map { rec ->
-            "${rec.titleFa}\n   ⚡ ${rec.subtitleFa}"
-        }.toTypedArray()
-
-        fun activateRecommendation(rec: MlmAndNextGenVpnHub.MlmScoutRecommendation) {
-            activityScope.launch {
-                when (rec.category) {
-                    "aether" -> {
-                        val curAether = aetherPreferenceStore.read()
-                        aetherPreferenceStore.save(curAether.copy(enabled = true))
-                        renderAdvancedControls()
-                        beginConnectFlow(if (buttonModel.state == VpnState.Started) Actions.RECONNECT else Actions.CONNECT)
-                    }
-                    "fenix" -> {
-                        withContext(Dispatchers.IO) { FirefoxVpnEngine.startLocalBridge(this@showRecommendedOneClickConnectWizardDialog) }
-                        val subTitle = "⭐ پیشنهادی · 🦊 Cat Fox VPN"
-                        val saved = withContext(Dispatchers.IO) {
-                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
-                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
-                            else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
-                        }
-                        userSubscriptionManager.select(saved.id)
-                        onSubscriptionSelected()
-                        if (buttonModel.state != VpnState.Started) beginConnectFlow(Actions.CONNECT)
-                    }
-                    "paqet" -> {
-                        withContext(Dispatchers.IO) {
-                            PaqetEngine.ensureLocalBridgeRunning(this@showRecommendedOneClickConnectWizardDialog, rec.shareUriOrPayload)
-                        }
-                        val subTitle = "⭐ پیشنهادی · 📦 PaqetNG (patth ng)"
-                        val saved = withContext(Dispatchers.IO) {
-                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
-                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
-                            else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
-                        }
-                        userSubscriptionManager.select(saved.id)
-                        onSubscriptionSelected()
-                        if (buttonModel.state != VpnState.Started) beginConnectFlow(Actions.CONNECT)
-                    }
-                    else -> {
-                        val subTitle = if (rec.category == "user_config") {
-                            "⭐ کانفیگ‌های تعمیرشده و بهینهٔ من"
-                        } else {
-                            "⭐ پیشنهادی · استخر اتصال سریع (Cat Pool)"
-                        }
-                        val saved = withContext(Dispatchers.IO) {
-                            val existing = userSubscriptionManager.list().firstOrNull { it.name == subTitle }
-                            if (existing != null) userSubscriptionManager.update(existing.id, subTitle, rec.shareUriOrPayload)
-                            else userSubscriptionManager.add(subTitle, rec.shareUriOrPayload)
-                        }
-                        userSubscriptionManager.select(saved.id)
-                        onSubscriptionSelected()
-                        if (buttonModel.state != VpnState.Started) beginConnectFlow(Actions.CONNECT)
-                    }
-                }
-                Toast.makeText(
-                    this@showRecommendedOneClickConnectWizardDialog,
-                    if (isFarsi) "✅ در حال اتصال به: ${rec.titleFa}" else "✅ Connecting to: ${rec.titleFa}",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
-        }
-
-        MaterialAlertDialogBuilder(this@showRecommendedOneClickConnectWizardDialog)
-            .setTitle(
-                if (isFarsi) "🚀 اتصال جادویی ۱-کلیکی (⭐ گزینهٔ پیشنهادی برای اینترنت شما)"
-                else "🚀 1-Click Magic Connect (⭐ Recommended for Your ISP)",
-            )
-            .setItems(itemLabels) { _, which ->
-                activateRecommendation(recommendations[which])
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .setNeutralButton(if (isFarsi) "🩺 تعمیر کانفیگ‌های من" else "🩺 Config Doctor") { _, _ ->
-                showSmartConfigDoctorAndFluxDialog()
-            }
-            .setPositiveButton(
-                if (isFarsi) "✅ اتصال فوری به گزینهٔ ⭐ پیشنهادی (${best.latencyMs}ms)"
-                else "✅ Connect Now to ⭐ Recommended (${best.latencyMs}ms)",
-            ) { _, _ ->
-                activateRecommendation(best)
-            }
-            .create()
-            .showCatClientDialog()
-    }
+    showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
 }
 
 internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
     FinderEntry("🚀 فقط می‌خواهم وصل شوم", "🚀 I just want to connect",
-        "برنامه خودش بهترین راه را روی اینترنت شما پیدا می‌کند و وصل می‌شود. اگر نمی‌دانید چه بزنید، همین را بزنید.",
-        "The app finds the best way on your internet and connects. If unsure, tap this.",
-        "وصل اتصال پیشنهادی ساده connect recommended easy start") { showRecommendedOneClickConnectWizardDialog() },
+        "همهٔ روش‌های برنامه را واقعاً روی اینترنت شما امتحان می‌کند، بهترین را بالا می‌آورد و «⭐ اتصال به بهترین» با یک دکمه وصل می‌کند. اگر نمی‌دانید چه بزنید، همین را بزنید.",
+        "Really tries every method on your internet, puts the best on top, and “⭐ Connect with the best” connects in one tap. If unsure, tap this.",
+        "وصل اتصال پیشنهادی ساده کدام روش کار می‌کند بررسی connect recommended easy start which method works check") { showRecommendedOneClickConnectWizardDialog() },
+    FinderEntry("🆓 سرور رایگان وایرگارد / Hysteria2", "🆓 Free WireGuard / Hysteria2 servers",
+        "سرورهای رایگان عمومی را می‌گیرد، واقعاً امتحان می‌کند و سالم‌ها را با یک دکمه وصل می‌کند.",
+        "Fetches public free servers, really tests them and connects to a working one in one tap.",
+        "رایگان سرور وایرگارد هیستریا free server wireguard hysteria hy2 wg amnezia") { showMethodFinderDialog(FinderFamily.FREE_SERVERS, freeOnly = true) },
     FinderEntry("➕ کانفیگ یا لینک اشتراک دارم", "➕ I have a config or subscription link",
         "لینک vless / vmess / trojan / ss یا لینک سابسکریپشن را اضافه کنید.",
         "Add a vless / vmess / trojan / ss link or a subscription URL.",

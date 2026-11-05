@@ -24,16 +24,17 @@
 |---|---:|---|---|
 | `MainActivity.kt` | 3712 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAdvanced.kt` | 4058 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAmneziaSstp.kt` | 623 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAmneziaSstp.kt` | 627 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1813 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCatWarp.kt` | 3355 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 9 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCatWarp.kt` | 3358 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCloud.kt` | 2818 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityConnectionTesting.kt` | 1883 | Connection testing page (ping/speed lists, chain picker). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDashboard.kt` | 1398 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityEngines.kt` | 4043 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityEngines.kt` | 4003 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1394 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 1000 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 892 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityMethodFinder.kt` | 533 | The last run per network (Wi-Fi / each SIM separately): «on this line Hysteria2 worked, Cat Warp did not». | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -47,7 +48,7 @@
 | `CatClientTileService.kt` | 138 | — | — · — |
 | `CatClientVpnService.kt` | 4344 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 13 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatWarp.kt` | 407 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 13 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 12 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceConnectionTests.kt` | 816 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 13 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
@@ -55,7 +56,7 @@
 | `CatClientVpnServiceRealInternet.kt` | 235 | Real internet check after connect, route memory and automatic next route. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceSstp.kt` | 172 | Cat SSTP engine: start, delay test, close. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceXray.kt` | 34 | Xray engine start/stop for the Cat core (beta223): F&F / finalMask proxies on the real Xray-core. | 11 JVM · 4 panel (see `affected-tests.py`) |
-| `ConnectionDelayTestState.kt` | 112 | — | — · — |
+| `ConnectionDelayTestState.kt` | 114 | — | — · — |
 | `ConnectionLifecycle.kt` | 297 | Connect/disconnect state machine shared by UI, tile and widget. | — · — |
 | `ConnectionTestSettings.kt` | 73 | — | Beta240CoreOptionsTest · — |
 | `ConnectionTestWakeLock.kt` | 62 | Shares one timed wake lock across preparation, probes, downloads, and cleanup. | — · — |
@@ -198,7 +199,7 @@
 | `RelayProbeDisplay.kt` | 32 | — | — · — |
 | `RelayRiskEvidence.kt` | 22 | 1101 is a Worker runtime outcome, not a property guessed from an ASN or datacenter name. | — · — |
 | `RelayRuntimePromotion.kt` | 28 | The only path from scanner PARTIAL to catalogue VERIFIED. | — · — |
-| `SmartConnectionAdvisor.kt` | 159 | Pure decision policy. | SmartConnectionAdvisorTest, SmartRouteHistoryTest, SmartRouteMeasurementAdapterTest, SmartRouteProbePolicyTest, SmartRouteScoutTest · — |
+| `SmartConnectionAdvisor.kt` | 159 | Pure decision policy. | Beta246MethodFinderTest, SmartConnectionAdvisorTest, SmartRouteHistoryTest, SmartRouteMeasurementAdapterTest, SmartRouteProbePolicyTest, SmartRouteScoutTest · — |
 | `SmartNetworkIdentityReader.kt` | 24 | — | — · — |
 | `SmartNetworkSnapshotReader.kt` | 43 | Reads only facts Android exposes. | — · — |
 | `SmartRouteHistory.kt` | 40 | Pure bounded-history aggregation; Android persistence lives in SmartRouteScoutStore. | SmartRouteHistoryTest · — |
@@ -282,7 +283,7 @@
 
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
-| `Actions.kt` | 81 | — | Beta220WiringTest · — |
+| `Actions.kt` | 81 | — | Beta220WiringTest, Beta246MethodFinderTest · — |
 | `AnalyticsEvents.kt` | 34 | AnalyticsEvents — Cat Client does NOT ship any third-party tracking. | — · — |
 | `AntiSanctionRouting.kt` | 168 | beta244 — anti-sanction routing (idea from other clients' «sanction rules»; own code, own list). | Beta244AntiSanctionRoutingTest, Beta244AntiSanctionRuntimeTest · — |
 | `AntiSanctionSettings.kt` | 242 | beta244 — one row in «مسیریابی» (next to ad block / sniffing / FakeDNS) that opens the anti-sanction dialog. | — · — |
@@ -304,11 +305,13 @@
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
+| `MethodFinderPlan.kt` | 291 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest · — |
+| `MethodFinderSources.kt` | 199 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_250 Kotlin files, 108586 lines._
+_253 Kotlin files, 109477 lines._
 
 ## MainActivity screens — function index
 
@@ -325,7 +328,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityAmneziaSstp.kt` (10 functions)
 
-`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:184, `previewAndImportAmneziaText`:211, `saveAmneziaSubscription`:269, `selectSubscriptionAndConnect`:298, `showMyAmneziaConfigsDialog`:310, `showCatSstpDialog`:411, `fetchAndSaveCatSstpServers`:475, `showManualCatSstpDialog`:504, `saveCatSstpSubscription`:548
+`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:188, `previewAndImportAmneziaText`:215, `saveAmneziaSubscription`:273, `selectSubscriptionAndConnect`:302, `showMyAmneziaConfigsDialog`:314, `showCatSstpDialog`:415, `fetchAndSaveCatSstpServers`:479, `showManualCatSstpDialog`:508, `saveCatSstpSubscription`:552
 
 ### `MainActivityAntiFilterTools.kt` (35 functions)
 
@@ -333,7 +336,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityCatWarp.kt` (19 functions)
 
-`buildAetherScreen`:109, `showAetherExitLocationPickerDialog`:274, `showGetNewWarpKeysDialog`:398, `runOneTapPattNgMimPsiphonSetup`:747, `showAetherConfigEditor`:908, `showWarpKeysStatusDialog`:1242, `showAddAetherDialog`:1352, `showAetherAutoScanAndBuildWizard`:2623, `probeAndShowAetherExitIpDialog`:3012, `subscriptionAetherLines`:3073, `aetherLineTitle`:3083, `editSubscriptionOrAetherConfig`:3089, `openCatWarpEditorForCurrentConfig`:3113, `openCatWarpEditorForLink`:3128, `showDeadLocalRowExplanation`:3173, `saveEditedAetherLine`:3197, `prewarmWarpKeyInBackground`:3255, `exportAetherIdentityToClipboard`:3279, `importAetherIdentityFromClipboard`:3313
+`buildAetherScreen`:109, `showAetherExitLocationPickerDialog`:277, `showGetNewWarpKeysDialog`:401, `runOneTapPattNgMimPsiphonSetup`:750, `showAetherConfigEditor`:911, `showWarpKeysStatusDialog`:1245, `showAddAetherDialog`:1355, `showAetherAutoScanAndBuildWizard`:2626, `probeAndShowAetherExitIpDialog`:3015, `subscriptionAetherLines`:3076, `aetherLineTitle`:3086, `editSubscriptionOrAetherConfig`:3092, `openCatWarpEditorForCurrentConfig`:3116, `openCatWarpEditorForLink`:3131, `showDeadLocalRowExplanation`:3176, `saveEditedAetherLine`:3200, `prewarmWarpKeyInBackground`:3258, `exportAetherIdentityToClipboard`:3282, `importAetherIdentityFromClipboard`:3316
 
 ### `MainActivityCloud.kt` (46 functions)
 
@@ -353,7 +356,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityEngines.kt` (21 functions)
 
-`buildAntiCensorshipEnginesCard`:109, `showWhiteDnsAndAetherToolsDialog`:676, `showIphoneIosConnectionHubDialog`:769, `showWhiteDnsResolverMethodsDialog`:1075, `showMasterDnsAndDnstGeneratorDialog`:1443, `showPaqetPatthEngineDialog`:1616, `showSmartConfigDoctorAndFluxDialog`:1810, `showOutlineFreeHubDialog`:1916, `showAmneziaAndProtonWgHubDialog`:2079, `runCloudflareZeroByteAndIpv6HealerDialog`:2223, `showFourPowerFeaturesCenterDialog`:2325, `showUniversalOmniConfigHubDialog`:2871, `showIspProtocolMatrixDialog`:3098, `showLiveWhitelistTlsClonerDialog`:3212, `showServerlessV52MethodDialog`:3308, `runFetchSevenGitHubFreeConfigSourcesDialog`:3399, `showEasyHotspotShareWithQrDialog`:3488, `runOneClickCleanAndSortConfigsDialog`:3590, `showCloudflareFiveSpoofMethodsDialog`:3715, `runIranDnsAndDnsttScanDialog`:3866, `runOneClickRepairMyRealConfigAndConnect`:3957
+`buildAntiCensorshipEnginesCard`:109, `showWhiteDnsAndAetherToolsDialog`:676, `showIphoneIosConnectionHubDialog`:769, `showWhiteDnsResolverMethodsDialog`:1075, `showMasterDnsAndDnstGeneratorDialog`:1443, `showPaqetPatthEngineDialog`:1616, `showSmartConfigDoctorAndFluxDialog`:1810, `showOutlineFreeHubDialog`:1916, `showAmneziaAndProtonWgHubDialog`:2079, `runCloudflareZeroByteAndIpv6HealerDialog`:2183, `showFourPowerFeaturesCenterDialog`:2285, `showUniversalOmniConfigHubDialog`:2831, `showIspProtocolMatrixDialog`:3058, `showLiveWhitelistTlsClonerDialog`:3172, `showServerlessV52MethodDialog`:3268, `runFetchSevenGitHubFreeConfigSourcesDialog`:3359, `showEasyHotspotShareWithQrDialog`:3448, `runOneClickCleanAndSortConfigsDialog`:3550, `showCloudflareFiveSpoofMethodsDialog`:3675, `runIranDnsAndDnsttScanDialog`:3826, `runOneClickRepairMyRealConfigAndConnect`:3917
 
 ### `MainActivityFox.kt` (7 functions)
 
@@ -361,7 +364,11 @@ for the dialog/button you want to change.
 
 ### `MainActivityGuides.kt` (9 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:349, `finderEntries`:470, `showFeatureFinderDialog`:595, `normalizeFinderText`:830, `featureFinderBar`:834, `showFirewallConnectionGuideDialog`:865, `showPrivacyPolicyIfNeeded`:919, `showPrivacyPolicyDialog`:925
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:487, `normalizeFinderText`:722, `featureFinderBar`:726, `showFirewallConnectionGuideDialog`:757, `showPrivacyPolicyIfNeeded`:811, `showPrivacyPolicyDialog`:817
+
+### `MainActivityMethodFinder.kt` (7 functions)
+
+`finderFa`:47, `methodFinderSummaryLine`:50, `buildMethodFinderCard`:59, `finderButton`:110, `showMethodFinderDialog`:135, `confirmFinderDisconnect`:492, `connectFinderCandidate`:510
 
 ### `MainActivityNetworkTools.kt` (24 functions)
 
@@ -625,6 +632,9 @@ for the dialog/button you want to change.
 | `FenixHpack` | `FenixHttp2.kt` |
 | `FenixPassPolicy` | `FenixPassPolicy.kt` |
 | `FenixTunnelSlots` | `FenixTunnelSlots.kt` |
+| `FinderCandidate` | `MethodFinderPlan.kt` |
+| `FinderFamily` | `MethodFinderPlan.kt` |
+| `FinderFamilyResult` | `MethodFinderPlan.kt` |
 | `FirefoxVpnEngine` | `FirefoxVpnEngine.kt` |
 | `FirewallBypassProfile` | `SubscriptionOptimizer.kt` |
 | `FirewallBypassRecipes` | `SubscriptionOptimizer.kt` |
@@ -642,6 +652,7 @@ for the dialog/button you want to change.
 | `FoxPortPolicy` | `FoxPortPolicy.kt` |
 | `FoxWebChannel` | `FoxWebChannel.kt` |
 | `FreeConfigs` | `FreeConfigs.kt` |
+| `FreeServer` | `MethodFinderPlan.kt` |
 | `FrontingEndpoint` | `FrontingIp.kt` |
 | `FrontingFailureMemory` | `FrontingFailureMemory.kt` |
 | `FrontingIpPolicy` | `FrontingIp.kt` |
@@ -679,6 +690,9 @@ for the dialog/button you want to change.
 | `MainActivity` | `MainActivity.kt` |
 | `MapOrigin` | `MapOrigin.kt` |
 | `MaxWidthLinearLayout` | `DashboardViews.kt` |
+| `MethodFinderPlan` | `MethodFinderPlan.kt` |
+| `MethodFinderSources` | `MethodFinderSources.kt` |
+| `MethodFinderStore` | `MainActivityMethodFinder.kt` |
 | `MihomoAdaptiveSelectionPlan` | `MihomoRuntime.kt` |
 | `MihomoAutomaticRoutingBridge` | `MihomoRuntime.kt` |
 | `MihomoAutomaticRoutingBridgeResult` | `MihomoRuntime.kt` |
@@ -845,6 +859,7 @@ for the dialog/button you want to change.
 | `SessionPlanner` | `SessionPlan.kt` |
 | `SessionPlanPreferences` | `SessionPlan.kt` |
 | `SessionPlanRequest` | `SessionPlan.kt` |
+| `ShareLinkRemark` | `MethodFinderPlan.kt` |
 | `SignalArcView` | `DashboardViews.kt` |
 | `SlipNetCliEngine` | `SlipNetCliEngine.kt` |
 | `SmartConnectionAdvisor` | `SmartConnectionAdvisor.kt` |

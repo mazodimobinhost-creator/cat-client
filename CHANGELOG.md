@@ -4,6 +4,24 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta246] — 2026-11-06 (Panel 6.81.4, unchanged)
+
+Owner request (ideas from another client's recent releases; own code, nothing copied): «which method works on my internet», complete WireGuard/Hysteria2 with ready free servers, and a Lantern engine.
+
+### Added — app
+- **🧭 «Which method works on my internet?»**, top of the 🛡️ anti-censorship tab (also «🚀 I just want to connect» in the finder bar). One tap tries every method on this line: Cat Warp (MASQUE, WireGuard, WARP-in-WARP, MASQUE-in-MASQUE on the user's own Cat Warp settings), free Hysteria2, free WireGuard, the user's own configs (last ones that worked first, ≤10), Cat Fox VPN (only when signed in) and SSTP (VPN Gate). Every row goes through the service's **real** delay test (a request through the method itself), not a TCP connect. Order is «quick first» (one of every method, then the second…), results appear live, **⏹ Stop** keeps what finished, and at the end methods are ranked: ✅ best ms + how many worked / ❌ / ⏸ not reached. «⭐ Connect with the best method» and «🚀 Connect» per method connect in one tap (Cat Warp rows switch Cat Warp on). A live connection is only paused after the user agrees. The last run is remembered per network (Wi-Fi / each SIM) and shown on the card. Psiphon/Tor are listed as not tested, with the reason.
+- **🆓 Free WireGuard / Hysteria2 servers** (button in the Amnezia/WireGuard section, the converter hub and the finder bar). Public lists that their owners refresh are fetched over HTTPS (jsDelivr → GitHub raw → jsDelivr Fastly, ≤9 s, ≤700 KB, a cut last row dropped), narrowed — one row per server, ≤2 per host, Hysteria2 that only works with certificate checks off is dropped (pinned `pinSHA256` rows stay), domain/obfuscated Hysteria2 first, real WireGuard servers before recycled WARP accounts, WARP rows on distinct ports — and really tested. Working servers stay in «🆓 سرورهای رایگان WireGuard و Hysteria2», fastest first. On today's lists: 4 724 rows parsed, 1 735 certificate-skipping Hysteria2 refused, 16 Hysteria2 + 6 WireGuard + 4 WARP picked.
+
+### Changed
+- The «🚀 1-click recommended» wizard and «scan & connect free AmneziaWG/Hysteria2» ranked by a TCP connect to the server (says nothing about internet through it); both now open the real finder. The Proton/WireGuard → AmneziaWG converter is unchanged; its section button is renamed to say what it does.
+- `ConnectionDelayTestSession.delays` (in memory): the service adds each row's delay the moment it works (records are still flushed every 25 rows).
+
+### Not done — Lantern
+- Deferred, honestly: Lantern's client (radiance, GPL-3) has no Android-ready library mode for an app that already owns the VPN. Its proxy-only build does not protect its own sockets (Cat's traffic would loop through Cat's own tunnel), it needs a custom Go entry point plus Android DNS fixes, and every build here would be a blind CI round (no Go toolchain in the sandbox). Nothing claims Lantern works.
+
+### Tests
+- `Beta246MethodFinderTest` (9): real list rows (WARP key URL-encoded, pinned vs unpinned Hysteria2, IPv6, junk), picking caps/dedupe/order, quick-first order, «#n» survives the converter's « 2» suffix and a '#' in a source name, vmess `ps` rewrite, summary/ranking, per-network encode/decode, and the wiring (no TCP-only scout on screen, real delay test + cancel, consent before pausing, HTTPS only).
+
 ## [1.10.0-beta245] — 2026-11-05 (Panel 6.81.4)
 
 Five owner requests from the KataBump «🌍 exit location» screen.

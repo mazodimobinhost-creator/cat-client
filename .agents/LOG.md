@@ -85,3 +85,10 @@
 - Local evidence: npm test 160/160 files; vercel-self-update 38 ✓; locations 58 ✓; loc-multi-dom 15 ✓ (real page, real worker save); kotlinc harness Beta245OperatorScanAndLiveDotTest 6/6. Android UI files compile only in CI.
 - Open: Vercel live panel is 6.77.3 — owner must press «آپدیت» with a token (or Storage → Blob → Connect → Redeploy) to keep users.
 - CI (`d7fa69a`): all green first time (2× Android build + JUnit, Panel tests ×2, UI e2e, Railway, portal, deploy-panel build). Release `v1.10.0-beta245` prerelease, 20 assets; bot snapshot `d2044c4`.
+
+## 2026-11-06 — v1.10.0-beta246 (313) · Panel 6.81.4 unchanged
+- Request: Lantern engine; «which method works on my internet» (test all, rank, stop keeps results); complete WireGuard/Amnezia with free auto-tested servers. Ideas only from another client's releases (GPL-3), own code.
+- App: `MethodFinderPlan.kt` (pure: families, list parse/pick, `ShareLinkRemark`, quick-first order, «#n» mapping, summary, per-network encode), `MethodFinderSources.kt` (HTTPS lists jsDelivr→raw→Fastly; Cat Warp ×4 on user's settings, Fox if signed in, SSTP ×6, own configs ≤10), `MainActivityMethodFinder.kt` (card, dialog, consent → DISCONNECT, real `TEST_CONNECTION_DELAYS`, ⏹ = `CANCEL_CONNECTION_DELAY_TEST`, ⭐/🚀 connect via `handleConnectionSelected`). `ConnectionDelayTestSession.delays` filled by the service for WORKS rows.
+- Entry points: anti-censorship tab card; Amnezia section 🆓 button; hub option 0; «🚀 I just want to connect» → finder (TCP-only `runMlmScoutRecommendations` / `fetchAndScanAmneziaAndProtonConfigs` no longer reachable from UI).
+- Lantern deferred: radiance novpn build has no socket protect (loop through Cat's own VPN), needs custom Go main + Android DNS flags; no Go in sandbox → blind CI rounds.
+- Local evidence: kotlinc harness Beta246MethodFinderTest 9/9; parser over today's real lists: 4 724 rows, 1 735 unpinned insecure Hy2 refused, picks 16 Hy2 + 6 WG + 4 WARP; codemap --check OK.

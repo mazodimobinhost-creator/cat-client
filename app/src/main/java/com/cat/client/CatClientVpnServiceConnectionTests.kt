@@ -201,6 +201,13 @@ internal fun CatClientVpnService.startConnectionDelayTest(
                                                     available = current.available + if (verdict == SmartRouteVerdict.WORKS) 1 else 0,
                                                     finishedFingerprints =
                                                         current.finishedFingerprints + profile.fingerprint,
+                                                    // beta246: the 🧭 method finder shows each result the moment it
+                                                    // lands (records are only flushed every 25 rows).
+                                                    delays = if (verdict == SmartRouteVerdict.WORKS && delayMs != null) {
+                                                        current.delays + (profile.fingerprint to delayMs)
+                                                    } else {
+                                                        current.delays
+                                                    },
                                                 )
                                             }
                                         }

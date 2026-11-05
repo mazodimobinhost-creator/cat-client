@@ -154,6 +154,9 @@ internal fun MainActivity.buildAetherScreen(): View {
 
     body.addView(featureFinderBar(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
 
+    // 0) beta246 🧭 «Which method works on my internet?» — real test of every method, best first, stop any time.
+    body.addView(buildMethodFinderCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+
     // 1) Plain-Language Step-by-Step Guide Card ("If you tap this, this happens")
     body.addView(
         buildPlainLanguageQuickGuideCard(),
