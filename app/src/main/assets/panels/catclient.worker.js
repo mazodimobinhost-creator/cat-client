@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.81.1';
+const CAT_PANEL_VERSION = '6.81.2';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -3439,6 +3439,8 @@ function markNoDirect(host, port) {
 }
 /** beta241: last «all sites» link-exit failure in this isolate (shown by /api/links as exitDown). */
 const LINK_EXIT_DOWN = { at: 0, err: '' };
+/** beta243: last config-chain failure that fell back (Strict off) — the panel shows it instead of hiding it. */
+const CHAIN_DOWN = { at: 0, err: '' };
 async function dialTarget(host, port, env, settings, log, proxyOverride, socketsIn, opts) {
   const sockets = socketsIn || await loadSockets();
   if (!sockets) throw new Error('cloudflare:sockets unavailable');
@@ -3452,12 +3454,14 @@ async function dialTarget(host, port, env, settings, log, proxyOverride, sockets
   if (useChain) {
     try {
       const dialed = await dialViaChain(sockets, chain, host, port);
+      CHAIN_DOWN.at = 0;
       if (log) log('dial ok chain:' + chain.type + ' → ' + host + ':' + port);
       return { socket: dialed.socket, via: 'chain', leftover: dialed.leftover };
     } catch (e) {
       lastError = e;
       if (log) log('chain failed: ' + (e && e.message ? e.message : e));
       if (settings && settings.chainStrict) throw e;
+      CHAIN_DOWN.at = Date.now(); CHAIN_DOWN.err = String((e && e.message) || e).slice(0, 120);
     }
   }
   // 🔗 exit through a linked panel: «cf» = only for Cloudflare-hosted destinations (instead of ProxyIP; a failure
@@ -7504,6 +7508,7 @@ async function handleApi(request, url, env, ctx) {
         uuid: masterUuid,
         kv: !!kvBinding(env),
         open: panelIsOpen(env, settings),
+        exitDown: CHAIN_DOWN.at ? 'chain: ' + CHAIN_DOWN.err : LINK_EXIT_DOWN.at ? 'link: ' + LINK_EXIT_DOWN.err : '',
         passwordSource: (await panelPassword(env, settings, masterUuid)).source,
         settings: Object.assign({}, settings, { passwordHash: undefined, totpSecret: undefined, totpEnabled: !!settings.totpSecret, hasPassword: !!settings.passwordHash, tgToken: settings.tgToken ? '••••' + settings.tgToken.slice(-4) : '', ghPat: settings.ghPat ? '••••' + settings.ghPat.slice(-4) : '' }),
         telegram: { configured: !!tgConfig(env, settings) },
@@ -11403,7 +11408,7 @@ function saveTune(){
   if(out)out.textContent=t('tune_saved');toast(t('tune_saved'));loadTune();
  }).catch(function(){if(out)out.textContent=t('tune_fail')});
 }
-function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();if(location.hash==='#inbounds')renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();vipRender();brRender();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune();tfaRender();auditLoad();arLoad();echAdvFill();cfqLoad()})}
+function load(){return api('/api/settings').then(function(j){CFG=j;renderCfg();if(j.exitDown)toast('⛓️✗ '+j.exitDown,1);refreshEchChip();return api('/api/users')}).then(function(j){USERS=j.users||[];renderUsers();renderStats();renderHero();renderOverview();if(location.hash==='#inbounds')renderInbounds();renderScanChips();renderB();loadEvents();loadErrors();loadLoc();labLoad();vipRender();brRender();if(document.querySelector('.tabbar'))goSec('home');rpLoad();ppLoad();aeBuild();var nn=$('#noIpsNote');if(nn)nn.style.display=(CFG.settings.ips&&CFG.settings.ips.length)?'none':'block';renderKvWarn();renderPassWarn();wireVerWarn();wireDiag();renderSurvival();renderTheme();loadTune();tfaRender();auditLoad();arLoad();echAdvFill();cfqLoad()})}
 var tfaPending=null;
 function tfaRender(){var st=$('#tfaState');if(!st||!CFG||!CFG.settings)return;var on=!!CFG.settings.totpEnabled;st.textContent=t(on?'tfa_on':'tfa_off');st.className='chip '+(on?'ok':'bad');$('#tfaBtn').textContent=t(on?'tfa_disable':(tfaPending?'tfa_confirm':'tfa_enable'));$('#tfaCode').style.display=(on||tfaPending)?'':'none';$('#tfaSetup').style.display=(!on&&tfaPending)?'block':'none'}
 function auditLoad(){var box=$('#auditList');if(!box)return;api('/api/login-audit').then(function(j){var list=(j&&j.entries)||[];box.innerHTML=list.length?list.slice(0,20).map(function(e){return '<div class="lk" style="gap:8px;flex-wrap:wrap"><span>'+(e.ok?'✅':'❌')+'</span><span class="mono" dir="ltr">'+esc(new Date(e.at).toLocaleString())+'</span><span class="mono" dir="ltr">'+esc(e.ip||'')+'</span><span>'+esc(e.cc||'')+(e.asn?' AS'+esc(String(e.asn)):'')+'</span><span class="dim">'+esc(e.reason||'')+'</span></div>'}).join(''):'<div class="dim">'+t('audit_empty')+'</div>'}).catch(function(){})}

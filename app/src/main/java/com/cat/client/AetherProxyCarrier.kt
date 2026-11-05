@@ -30,6 +30,8 @@ internal class AetherProxyCarrier(
     private val exitLocation: String = "auto",
     /** beta206: the profile's own TLS / fragment / SNI / scan options, so a chained carrier dials like the link says. */
     private val linkOptions: AetherSelection? = null,
+    /** beta243: the plan's budget (60 s for an endpoint scanned on another line); later stages search with the full one. */
+    private val scanBudgetMillis: Long = AetherNetworkPlanner.SEARCH_BUDGET_MS,
 ) : Closeable {
     private val active = AtomicBoolean(false)
     private var job: Job? = null
@@ -57,6 +59,7 @@ internal class AetherProxyCarrier(
             ipScan = ipScan,
             masqueTransport = masqueTransport,
             exitLocation = exitLocation,
+            scanBudgetMillis = scanBudgetMillis,
         ).let { base ->
             val o = linkOptions ?: return@let base
             base.copy(
@@ -137,27 +140,17 @@ internal class AetherProxyCarrier(
             AetherEngineSlot.prepareWhenFree { NativeAetherBridge.prepare(primaryJson) }
         }.recoverCatching { firstError ->
             AetherEngineSlot.ensureCurrent(gen)
-            val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
-            val autoDiscovery = autoDiscoveryCfg.toNativeJson()
-            AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
-                NativeAetherBridge.prepare(autoDiscovery)
-            }.onSuccess {
-                effectiveConfig = autoDiscoveryCfg
-                effectiveJson = autoDiscovery
+            // beta243: the same stages as AetherSession (AetherFallbackStages) — no repeated discovery, the full search
+            // budget after a failed hint, and one alternate table.
+            val autoDiscoveryCfg = AetherFallbackStages.autoDiscovery(config)
+            (if (autoDiscoveryCfg == null) Result.failure(firstError) else AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
+                NativeAetherBridge.prepare(autoDiscoveryCfg.toNativeJson())
+            }).onSuccess {
+                effectiveConfig = autoDiscoveryCfg!!
+                effectiveJson = autoDiscoveryCfg.toNativeJson()
             }.recoverCatching {
-                val fallbackMode = when (requestedMode) {
-                    AetherMode.MasqueInMasque, AetherMode.WireGuardOverMasque -> AetherMode.MasqueHttp2
-                    AetherMode.WarpInWarp -> AetherMode.WireGuard
-                    AetherMode.WireGuard -> AetherMode.MasqueHttp2
-                    else -> AetherMode.WireGuard
-                }
                 AetherEngineSlot.ensureCurrent(gen)
-                val altCfg = config.copy(
-                    mode = fallbackMode,
-                    exitLocation = AetherNetworkPlanner.exitForAlternate(requestedMode, config.exitLocation),
-                    endpoint = null,
-                    ipScan = "both",
-                )
+                val altCfg = AetherFallbackStages.alternate(config, requestedMode)
                 val altJson = altCfg.toNativeJson()
                 NativeAetherBridge.prepare(altJson).onSuccess {
                     effectiveConfig = altCfg

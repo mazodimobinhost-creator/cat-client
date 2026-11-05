@@ -4,6 +4,25 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta243] — 2026-11-05 (Panel 6.81.2)
+
+Review round 2 (Grok: panel; Claude: app). Every finding was checked against the code; all confirmed ones are fixed.
+
+### Fixed — panel
+- **Cloudflare Pages template shipped `OPEN_PANEL` / `OPEN_SUB` = "true".** On a Pages deploy `/sub` without a key served the master links, and the panel opened without login until a password was set. Both are "false" now (as the deploy bot and the Worker install already forced); `pages-target.test.mjs` asserts it.
+- **Chain fallback is visible (rest of chain bug 4).** With 🔗 chain «all» and the Strict switch off (default), a dead chain server still falls back to direct — that switch stays the owner's choice — but it was silent (production logging is a no-op). The panel now records it and `/api/settings` returns `exitDown`; opening the panel shows a red toast «⛓️✗ chain: …» (also for a down link exit). Cleared on the next working chain dial.
+
+### Fixed — Cat Warp (app)
+- **Scan wizard no longer saves an unanswered peer as «verified here».** When nothing answered, the fixed fallback peer (rtt 9999) was written into this network's memory and later dialled with the full verified budget. Only a peer that answered and was confirmed is remembered; the profile still keeps it as a hint.
+- **One fallback chain for the tunnel and the Psiphon/Tor carriers** (`AetherFallbackStages`). The carrier had its own copy that still repeated discovery when the first attempt already was discovery, and its own alternate table.
+- **A failed 60 s hint no longer shortens the real search:** the discovery and other-mode stages always get the full search budget. Chain carriers now also get the plan's budget.
+- **WARP-in-WARP's alternate is WARP-over-MASQUE** (was WireGuard + foreign, which resolves to `wiw` again — the same UDP transport, a wasted retry; found by the new behaviour test). Both stay two-hop with a foreign exit.
+- **Learned mode window no longer slides:** a later success with the same learned mode keeps the first timestamp, so after 7 days the requested mode (e.g. WireGuard) is tried again.
+- **Failover session has its own watchdog:** after `aether.failover` the retry ran without exit record, network memory or migrate-on-failure. It now gets the same watchdog, which learns only after that session's own prepare finished.
+
+### Tests
+- `Beta243AetherReviewRound2Test`: behaviour tests on real `AetherRuntimeConfig` objects (stage budgets, no repeated discovery, each alternate is a different native transport with the same hop count, learned-mode window, IPv6 address classes via `InetAddress`, network ranking) instead of source greps. Pure helpers extracted: `AetherNetworkPlanner.nextWorkingModeRecord` / `parseWorkingModeRecord` / `isGlobalIpv6Address` / `underlyingNetworkScore`.
+
 ## [1.10.0-beta242] — 2026-11-05 (Panel 6.81.1)
 
 Review round on beta241 (findings checked against the code; only confirmed ones changed).

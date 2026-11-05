@@ -76,11 +76,11 @@ class Beta241AetherNetworkPlanTest {
 
     @Test
     fun aLearnedAlternateOfATwoHopConfigKeepsTheForeignExit() {
-        // WARP-in-WARP with the «auto» exit resolves to two-hop wiw; its learned alternate WireGuard must stay wiw.
+        // WARP-in-WARP with the «auto» exit resolves to two-hop wiw; its learned alternate (beta243: WARP-over-MASQUE) stays two-hop.
         val plan = AetherNetworkPlanner.plan(
-            AetherMode.WarpInWarp, "auto", "both", null, hasIpv6 = true, learnedMode = AetherMode.WireGuard, verifiedFor = none,
+            AetherMode.WarpInWarp, "auto", "both", null, hasIpv6 = true, learnedMode = AetherMode.WireGuardOverMasque, verifiedFor = none,
         )
-        assertEquals(AetherMode.WireGuard, plan.mode)
+        assertEquals(AetherMode.WireGuardOverMasque, plan.mode)
         assertEquals("foreign", plan.exitLocation)
         assertTrue(AetherNetworkPlanner.isTwoHop(plan.mode, plan.exitLocation))
         // single-hop stays single-hop (Iran exit is the point of it)
@@ -116,9 +116,9 @@ class Beta241AetherNetworkPlanTest {
     fun reviewFindingsAreWiredIntoTheApp() {
         val main = File("src/main/java/com/cat/client")
         val session = File(main, "AetherSession.kt").readText()
-        assertTrue(session.contains("AetherNetworkPlanner.alternateMode(config.mode)"))
-        assertTrue(session.contains("exitLocation = AetherNetworkPlanner.exitForAlternate(config.mode, config.exitLocation)"))
-        assertTrue(File(main, "AetherProxyCarrier.kt").readText().contains("AetherNetworkPlanner.exitForAlternate(requestedMode, config.exitLocation)"))
+        // beta243: both prepare paths build their fallback stages from AetherFallbackStages (behaviour: Beta243 test).
+        assertTrue(session.contains("AetherFallbackStages.alternate(config)"))
+        assertTrue(File(main, "AetherProxyCarrier.kt").readText().contains("AetherFallbackStages.alternate(config, requestedMode)"))
         assertTrue(File(main, "CatClientVpnServiceCatWarp.kt").readText().contains("exitLocation = plan.exitLocation"))
         val store = File(main, "AetherPreferenceStore.kt").readText()
         assertTrue("both network functions use the same picker", store.split("pickUnderlyingNetwork(cm)").size == 3)
@@ -136,16 +136,16 @@ class Beta241AetherNetworkPlanTest {
         val main = File("src/main/java/com/cat/client")
         val startup = File(main, "CatClientVpnServiceCatWarp.kt").readText()
             .substringAfter("fun CatClientVpnService.runAetherStartup(").substringBefore("var result = try")
-        val beforeWatchdog = startup.substringBefore("val watchdogJob")
+        val beforeWatchdog = startup.substringBefore("fun launchAetherWatchdog(")
         assertFalse("no write into this network's memory before the connection is tried", beforeWatchdog.contains("rememberEndpointForNetwork"))
         assertTrue(startup.contains("AetherNetworkPlanner.plan("))
         assertTrue(startup.contains("scanBudgetMillis = plan.scanBudgetMillis"))
-        val afterStart = startup.substringAfter("state == VpnState.Started) {")
+        val afterStart = startup.substringAfter("state == VpnState.Started && live.lastMode != null) {")
         assertTrue(afterStart.contains("rememberEndpointForNetwork(networkKey, ranMode"))
         assertTrue(afterStart.contains("rememberWorkingModeForNetwork(networkKey, selection.mode, ranMode)"))
         val session = File(main, "AetherSession.kt").readText()
         assertTrue(session.contains("lastPeer = prepared.peer"))
-        assertTrue("the duplicate discovery stage is skipped", session.contains("val sameAsFirst = config.endpoint == null && config.ipScan == \"both\""))
+        assertTrue("the duplicate discovery stage is skipped", session.contains("if (autoDiscoveryCfg == null) Result.failure(firstError)"))
         val store = File(main, "AetherPreferenceStore.kt").readText()
         assertTrue("old, possibly unverified memories are not trusted", store.contains("\"netpool2_") && !store.contains("\"netpool_"))
         assertTrue(store.contains("fun underlyingNetworkHasIpv6("))

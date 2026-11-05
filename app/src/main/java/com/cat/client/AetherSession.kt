@@ -50,26 +50,18 @@ internal class AetherSession(
                 // Automatic fallback 1: if a pinned endpoint or IPv6-only scan failed (e.g. SIM has no IPv6 route),
                 // retry with dual-stack automatic endpoint discovery.
                 AetherEngineSlot.ensureCurrent(gen)
-                val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
-                val autoDiscovery = autoDiscoveryCfg.toNativeJson()
-                // beta241: the first attempt already WAS automatic discovery on both families — repeating it only
-                // doubled the wait before the other mode was tried.
-                val sameAsFirst = config.endpoint == null && config.ipScan == "both"
-                (if (sameAsFirst) Result.failure(firstError) else AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
-                    NativeAetherBridge.prepare(autoDiscovery)
+                // beta243: stages from AetherFallbackStages (shared with the chain carrier); null = the first attempt
+                // already WAS automatic discovery on both families, so go straight to the other mode.
+                val autoDiscoveryCfg = AetherFallbackStages.autoDiscovery(config)
+                (if (autoDiscoveryCfg == null) Result.failure(firstError) else AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
+                    NativeAetherBridge.prepare(autoDiscoveryCfg.toNativeJson())
                 }).onSuccess {
-                    effectiveConfig = autoDiscoveryCfg
-                    effectiveJson = autoDiscovery
+                    effectiveConfig = autoDiscoveryCfg!!
+                    effectiveJson = autoDiscoveryCfg.toNativeJson()
                 }.recoverCatching {
                     // Automatic fallback 2: switch between MASQUE and WireGuard while preserving Iran/Foreign exit policy.
-                    val altMode = AetherNetworkPlanner.alternateMode(config.mode)
                     AetherEngineSlot.ensureCurrent(gen)
-                    val altCfg = config.copy(
-                        mode = altMode,
-                        exitLocation = AetherNetworkPlanner.exitForAlternate(config.mode, config.exitLocation),
-                        endpoint = null,
-                        ipScan = "both",
-                    )
+                    val altCfg = AetherFallbackStages.alternate(config)
                     val altJson = altCfg.toNativeJson()
                     NativeAetherBridge.prepare(altJson).onSuccess {
                         effectiveConfig = altCfg

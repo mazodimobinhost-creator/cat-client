@@ -1053,19 +1053,13 @@ class AetherPreferenceStore(context: Context) {
     fun rememberWorkingModeForNetwork(networkKey: String, requested: AetherMode, working: AetherMode, nowMs: Long = System.currentTimeMillis()) {
         if (networkKey.isBlank()) return
         val key = "netmode2_${networkKey}_${requested.wireName}"
-        if (working == requested) {
-            prefs.edit().remove(key).apply()
-        } else {
-            prefs.edit().putString(key, "${working.wireName}|$nowMs").apply()
-        }
+        val next = AetherNetworkPlanner.nextWorkingModeRecord(prefs.getString(key, null), requested, working, nowMs)
+        if (next == null) prefs.edit().remove(key).apply() else prefs.edit().putString(key, next).apply()
     }
 
     fun recallWorkingModeForNetwork(networkKey: String, requested: AetherMode, nowMs: Long = System.currentTimeMillis()): AetherMode? {
         if (networkKey.isBlank()) return null
-        val raw = prefs.getString("netmode2_${networkKey}_${requested.wireName}", null) ?: return null
-        val savedAt = raw.substringAfter('|', "").toLongOrNull() ?: return null
-        if (nowMs - savedAt !in 0L..(7L * 24 * 60 * 60 * 1000L)) return null
-        return AetherMode.entries.firstOrNull { it.wireName == raw.substringBefore('|') }
+        return AetherNetworkPlanner.parseWorkingModeRecord(prefs.getString("netmode2_${networkKey}_${requested.wireName}", null), nowMs)
     }
 
     fun nextFailoverEndpointForNetwork(
@@ -1097,12 +1091,12 @@ class AetherPreferenceStore(context: Context) {
             val candidates = cm.allNetworks.filter(::usable)
             return candidates.maxByOrNull { net ->
                 val cap = caps(net)
-                var score = 0
-                if (cap?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) score += 4
-                if (cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true ||
-                    cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true) score += 2
-                else if (cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true) score += 1
-                score
+                AetherNetworkPlanner.underlyingNetworkScore(
+                    validated = cap?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true,
+                    wifiOrEthernet = cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                        cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true,
+                    cellular = cap?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true,
+                )
             }
         }
 
@@ -1114,11 +1108,7 @@ class AetherPreferenceStore(context: Context) {
             val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return null
             val net = pickUnderlyingNetwork(cm) ?: return null
             val lp = cm.getLinkProperties(net) ?: return null
-            val globalV6 = lp.linkAddresses.any { la ->
-                val a = la.address
-                a is java.net.Inet6Address && !a.isLinkLocalAddress && !a.isLoopbackAddress && !a.isSiteLocalAddress &&
-                    (a.address[0].toInt() and 0xFE) != 0xFC // not a unique-local fc00::/7 address
-            }
+            val globalV6 = lp.linkAddresses.any { la -> AetherNetworkPlanner.isGlobalIpv6Address(la.address) }
             val v6Route = lp.routes.any { r -> r.isDefaultRoute && r.destination.address is java.net.Inet6Address }
             globalV6 && v6Route
         }.getOrNull()

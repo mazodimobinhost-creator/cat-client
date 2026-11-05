@@ -84,7 +84,7 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
         if (sanctioned) {
             DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=psiphon reason=sanctioned")
             VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره ضدتحریم (WARP -> Psiphon)")
-            runAetherPsiphonStartup(eventPrefix, effectiveSelection.copy(chainTarget = "psiphon"))
+            runAetherPsiphonStartup(eventPrefix, effectiveSelection.copy(chainTarget = "psiphon"), plan.scanBudgetMillis)
             return
         }
         DiagnosticLogger.info(this, "$eventPrefix.aether.autoChain", "escalate=none reason=directOpen")
@@ -100,12 +100,12 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
             "WARP > Psiphon (${effectiveSelection.psiphonRegion.ifBlank { "Auto" }})"
         }
         VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره سایفون ($chainLabel)")
-        runAetherPsiphonStartup(eventPrefix, effectiveSelection)
+        runAetherPsiphonStartup(eventPrefix, effectiveSelection, plan.scanBudgetMillis)
         return
     }
     if (effectiveSelection.chainTarget == "tor") {
         VpnRuntimeStateStore.saveLiveConnectStep(this, "۳/۴: راه‌اندازی زنجیره تور (WARP > Tor)")
-        runAetherTorStartup(eventPrefix, effectiveSelection)
+        runAetherTorStartup(eventPrefix, effectiveSelection, plan.scanBudgetMillis)
         return
     }
     val reverseTorProxy = if (effectiveSelection.chainTarget == "tor-reverse") {
@@ -146,21 +146,24 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
         "$eventPrefix.aether.start",
         "mode=${effectiveSelection.mode.wireName} transport=${config.resolvedNativeTransport()} exitLoc=${effectiveSelection.effectiveExitLocation()} net=$networkKey",
     )
-    val watchdogJob = scope.launch(Dispatchers.IO) {
+    // beta243 (review): one watchdog per session — the failover retry below used to run with none (no exit record,
+    // no memory, no migrate). It learns only after THIS session's own prepare finished (lastMode set) and the tunnel
+    // is up, so a retry can never «learn» from the state left behind by the session that just died.
+    fun launchAetherWatchdog(live: AetherSession) = scope.launch(Dispatchers.IO) {
         var consecutiveFailures = 0
         val readyDeadline = System.currentTimeMillis() + 240_000L
-        while (isActive && state != VpnState.Started && System.currentTimeMillis() < readyDeadline) delay(500L)
-        if (isActive && state == VpnState.Started) {
+        while (isActive && (state != VpnState.Started || live.lastMode == null) && System.currentTimeMillis() < readyDeadline) {
+            delay(500L)
+        }
+        if (isActive && state == VpnState.Started && live.lastMode != null) {
             // beta241: only now — the tunnel really works — is the endpoint / mode written into this network's memory.
-            aetherSession?.let { live ->
-                val peer = live.lastPeer
-                val ranMode = live.lastMode ?: effectiveSelection.mode
-                if (peer != null) {
-                    aetherPreferenceStore.rememberEndpointForNetwork(networkKey, ranMode, live.lastIpScan ?: effectiveSelection.ipScan, peer)
-                }
-                aetherPreferenceStore.rememberWorkingModeForNetwork(networkKey, selection.mode, ranMode)
-                DiagnosticLogger.info(this@runAetherStartup, "aether.plan.learned", "net=$networkKey peer=${peer ?: "-"} mode=${ranMode.wireName}")
+            val peer = live.lastPeer
+            val ranMode = live.lastMode ?: effectiveSelection.mode
+            if (peer != null) {
+                aetherPreferenceStore.rememberEndpointForNetwork(networkKey, ranMode, live.lastIpScan ?: effectiveSelection.ipScan, peer)
             }
+            aetherPreferenceStore.rememberWorkingModeForNetwork(networkKey, selection.mode, ranMode)
+            DiagnosticLogger.info(this@runAetherStartup, "aether.plan.learned", "net=$networkKey peer=${peer ?: "-"} mode=${ranMode.wireName}")
             delay(2_500L)
             recordAetherExit(effectiveSelection, via = "direct", trace = AetherOperations.probeExitTrace(6_000).getOrNull())
         }
@@ -180,6 +183,7 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
             }
         }
     }
+    val watchdogJob = launchAetherWatchdog(session)
     var result = try {
         withContext(Dispatchers.IO) { session.run(config) }
     } finally {
@@ -197,10 +201,13 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
         if (failoverPeer != null) {
             DiagnosticLogger.info(this, "$eventPrefix.aether.failover", "peer=$failoverPeer net=$networkKey")
             val retrySession = createAetherSession(resolveSplitTunnelRuntimePlan())
-            val retryConfig = config.copy(endpoint = failoverPeer)
+            // A pool peer really connected on this network before: the normal budget, not a hint's 60 s.
+            val retryConfig = config.copy(endpoint = failoverPeer, scanBudgetMillis = AetherNetworkPlanner.VERIFIED_BUDGET_MS)
+            val retryWatchdog = launchAetherWatchdog(retrySession)
             result = try {
                 withContext(Dispatchers.IO) { retrySession.run(retryConfig) }
             } finally {
+                retryWatchdog.cancel()
                 runCatching { retrySession.close() }
                 if (aetherSession === retrySession) aetherSession = null
             }
@@ -214,7 +221,11 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
     }
 }
 
-internal suspend fun CatClientVpnService.runAetherPsiphonStartup(eventPrefix: String, selection: AetherSelection) {
+internal suspend fun CatClientVpnService.runAetherPsiphonStartup(
+    eventPrefix: String,
+    selection: AetherSelection,
+    scanBudgetMillis: Long = AetherNetworkPlanner.SEARCH_BUDGET_MS,
+) {
     runCatching { aetherPsiphonChain?.close() }
     aetherPsiphonChain = null
     val splitPlan = resolveSplitTunnelRuntimePlan()
@@ -230,6 +241,7 @@ internal suspend fun CatClientVpnService.runAetherPsiphonStartup(eventPrefix: St
         masqueTransport = selection.masqueTransport,
         innerEndpoint = selection.innerEndpoint,
         linkOptions = selection,
+        scanBudgetMillis = scanBudgetMillis,
     ).also { aetherPsiphonChain = it }
     DiagnosticLogger.info(
         this,
@@ -305,7 +317,11 @@ internal fun CatClientVpnService.recordAetherExit(selection: AetherSelection, vi
     }
 }
 
-internal suspend fun CatClientVpnService.runAetherTorStartup(eventPrefix: String, selection: AetherSelection) {
+internal suspend fun CatClientVpnService.runAetherTorStartup(
+    eventPrefix: String,
+    selection: AetherSelection,
+    scanBudgetMillis: Long = AetherNetworkPlanner.SEARCH_BUDGET_MS,
+) {
     runCatching { aetherTorCarrier?.close() }
     aetherTorCarrier = null
     val splitPlan = resolveSplitTunnelRuntimePlan()
@@ -327,6 +343,7 @@ internal suspend fun CatClientVpnService.runAetherTorStartup(eventPrefix: String
         innerEndpoint = selection.innerEndpoint,
         exitLocation = if (torReachable) "auto" else "foreign",
         linkOptions = selection,
+        scanBudgetMillis = scanBudgetMillis,
     ).also { aetherTorCarrier = it }
     DiagnosticLogger.info(this, "$eventPrefix.aetherTor.start", "carrier=${carrierMode.wireName} torReachable=$torReachable")
     if (!torReachable) {

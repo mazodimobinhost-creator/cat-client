@@ -8,8 +8,8 @@
     { "binding": "CAT_KV" }
   ],
   "vars": {
-    "OPEN_PANEL": "true",
-    "OPEN_SUB": "true",
+    "OPEN_PANEL": "false",
+    "OPEN_SUB": "false",
     "CAT_DEPLOY_TARGET": "pages"
   }
 }

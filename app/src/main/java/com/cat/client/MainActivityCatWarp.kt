@@ -2850,7 +2850,9 @@ internal fun MainActivity.showAetherAutoScanAndBuildWizard(onBuilt: ((AetherSele
 
             val builtSelection = buildSelectionForCandidate(winner)
             val netKey = AetherPreferenceStore.underlyingNetworkKey(this@showAetherAutoScanAndBuildWizard)
-            builtSelection.endpoint?.let { peer ->
+            // beta243 (review): only a peer that really answered AND was confirmed is «verified here». A fixed fallback
+            // peer (rtt 9999, nothing answered) is still saved in the profile as a hint, but never into network memory.
+            builtSelection.endpoint?.takeIf { winner.reachable && winner.confirmed }?.let { peer ->
                 aetherPreferenceStore.rememberEndpointForNetwork(netKey, builtSelection.mode, builtSelection.ipScan, peer, winner.rttMs)
             }
             aetherPreferenceStore.save(builtSelection)

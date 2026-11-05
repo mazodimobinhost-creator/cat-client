@@ -17,4 +17,8 @@ test('Pages is a separate advanced-mode target generated from canonical source',
   assert.match(artifact, /Generated Pages advanced-mode entrypoint/);
   assert.match(config, /"pages_build_output_dir"\s*:\s*"\.\/dist"/);
   assert.match(config, /"CAT_DEPLOY_TARGET"\s*:\s*"pages"/);
+  // beta243 (review): same public-access rule as every other deploy path — /sub without a key never serves the
+  // master links, and the panel asks for the admin/admin login until the owner sets a password.
+  assert.match(config, /"OPEN_SUB"\s*:\s*"false"/);
+  assert.match(config, /"OPEN_PANEL"\s*:\s*"false"/);
 });

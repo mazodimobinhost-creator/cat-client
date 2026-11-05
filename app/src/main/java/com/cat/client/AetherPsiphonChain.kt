@@ -44,6 +44,7 @@ internal class AetherPsiphonChain(
     private val masqueTransport: String = "h2",
     private val innerEndpoint: String? = null,
     private val linkOptions: AetherSelection? = null,
+    private val scanBudgetMillis: Long = AetherNetworkPlanner.SEARCH_BUDGET_MS,
 ) : Closeable {
     private val active = AtomicBoolean(false)
     private var aether = newCarrier(exitLocation = "auto")
@@ -61,6 +62,7 @@ internal class AetherPsiphonChain(
         innerEndpoint = innerEndpoint,
         exitLocation = exitLocation,
         linkOptions = linkOptions,
+        scanBudgetMillis = scanBudgetMillis,
     )
 
     suspend fun start(region: String = "", onStep: (String) -> Unit = {}): AetherChainOutcome {

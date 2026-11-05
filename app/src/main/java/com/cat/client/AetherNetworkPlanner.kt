@@ -42,10 +42,47 @@ internal object AetherNetworkPlanner {
 
     fun isIpv6Peer(peer: String): Boolean = peer.trim().startsWith("[")
 
+    /** A learned mode is retried with the requested one after this long (fixed window from the FIRST learning). */
+    const val LEARNED_MODE_TTL_MS = 7L * 24 * 60 * 60 * 1000L
+
+    /**
+     * beta243 (review): the stored «mode|savedAt» record after a working tunnel, or null = remove it.
+     * The same learned mode keeps its ORIGINAL savedAt — re-stamping it on every connect made the 7-day window slide
+     * forever, so a line whose UDP was only blocked for a while never got WireGuard back.
+     */
+    fun nextWorkingModeRecord(existing: String?, requested: AetherMode, working: AetherMode, nowMs: Long): String? {
+        if (working == requested) return null
+        val kept = existing?.takeIf { parseWorkingModeRecord(it, nowMs) == working }
+        return kept ?: "${working.wireName}|$nowMs"
+    }
+
+    /** The learned mode in a stored record, or null when absent, malformed or older than [LEARNED_MODE_TTL_MS]. */
+    fun parseWorkingModeRecord(raw: String?, nowMs: Long): AetherMode? {
+        if (raw.isNullOrBlank()) return null
+        val savedAt = raw.substringAfter('|', "").toLongOrNull() ?: return null
+        if (nowMs - savedAt !in 0L..LEARNED_MODE_TTL_MS) return null
+        return AetherMode.entries.firstOrNull { it.wireName == raw.substringBefore('|') }
+    }
+
+    /** A global (routable) IPv6 address — not loopback, link-local (fe80::/10), site-local (fec0::/10) or ULA (fc00::/7). */
+    fun isGlobalIpv6Address(a: java.net.InetAddress): Boolean =
+        a is java.net.Inet6Address && !a.isLoopbackAddress && !a.isLinkLocalAddress && !a.isSiteLocalAddress &&
+            !a.isAnyLocalAddress && (a.address[0].toInt() and 0xFE) != 0xFC
+
+    /** Ranking of the non-VPN networks while our own tunnel is up: validated first, then Wi-Fi/Ethernet, then mobile data. */
+    fun underlyingNetworkScore(validated: Boolean, wifiOrEthernet: Boolean, cellular: Boolean): Int =
+        (if (validated) 4 else 0) + when {
+            wifiOrEthernet -> 2
+            cellular -> 1
+            else -> 0
+        }
+
     /** The one alternate tried when [mode] fails on a network (AetherSession) — also the only mode that may be learned. */
     fun alternateMode(mode: AetherMode): AetherMode = when (mode) {
         AetherMode.MasqueInMasque -> AetherMode.WireGuardOverMasque
-        AetherMode.WarpInWarp -> AetherMode.WireGuard
+        // beta243: WireGuard + foreign resolves to «wiw» again — the same UDP transport, a wasted retry. The partner of
+        // WARP-in-WARP is WARP inside MASQUE (TCP/H2), still two-hop, so a line that drops UDP gets a real alternative.
+        AetherMode.WarpInWarp -> AetherMode.WireGuardOverMasque
         AetherMode.WireGuard -> AetherMode.MasqueHttp2
         else -> AetherMode.WireGuard
     }

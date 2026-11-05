@@ -127,6 +127,19 @@ check('/api/links reports the failure (exitDown)', lst.j && lst.j.exitDown && ls
 fs1 = fakeSockets();
 await TA.dialTarget('104.16.1.1', 443, A.env, sa, null, null, fs1).catch(() => {});
 check('cf mode still falls back to the normal route when the link is down', fs1.log[0] === 'b.vercel.app:443:starttls' && fs1.log.length > 1, fs1.log.join(' | '));
+// beta243 (review, chain bug 4 — config chain half): with Strict off a dead chain falls back, but no longer silently;
+// with Strict on nothing else is dialled.
+const chainSet = Object.assign({}, sa, { linkExit: null, chain: 'socks5://198.51.100.7:1080', chainMode: 'all' });
+fs1 = fakeSockets();
+await TA.dialTarget('93.184.216.34', 443, A.env, chainSet, null, null, fs1).catch(() => {});
+check('chain all + Strict off: chain dialled first, then the normal route', fs1.log[0] === '198.51.100.7:1080' && fs1.log.length > 1, fs1.log.join(' | '));
+const st = await call(A, '/api/settings');
+check('… and /api/settings reports it (exitDown «chain: …») for the panel toast', st.j && /^chain: /.test(st.j.exitDown || ''), JSON.stringify(st.j && st.j.exitDown));
+fs1 = fakeSockets();
+const strictErr = await TA.dialTarget('93.184.216.34', 443, A.env, Object.assign({}, chainSet, { chainStrict: true }), null, null, fs1).then(() => null, (e) => e);
+check('chain all + Strict on: refused, nothing else dialled', strictErr && fs1.log.length === 1 && fs1.log[0] === '198.51.100.7:1080', fs1.log.join(' | '));
+const pageSrc = fs.readFileSync(workerPath, 'utf8');
+check('panel shows the fallback as a red toast on load', pageSrc.includes("if(j.exitDown)toast('⛓️✗ '+j.exitDown,1)") || !!process.env.CAT_PANEL_WORKER);
 const src = fs.readFileSync(workerPath, 'utf8');
 check('no A→B→A loop: link-arrived traffic dials with linkExit cleared', /viaLink && settings\.linkExit \? Object\.assign\(\{\}, settings, \{ linkExit: null \}\)/.test(src) || process.env.CAT_PANEL_WORKER);
 
