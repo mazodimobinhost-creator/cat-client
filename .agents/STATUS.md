@@ -1,6 +1,6 @@
 # Project Status (`STATUS.md`)
 
-- **Overall State:** ⏳ CI pending — `v1.10.0-beta246` / Panel `6.81.4` (🧭 real «which method works on my internet» finder with stop + per-network memory; 🆓 free WireGuard/Hysteria2 lists fetched, narrowed and really tested; TCP-only scouts replaced; Lantern deferred with reasons — see CHANGELOG).
+- **Overall State:** ✅ CI green — `v1.10.0-beta246` at `9ea2faf` / Panel `6.81.4` (🧭 real «which method works on my internet» finder with stop + per-network memory; 🆓 free WireGuard/Hysteria2 lists fetched, narrowed and really tested; TCP-only scouts replaced; Lantern deferred with reasons — see CHANGELOG).
 - **Active Branch:** `arena/c5b36768-cat-client` (`pr_open` — PR #9 must not be merged per user constraint).
 - **Latest Release:** `v1.10.0-beta246` (`versionCode = 313`, Panel `6.81.4` unchanged). Previous: `v1.10.0-beta245` (`d7fa69a`).
 - **Fox needs a phone test:** the sandbox cannot reach Mozilla/Fastly hosts, so the 406 fix is verified by unit tests + the reference client's behaviour only. On the phone: sign in, connect, and if it fails read the Persian error — it now names the failing step (e.g. «cookie not accepted on this line» = exit IP changed).
