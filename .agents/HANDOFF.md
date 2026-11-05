@@ -11,7 +11,7 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 ```
 
 ## 2026-11-05 — Arena agent — beta245 / Panel 6.81.4 (owner's 5 items)
-- Version / commit: v1.10.0-beta245 / (see LOG.md for the CI result)
+- Version / commit: v1.10.0-beta245 / d7fa69a — all CI green first time, prerelease 20 assets
 - Done: several exit countries per user (≤6, ≤12 exits, `exitCc` kept = first); ➕ library → panel ProxyIP/SOCKS list (healthy
   only, exact ports); 📶 per-operator scanner memory (panel: `cf.asn` → operator, `/api/scan-ops`; app: «Suggested IPs for my
   operator», Wi-Fi kept separate via `NetworkCapabilities`); one-tap Vercel Blob storage on «Update» (`ensureVercelStorage`);

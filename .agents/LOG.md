@@ -84,4 +84,4 @@
 - App: `PanelLiveDot.kt`, `OperatorScanHints.kt` (pure), `OperatorScanMemory.kt`; dots in `MainActivityCloud`, `VercelRelayController` (projects + scanner picker), `NodeHostController` (picker + page, raw-socket `/health` for http panels — cleartext is off app-wide); scanner «📶 Suggested IPs for my operator» + `rememberScanForOperator`.
 - Local evidence: npm test 160/160 files; vercel-self-update 38 ✓; locations 58 ✓; loc-multi-dom 15 ✓ (real page, real worker save); kotlinc harness Beta245OperatorScanAndLiveDotTest 6/6. Android UI files compile only in CI.
 - Open: Vercel live panel is 6.77.3 — owner must press «آپدیت» with a token (or Storage → Blob → Connect → Redeploy) to keep users.
-
+- CI (`d7fa69a`): all green first time (2× Android build + JUnit, Panel tests ×2, UI e2e, Railway, portal, deploy-panel build). Release `v1.10.0-beta245` prerelease, 20 assets; bot snapshot `d2044c4`.
