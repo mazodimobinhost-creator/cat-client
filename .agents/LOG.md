@@ -65,4 +65,4 @@
   - DATA_PLANE in `wrangler.jsonc`, `WorkerDeploymentPipeline.kt`, `CloudflareWorker.kt`, `catclient.wizard.js`, `deploy-bot/worker.js`.
   - Settings: `CoreOptionsSettings.kt` (new), `MihomoRuntime.kt` (`sniffing`/`fakeDns` params, `SNIFFER_BLOCK`, prefs), `CatClientVpnService.kt` (`setHttpProxy`), `ConnectionTestSettings.kt` (`delayTestUrl`), strings en/fa.
   - Tests: `worker-realtraffic.test.mjs` (new, in `npm test`), `panel-selfupdate` block 11, `Beta240CoreOptionsTest`.
-
+- **2026-11-05 (beta241 / Panel 6.81.0):** Cat Warp network planner (`AetherNetworkPlanner.kt`, `CatClientVpnServiceCatWarp.kt`, `AetherSession.kt`, `AetherPreferenceStore.kt`) — configs built on one line now adapt on other lines; remember-after-success only. Flaky `/api/ech-pool` test fixed. `docs/REVIEW-BRIEF.md` (full-project review for Claude/Grok). CI green at `88748b0`.
