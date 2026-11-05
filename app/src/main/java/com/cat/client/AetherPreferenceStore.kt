@@ -947,7 +947,7 @@ class AetherPreferenceStore(context: Context) {
     ) {
         if (networkKey.isBlank() || !AetherOperations.isSafePublicPeer(peer)) return
         val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
-        val slotKey = "netmem_${networkKey}_${family}_$ipScan"
+        val slotKey = "netmem2_${networkKey}_${family}_$ipScan"
         val payload = org.json.JSONObject()
             .put("peer", peer)
             .put("rttMs", rttMs.coerceAtLeast(0L))
@@ -966,7 +966,7 @@ class AetherPreferenceStore(context: Context) {
         if (networkKey.isBlank()) return null
         val poolFirst = recallEndpointPoolForNetwork(networkKey, mode, ipScan, nowMs).firstOrNull()?.peer
         val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
-        val slotKey = "netmem_${networkKey}_${family}_$ipScan"
+        val slotKey = "netmem2_${networkKey}_${family}_$ipScan"
         val raw = prefs.getString(slotKey, null) ?: return poolFirst
         return runCatching {
             val obj = org.json.JSONObject(raw)
@@ -994,7 +994,7 @@ class AetherPreferenceStore(context: Context) {
     ) {
         if (networkKey.isBlank() || !AetherOperations.isSafePublicPeer(peer)) return
         val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
-        val poolKey = "netpool_${networkKey}_${family}_$ipScan"
+        val poolKey = "netpool2_${networkKey}_${family}_$ipScan"
         val existing = recallEndpointPoolForNetwork(networkKey, mode, ipScan, nowMs)
             .filterNot { it.peer.equals(peer.trim(), ignoreCase = true) }
         val added = AetherCachedEndpoint(
@@ -1027,7 +1027,7 @@ class AetherPreferenceStore(context: Context) {
     ): List<AetherCachedEndpoint> {
         if (networkKey.isBlank()) return emptyList()
         val family = if (mode == AetherMode.WireGuard) "warp" else "masque"
-        val poolKey = "netpool_${networkKey}_${family}_$ipScan"
+        val poolKey = "netpool2_${networkKey}_${family}_$ipScan"
         val raw = prefs.getString(poolKey, null)?.takeIf { it.isNotBlank() } ?: return emptyList()
         val maxAge = 7L * 24 * 60 * 60 * 1000L
         return runCatching {
@@ -1046,6 +1046,28 @@ class AetherPreferenceStore(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * beta241: the mode that REALLY connected on this network when [requested] was asked for (e.g. WireGuard →
+     * MASQUE on a line that drops UDP). Written only after a working tunnel, read by [AetherNetworkPlanner].
+     */
+    fun rememberWorkingModeForNetwork(networkKey: String, requested: AetherMode, working: AetherMode, nowMs: Long = System.currentTimeMillis()) {
+        if (networkKey.isBlank()) return
+        val key = "netmode2_${networkKey}_${requested.wireName}"
+        if (working == requested) {
+            prefs.edit().remove(key).apply()
+        } else {
+            prefs.edit().putString(key, "${working.wireName}|$nowMs").apply()
+        }
+    }
+
+    fun recallWorkingModeForNetwork(networkKey: String, requested: AetherMode, nowMs: Long = System.currentTimeMillis()): AetherMode? {
+        if (networkKey.isBlank()) return null
+        val raw = prefs.getString("netmode2_${networkKey}_${requested.wireName}", null) ?: return null
+        val savedAt = raw.substringAfter('|', "").toLongOrNull() ?: return null
+        if (nowMs - savedAt !in 0L..(7L * 24 * 60 * 60 * 1000L)) return null
+        return AetherMode.entries.firstOrNull { it.wireName == raw.substringBefore('|') }
+    }
+
     fun nextFailoverEndpointForNetwork(
         networkKey: String,
         mode: AetherMode,
@@ -1058,6 +1080,29 @@ class AetherPreferenceStore(context: Context) {
     }
 
     companion object {
+        /**
+         * beta241: does the underlying (non-VPN) network have a global IPv6 address and an IPv6 default route?
+         * null = could not tell (then [AetherNetworkPlanner] changes nothing on that account).
+         */
+        fun underlyingNetworkHasIpv6(context: Context): Boolean? = runCatching {
+            val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return null
+            fun usable(net: android.net.Network): Boolean {
+                val cap = cm.getNetworkCapabilities(net) ?: return false
+                return cap.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !cap.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            }
+            @Suppress("DEPRECATION")
+            val net = cm.activeNetwork?.takeIf(::usable) ?: cm.allNetworks.firstOrNull(::usable) ?: return null
+            val lp = cm.getLinkProperties(net) ?: return null
+            val globalV6 = lp.linkAddresses.any { la ->
+                val a = la.address
+                a is java.net.Inet6Address && !a.isLinkLocalAddress && !a.isLoopbackAddress && !a.isSiteLocalAddress &&
+                    (a.address[0].toInt() and 0xFE) != 0xFC // not a unique-local fc00::/7 address
+            }
+            val v6Route = lp.routes.any { r -> r.isDefaultRoute && r.destination.address is java.net.Inet6Address }
+            globalV6 && v6Route
+        }.getOrNull()
+
         /**
          * Identifies the underlying non-VPN network (SIM 1 vs SIM 2 operator MCC+MNC or Wi-Fi gateway/DNS)
          * without requiring any extra permissions.

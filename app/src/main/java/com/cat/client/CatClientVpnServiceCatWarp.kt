@@ -54,16 +54,26 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
     check(coreLifecycle.isIdle()) { "Cat core must stop before Cat Warp starts" }
     val networkKey = AetherPreferenceStore.underlyingNetworkKey(this)
     VpnRuntimeStateStore.saveLiveConnectStep(this, "۱/۴: شناسایی شبکه ($networkKey) و انتخاب سریع‌ترین Endpoint")
-    val effectiveEndpoint = selection.freshEndpoint()
-        ?: aetherPreferenceStore.recallEndpointForNetwork(networkKey, selection.mode, selection.ipScan)
-    if (effectiveEndpoint != null) {
-        aetherPreferenceStore.rememberEndpointForNetwork(networkKey, selection.mode, selection.ipScan, effectiveEndpoint)
-    }
+    // beta241: adapt the config to THIS network (IP family, endpoint that really worked here, learned mode, short
+    // budget for an endpoint scanned on another line). Nothing is remembered until a tunnel really works.
+    val plan = AetherNetworkPlanner.plan(
+        requestedMode = selection.mode,
+        requestedIpScan = selection.ipScan,
+        linkEndpoint = selection.endpoint,
+        hasIpv6 = AetherPreferenceStore.underlyingNetworkHasIpv6(this),
+        learnedMode = aetherPreferenceStore.recallWorkingModeForNetwork(networkKey, selection.mode),
+        verifiedFor = { mode, family -> aetherPreferenceStore.recallEndpointForNetwork(networkKey, mode, family) },
+    )
+    DiagnosticLogger.info(this, "$eventPrefix.aether.plan", "net=$networkKey ${plan.describe()}")
+    val effectiveEndpoint = plan.endpoint
     val identityFile = File(filesDir, "aether.toml")
     withContext(Dispatchers.IO) { aetherPreferenceStore.applyWarmWarpKeyToFileIfNeeded(identityFile) }
-    val effectiveSelection = if (effectiveEndpoint != null && selection.endpoint == null) {
-        selection.copy(endpoint = effectiveEndpoint, endpointScannedAt = System.currentTimeMillis())
-    } else selection
+    val effectiveSelection = selection.copy(
+        mode = plan.mode,
+        ipScan = plan.ipScan,
+        endpoint = effectiveEndpoint,
+        endpointScannedAt = if (effectiveEndpoint != null) System.currentTimeMillis() else 0L,
+    )
     if (effectiveSelection.chainTarget == "auto-psiphon") {
         VpnRuntimeStateStore.saveLiveConnectStep(this, "۲/۴: بررسی وضعیت تحریم مستقیم برای زنجیره هوشمند")
         val sanctioned = withContext(Dispatchers.IO) {
@@ -109,6 +119,7 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
         mode = effectiveSelection.mode,
         identityFile = identityFile,
         endpoint = effectiveEndpoint,
+        scanBudgetMillis = plan.scanBudgetMillis,
         innerEndpoint = effectiveSelection.innerEndpoint,
         upstreamProxy = reverseTorProxy,
         ipScan = effectiveSelection.ipScan,
@@ -138,6 +149,16 @@ internal suspend fun CatClientVpnService.runAetherStartup(eventPrefix: String, s
         val readyDeadline = System.currentTimeMillis() + 240_000L
         while (isActive && state != VpnState.Started && System.currentTimeMillis() < readyDeadline) delay(500L)
         if (isActive && state == VpnState.Started) {
+            // beta241: only now — the tunnel really works — is the endpoint / mode written into this network's memory.
+            aetherSession?.let { live ->
+                val peer = live.lastPeer
+                val ranMode = live.lastMode ?: effectiveSelection.mode
+                if (peer != null) {
+                    aetherPreferenceStore.rememberEndpointForNetwork(networkKey, ranMode, live.lastIpScan ?: effectiveSelection.ipScan, peer)
+                }
+                aetherPreferenceStore.rememberWorkingModeForNetwork(networkKey, selection.mode, ranMode)
+                DiagnosticLogger.info(this@runAetherStartup, "aether.plan.learned", "net=$networkKey peer=${peer ?: "-"} mode=${ranMode.wireName}")
+            }
             delay(2_500L)
             recordAetherExit(effectiveSelection, via = "direct", trace = AetherOperations.probeExitTrace(6_000).getOrNull())
         }

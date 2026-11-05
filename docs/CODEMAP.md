@@ -45,8 +45,8 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 4344 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 12 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceCatWarp.kt` | 367 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 11 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnService.kt` | 4344 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 13 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceCatWarp.kt` | 388 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceConnectionTests.kt` | 809 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
@@ -75,7 +75,7 @@
 | `UiStallWatchdog.kt` | 118 | beta217: «the app is slow when I type or pick a config» cannot be fixed from guesses alone, so the app now notices its own freezes. | — · — |
 | `VpnNotificationActionPolicy.kt` | 17 | — | — · — |
 | `VpnRuntimeStateStore.kt` | 268 | Process-wide VPN state (Started/Stopped/…) + broadcast to the UI and widgets. | Beta220WiringTest · — |
-| `VpnState.kt` | 39 | — | Beta220WiringTest · — |
+| `VpnState.kt` | 39 | — | Beta220WiringTest, Beta241AetherNetworkPlanTest · — |
 | `VpnWidgetProvider.kt` | 156 | — | — · — |
 
 ### Engines (Cat Warp, Cat Fox VPN, Psiphon, SSTP, Tor, DNS, paqet, relays)
@@ -86,12 +86,13 @@
 | `AetherConfig.kt` | 180 | — | AetherRuntimeConfigTest, AetherSelectionTest, Beta206EngineTest, Beta209WarpEditorTest, Beta219TunnelTrafficTest · — |
 | `AetherEngineSlot.kt` | 98 | beta215: the Cat Warp native core runs ONE engine per app process (the bridge keeps a global run slot and answers «engine is already running» to pr… | Beta215AetherEngineSlotTest, Beta218ConnectFreezeTest · — |
 | `AetherIdentityStore.kt` | 221 | Read-only view of the WARP identities the Cat Warp core keeps next to `aether.toml`. | Beta209WarpEditorTest · — |
-| `AetherMode.kt` | 58 | User-facing Aether stacks. | AetherModePolicyTest, AetherRuntimeConfigTest, AetherSelectionTest, Beta206EngineTest, Beta209WarpEditorTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, WhiteDnsSmartScannerTest · — |
+| `AetherMode.kt` | 58 | User-facing Aether stacks. | AetherModePolicyTest, AetherRuntimeConfigTest, AetherSelectionTest, Beta206EngineTest, Beta209WarpEditorTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta241AetherNetworkPlanTest, WhiteDnsSmartScannerTest · — |
+| `AetherNetworkPlanner.kt` | 91 | beta241 — «the Cat Warp configs my app builds only work on my own internet». | Beta241AetherNetworkPlanTest · — |
 | `AetherOperations.kt` | 747 | Explicit foreground operations only; callers own coroutine/lifecycle cancellation. | AetherOperationsTest, Beta206EngineTest, Beta209WarpEditorTest, WhiteDnsSmartScannerTest · — |
-| `AetherPreferenceStore.kt` | 1099 | — | AetherRuntimeConfigTest, AetherSelectionTest, Beta209WarpEditorTest, WhiteDnsSmartScannerTest · — |
+| `AetherPreferenceStore.kt` | 1144 | — | AetherRuntimeConfigTest, AetherSelectionTest, Beta209WarpEditorTest, Beta241AetherNetworkPlanTest, WhiteDnsSmartScannerTest · — |
 | `AetherProxyCarrier.kt` | 176 | Aether WARP (MASQUE-in-MASQUE, MASQUE-HTTP/2, WireGuard-over-MASQUE, WARP-in-WARP, or WireGuard) as a loopback-only SOCKS carrier for Psiphon or Tor. | Beta206EngineTest, Beta215AetherEngineSlotTest, Beta218ConnectFreezeTest · — |
 | `AetherPsiphonChain.kt` | 127 | Starts and owns the two carrier legs; the caller attaches [PsiphonTunPlan] last. | — · — |
-| `AetherSession.kt` | 99 | Owns one native Aether session. | Beta215AetherEngineSlotTest, Beta219TunnelTrafficTest · — |
+| `AetherSession.kt` | 113 | Owns one native Aether session. | Beta215AetherEngineSlotTest, Beta219TunnelTrafficTest, Beta241AetherNetworkPlanTest · — |
 | `AetherTlsFingerprint.kt` | 146 | The TLS ClientHello the native Aether core (2.4) presents to Cloudflare's MASQUE edge. | AetherRuntimeConfigTest · — |
 | `AetherTunPolicy.kt` | 51 | — | AetherTunPolicyTest, Beta219TunnelTrafficTest · — |
 | `AmneziaHeaders.kt` | 20 | AmneziaWG H1-H4 header values. | ConnectionFaultExplainerTest · — |
@@ -301,7 +302,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_243 Kotlin files, 107579 lines._
+_244 Kotlin files, 107750 lines._
 
 ## MainActivity screens — function index
 
@@ -386,6 +387,7 @@ for the dialog/button you want to change.
 | `AetherCapabilities` | `AetherMode.kt` |
 | `AetherChainOutcome` | `AetherPsiphonChain.kt` |
 | `AetherCommandPreview` | `AetherCommandPreview.kt` |
+| `AetherConnectPlan` | `AetherNetworkPlanner.kt` |
 | `AetherEndpoint` | `AetherOperations.kt` |
 | `AetherEngineSlot` | `AetherEngineSlot.kt` |
 | `AetherExitChoice` | `AetherPreferenceStore.kt` |
@@ -394,6 +396,7 @@ for the dialog/button you want to change.
 | `AetherIdentityStore` | `AetherIdentityStore.kt` |
 | `AetherMode` | `AetherMode.kt` |
 | `AetherModePolicy` | `AetherMode.kt` |
+| `AetherNetworkPlanner` | `AetherNetworkPlanner.kt` |
 | `AetherOperations` | `AetherOperations.kt` |
 | `AetherPreferenceStore` | `AetherPreferenceStore.kt` |
 | `AetherProvisionResult` | `AetherOperations.kt` |

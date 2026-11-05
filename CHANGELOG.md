@@ -4,6 +4,17 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta241] — 2026-11-05 (Panel 6.81.0)
+
+### Fixed — Cat Warp configs built on one line failed on every other line / phone
+- **Cause:** a config from the scan wizard carries what worked on the line it was built on — the endpoint scanned there, the IP family (IPv6 where MCI gave the phone IPv6) and the mode (WireGuard where UDP passes). On another line the service dialled exactly that: an IPv6-only search on networks without IPv6, WireGuard on lines that drop UDP (MASQUE only after two full failed stages), every stage with the full 180 s budget (minutes of «connecting»), and the link's endpoint was written into the new network's memory before it was even tried.
+- **New `AetherNetworkPlanner`** adapts each connect to the network it runs on, keeping the config's exit / chain / country: IPv6 → IPv4 when the network has no IPv6 (IPv6 endpoints dropped), an endpoint that really connected on THIS network first, the link's endpoint only as a 60 s hint, otherwise the core's own search; a mode that really worked here (e.g. WireGuard → MASQUE) is used directly next time.
+- Endpoint and mode are remembered per network **only after the tunnel really works** (the peer the core actually used). Old per-network memories (possibly unverified) are no longer trusted (`netpool2_` / `netmem2_`).
+- The duplicate «automatic discovery» stage (identical to the first attempt when no endpoint and both IP families) is skipped, so the other mode is tried sooner.
+
+### Tests
+- New `Beta241AetherNetworkPlanTest` (IPv6 → IPv4, unknown IPv6 state unchanged, hint vs verified budgets, learned mode drops the other mode's endpoint, remember-after-success source guards).
+
 ## [1.10.0-beta240] — 2026-11-05 (Panel 6.81.0)
 
 ### Fixed — Cloudflare Worker panel «opens but nothing works»

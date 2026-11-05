@@ -17,6 +17,14 @@ internal class AetherSession(
 ) : Closeable {
     private val active = AtomicBoolean(false)
 
+    /** beta241: what really connected (after the fallbacks), so the service can remember it for this network. */
+    @Volatile var lastPeer: String? = null
+        private set
+    @Volatile var lastMode: AetherMode? = null
+        private set
+    @Volatile var lastIpScan: String? = null
+        private set
+
     fun run(config: AetherRuntimeConfig): NativeResult {
         if (!active.compareAndSet(false, true)) return NativeResult(false, "Cat Warp session is already active")
         var handedOff = false
@@ -44,9 +52,12 @@ internal class AetherSession(
                 AetherEngineSlot.ensureCurrent(gen)
                 val autoDiscoveryCfg = config.copy(endpoint = null, ipScan = "both")
                 val autoDiscovery = autoDiscoveryCfg.toNativeJson()
-                AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
+                // beta241: the first attempt already WAS automatic discovery on both families — repeating it only
+                // doubled the wait before the other mode was tried.
+                val sameAsFirst = config.endpoint == null && config.ipScan == "both"
+                (if (sameAsFirst) Result.failure(firstError) else AetherOperations.withMasqueHttp2ForMim(autoDiscoveryCfg) {
                     NativeAetherBridge.prepare(autoDiscovery)
-                }.onSuccess {
+                }).onSuccess {
                     effectiveConfig = autoDiscoveryCfg
                     effectiveJson = autoDiscovery
                 }.recoverCatching {
@@ -67,6 +78,9 @@ internal class AetherSession(
                 }.getOrThrow()
             }.getOrThrow()
             AetherEngineSlot.ensureCurrent(gen)
+            lastPeer = prepared.peer.takeIf { it.isNotBlank() }
+            lastMode = effectiveConfig.mode
+            lastIpScan = effectiveConfig.ipScan
             val (ipv4, ipv6) = AetherTunPolicy.validatedAddresses(prepared.ipv4, prepared.ipv6)
             // beta219: size the interface for the transport that really runs (a fallback may have changed it).
             tunFd = establishTun(ipv4, ipv6, AetherTunPolicy.mtuForTransport(AetherTunPolicy.transportOfJson(effectiveJson)))
