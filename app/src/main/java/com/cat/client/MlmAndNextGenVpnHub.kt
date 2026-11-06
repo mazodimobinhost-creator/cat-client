@@ -169,6 +169,43 @@ internal object MlmAndNextGenVpnHub {
             actionLabelFa = "🚀 اجرای اتصال جادویی ۱-کلیکی (⭐ پیشنهادی)",
             actionLabelEn = "🚀 Launch 1-Click Magic Connect (⭐ Recommended)",
         ),
+        // beta248: the free networks sit next to Cat Fox here too (they lived only in the 🎁 hub before).
+        VpnEcosystemEntry(
+            id = "free_proxy",
+            badge = "🆓 Cat Free Proxy",
+            titleFa = "۱۰) 🆓 Cat Free Proxy (۷ کشور، بدون حساب و بدون کانفیگ)",
+            titleEn = "10) 🆓 Cat Free Proxy (7 countries, no account, no config)",
+            howItWorksFa = "از یک شبکهٔ پروکسی رایگان عمومی برای کشورهایی که انتخاب می‌کنید سرور و رمز موقت می‌گیرد و کانفیگ آماده می‌سازد؛ رمزها هنگام وصل شدن خودکار تازه می‌شوند.",
+            howItWorksEn = "Gets servers + temporary credentials for the countries you pick from a public free proxy network and builds ready configs; credentials refresh by themselves at connect time.",
+            statusInIranFa = "🟡 فقط وب و DNS (بدون UDP)؛ اگر از خط شما جواب نداد، اول با یک کانفیگ سالم وصل شوید.",
+            statusInIranEn = "🟡 Web + DNS only (no UDP); if it does not answer on your line, connect with a working config first.",
+            actionLabelFa = "🆓 ساخت کانفیگ Cat Free Proxy",
+            actionLabelEn = "🆓 Build Cat Free Proxy configs",
+        ),
+        VpnEcosystemEntry(
+            id = "fanoos",
+            badge = "🏮 Cat Fanoos",
+            titleFa = "۱۱) 🏮 Cat Fanoos (شبکهٔ رایگان، آزمایشی)",
+            titleEn = "11) 🏮 Cat Fanoos (free network, experimental)",
+            howItWorksFa = "یک کاربر ناشناس می‌سازد و از سرویس کانفیگ آن شبکه، سرورهایی را که هستهٔ Cat اجرا می‌کند به کانفیگ تبدیل می‌کند (اول از مسیر کلادفلری که روی خطوط ایران باز است).",
+            howItWorksEn = "Creates an anonymous user and turns the servers Cat's core can run from that network's config service into configs (first via the Cloudflare-fronted host that opens on Iranian lines).",
+            statusInIranFa = "🟡 آزمایشی؛ اگر جواب نداد گزارش دقیق هر مسیر نشان داده می‌شود.",
+            statusInIranEn = "🟡 Experimental; if it fails, the exact per-route report is shown.",
+            actionLabelFa = "🏮 گرفتن کانفیگ Cat Fanoos",
+            actionLabelEn = "🏮 Get Cat Fanoos configs",
+        ),
+        VpnEcosystemEntry(
+            id = "free_50gb",
+            badge = "🎫 Cat Free 50GB",
+            titleFa = "۱۲) 🎫 Cat Free 50GB (اشتراک ۵۰ گیگ ماهانه)",
+            titleEn = "12) 🎫 Cat Free 50GB (50 GB/month subscription)",
+            howItWorksFa = "صفحهٔ رسمی ساخت حساب رایگان داخل برنامه باز می‌شود؛ تست «آدم هستید؟» را خودتان حل می‌کنید و برنامه لینک اشتراک را خودش برمی‌دارد و اضافه می‌کند.",
+            howItWorksEn = "The official free-account page opens inside the app; you solve the «are you human?» check yourself and the app picks up and adds the subscription link.",
+            statusInIranFa = "🟢 یک‌بار ساخت، ماهی ۵۰ گیگ.",
+            statusInIranEn = "🟢 Create once, 50 GB every month.",
+            actionLabelFa = "🎫 ساخت حساب ۵۰ گیگ",
+            actionLabelEn = "🎫 Create the 50 GB account",
+        ),
     )
 
     // =========================================================================

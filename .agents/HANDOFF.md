@@ -10,6 +10,14 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta248 / Panel 6.82.1 — 2026-11-06
+- Fanoos: `LanternPlanner.CONFIG_URLS` = df.getiantem.org first (radiance `kindling/client.go`: Google edge 403s Iran on df.iantem.io), `isEdgeBlock` → next host; body adds `backend`.
+- Worker `locFetch`: skip `isCloudflareIp` candidates (`skippedCf`), 24 tagged + own `proxyIps` (non-socks) within 24 s, 5 parallel, retry `www.cloudflare.com` on non-connect errors, `errors` histogram → UI `locWhy()`. `vercelApiRelay(request,url,master,env)` accepts enabled user ids.
+- App: `VercelRoutePlanner.panelsFromSubscriptions` + `routeReport`; `VercelRelayController.cloudflarePanels()` = built + from subscriptions.
+- Free networks in `ALL_VPNS_2026_CATALOG` (ids free_proxy/fanoos/free_50gb; size 12) and tools menu items 2–4 (older items shifted by 3 in the `when`).
+- Unknown until phone test: whether df.getiantem.org answers config-new from Iran; why the user's feed ProxyIPs failed (the new «علت» line will say).
+
+
 ## 2026-11-06 — Arena agent — beta247 / Panel 6.82.0 (Vercel token deploy, free networks, fragmenting test)
 - Version / commit: v1.10.0-beta247 / c6f1056 + test fix 272a0ae — push run 42215115829 green, prerelease 20 assets
 - Done: Vercel API route chain direct → Cat tunnel → CF panel `/vrelay/` (needs the CF panel on 6.82.0); 🎁 free networks

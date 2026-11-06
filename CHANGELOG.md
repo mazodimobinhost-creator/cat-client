@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta248] — 2026-11-06 (Panel 6.82.1)
+
+Owner report: «some things are not right» — Cat Fanoos fails with `config HTTP 403 <html>`, the panel's per-user exit finder finds nothing (0 of 40 tested), the Vercel token build still does not build, and «some things were not added».
+
+### Fixed
+- **🏮 Cat Fanoos 403**: the upstream client's own source says Google's edge answers Iranian clients on `df.iantem.io` with 403 while the same origin behind Cloudflare (`df.getiantem.org`) gets through. The config fetch now tries `df.getiantem.org` first, falls back to `df.iantem.io` only on a CDN block page, sends `backend: sing-box` like the real client, and reports each host's answer.
+- **🌍 Exit finder (panel 6.82.1)**: Cloudflare-owned feed IPs (a Worker may not dial them) are skipped and counted instead of being "tested"; up to 24 tagged candidates within a 24 s budget (was a fixed 10); a TLS/HTTP failure on `speed.cloudflare.com` gets one retry on `www.cloudflare.com`; the panel's own ProxyIPs are candidates too (ports kept, stored under their proven country); when nothing passes, the result line shows **why** («علت: connection refused ×6 · http 403 ×4 …»). New `scripts/panels/loc-finder-why.test.mjs`.
+- **Vercel token build**: the Cloudflare-panel route now also knows panels the app did not build — learned from saved subscriptions (`https://host/…/sub/<uuid>` and `vless://…host=*.workers.dev`); the panel relay accepts the master UUID or an enabled user's UUID. The failure report names every missing route (app not connected → no tunnel route; no panel found) and flags an old panel with the exact update steps.
+
+### Added
+- 🆓 Cat Free Proxy, 🏮 Cat Fanoos and 🎫 Cat Free 50GB now sit next to 🦊 Cat Fox in the 🌐 engines hub (entries 10–12, launched by id) and in the 🧰 tools menu (1a/1b/1c), not only in the 🎁 hub.
+
 ## [1.10.0-beta247] — 2026-11-06 (Panel 6.82.0)
 
 Owner request: «Vercel panel cannot be deployed with a token at all», add Lantern like Fox, add the VeePN free network, consider Shroudly, and automate FreeSocks. UI names are Cat-branded («Cat Free Proxy», «Cat Fanoos»); third-party names stay in docs/comments.

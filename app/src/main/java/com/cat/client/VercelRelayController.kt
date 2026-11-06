@@ -481,9 +481,14 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         MihomoRuntimeDefaults.MIXED_PORT
     }.getOrNull()
 
-    private fun cloudflarePanels(): List<Pair<String, String>> = runCatching {
-        PanelDeploymentStore(activity).deployments().map { it.workerUrl to it.uuid }
-    }.getOrDefault(emptyList())
+    /** Panels this app built (master UUID) first, then panels known only from the saved subscriptions (beta248). */
+    private fun cloudflarePanels(): List<Pair<String, String>> {
+        val built = runCatching { PanelDeploymentStore(activity).deployments().map { it.workerUrl to it.uuid } }.getOrDefault(emptyList())
+        val fromSubs = runCatching {
+            VercelRoutePlanner.panelsFromSubscriptions((activity as? MainActivity)?.userSubscriptionManager?.list().orEmpty().map { it.input })
+        }.getOrDefault(emptyList())
+        return built + fromSubs
+    }
 
     private fun routeLine(api: VercelApi): String = t("   ✓ مسیر رسیدن به Vercel: ", "   ✓ Route to Vercel: ") + api.activeRoute.label(isFarsi())
 
@@ -509,11 +514,11 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             error is VercelRouteException -> t(
                 "به api.vercel.com از هیچ راهی نرسیدیم:\n",
                 "api.vercel.com could not be reached by any route:\n",
-            ) + error.attempts.joinToString("\n") { "• " + it.first.label(isFarsi()) + " → " + it.second } + "\n\n" + t(
+            ) + VercelRoutePlanner.routeReport(error.attempts, isFarsi()) + "\n\n" + t(
                 "راه‌حل (یکی کافی است):\n1) برنامه را با هر کانفیگ سالمی وصل کنید و دوباره «ساخت» را بزنید (api.vercel.com روی اینترنت ایران معمولاً فیلتر است یا جواب نمی‌دهد).\n" +
-                    "2) اگر پنل Cloudflare دارید، اول آن را «آپدیت» کنید (۶.۸۲.۰ به بالا)؛ برنامه خودش از داخل همان پنل به Vercel می‌رسد.",
+                    "2) اگر پنل Cloudflare دارید، اول آن را به ۶.۸۲.۱ به بالا به‌روز کنید (داخل پنل «بررسی بروزرسانی» ← دانلود worker.js ← جایگزینی در Cloudflare) و لینک ساب همان پنل در «اشتراک‌ها»ی برنامه باشد؛ برنامه خودش از داخل همان پنل به Vercel می‌رسد.",
                 "Fix (any one is enough):\n1) Connect the app with any working config and press “Build” again (api.vercel.com is usually filtered or refused on Iranian lines).\n" +
-                    "2) If you have a Cloudflare panel, update it first (6.82.0+); the app then reaches Vercel through it.",
+                    "2) If you have a Cloudflare panel, update it to 6.82.1+ first (in the panel «check for updates» → download worker.js → replace it in Cloudflare) and keep that panel's subscription link in the app's Subscriptions; the app then reaches Vercel through it.",
             )
             status == 401 || (status == 403 && (message.contains("token", true) || message.contains("forbidden", true) || message.contains("authoriz", true))) -> t(
                 "Vercel توکن را قبول نکرد. در vercel.com/account/tokens یک توکن تازه بسازید: Scope = همان حساب (Full Account)، Expiration = No expiration؛ بعد کل توکن را بدون فاصله کپی کنید.\n",

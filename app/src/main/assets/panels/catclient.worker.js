@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.82.0';
+const CAT_PANEL_VERSION = '6.82.1';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -664,16 +664,23 @@ function json(data, status = 200, extra = {}) {
 }
 
 /**
+ * 6.82.1: the relay also accepts an enabled user's UUID; the exit finder skips Cloudflare-owned feed IPs, retries a
+ * second CF host, tests the panel's own ProxyIPs and reports WHY nothing passed.
  * 6.82.0 🔺 Vercel API relay. The app's token build of a Cat panel on Vercel talks to api.vercel.com; on many Iranian
  * lines that host is blocked or refuses Iranian IPs, while this Worker is reachable. Only the panel OWNER can use it
  * (the master UUID must be the first path part), it reaches ONE fixed host (api.vercel.com, versioned /vN/ paths only,
  * never an open proxy) and the user's own Bearer token passes through untouched — nothing is stored or logged.
  */
-async function vercelApiRelay(request, url, masterUuid) {
+async function vercelApiRelay(request, url, masterUuid, env) {
   const rest = url.pathname.slice(8);
   const cut = rest.indexOf('/');
   const key = cut > 0 ? rest.slice(0, cut).toLowerCase() : '';
-  if (!key || !masterUuid || key !== String(masterUuid).toLowerCase()) return text('not found', 404);
+  if (!key || !masterUuid || !isUuid(key)) return text('not found', 404);
+  // 6.82.1: the master UUID or an enabled panel user's UUID (the app learns either from a saved /sub/<uuid> link).
+  if (key !== String(masterUuid).toLowerCase()) {
+    const users = env ? await readUsers(env).catch(() => []) : [];
+    if (!users.some((u) => u.id === key && u.enabled !== false)) return text('not found', 404);
+  }
   const sub = rest.slice(cut);
   if (!/^\/v\d{1,2}\/[A-Za-z0-9/_.-]*$/.test(sub)) return text('bad path', 400);
   const auth = request.headers.get('authorization') || '';
@@ -3148,7 +3155,8 @@ function withUserExits(settings, user) {
 }
 /** ProxyIP check that PROVES the exit country: TCP → TLS(speed.cloudflare.com) → GET /cdn-cgi/trace through the
  * ProxyIP. Cloudflare answers with «loc=XX» = the country it sees the connection coming from, i.e. the exit. */
-async function pxTraceProbe(sockets, addr) {
+async function pxTraceProbe(sockets, addr, traceHost) {
+  const TH = traceHost || PX_PROBE_HOST;
   const hp = splitHostPort(String(addr), 443);
   const port = hp.port || 443;
   const t0 = Date.now();
@@ -3158,10 +3166,10 @@ async function pxTraceProbe(sockets, addr) {
     if (!isIpv4(dial) && !isIpv6(dial)) { const ip = await resolveHost(dial); if (ip) dial = ip; }
     raw = sockets.connect({ hostname: dial, port }, { allowHalfOpen: false, secureTransport: 'starttls' });
     await withTimeout(raw.opened, 5000, 'connect-timeout');
-    const up = raw.startTls({ expectedServerHostname: PX_PROBE_HOST });
+    const up = raw.startTls({ expectedServerHostname: TH });
     const sock = up && up.writable ? up : raw;
     const w = sock.writable.getWriter();
-    await w.write(new TextEncoder().encode('GET /cdn-cgi/trace HTTP/1.1\r\nHost: ' + PX_PROBE_HOST + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n'));
+    await w.write(new TextEncoder().encode('GET /cdn-cgi/trace HTTP/1.1\r\nHost: ' + TH + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n'));
     try { w.releaseLock(); } catch (e) { /* ignore */ }
     const reader = sock.readable.getReader();
     const dec = new TextDecoder();
@@ -3195,18 +3203,35 @@ async function locFetch(env, settings, cc, want, kinds) {
   if (kinds.px) {
     let cand = await proxyRepoHealthyPool(env, 400);
     if (!cand.length && kvBinding(env)) { await refreshProxyRepos(env).catch(() => null); cand = await proxyRepoHealthyPool(env, 400); }
-    const tagged = locShuffle(cand.filter((c) => c.cc === cc && !have.has(cleanExitEntry(c.ip))));
-    const untagged = locShuffle(cand.filter((c) => !c.cc && !have.has(cleanExitEntry(c.ip))));
+    // 6.82.1: the panel's OWN ProxyIPs are candidates too (their port kept); the trace proves their real country.
+    const own = (Array.isArray(settings[PXIPS_KEY]) ? settings[PXIPS_KEY] : []).filter((a) => !/^socks/i.test(String(a))).map((a) => ({ ip: String(a), cc: '' }));
+    const fresh = (c) => { const a = cleanExitEntry(c.ip); return a && !have.has(a); };
+    const tagged = locShuffle(cand.filter((c) => c.cc === cc && fresh(c)));
+    const untagged = locShuffle(own.filter(fresh).concat(cand.filter((c) => !c.cc && fresh(c))));
     rep.listedPx = tagged.length;
-    const list = tagged.slice(0, 10).concat(tagged.length < 4 ? untagged.slice(0, 4) : []);
+    rep.errors = {};
+    rep.skippedCf = 0;
+    const seen = new Set();
+    const list = tagged.slice(0, 24).concat(untagged.slice(0, tagged.length < 8 ? 8 : 4)).filter((c) => {
+      const a = cleanExitEntry(c.ip);
+      if (!a || seen.has(a)) return false;
+      seen.add(a);
+      const h = splitHostPort(a, 0).hostname.replace(/^\[|\]$/g, '');
+      // A Worker may not open a socket to Cloudflare's own ranges: such a feed entry can never pass — skip, don't "test".
+      if ((isIpv4(h) || isIpv6(h)) && isCloudflareIp(h)) { rep.skippedCf++; return false; }
+      return true;
+    });
+    const deadline = Date.now() + 24000;
+    const bump = (e) => { const k = String(e || 'failed').replace(/[0-9a-f]{6,}/gi, '').slice(0, 32); rep.errors[k] = (rep.errors[k] || 0) + 1; };
     let matched = 0;
-    await mapBounded(list, 4, async (c) => {
-      if (matched >= want) return;
+    await mapBounded(list, 5, async (c) => {
+      if (matched >= want || Date.now() > deadline) return;
       const addr = cleanExitEntry(c.ip);
-      if (!addr) return;
       rep.testedPx++;
-      const r = await pxTraceProbe(sockets, addr);
-      if (!r.ok) return;
+      let r = await pxTraceProbe(sockets, addr);
+      // TCP worked but TLS/HTTP on the probe host did not: one retry on a second Cloudflare host before calling it dead.
+      if (!r.ok && !/connect|refused|reset|timeout/i.test(String(r.error || '')) && Date.now() < deadline) r = await pxTraceProbe(sockets, addr, 'www.cloudflare.com');
+      if (!r.ok) { bump(r.error); return; }
       const e = { kind: 'px', addr, cc: r.loc, ms: r.ms, ok: true, fails: 0, at: Date.now(), exitIp: r.exitIp, colo: r.colo };
       if (r.loc === cc) { if (matched < want) { matched++; added.push(e); } }
       else other.push(e); // a working exit in ANOTHER country is kept under its REAL country
@@ -8674,8 +8699,8 @@ async function handleRequest(request, env, ctx) {
     return new Response(JSON.stringify({ name, short_name: String(name).slice(0, 12), start_url: '/', scope: '/', display: 'standalone', background_color: '#0b0614', theme_color: '#0b0614', icons: [{ src: '/app-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }] }), { headers: { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-store' } });
   }
   if (path === '/app-icon.svg') return new Response(catLogo('a'), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
-  // 6.82.0 🔺 owner-only Vercel API relay (master UUID in the path) for the app's «پنل روی Vercel» build when api.vercel.com is blocked on the phone's line.
-  if (path.startsWith('/vrelay/')) return vercelApiRelay(request, url, await resolveUuid(url.hostname, env));
+  // 6.82.0 🔺 Vercel API relay (master or an enabled user's UUID in the path) for the app's «پنل روی Vercel» build when api.vercel.com is blocked on the phone's line.
+  if (path.startsWith('/vrelay/')) return vercelApiRelay(request, url, await resolveUuid(url.hostname, env), env);
   if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
   if (path === '/health' || path.startsWith('/api/')) {
     const apiRes = await handleApi(request, url, env, ctx);
@@ -12831,7 +12856,8 @@ function locLibRender(){var g=$('#locGrid');if(!g||!LOC)return;var C=LOC.countri
   rows.map(function(p){var shown=p.kind==='socks'?p.addr.replace(/^socks5h?:\\/\\/([^@]*@)?/i,''):p.addr;return '<div class="lrow'+(p.ok?'':' dead')+'"><span>'+(p.kind==='socks'?'🧦':'🎯')+'</span><span class="mono" dir="ltr">'+esc(shown)+'</span>'+(p.colo?'<span class="chip">'+esc(p.colo)+'</span>':'')+'<span class="'+(p.ok?msCls(p.ms||0):'')+'" style="margin-inline-start:auto">'+(p.ok?(p.ms||0)+' ms':'✗')+'</span>'+(p.ok?'<button class="ib sm" type="button" data-locadd="'+esc(p.addr)+'" aria-label="'+esc(tx('به پنل','To panel'))+'" title="'+esc(tx('به فهرست ProxyIP/SOCKS پنل (همهٔ کاربران)','To the panel ProxyIP/SOCKS list (all users)'))+'">➕</button>':'')+'<button class="ib sm" type="button" data-locdel="'+esc(p.addr)+'" aria-label="'+esc(tx('حذف','Delete'))+'" title="'+esc(tx('حذف','Delete'))+'">✕</button></div>'}).join('')+'</div>'}).join(''):'<div class="small dim">'+esc(tx('کتابخانه خالی است. یک کشور انتخاب کن و «پیدا کن» را بزن.','The library is empty. Pick a country and press «Find».'))+'</div>'}
 function locRenderAll(){locFill('#uLocCc');locFill('#locCc');uLocRender();locLibRender()}
 function locSay(j,cc){if(!j||!j.ok)return '✗ '+safeDiag((j&&j.error)||'?');var a=(j.added||[]).length,o=(j.other||[]).length,tt=(j.testedPx||0)+(j.testedSx||0),l=(j.listedPx||0)+(j.listedSx||0);
- return (a?'✅ '+a+' '+tx('خروجی واقعی در','real exits in')+' '+locFlag(cc)+' '+locName(cc):'⚠️ '+tx('خروجی سالمی در این کشور پیدا نشد','No healthy exit found in this country'))+' · '+tt+' '+tx('تست شد از','tested of')+' '+l+(o?' · '+o+' '+tx('خروجی سالم در کشورهای دیگر هم با کشور واقعی‌شان ذخیره شد','healthy exits in other countries were saved under their real country'):'')+(j.persisted===false?' · '+t('saved_nokv'):'')}
+ return (a?'✅ '+a+' '+tx('خروجی واقعی در','real exits in')+' '+locFlag(cc)+' '+locName(cc):'⚠️ '+tx('خروجی سالمی در این کشور پیدا نشد','No healthy exit found in this country'))+' · '+tt+' '+tx('تست شد از','tested of')+' '+l+(o?' · '+o+' '+tx('خروجی سالم در کشورهای دیگر هم با کشور واقعی‌شان ذخیره شد','healthy exits in other countries were saved under their real country'):'')+(j.persisted===false?' · '+t('saved_nokv'):'')+locWhy(j,a)}
+function locWhy(j,a){if(a)return '';var e=j.errors||{},k=Object.keys(e).sort(function(x,y){return e[y]-e[x]}).slice(0,3),out=k.map(function(x){return x+' ×'+e[x]}).join(' · ');if(j.skippedCf)out+=(out?' · ':'')+j.skippedCf+' '+tx('آی‌پی خود کلادفلر (از ورکر قابل اتصال نیست)','Cloudflare-owned IPs (a Worker cannot dial them)');return out?' · '+tx('علت','why')+': '+out:''}
 function locFetchRun(cc,kind,btn,msg){if(!cc)return Promise.resolve();btn.disabled=true;msg.textContent='⏳ '+tx('در حال گرفتن و تست واقعی… (تا ۳۰ ثانیه)','Fetching and really testing… (up to 30 s)');
  return api('/api/locations/fetch',{method:'POST',body:{cc:cc,kind:kind,want:3}}).then(function(j){msg.textContent=locSay(j,cc);return locLoad().then(function(){return j})}).catch(function(e){msg.textContent='✗ '+safeDiag(e&&e.message||e)}).then(function(j){btn.disabled=false;return j})}
 function locPingRun(cc,btn,msg){btn.disabled=true;if(msg)msg.textContent='⏳ '+tx('تست دوباره…','Re-testing…');return api('/api/locations/ping',{method:'POST',body:{cc:cc||''}}).then(function(j){if(msg)msg.textContent=j&&j.ok?'✓ '+j.tested+' '+tx('خروجی تست شد','exits tested'):'✗ '+safeDiag((j&&j.error)||'?');return locLoad()}).catch(function(e){if(msg)msg.textContent='✗ '+safeDiag(e&&e.message||e)}).then(function(){btn.disabled=false})}

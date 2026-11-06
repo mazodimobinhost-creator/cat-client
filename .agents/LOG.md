@@ -102,3 +102,8 @@
 - Shroudly: `DpiPresetTester.kt` + `MainActivityDpiTester.kt` (button under the preset chips). Server-less mode rejected: mihomo `direct` has no dialer-proxy (v1.19.30 source), SOCKS hand-off → poisoned DNS.
 - Local evidence: harness 23/23; npm test green; codemap --check OK; JDK note: `HttpsURLConnection.getDefaultHostnameVerifier()` always false on desktop Java → endpoint identification + Android-only verifier.
 - CI: `c6f1056` main code compiled; only `Beta247VercelRoutesTest` failed to compile (`com.sun.net.httpserver` is not on the Android unit-test classpath) → plain `ServerSocket` responder (`272a0ae`). Push run `42215115829` all green; PR twin green; release `v1.10.0-beta247` prerelease, 20 assets.
+
+
+## beta248 (2026-11-06)
+- Fanoos 403 → df.getiantem.org first; exit finder CF-IP skip + reasons + retry host + own ProxyIPs (panel 6.82.1); Vercel panel route from subscriptions + user UUID relay + clearer report; free networks next to Fox.
+- Local: harness Beta248 4/4, Vercel 7/7, FreeNetworks 14/14; npm test 162/162; codemap --check OK; minify/obfuscate/stealth --check OK.

@@ -679,6 +679,9 @@ internal fun MainActivity.showWhiteDnsAndAetherToolsDialog() {
         arrayOf(
             "📖 ۰) راهنمای خیلی ساده به زبان خودمانی (اینو بزنی این میشه، اونو بزنی این میشه!)",
             "🦊 ۱) Cat Fox VPN (۵۰ گیگ رایگان ماهانه روی سرورهای موزیلا)",
+            "🆓 ۱-الف) Cat Free Proxy (۷ کشور، بدون حساب و کانفیگ)",
+            "🏮 ۱-ب) Cat Fanoos (شبکهٔ رایگان، آزمایشی)",
+            "🎫 ۱-ج) Cat Free 50GB (اشتراک ۵۰ گیگ ماهانه)",
             "🪄 ۲) تعمیر خودکار کانفیگ واقعی من و اتصال فوری (۵ روش اسپوف کلادفلر + برش SNI)",
             "🧦 ۳) بخش اختصاصی ساکس۵ — لیست زنده ۷ مخزن + آپدیت خودکار + اتصال یک‌کلیکی و استخر هوشمند",
             "🧭 ۴) تشخیص خودکار نوع فایروال واقعی منطقه (همراه اول IPv6 یا ایرانسل F&F)",
@@ -705,6 +708,9 @@ internal fun MainActivity.showWhiteDnsAndAetherToolsDialog() {
         arrayOf(
             "📖 0) Plain-Language Step-by-Step Guide (What Every Button Does!)",
             "🦊 1) Cat Fox VPN (50 GB/mo free on Mozilla servers)",
+            "🆓 1a) Cat Free Proxy (7 countries, no account or config)",
+            "🏮 1b) Cat Fanoos (free network, experimental)",
+            "🎫 1c) Cat Free 50GB (50 GB/month subscription)",
             "🪄 2) 1-Click Auto-Repair My Real Config & Connect Immediately",
             "🧦 3) Dedicated SOCKS5 Hub — 7 Live Feeds + Auto-Update + 1-Tap & Smart Pool Connect",
             "🧭 4) Regional Firewall Fingerprinter (Auto-Detect MCI IPv6 vs Irancell F&F)",
@@ -734,7 +740,14 @@ internal fun MainActivity.showWhiteDnsAndAetherToolsDialog() {
             if (isFarsi) "🧰 ابزارهای هوشمند Cat DNS، Cat Fox VPN، ساکس۵ و Cat Warp"
             else "🧰 Cat DNS, Cat Fox VPN, SOCKS5 & Cat Warp Smart Tools",
         )
-        .setItems(items) { _, which ->
+        .setItems(items) { _, picked ->
+            // beta248: 2..4 = the free networks right after Cat Fox; the older entries keep their own numbers.
+            when (picked) {
+                2 -> { showFreeProxyDialog(); return@setItems }
+                3 -> { showFanoosDialog(); return@setItems }
+                4 -> { showFreeAccountDialog(); return@setItems }
+            }
+            val which = if (picked > 4) picked - 3 else picked
             when (which) {
                 0 -> showPlainLanguageFullGuideDialog()
                 1 -> showFirefoxVpnFenixHubDialog()

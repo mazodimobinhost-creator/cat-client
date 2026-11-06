@@ -747,6 +747,11 @@ internal fun MainActivity.showAllVpns2026ComparisonAndMlmHubDialog() {
                 6 -> runSmartIranBankingShieldDialog()
                 7 -> showPaqetPatthEngineDialog()
                 8 -> showRecommendedOneClickConnectWizardDialog()
+                else -> when (catalog.getOrNull(which)?.id) {
+                    "free_proxy" -> showFreeProxyDialog()
+                    "fanoos" -> showFanoosDialog()
+                    "free_50gb" -> showFreeAccountDialog()
+                }
             }
         }
         .setNegativeButton(android.R.string.cancel, null)

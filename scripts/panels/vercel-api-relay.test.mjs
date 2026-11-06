@@ -72,6 +72,18 @@ const vercelCalls = () => calls.filter((c) => c.url.startsWith('https://api.verc
   check('Vercel errors come back with their own status + JSON', r.status === 403 && j.error && j.error.code === 'forbidden');
 }
 {
+  // 6.82.1: an enabled panel user's UUID (learned from the phone's saved /sub/<uuid> link) may use the relay; a disabled one may not.
+  const ON = '81111111-2222-4333-8444-555555555555', OFF = '91111111-2222-4333-8444-555555555555';
+  await env.CAT_KV.put('cat:v6:users', JSON.stringify([{ id: ON, name: 'me', enabled: true }, { id: OFF, name: 'old', enabled: false }]));
+  calls = [];
+  const r1 = await call('/vrelay/' + ON + '/v2/user', { headers: { authorization: TOKEN } });
+  check('enabled user UUID is relayed', r1.status === 200 && r1.headers.get('x-cat-vrelay') === '1' && vercelCalls().length === 1, String(r1.status));
+  calls = [];
+  const r2 = await call('/vrelay/' + OFF + '/v2/user', { headers: { authorization: TOKEN } });
+  check('disabled user UUID → 404, nothing fetched', r2.status === 404 && vercelCalls().length === 0, String(r2.status));
+  await env.CAT_KV.delete('cat:v6:users');
+}
+{
   calls = [];
   const bad = [
     ['wrong UUID', '/vrelay/51111111-2222-4333-8444-555555555555/v2/user', { headers: { authorization: TOKEN } }, 404],

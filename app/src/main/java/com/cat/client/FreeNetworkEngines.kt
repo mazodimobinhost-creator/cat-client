@@ -289,6 +289,17 @@ internal class FreeProxyApi(private val store: FreeNetworkStore) {
 internal object LanternPlanner {
     const val USER_CREATE = "https://api.getiantem.org/user-create"
     const val CONFIG_NEW = "https://df.iantem.io/api/v1/config-new"
+
+    /**
+     * beta248: Google's edge answers Iranian clients on df.iantem.io with a 403 HTML page, while the same origin
+     * behind Cloudflare (df.getiantem.org) gets through — the official client maps df.iantem.io → df.getiantem.org
+     * for exactly this reason. Cloudflare-fronted host first, the original as a fallback.
+     */
+    val CONFIG_URLS = listOf("https://df.getiantem.org/api/v1/config-new", CONFIG_NEW)
+
+    /** True for a CDN/WAF block page (HTML instead of the service's own answer) → try the next host. */
+    fun isEdgeBlock(code: Int, body: String): Boolean =
+        code !in 200..299 && code != 304 && code != 204 && body.trimStart().let { it.startsWith("<") || it.isEmpty() }
     const val VERSION = "10.0.5"
     val PROTOCOLS = listOf("shadowsocks", "vless", "trojan", "hysteria2", "vmess", "tuic")
 
@@ -316,7 +327,7 @@ internal object LanternPlanner {
 
     fun configBody(deviceId: String, userId: String, token: String, country: String?): String = JSONObject()
         .put("device_id", deviceId).put("singbox_version", "v1.12.0").put("platform", "android").put("app_name", "lantern")
-        .put("user_id", userId).put("pro_token", token).put("locale", "fa-IR").put("version", VERSION)
+        .put("user_id", userId).put("pro_token", token).put("locale", "fa-IR").put("version", VERSION).put("backend", "sing-box")
         .put("protocols", JSONArray(PROTOCOLS)).apply {
             if (!country.isNullOrBlank()) put("preferred_location", JSONObject().put("country", country))
         }.toString()
@@ -607,14 +618,31 @@ internal object FreeNetworkBuilder {
             store.lanternToken = user.second
             report += "user ✓" + if (a.viaTunnel) " (tunnel)" else ""
         }
-        val c = FreeNetHttp.request(
-            LanternPlanner.CONFIG_NEW, "POST",
-            LanternPlanner.headers(dev, store.lanternUser, store.lanternToken),
-            LanternPlanner.configBody(dev, store.lanternUser, store.lanternToken, country), timeoutMs = 20_000,
-        )
-        if (c.code !in 200..299) throw IOException("config HTTP ${c.code} " + c.body.take(80))
+        var c: FreeNetHttp.Answer? = null
+        val tries = mutableListOf<String>()
+        for (url in LanternPlanner.CONFIG_URLS) {
+            val host = url.substringAfter("://").substringBefore('/')
+            val answer = try {
+                FreeNetHttp.request(
+                    url, "POST",
+                    LanternPlanner.headers(dev, store.lanternUser, store.lanternToken),
+                    LanternPlanner.configBody(dev, store.lanternUser, store.lanternToken, country), timeoutMs = 20_000,
+                )
+            } catch (e: IOException) {
+                tries += "$host → " + (e.message ?: e.javaClass.simpleName).take(60)
+                continue
+            }
+            c = answer
+            if (answer.code in 200..299) {
+                report += "config ✓ $host" + if (answer.viaTunnel) " (tunnel)" else ""
+                break
+            }
+            tries += "$host → HTTP ${answer.code}" + if (LanternPlanner.isEdgeBlock(answer.code, answer.body)) " (CDN block page)" else " " + answer.body.take(60)
+            if (!LanternPlanner.isEdgeBlock(answer.code, answer.body)) break
+        }
+        if (c == null || c.code !in 200..299) throw IOException("config: " + tries.joinToString(" · "))
         val tr = LanternPlanner.translate(c.body)
-        report += "config ✓ " + tr.byType.entries.joinToString(" ") { "${it.key}×${it.value}" }
+        report += "outbounds: " + tr.byType.entries.joinToString(" ") { "${it.key}×${it.value}" }
         if (tr.skipped.isNotEmpty()) report += "skipped: " + tr.skipped.entries.joinToString(" ") { "${it.key}×${it.value}" }
         return Result(tr.links, report) to tr
     }

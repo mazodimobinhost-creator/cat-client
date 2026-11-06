@@ -61,6 +61,34 @@ internal object VercelRoutePlanner {
         return VercelRoute(VercelRouteKind.Panel, "https://$host/vrelay/$id", panelHost = host)
     }
 
+    private val SUB_LINK_RE = Regex("https://([A-Za-z0-9.-]+)(?:/[^\\s/?#]+)*/sub/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})")
+    private val VLESS_RE = Regex("vless://([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})@[^\\s?#]+\\?([^\\s#]+)")
+
+    /**
+     * beta248: Cloudflare panels the app did NOT build (pasted into the dashboard by hand) are still known from the
+     * phone's saved subscriptions: `https://host/…/sub/<uuid>` links, and `vless://<uuid>@…?host=x.workers.dev` configs.
+     * The panel's relay accepts its master UUID or an enabled user's UUID (6.82.1+). Sub links come first.
+     */
+    fun panelsFromSubscriptions(inputs: List<String>): List<Pair<String, String>> {
+        val subs = LinkedHashMap<String, String>()
+        val vless = LinkedHashMap<String, String>()
+        for (text in inputs) {
+            SUB_LINK_RE.findAll(text).forEach { m ->
+                val host = m.groupValues[1].lowercase()
+                if (HOST_RE.matches(host)) subs.putIfAbsent(host, m.groupValues[2].lowercase())
+            }
+            VLESS_RE.findAll(text).forEach { m ->
+                val params = m.groupValues[2].split('&').associate {
+                    it.substringBefore('=').lowercase() to runCatching { java.net.URLDecoder.decode(it.substringAfter('=', ""), "UTF-8") }.getOrDefault("")
+                }
+                val host = (params["host"].orEmpty().ifBlank { params["sni"].orEmpty() }).lowercase().substringBefore(':')
+                if (host.endsWith(".workers.dev") && HOST_RE.matches(host)) vless.putIfAbsent(host, m.groupValues[1].lowercase())
+            }
+        }
+        vless.forEach { (h, id) -> subs.putIfAbsent(h, id) }
+        return subs.map { (host, id) -> "https://$host" to id }
+    }
+
     fun routes(tunnelPort: Int?, panels: List<Pair<String, String>>, maxPanels: Int = 3): List<VercelRoute> {
         val out = mutableListOf(direct())
         if (tunnelPort != null && tunnelPort in 1..65535) out += VercelRoute(VercelRouteKind.Tunnel, API_BASE, proxyPort = tunnelPort)
@@ -97,6 +125,27 @@ internal object VercelRoutePlanner {
             error.message.orEmpty().contains("connect", true).not()
         ) return false
         return error is IOException
+    }
+
+    /**
+     * beta248: the «no route» report says WHICH route was missing or why it failed, in plain words, so the next step
+     * is obvious (connect first / update that exact panel / add the panel's subscription link).
+     */
+    fun routeReport(attempts: List<Pair<VercelRoute, String>>, fa: Boolean): String {
+        val lines = mutableListOf<String>()
+        attempts.forEach { (route, why) ->
+            val old = route.kind == VercelRouteKind.Panel && why.startsWith("VercelForeignAnswerException")
+            lines += "• " + route.label(fa) + " → " + why + if (old) {
+                if (fa) "\n   ↳ این پنل هنوز رلهٔ Vercel ندارد (نسخهٔ قدیمی): آن را به ۶.۸۲.۱+ به‌روز کنید (داخل پنل: «بررسی بروزرسانی» ← دانلود worker.js ← جایگزینی در Cloudflare؛ یا اگر با برنامه ساخته شده، از خود برنامه)." else "\n   ↳ This panel has no Vercel relay yet (old version): update it to 6.82.1+ (in the panel: «check for updates» → download worker.js → replace it in Cloudflare; or from the app if the app built it)."
+            } else ""
+        }
+        if (attempts.none { it.first.kind == VercelRouteKind.Tunnel }) {
+            lines += if (fa) "• تونل Cat → امتحان نشد: برنامه وصل نبود (این راه فقط وقتی برنامه به یک کانفیگ وصل است وجود دارد)." else "• Cat tunnel → not tried: the app was not connected (this route exists only while connected)."
+        }
+        if (attempts.none { it.first.kind == VercelRouteKind.Panel }) {
+            lines += if (fa) "• پنل Cloudflare → هیچ پنلی پیدا نشد: نه پنلی که برنامه ساخته، نه لینک ساب https://…/sub/… در اشتراک‌ها." else "• Cloudflare panel → none found: no panel built by the app and no https://…/sub/… link among the subscriptions."
+        }
+        return lines.joinToString("\n")
     }
 
     /** Plain words for one failed attempt (shown in the copyable report). */
