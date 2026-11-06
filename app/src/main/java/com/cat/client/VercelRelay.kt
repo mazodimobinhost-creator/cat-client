@@ -336,7 +336,18 @@ internal data class VercelDeployResult(
 )
 
 /** Minimal Vercel REST client (user's own token). Must be called off the main thread. */
-internal class VercelApi(private val token: String) {
+internal class VercelApi(
+    private val token: String,
+    private val routeSource: (() -> List<VercelRoute>)? = null,
+) {
+    /** beta247: direct → Cat's tunnel → the owner's Cloudflare panel relay; resolved lazily (off the main thread). */
+    private val routes: List<VercelRoute> by lazy { routeSource?.invoke()?.takeIf { it.isNotEmpty() } ?: listOf(VercelRoutePlanner.direct()) }
+
+    @Volatile
+    private var routeIndex = 0
+
+    /** The route that answered last (shown as «مسیر: …» in the build log). */
+    val activeRoute: VercelRoute get() = routes[routeIndex.coerceIn(0, routes.lastIndex)]
     private var teamId: String? = null
     private var teamChecked = false
 
@@ -523,7 +534,43 @@ internal class VercelApi(private val token: String) {
         val full = if (scoped && !team.isNullOrBlank()) {
             path + (if (path.contains('?')) "&" else "?") + "teamId=" + enc(team)
         } else path
-        val connection = (URL("https://api.vercel.com$full").openConnection() as HttpURLConnection).apply {
+        val attempts = mutableListOf<Pair<VercelRoute, String>>()
+        var index = routeIndex
+        while (index < routes.size) {
+            val route = routes[index]
+            try {
+                val text = requestOnce(route, method, full, body, rawBody, extraHeaders, quickConnect = index < routes.lastIndex)
+                routeIndex = index
+                return text
+            } catch (e: VercelApiException) {
+                // A real Vercel answer (bad token, limit, …): this route works, the request does not.
+                routeIndex = index
+                throw e
+            } catch (e: IOException) {
+                if (!VercelRoutePlanner.failover(e, method)) throw e
+                attempts += route to VercelRoutePlanner.describe(e)
+            }
+            index++
+        }
+        throw VercelRouteException(attempts)
+    }
+
+    private fun requestOnce(
+        route: VercelRoute,
+        method: String,
+        full: String,
+        body: JSONObject?,
+        rawBody: ByteArray?,
+        extraHeaders: Map<String, String>,
+        quickConnect: Boolean,
+    ): String {
+        val url = URL(route.base + full)
+        val opened = if (route.kind == VercelRouteKind.Tunnel) {
+            url.openConnection(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress("127.0.0.1", route.proxyPort)))
+        } else {
+            url.openConnection()
+        }
+        val connection = (opened as HttpURLConnection).apply {
             val direct = runCatching { requestMethod = method }.isSuccess
             if (!direct) {
                 // Some HttpURLConnection builds reject PATCH: set the protected field directly.
@@ -534,8 +581,10 @@ internal class VercelApi(private val token: String) {
                     field.set(this, method)
                 }
             }
-            connectTimeout = 20_000
+            // A blocked line usually hangs at connect: give up sooner when another route is still left.
+            connectTimeout = if (quickConnect) 12_000 else 20_000
             readTimeout = 60_000
+            instanceFollowRedirects = false
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "CatClient-VercelRelay")
@@ -556,6 +605,9 @@ internal class VercelApi(private val token: String) {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (VercelRoutePlanner.isForeignAnswer(route.kind, code, connection.getHeaderField(VercelRoutePlanner.RELAY_MARK), connection.contentType, text)) {
+                throw VercelForeignAnswerException("HTTP $code " + text.replace(Regex("\\s+"), " ").take(90))
+            }
             if (code !in 200..299) {
                 val error = runCatching { JSONObject(text).optJSONObject("error") }.getOrNull()
                 val message = error?.optString("message").orEmpty().ifBlank { text.take(200) }.ifBlank { "HTTP $code" }

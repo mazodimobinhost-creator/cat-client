@@ -4,6 +4,30 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta247] — 2026-11-06 (Panel 6.82.0)
+
+Owner request: «Vercel panel cannot be deployed with a token at all», add Lantern like Fox, add the VeePN free network, consider Shroudly, and automate FreeSocks. UI names are Cat-branded («Cat Free Proxy», «Cat Fanoos»); third-party names stay in docs/comments.
+
+### Fixed — Vercel deploy with a token
+- Every Vercel API call (create project, upload, deploy, env, domains, «آپدیت») now tries **direct → through Cat's own running tunnel (127.0.0.1:2080) → through the user's Cloudflare Cat panels** (`/vrelay/`, workers.dev first, max 3) and sticks to the route that worked (`VercelApiRoutes.kt` pure planner, `VercelRelay.VercelApi` route loop). A POST is never replayed on another route after a read timeout. Failures list every route tried and why, with «📋 کپی گزارش».
+- Token pasted with `Bearer `, quotes, spaces or a newline is cleaned before use.
+
+### Added — panel 6.82.0
+- `/vrelay/<masterUUID>/vN/<path>` — a narrow Vercel REST relay: only `api.vercel.com/v<1–2 digits>/…` paths, GET/POST/PATCH/DELETE, Bearer required, only authorization / content-type / x-vercel-digest forwarded, answers marked `x-cat-vrelay: 1` (an old panel's answer is not mistaken for Vercel's). Wrong UUID → 404.
+
+### Added — app: 🎁 Free networks (anti-censorship tab → method-finder card, and the guide search)
+- **🆓 Cat Free Proxy (7 countries, no account)** — a public free browser-extension proxy network: anonymous key → server list per country (NL, FR, GB, US-VA, US-OR, SG, RU — exactly the free list, nothing invented), saved as one subscription of HTTPS proxies with **certificate checks on** (`sni` = server name). TCP only (said in the UI). Credentials older than 6 h are renewed at connect time inside the VPN service with a hard 8 s budget (blocked API → old credentials kept, connect never stalls); only `username:`/`password:` values are swapped, same host → same region → any.
+- **🎫 Free 50 GB / month account** — the non-profit's site opens inside the app; **the user solves the human check** (Cat never automates or bypasses it, never mass-creates accounts). Cat reads what the page shows (subscription link, share links, the 32-digit account number) and «open in app» deep links (v2rayng / hiddify / clash / karing / sing-box / sub:// / anywhere), shows the account number with a copy button, then adds the subscription and connects; if the subscription host is unreachable it hands the link to the normal add dialog.
+- **🏮 Cat Fanoos (experimental)** — anonymous user + config request to Lantern's config service asking only for standard protocols; every sing-box outbound Cat's core can run (Shadowsocks without plugin, VLESS incl. Reality, Trojan with TLS, Hysteria2, TUIC, VMess; ws/grpc/http/httpupgrade) becomes a share link. Insecure-TLS, plugin and unknown-transport outbounds are counted and reported, never faked. Untested from the sandbox (its hosts are unreachable here); may break if the service changes.
+- Free-proxy text starts with a comment line: a subscription whose text **starts with `https://`** is downloaded as a remote URL (found while wiring this), so the proxy lines never come first.
+
+### Added — app: 🧪 fragmenting-method test (Shroudly idea, Cat's own ByeByeDPI)
+- Settings → TLS fragment: «🧪 Which method works on my internet? (real test)». With the VPN off, each of the 7 presets is run and a **certificate-checked TLS handshake** to the user's own TLS servers (≤4 distinct names) is made through it, plus once directly. Result: not needed / best method (one tap switches it on, the chips follow) / none helped (→ the server IP is blocked, not the name). The proxy receives the resolved IP, not the name (verified with a logging SOCKS5 relay).
+- Not added: a server-less «open sites without any server» mode. mihomo's `direct` outbound ignores `dialer-proxy` (checked in v1.19.30 source) and a SOCKS hand-off would let the carrier's poisoned DNS answer; shipping it would not work reliably.
+
+### Tests
+- `Beta247VercelRoutesTest` (7), `vercel-api-relay.test.mjs` (17), `Beta247FreeNetworksTest` (14: the 7 regions, server list → servers, TLS-verified links, inline subscription text, reserve domains, request bodies, credential swap only touching values, host→region mapping, Fanoos user/config/translation incl. Reality/insecure/plugin/quic, vmess JSON, deep links, page scan), `Beta247FreeNetworksImportTest` (2, CI: real importer → `http` + `tls` proxies; Fanoos links → ss/vless/hysteria2/vmess), `Beta247DpiPresetTest` (2).
+
 ## [1.10.0-beta246] — 2026-11-06 (Panel 6.81.4, unchanged)
 
 Owner request (ideas from another client's recent releases; own code, nothing copied): «which method works on my internet», complete WireGuard/Hysteria2 with ready free servers, and a Lantern engine.

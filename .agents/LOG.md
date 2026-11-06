@@ -93,3 +93,11 @@
 - Lantern deferred: radiance novpn build has no socket protect (loop through Cat's own VPN), needs custom Go main + Android DNS flags; no Go in sandbox → blind CI rounds.
 - Local evidence: kotlinc harness Beta246MethodFinderTest 9/9; parser over today's real lists: 4 724 rows, 1 735 unpinned insecure Hy2 refused, picks 16 Hy2 + 6 WG + 4 WARP; codemap --check OK.
 - CI: `1c5be36` compiled but `CodeMapTest` failed (an `object` in a `MainActivity<Area>.kt` file) → `MethodFinderStore` moved to `MethodFinderSources.kt` (`9ea2faf`). Push run `42129112050` all green (compile, JVM tests, release APK, guards, smoke); release `v1.10.0-beta246` prerelease, 20 assets. The pull_request twin run failed at the compile pre-check while the push run on the same commit compiled; it cannot be re-run (`gh run rerun` refused) — treat as flaky, recheck on the next push.
+
+## 2026-11-06 — v1.10.0-beta247 (314) · Panel 6.82.0
+- Request: Vercel deploy with token fails completely; Lantern like Fox; VeePN free network; consider Shroudly; automate FreeSocks.
+- Vercel: `VercelApiRoutes.kt` (pure: token clean, relay base from CF panel records, attempt report), `VercelRelay.VercelApi(token, routeSource)` loops direct → 127.0.0.1:2080 (accept ≤300 ms) → CF `/vrelay/` (≤3, workers.dev first), sticky, no POST replay after a read timeout; worker 6.82.0 `vercelApiRelay()`.
+- Free networks: `FreeNetworkEngines.kt` (FreeNetHttp direct→tunnel; FreeProxyPlanner/Api; LanternPlanner + SingBoxOutboundLinks; FreeAccountLinks; FreeNetworkStore; FreeNetworkBuilder incl. `refreshFreeProxyCreds` hooked in `CatClientVpnService.ensureEmbeddedLocalBridgesForRuntimeFile`), UI `MainActivityFreeNetworks.kt`; entry: method-finder card + guide search.
+- Found: inline subscription text starting with `https://` is classified as a remote URL (`UserSubscriptionSourceKind.fromWireName`) → free-proxy text starts with a `#` line.
+- Shroudly: `DpiPresetTester.kt` + `MainActivityDpiTester.kt` (button under the preset chips). Server-less mode rejected: mihomo `direct` has no dialer-proxy (v1.19.30 source), SOCKS hand-off → poisoned DNS.
+- Local evidence: harness 23/23; npm test green; codemap --check OK; JDK note: `HttpsURLConnection.getDefaultHostnameVerifier()` always false on desktop Java → endpoint identification + Android-only verifier.

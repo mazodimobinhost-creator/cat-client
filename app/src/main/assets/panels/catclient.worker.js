@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.81.4';
+const CAT_PANEL_VERSION = '6.82.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -661,6 +661,33 @@ function json(data, status = 200, extra = {}) {
       'access-control-allow-origin': '*',
     }, extra),
   });
+}
+
+/**
+ * 6.82.0 🔺 Vercel API relay. The app's token build of a Cat panel on Vercel talks to api.vercel.com; on many Iranian
+ * lines that host is blocked or refuses Iranian IPs, while this Worker is reachable. Only the panel OWNER can use it
+ * (the master UUID must be the first path part), it reaches ONE fixed host (api.vercel.com, versioned /vN/ paths only,
+ * never an open proxy) and the user's own Bearer token passes through untouched — nothing is stored or logged.
+ */
+async function vercelApiRelay(request, url, masterUuid) {
+  const rest = url.pathname.slice(8);
+  const cut = rest.indexOf('/');
+  const key = cut > 0 ? rest.slice(0, cut).toLowerCase() : '';
+  if (!key || !masterUuid || key !== String(masterUuid).toLowerCase()) return text('not found', 404);
+  const sub = rest.slice(cut);
+  if (!/^\/v\d{1,2}\/[A-Za-z0-9/_.-]*$/.test(sub)) return text('bad path', 400);
+  const auth = request.headers.get('authorization') || '';
+  if (!/^Bearer [A-Za-z0-9_.-]{10,200}$/.test(auth)) return text('token required', 401);
+  const h = new Headers({ authorization: auth, accept: 'application/json', 'user-agent': 'CatClient-VercelRelay' });
+  for (const k of ['content-type', 'x-vercel-digest']) { const v = request.headers.get(k); if (v) h.set(k, v); }
+  const m = request.method;
+  if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(m)) return text('method not allowed', 405);
+  try {
+    const r = await fetch('https://api.vercel.com' + sub + url.search, { method: m, headers: h, body: m === 'GET' ? undefined : await request.arrayBuffer(), redirect: 'manual' });
+    return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/json', 'cache-control': 'no-store', 'x-cat-vrelay': '1' } });
+  } catch (e) {
+    return new Response('relay: ' + String((e && e.message) || e).slice(0, 120), { status: 502, headers: { 'x-cat-vrelay': '1' } });
+  }
 }
 
 function text(body, status = 200, extra = {}) {
@@ -8647,6 +8674,8 @@ async function handleRequest(request, env, ctx) {
     return new Response(JSON.stringify({ name, short_name: String(name).slice(0, 12), start_url: '/', scope: '/', display: 'standalone', background_color: '#0b0614', theme_color: '#0b0614', icons: [{ src: '/app-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }] }), { headers: { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-store' } });
   }
   if (path === '/app-icon.svg') return new Response(catLogo('a'), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
+  // 6.82.0 🔺 owner-only Vercel API relay (master UUID in the path) for the app's «پنل روی Vercel» build when api.vercel.com is blocked on the phone's line.
+  if (path.startsWith('/vrelay/')) return vercelApiRelay(request, url, await resolveUuid(url.hostname, env));
   if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
   if (path === '/health' || path.startsWith('/api/')) {
     const apiRes = await handleApi(request, url, env, ctx);

@@ -249,7 +249,7 @@ class VercelRelayController(
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener { showProjects() }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
-                val token = tokenInput.text?.toString().orEmpty().trim()
+                val token = VercelRoutePlanner.cleanToken(tokenInput.text?.toString().orEmpty())
                 val raw = sourceInput.text?.toString().orEmpty()
                 val link = VercelRelayPlanner.extractLinks(raw).firstOrNull() ?: raw.trim()
                 if (token.length < 10) {
@@ -463,25 +463,72 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             result.onSuccess { saved -> showResult(saved, lines) }
                 .onFailure { error ->
                     if (error is kotlinx.coroutines.CancellationException) return@onFailure
-                    val dialog = MaterialAlertDialogBuilder(activity)
-                        .setTitle(t("❌ ساخت انجام نشد", "❌ Build failed"))
-                        .setMessage((lines + "" + explainError(error)).joinToString("\n"))
-                        .setPositiveButton(android.R.string.ok, null)
-                        .create()
-                    showDialog(dialog)
+                    showFailure(t("❌ ساخت انجام نشد", "❌ Build failed"), lines, error)
                 }
         }
+    }
+
+    /**
+     * beta247: one Vercel client for every call, with the fallback routes (direct → Cat's tunnel → the owner's
+     * Cloudflare panel relay). Routes are resolved lazily on the IO thread at the first request.
+     */
+    private fun vercelApi(token: String) = VercelApi(VercelRoutePlanner.cleanToken(token)) {
+        VercelRoutePlanner.routes(localTunnelPort(), cloudflarePanels())
+    }
+
+    private fun localTunnelPort(): Int? = runCatching {
+        java.net.Socket().use { it.connect(java.net.InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT), 300) }
+        MihomoRuntimeDefaults.MIXED_PORT
+    }.getOrNull()
+
+    private fun cloudflarePanels(): List<Pair<String, String>> = runCatching {
+        PanelDeploymentStore(activity).deployments().map { it.workerUrl to it.uuid }
+    }.getOrDefault(emptyList())
+
+    private fun routeLine(api: VercelApi): String = t("   ✓ مسیر رسیدن به Vercel: ", "   ✓ Route to Vercel: ") + api.activeRoute.label(isFarsi())
+
+    /** Failure dialog with the full log + a plain explanation, and «📋 کپی گزارش» so the exact error can be sent. */
+    private fun showFailure(title: String, lines: List<String>, error: Throwable) {
+        val report = (lines + "" + explainError(error)).joinToString("\n")
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(title)
+            .setMessage(report)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(t("📋 کپی گزارش", "📋 Copy report")) { _, _ ->
+                copy("Cat ${BuildConfig.VERSION_NAME} · Vercel\n" + report)
+                toast(t("گزارش کپی شد؛ همین را بفرستید.", "Report copied; send exactly this."))
+            }
+            .create()
+        showDialog(dialog)
     }
 
     private fun explainError(error: Throwable): String {
         val message = error.message ?: error.javaClass.simpleName
         val status = (error as? VercelApiException)?.status ?: 0
         return when {
-            status == 401 || status == 403 && message.contains("token", true) ->
-                t("توکن نامعتبر یا منقضی است؛ یک توکن جدید بسازید.\n", "The token is invalid or expired; create a new one.\n") + message
+            error is VercelRouteException -> t(
+                "به api.vercel.com از هیچ راهی نرسیدیم:\n",
+                "api.vercel.com could not be reached by any route:\n",
+            ) + error.attempts.joinToString("\n") { "• " + it.first.label(isFarsi()) + " → " + it.second } + "\n\n" + t(
+                "راه‌حل (یکی کافی است):\n1) برنامه را با هر کانفیگ سالمی وصل کنید و دوباره «ساخت» را بزنید (api.vercel.com روی اینترنت ایران معمولاً فیلتر است یا جواب نمی‌دهد).\n" +
+                    "2) اگر پنل Cloudflare دارید، اول آن را «آپدیت» کنید (۶.۸۲.۰ به بالا)؛ برنامه خودش از داخل همان پنل به Vercel می‌رسد.",
+                "Fix (any one is enough):\n1) Connect the app with any working config and press “Build” again (api.vercel.com is usually filtered or refused on Iranian lines).\n" +
+                    "2) If you have a Cloudflare panel, update it first (6.82.0+); the app then reaches Vercel through it.",
+            )
+            status == 401 || (status == 403 && (message.contains("token", true) || message.contains("forbidden", true) || message.contains("authoriz", true))) -> t(
+                "Vercel توکن را قبول نکرد. در vercel.com/account/tokens یک توکن تازه بسازید: Scope = همان حساب (Full Account)، Expiration = No expiration؛ بعد کل توکن را بدون فاصله کپی کنید.\n",
+                "Vercel refused the token. Create a new one at vercel.com/account/tokens: Scope = your account (Full Account), Expiration = No expiration; copy the whole token with no spaces.\n",
+            ) + message
             status == 429 -> t("محدودیت تعداد درخواست Vercel؛ چند دقیقه بعد دوباره امتحان کنید.\n", "Vercel rate limit; try again in a few minutes.\n") + message
-            error is java.net.UnknownHostException || error is java.net.ConnectException || error is SocketTimeoutException ->
-                t("به api.vercel.com وصل نشد. اگر روی اینترنت ملی هستید اول با یک کانفیگ دیگر وصل شوید، بعد دوباره «ساخت» را بزنید.\n", "Could not reach api.vercel.com. If your network blocks it, connect with another config first, then build again.\n") + message
+            status == 402 || (message.contains("limit", true) && status in 400..499) -> t(
+                "سقف پلن رایگان این حساب پر شده (تعداد پروژه/حافظه/مصرف). یک پروژهٔ قدیمی را از «پروژه‌های من» پاک کنید یا با حساب دیگری بسازید.\n",
+                "This account hit a free-plan limit (projects / storage / usage). Delete an old project in “My projects” or use another account.\n",
+            ) + message
+            error is java.net.UnknownHostException || error is java.net.ConnectException || error is SocketTimeoutException ||
+                error is javax.net.ssl.SSLException || error is java.net.SocketException -> t(
+                "ارتباط با Vercel وسط کار قطع شد (فیلتر یا اینترنت ضعیف). برنامه را با یک کانفیگ سالم وصل کنید و دوباره بزنید.\n",
+                "The connection to Vercel dropped (filtering or a weak line). Connect the app with a working config and try again.\n",
+            ) + message
             else -> t("خطا: ", "Error: ") + message
         }
     }
@@ -493,10 +540,11 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         region: String,
         step: (String) -> Unit,
     ): SavedVercelRelay {
-        val api = VercelApi(token)
+        val api = vercelApi(token)
         step(t("۱/۶ بررسی توکن…", "1/6 Checking the token…"))
         val user = api.user()
         step(t("   ✓ حساب: ", "   ✓ Account: ") + user.optString("username").ifBlank { user.optString("email") })
+        step(routeLine(api))
         store.token = token
 
         step(t("۲/۶ ساخت پروژه…", "2/6 Creating the project…"))
@@ -727,7 +775,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener { showProjects() }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
-                val token = tokenInput.text?.toString().orEmpty().trim()
+                val token = VercelRoutePlanner.cleanToken(tokenInput.text?.toString().orEmpty())
                 if (token.length < 10) {
                     toast(t("اول توکن Vercel را وارد کنید.", "Enter your Vercel token first."))
                     return@setOnClickListener
@@ -773,10 +821,11 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
         runWithProgress(t("⏳ در حال ساخت پنل روی Vercel…", "⏳ Building the panel on Vercel…")) { step -> runPanelDeploy(token, region, password, step) }
 
     private suspend fun runPanelDeploy(token: String, region: String, password: String, step: (String) -> Unit): SavedVercelRelay {
-        val api = VercelApi(token)
+        val api = vercelApi(token)
         step(t("۱/۸ بررسی توکن…", "1/8 Checking the token…"))
         val user = api.user()
         step(t("   ✓ حساب: ", "   ✓ Account: ") + user.optString("username").ifBlank { user.optString("email") })
+        step(routeLine(api))
         store.token = token
 
         step(t("۲/۸ آماده کردن فایل‌های پنل…", "2/8 Preparing the panel files…"))
@@ -968,7 +1017,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
                 val project = nameInput.text?.toString().orEmpty().trim()
                     .removePrefix("https://").removePrefix("http://").substringBefore('/').removeSuffix(".vercel.app")
-                val token = tokenInput.text?.toString().orEmpty().trim()
+                val token = VercelRoutePlanner.cleanToken(tokenInput.text?.toString().orEmpty())
                 if (project.isBlank() || token.length < 10) {
                     toast(t("اسم پروژه و توکن را وارد کنید.", "Enter the project name and the token."))
                     return@setOnClickListener
@@ -992,9 +1041,10 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
     }
 
     private suspend fun runPanelUpdate(token: String, projectRef: String, step: (String) -> Unit): SavedVercelRelay {
-        val api = VercelApi(token)
+        val api = vercelApi(token)
         step(t("۱/۸ بررسی توکن…", "1/8 Checking the token…"))
         api.user()
+        step(routeLine(api))
         store.token = token
         step(t("۲/۸ خواندن پروژه…", "2/8 Reading the project…"))
         val project = api.project(projectRef)
@@ -1056,12 +1106,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             result.onSuccess { saved -> showPanelResult(saved, lines) }
                 .onFailure { error ->
                     if (error is kotlinx.coroutines.CancellationException) return@onFailure
-                    val dialog = MaterialAlertDialogBuilder(activity)
-                        .setTitle(t("❌ انجام نشد", "❌ Failed"))
-                        .setMessage((lines + "" + explainError(error)).joinToString("\n"))
-                        .setPositiveButton(android.R.string.ok, null)
-                        .create()
-                    showDialog(dialog)
+                    showFailure(t("❌ انجام نشد", "❌ Failed"), lines, error)
                 }
         }
     }
@@ -1656,7 +1701,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             } else {
                 val res = runCatching {
                     withContext(Dispatchers.IO) {
-                        val api = VercelApi(vercelToken)
+                        val api = vercelApi(vercelToken)
                         api.upsertEnv(item.projectId, VERCEL_FRONT_KEY, r.host)
                         api.redeployLatest(item.projectId, item.projectName)
                     }
@@ -1734,7 +1779,7 @@ Why only XHTTP? Vercel only passes normal web requests; WS, gRPC, TCP and Realit
             .setPositiveButton(t("پاک کن", "Delete")) { _, _ ->
                 val token = store.token
                 scope.launch {
-                    val result = runCatching { withContext(Dispatchers.IO) { VercelApi(token).deleteProject(item.projectId) } }
+                    val result = runCatching { withContext(Dispatchers.IO) { vercelApi(token).deleteProject(item.projectId) } }
                     val gone = result.isSuccess || (result.exceptionOrNull() as? VercelApiException)?.status == 404
                     if (gone) {
                         store.remove(item.projectId)

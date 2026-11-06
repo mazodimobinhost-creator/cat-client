@@ -3212,6 +3212,9 @@ class CatClientVpnService : VpnService() {
                 }
             }
 
+            // 2b. beta247 🆓 Cat Free Proxy: credentials older than 6 h are renewed here, before the core starts.
+            FreeNetworkBuilder.refreshFreeProxyCreds(applicationContext, yaml).let { if (it != yaml) { yaml = it; modified = true } }
+
             // 3. Paqet / paqetNG (patth / patth ng) local SOCKS5 bridge
             val paqetRegex = Regex("""paqet-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
             val paqetMatches = paqetRegex.findAll(yaml).toList()

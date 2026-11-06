@@ -10,6 +10,17 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## 2026-11-06 — Arena agent — beta247 / Panel 6.82.0 (Vercel token deploy, free networks, fragmenting test)
+- Version / commit: v1.10.0-beta247 / (see LOG) — CI pending at write time
+- Done: Vercel API route chain direct → Cat tunnel → CF panel `/vrelay/` (needs the CF panel on 6.82.0); 🎁 free networks
+  (Cat Free Proxy 7 countries, 50 GB account in an in-app WebView where the USER solves the captcha, Cat Fanoos experimental);
+  connect-time credential refresh in the service (8 s budget); 🧪 real per-network test of the 7 fragmenting presets.
+- Evidence: npm test green (budgets: raw 930 133/950 000, gzip 281 217/284 000); kotlinc harness 23/23 (Vercel 7, free 14,
+  DPI 2); real TLS handshake + SOCKS5 IP hand-off checked against github.com in the sandbox. Free-network APIs are NOT reachable
+  from the sandbox → untested live; Android UI compiles only in CI. NOT phone-tested.
+- Open / next owner: ملاد — phone: 🎁 hub (each of the 3), 🧪 test on MCI vs Irancell; owner — update the CF panel to 6.82.0,
+  then retry the Vercel token deploy and send «📋 کپی گزارش» if it still fails.
+
 ## 2026-11-05 — Arena agent — beta245 / Panel 6.81.4 (owner's 5 items)
 - Version / commit: v1.10.0-beta245 / d7fa69a — all CI green first time, prerelease 20 assets
 - Done: several exit countries per user (≤6, ≤12 exits, `exitCc` kept = first); ➕ library → panel ProxyIP/SOCKS list (healthy

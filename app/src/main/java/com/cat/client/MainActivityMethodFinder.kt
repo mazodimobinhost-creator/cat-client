@@ -85,6 +85,11 @@ internal fun MainActivity.buildMethodFinderCard(): View {
         },
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) },
     )
+    // beta247: free networks that need no config of your own (MainActivityFreeNetworks.kt).
+    panel.addView(
+        finderButton(t("🎁 شبکه‌های رایگان (کانفیگ لازم نیست)", "🎁 Free networks (no config needed)"), accent = false) { showFreeNetworksHub() },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+    )
     return panel
 }
 

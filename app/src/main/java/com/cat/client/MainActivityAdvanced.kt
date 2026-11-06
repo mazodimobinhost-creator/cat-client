@@ -845,6 +845,7 @@ internal fun MainActivity.buildAdvancedScreen(): View {
             text = getString(labelRes)
             isCheckable = true
             isChecked = dpiBypassPreferenceStore.presetId() == presetId
+            tag = presetId
             textSize = 11f
             setTextColor(TEXT_PRIMARY)
             chipStrokeColor = ColorStateList.valueOf(withAlpha(OUTLINE, 170))
@@ -893,6 +894,18 @@ internal fun MainActivity.buildAdvancedScreen(): View {
     tlsIntegrityPanel.addView(
         presetRow,
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) },
+    )
+    // beta247 🧪 really test the 7 methods against the user's own servers and switch on the winner (DpiPresetTester.kt).
+    tlsIntegrityPanel.addView(
+        MaterialButton(this).apply {
+            text = if (appLanguagePreferenceStore.read() == AppLanguage.Persian) "🧪 کدام روش روی اینترنت من کار می‌کند؟ (آزمون واقعی)" else "🧪 Which method works on my internet? (real test)"
+            isAllCaps = false
+            textSize = 12.5f
+            setOnClickListener {
+                showDpiPresetTesterDialog { id -> presetChips.forEach { chip -> chip.isChecked = chip.tag == id } }
+            }
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8); marginStart = dp(12); marginEnd = dp(12) },
     )
     connectionSettings.addView(
         tlsIntegrityPanel,
