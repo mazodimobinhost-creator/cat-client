@@ -1,6 +1,5 @@
 package com.cat.client
 
-import com.sun.net.httpserver.HttpServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -9,7 +8,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.net.ConnectException
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicInteger
@@ -88,25 +86,54 @@ class Beta247VercelRoutesTest {
 
     private fun closedPort(): Int = ServerSocket(0).use { it.localPort }
 
-    private fun server(stale: AtomicInteger, good: AtomicInteger): HttpServer {
-        val s = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        s.createContext("/") { ex ->
-            val path = ex.requestURI.path
-            val auth = ex.requestHeaders.getFirst("Authorization").orEmpty()
-            val (code, body, mark) = when {
-                path.startsWith("/old/") -> { stale.incrementAndGet(); Triple(404, "not found", false) }
-                path == "/vrelay/$uuid/v2/user" && auth == "Bearer tok_123456789" -> { good.incrementAndGet(); Triple(200, "{\"user\":{\"username\":\"owner\"}}", true) }
-                path == "/vrelay/$uuid/v11/projects" -> { good.incrementAndGet(); Triple(403, "{\"error\":{\"code\":\"forbidden\",\"message\":\"Not authorized\"}}", true) }
-                else -> Triple(404, "{\"error\":{\"message\":\"unexpected $path\"}}", true)
+    /** Minimal HTTP/1.1 responder on a plain ServerSocket (com.sun.net.httpserver is not on the Android test classpath). */
+    private class TinyHttp(private val handle: (path: String, auth: String) -> Triple<Int, String, Boolean>) : AutoCloseable {
+        private val socket = ServerSocket(0, 16, java.net.InetAddress.getByName("127.0.0.1"))
+        val port: Int get() = socket.localPort
+        private val loop = Thread {
+            while (!socket.isClosed) {
+                val c = runCatching { socket.accept() }.getOrNull() ?: break
+                runCatching {
+                    c.use { conn ->
+                        conn.soTimeout = 5_000
+                        val input = conn.getInputStream().bufferedReader(Charsets.ISO_8859_1)
+                        val requestLine = input.readLine().orEmpty()
+                        var auth = ""
+                        var length = 0
+                        while (true) {
+                            val line = input.readLine() ?: break
+                            if (line.isEmpty()) break
+                            val name = line.substringBefore(':').trim().lowercase()
+                            val value = line.substringAfter(':', "").trim()
+                            if (name == "authorization") auth = value
+                            if (name == "content-length") length = value.toIntOrNull() ?: 0
+                        }
+                        repeat(length) { input.read() }
+                        val path = requestLine.split(' ').getOrNull(1).orEmpty().substringBefore('?')
+                        val (code, body, mark) = handle(path, auth)
+                        val bytes = body.toByteArray()
+                        val head = buildString {
+                            append("HTTP/1.1 $code X\r\n")
+                            if (mark) append("x-cat-vrelay: 1\r\n")
+                            append("Content-Type: " + (if (body.startsWith("{")) "application/json" else "text/plain") + "\r\n")
+                            append("Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")
+                        }
+                        conn.getOutputStream().apply { write(head.toByteArray(Charsets.ISO_8859_1)); write(bytes); flush() }
+                    }
+                }
             }
-            val bytes = body.toByteArray()
-            if (mark) ex.responseHeaders.add("x-cat-vrelay", "1")
-            ex.responseHeaders.add("Content-Type", if (body.startsWith("{")) "application/json" else "text/plain")
-            ex.sendResponseHeaders(code, bytes.size.toLong())
-            ex.responseBody.use { it.write(bytes) }
+        }.apply { isDaemon = true; start() }
+
+        override fun close() { runCatching { socket.close() }; loop.join(2_000) }
+    }
+
+    private fun server(stale: AtomicInteger, good: AtomicInteger) = TinyHttp { path, auth ->
+        when {
+            path.startsWith("/old/") -> { stale.incrementAndGet(); Triple(404, "not found", false) }
+            path == "/vrelay/$uuid/v2/user" && auth == "Bearer tok_123456789" -> { good.incrementAndGet(); Triple(200, "{\"user\":{\"username\":\"owner\"}}", true) }
+            path == "/vrelay/$uuid/v11/projects" -> { good.incrementAndGet(); Triple(403, "{\"error\":{\"code\":\"forbidden\",\"message\":\"Not authorized\"}}", true) }
+            else -> Triple(404, "{\"error\":{\"message\":\"unexpected $path\"}}", true)
         }
-        s.start()
-        return s
     }
 
     @Test
@@ -115,7 +142,7 @@ class Beta247VercelRoutesTest {
         val good = AtomicInteger()
         val s = server(stale, good)
         try {
-            val port = s.address.port
+            val port = s.port
             val routes = listOf(
                 VercelRoute(VercelRouteKind.Direct, "http://127.0.0.1:${closedPort()}"),
                 VercelRoute(VercelRouteKind.Panel, "http://127.0.0.1:$port/old/$uuid", panelHost = "old.example.com"),
@@ -138,7 +165,7 @@ class Beta247VercelRoutesTest {
                 assertTrue(e.message.orEmpty().contains("forbidden"))
             }
         } finally {
-            s.stop(0)
+            s.close()
         }
     }
 
@@ -149,7 +176,7 @@ class Beta247VercelRoutesTest {
         try {
             val routes = listOf(
                 VercelRoute(VercelRouteKind.Direct, "http://127.0.0.1:${closedPort()}"),
-                VercelRoute(VercelRouteKind.Panel, "http://127.0.0.1:${s.address.port}/old/$uuid", panelHost = "old.example.com"),
+                VercelRoute(VercelRouteKind.Panel, "http://127.0.0.1:${s.port}/old/$uuid", panelHost = "old.example.com"),
             )
             try {
                 VercelApi("tok_123456789") { routes }.user()
@@ -160,7 +187,7 @@ class Beta247VercelRoutesTest {
                 assertTrue(e.attempts[1].second.contains("HTTP 404"))
             }
         } finally {
-            s.stop(0)
+            s.close()
         }
     }
 }
