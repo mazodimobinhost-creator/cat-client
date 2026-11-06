@@ -118,4 +118,4 @@
 - Fox: one «🦊 Cat Fox VPN» subscription with every country (REC, free, 🔒 locked); per-row routing via SOCKS5 user `fox-CC` (RFC 1929) in the local bridge (`FoxCountryRouting.kt`, `FirefoxVpnEngine.handleFenixClient`/`openUpstreamTunnelStream(rowNode)`); per-row real ping authenticates as its country; auto ping-all after connecting multi-row subs (`connectFreeSubscription`).
 - Fanoos: «🌍 همهٔ کشورها» (one request per offered location, ≤4 per country, cap 80) into the same subscription.
 - Local: harness Beta250 6/6 + Beta249Fanoos 5/5; codemap --check.
-
+- CI: `6641e8d` push run 42273690163 ✅ + all PR twins ✅; release v1.10.0-beta250 prerelease 20 assets.
