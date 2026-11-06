@@ -101,3 +101,4 @@
 - Found: inline subscription text starting with `https://` is classified as a remote URL (`UserSubscriptionSourceKind.fromWireName`) → free-proxy text starts with a `#` line.
 - Shroudly: `DpiPresetTester.kt` + `MainActivityDpiTester.kt` (button under the preset chips). Server-less mode rejected: mihomo `direct` has no dialer-proxy (v1.19.30 source), SOCKS hand-off → poisoned DNS.
 - Local evidence: harness 23/23; npm test green; codemap --check OK; JDK note: `HttpsURLConnection.getDefaultHostnameVerifier()` always false on desktop Java → endpoint identification + Android-only verifier.
+- CI: `c6f1056` main code compiled; only `Beta247VercelRoutesTest` failed to compile (`com.sun.net.httpserver` is not on the Android unit-test classpath) → plain `ServerSocket` responder (`272a0ae`). Push run `42215115829` all green; PR twin green; release `v1.10.0-beta247` prerelease, 20 assets.

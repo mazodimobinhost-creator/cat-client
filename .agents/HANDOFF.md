@@ -11,7 +11,7 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 ```
 
 ## 2026-11-06 — Arena agent — beta247 / Panel 6.82.0 (Vercel token deploy, free networks, fragmenting test)
-- Version / commit: v1.10.0-beta247 / (see LOG) — CI pending at write time
+- Version / commit: v1.10.0-beta247 / c6f1056 + test fix 272a0ae — push run 42215115829 green, prerelease 20 assets
 - Done: Vercel API route chain direct → Cat tunnel → CF panel `/vrelay/` (needs the CF panel on 6.82.0); 🎁 free networks
   (Cat Free Proxy 7 countries, 50 GB account in an in-app WebView where the USER solves the captcha, Cat Fanoos experimental);
   connect-time credential refresh in the service (8 s budget); 🧪 real per-network test of the 7 fragmenting presets.
