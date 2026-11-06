@@ -4,6 +4,30 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta249] — 2026-11-06 (Panel 6.82.2)
+
+Owner: «Fanoos gave configs but their countries are not shown — shouldn't there be more countries?» and «look at Aras-GP and see how we can add it under our own name».
+
+### Added
+- **🌐 Cat GP — a working personal Google Apps Script relay** (replaces the old 🌐 GAS entry, whose `gasrelay://` link no engine could run).
+  The app runs a local proxy (127.0.0.1:10871, secret-protected) that sends every browser request over TLS to a Google front IP
+  (SNI www.google.com, `Host: script.google.com`) to the user's own Code.gs, which fetches the site with UrlFetchApp. The operator only sees Google.
+  - Cat's own engine (`CatGpRelay.kt`, pure JVM): relay codec, Google fronting with redirect-following on the same connection, keep-alive pool,
+    gzip/chunked, front-IP rotation; a local CA (hand-written DER X.509, EC P-256) that opens https per host (MITM, HTTP/1.1).
+    The wire format is compatible with other GAS relays (MIT engine); no code copied, nothing from that project's proprietary panel.
+  - Dialog: 📋 copy Code.gs (own script, random secret) → paste the …/exec address(es) → 🧪 real test through Google →
+    🔐 install the certificate (direct on Android ≤ 10, Download/CatGP-CA.crt + Settings guide on 11+) → 🚀 save & connect. Real quota counter.
+  - Optional Cloudflare exit: panel **6.82.2** adds `/gp/<uuid>` (owner / enabled user only; no bare IPs, no self-fetch, loop guard, 25 MB cap);
+    the app finds the user's CF panel in saved subscriptions and checks it answers before writing it into Code.gs.
+  - Honest limits in the UI: only browsers that accept user CAs (Chrome…) open https; Telegram/Instagram etc. will not. No UDP/WebSocket. ~20 000 requests/day per Google account.
+- **🏮 Cat Fanoos countries:** every server is named by its country and city from the service's `outbound_locations` («🏮 Cat Fanoos 🇩🇪 Germany Frankfurt #1»);
+  the offered `servers` list is remembered and the next tap offers a country picker (sent as `preferred_location`, copied from that list).
+  Countries are merged (asking for 🇯🇵 keeps 🇩🇪/🇺🇸), and the report says honestly when a free account was not given the requested country.
+
+### Tests
+- `Beta249CatGpTest` (7, incl. end-to-end: CONNECT → MITM TLS trusted only via Cat's CA → fake Google front with 302 + gzip + chunked → keep-alive → 1 Google connection; TLS 1.2 checked too),
+  `Beta249FanoosCountriesTest` (5), `cat-gp-hop.test.mjs` (19, real worker), `cat-gp-codegs.test.mjs` (14, Code.gs run against mocked Apps Script + the real worker hop).
+
 ## [1.10.0-beta248] — 2026-11-06 (Panel 6.82.1)
 
 Owner report: «some things are not right» — Cat Fanoos fails with `config HTTP 403 <html>`, the panel's per-user exit finder finds nothing (0 of 40 tested), the Vercel token build still does not build, and «some things were not added».

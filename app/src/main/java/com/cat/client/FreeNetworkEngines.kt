@@ -325,35 +325,98 @@ internal object LanternPlanner {
         if (id.isNullOrBlank() || id == "0") null else id to tok
     }.getOrNull()
 
-    fun configBody(deviceId: String, userId: String, token: String, country: String?): String = JSONObject()
+    /** One location the service offers (`servers[]` / `outbound_locations{}` of the config answer). */
+    data class Location(val country: String, val city: String, val code: String) {
+        val flag: String get() = flagOf(code)
+        fun label(): String = listOf(flag, country.ifBlank { code }, city).filter(String::isNotBlank).joinToString(" ").trim()
+        fun toJson(): JSONObject = JSONObject().put("country", country).put("city", city).put("country_code", code)
+    }
+
+    fun flagOf(code: String): String {
+        val cc = code.trim().uppercase(Locale.US)
+        if (cc.length != 2 || !cc.all { it in 'A'..'Z' }) return ""
+        return String(Character.toChars(0x1F1E6 + (cc[0] - 'A'))) + String(Character.toChars(0x1F1E6 + (cc[1] - 'A')))
+    }
+
+    private fun location(o: JSONObject?): Location? {
+        if (o == null) return null
+        val code = o.optString("country_code").trim().uppercase(Locale.US)
+        val country = o.optString("country").trim()
+        if (code.isBlank() && country.isBlank()) return null
+        return Location(country, o.optString("city").trim(), code)
+    }
+
+    /** `preferred_location` = an entry copied from the service's own `servers` list (how the official client asks). */
+    fun configBody(deviceId: String, userId: String, token: String, preferred: Location?): String = JSONObject()
         .put("device_id", deviceId).put("singbox_version", "v1.12.0").put("platform", "android").put("app_name", "lantern")
         .put("user_id", userId).put("pro_token", token).put("locale", "fa-IR").put("version", VERSION).put("backend", "sing-box")
         .put("protocols", JSONArray(PROTOCOLS)).apply {
-            if (!country.isNullOrBlank()) put("preferred_location", JSONObject().put("country", country))
+            if (preferred != null) put("preferred_location", preferred.toJson())
         }.toString()
 
-    data class Translation(val links: List<String>, val byType: Map<String, Int>, val skipped: Map<String, Int>)
+    data class Translation(
+        val links: List<String>,
+        val byType: Map<String, Int>,
+        val skipped: Map<String, Int>,
+        /** Location of each produced link, same order as [links] (null = the service did not say). */
+        val linkLocations: List<Location?> = emptyList(),
+        /** Every location the service offers (its `servers` list). */
+        val offered: List<Location> = emptyList(),
+        /** The country the service sees this phone in. */
+        val clientCountry: String = "",
+    ) {
+        /** «🇩🇪 Germany ×2 · 🇺🇸 United States ×1» */
+        fun countrySummary(unknown: String): String = linkLocations.groupingBy { it?.let { l -> l.flag + " " + l.country.ifBlank { l.code } }?.trim() ?: unknown }
+            .eachCount().entries.joinToString(" · ") { "${it.key} ×${it.value}" }
+    }
+
+    /**
+     * Keeps earlier countries: links of the countries that just came are replaced, links of other countries stay
+     * (so asking for 🇩🇪 after 🇺🇸 gives both). Unknown-location answers replace everything. Max [cap] links.
+     * Items are (link, country code or "").
+     */
+    fun merge(old: List<Pair<String, String>>, fresh: List<Pair<String, String>>, cap: Int = 40): List<Pair<String, String>> {
+        if (fresh.isEmpty()) return old
+        if (fresh.all { it.second.isBlank() }) return fresh.take(cap)
+        val freshCodes = fresh.map { it.second }.toSet()
+        val kept = old.filter { it.second.isNotBlank() && it.second !in freshCodes && fresh.none { f -> f.first == it.first } }
+        return (fresh + kept).take(cap)
+    }
+
+    /** Did the service honour the requested country? (null = nothing was requested.) */
+    fun honoured(preferred: Location?, got: List<Location?>): Boolean? {
+        if (preferred == null) return null
+        return got.any { it != null && it.code.equals(preferred.code, ignoreCase = true) }
+    }
 
     /** config-new answer → share links for every outbound Cat's core can run; the rest is counted. */
     fun translate(configJson: String): Translation {
         val o = runCatching { JSONObject(configJson) }.getOrNull() ?: return Translation(emptyList(), emptyMap(), emptyMap())
         val outbounds = o.optJSONObject("options")?.optJSONArray("outbounds") ?: o.optJSONArray("outbounds") ?: JSONArray()
         val links = mutableListOf<String>()
+        val locs = mutableListOf<Location?>()
         val byType = linkedMapOf<String, Int>()
         val skipped = linkedMapOf<String, Int>()
+        val where = o.optJSONObject("outbound_locations")
+        val offeredArr = o.optJSONArray("servers") ?: JSONArray()
+        val offered = (0 until offeredArr.length()).mapNotNull { location(offeredArr.optJSONObject(it)) }
+            .distinctBy { (it.code + "|" + it.city).lowercase(Locale.US) }
         for (i in 0 until outbounds.length()) {
             val ob = outbounds.optJSONObject(i) ?: continue
             val type = ob.optString("type").lowercase(Locale.US)
             if (type in setOf("direct", "block", "dns", "selector", "urltest", "mutableurltest", "mutableselector")) continue
-            val link = runCatching { SingBoxOutboundLinks.link(ob, "🏮 Cat Fanoos #${links.size + 1}") }.getOrNull()
-            if (link != null) {
+            val loc = location(where?.optJSONObject(ob.optString("tag")))
+            val name = "🏮 Cat Fanoos " + (loc?.label()?.plus(" ") ?: "") + "#${links.size + 1}"
+            val link = runCatching { SingBoxOutboundLinks.link(ob, name) }.getOrNull()
+            if (link != null && link !in links) {
                 links += link
+                locs += loc
                 byType[type] = (byType[type] ?: 0) + 1
-            } else {
+            } else if (link == null) {
                 skipped[type.ifBlank { "?" }] = (skipped[type.ifBlank { "?" }] ?: 0) + 1
             }
         }
-        return Translation(links.distinct(), byType, skipped)
+        return Translation(links, byType, skipped, locs, offered, o.optString("country").trim().uppercase(Locale.US))
     }
 }
 
@@ -558,6 +621,24 @@ internal class FreeNetworkStore(context: Context) {
     var lanternToken: String
         get() = prefs.getString("ln_token", "").orEmpty()
         set(v) { prefs.edit().putString("ln_token", v).apply() }
+    /** The locations the service offered last time (JSON array of {country, city, country_code}) — the country picker. */
+    var lanternOffered: String
+        get() = prefs.getString("ln_offered", "").orEmpty()
+        set(v) { prefs.edit().putString("ln_offered", v).apply() }
+    fun lanternOfferedList(): List<LanternPlanner.Location> = runCatching {
+        val a = JSONArray(lanternOffered)
+        (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            LanternPlanner.Location(o.optString("country"), o.optString("city"), o.optString("country_code"))
+        }
+    }.getOrDefault(emptyList())
+    /** Saved Fanoos links with their country code: JSON [{l, c}] — used to merge countries across fetches. */
+    var lanternLinks: List<Pair<String, String>>
+        get() = runCatching {
+            val a = JSONArray(prefs.getString("ln_links", null) ?: "[]")
+            (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { it.optString("l") to it.optString("c") } }.filter { it.first.isNotBlank() }
+        }.getOrDefault(emptyList())
+        set(v) { prefs.edit().putString("ln_links", JSONArray(v.map { JSONObject().put("l", it.first).put("c", it.second) }).toString()).apply() }
     var lanternSubId: String
         get() = prefs.getString("ln_sub", "").orEmpty()
         set(v) { prefs.edit().putString("ln_sub", v).apply() }
@@ -606,7 +687,7 @@ internal object FreeNetworkBuilder {
         return Result(links, api.log + report)
     }
 
-    fun lantern(context: Context, country: String?): Pair<Result, LanternPlanner.Translation> {
+    fun lantern(context: Context, preferred: LanternPlanner.Location?): Pair<Result, LanternPlanner.Translation> {
         val store = FreeNetworkStore(context)
         val dev = store.lanternDeviceId()
         val report = mutableListOf<String>()
@@ -626,7 +707,7 @@ internal object FreeNetworkBuilder {
                 FreeNetHttp.request(
                     url, "POST",
                     LanternPlanner.headers(dev, store.lanternUser, store.lanternToken),
-                    LanternPlanner.configBody(dev, store.lanternUser, store.lanternToken, country), timeoutMs = 20_000,
+                    LanternPlanner.configBody(dev, store.lanternUser, store.lanternToken, preferred), timeoutMs = 20_000,
                 )
             } catch (e: IOException) {
                 tries += "$host → " + (e.message ?: e.javaClass.simpleName).take(60)
@@ -642,6 +723,7 @@ internal object FreeNetworkBuilder {
         }
         if (c == null || c.code !in 200..299) throw IOException("config: " + tries.joinToString(" · "))
         val tr = LanternPlanner.translate(c.body)
+        if (tr.offered.isNotEmpty()) store.lanternOffered = JSONArray(tr.offered.map { it.toJson() }).toString()
         report += "outbounds: " + tr.byType.entries.joinToString(" ") { "${it.key}×${it.value}" }
         if (tr.skipped.isNotEmpty()) report += "skipped: " + tr.skipped.entries.joinToString(" ") { "${it.key}×${it.value}" }
         return Result(tr.links, report) to tr

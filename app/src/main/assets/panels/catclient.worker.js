@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.82.1';
+const CAT_PANEL_VERSION = '6.82.2';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -695,6 +695,61 @@ async function vercelApiRelay(request, url, masterUuid, env) {
   } catch (e) {
     return new Response('relay: ' + String((e && e.message) || e).slice(0, 120), { status: 502, headers: { 'x-cat-vrelay': '1' } });
   }
+}
+
+/**
+ * 6.82.2 🌐 Cat GP second hop. The user's own Google Apps Script (the app's Code.gs) can send each request here
+ * instead of fetching it itself, so sites see a Cloudflare exit instead of a Google one. Same wire format as the
+ * script: POST {u, m, h, b(base64), ct} → {s, h, b(base64)} | {e}. Only the panel owner or an enabled user may use
+ * it (UUID in the path); no bare IPs (Workers cannot fetch them), never this panel itself, no relay loops, 25 MB cap.
+ */
+async function catGpHop(request, url, masterUuid, env) {
+  const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-cat-gp': '1' } });
+  const key = url.pathname.slice(4).replace(/\/+$/, '').toLowerCase();
+  if (!key || !masterUuid || !isUuid(key)) return text('not found', 404);
+  if (key !== String(masterUuid).toLowerCase()) {
+    const users = env ? await readUsers(env).catch(() => []) : [];
+    if (!users.some((u) => u.id === key && u.enabled !== false)) return text('not found', 404);
+  }
+  if (request.method === 'GET') return json({ ok: true, relay: 'cat-gp-hop' });
+  if (request.method !== 'POST') return text('method not allowed', 405);
+  if (request.headers.get('x-cat-gp-hop')) return json({ e: 'relay loop' });
+  let q;
+  try { q = await request.json(); } catch (e) { return json({ e: 'bad request' }); }
+  let target;
+  try { target = new URL(String((q && q.u) || '')); } catch (e) { return json({ e: 'bad url' }); }
+  if (!/^https?:$/.test(target.protocol)) return json({ e: 'bad url' });
+  const host = target.hostname.toLowerCase();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':') || host.startsWith('[')) return json({ e: 'bare IP addresses cannot be fetched from Cloudflare' });
+  if (host === url.hostname.toLowerCase()) return json({ e: 'refusing to fetch this panel itself' });
+  const m = String((q && q.m) || 'GET').toUpperCase();
+  if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'].includes(m)) return json({ e: 'method not supported' });
+  const h = new Headers();
+  const skip = /^(host|connection|content-length|transfer-encoding|keep-alive|te|trailer|upgrade|accept-encoding|proxy-.*|cf-.*|x-forwarded-.*|x-real-ip|forwarded)$/i;
+  for (const [k, v] of Object.entries((q && q.h) || {})) if (!skip.test(k)) { try { h.set(k, String(v)); } catch (e) { /* invalid header */ } }
+  h.set('x-cat-gp-hop', '1');
+  let body;
+  if (q.b && m !== 'GET' && m !== 'HEAD') {
+    try { body = Uint8Array.from(atob(String(q.b)), (c) => c.charCodeAt(0)); } catch (e) { return json({ e: 'bad body' }); }
+    if (q.ct) h.set('content-type', String(q.ct));
+  }
+  let r;
+  try {
+    r = await fetch(target.toString(), { method: m, headers: h, body, redirect: q.r === true ? 'follow' : 'manual' });
+  } catch (e) {
+    return json({ e: 'fetch: ' + String((e && e.message) || e).slice(0, 160) });
+  }
+  const len = Number(r.headers.get('content-length') || 0);
+  if (len > 25 * 1024 * 1024) return json({ e: 'response larger than 25 MB' });
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  if (bytes.length > 25 * 1024 * 1024) return json({ e: 'response larger than 25 MB' });
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  const headers = {};
+  r.headers.forEach((v, k) => { if (k !== 'set-cookie') headers[k] = v; });
+  const cookies = typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [];
+  if (cookies.length) headers['set-cookie'] = cookies;
+  return json({ s: r.status, h: headers, b: btoa(bin) });
 }
 
 function text(body, status = 200, extra = {}) {
@@ -8701,6 +8756,8 @@ async function handleRequest(request, env, ctx) {
   if (path === '/app-icon.svg') return new Response(catLogo('a'), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
   // 6.82.0 🔺 Vercel API relay (master or an enabled user's UUID in the path) for the app's «پنل روی Vercel» build when api.vercel.com is blocked on the phone's line.
   if (path.startsWith('/vrelay/')) return vercelApiRelay(request, url, await resolveUuid(url.hostname, env), env);
+  // 6.82.2 🌐 Cat GP: second hop for the user's own Apps Script relay (owner / enabled user UUID only).
+  if (path.startsWith('/gp/')) return catGpHop(request, url, await resolveUuid(url.hostname, env), env);
   if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
   if (path === '/health' || path.startsWith('/api/')) {
     const apiRes = await handleApi(request, url, env, ctx);

@@ -280,84 +280,8 @@ internal fun MainActivity.showDomainFrontingAndUnpoisonResolverDialog() {
         .showCatClientDialog()
 }
 
-internal fun MainActivity.showGoogleAppsScriptRelayDialog() {
-    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-    val (usedToday, dailyLimit) = VpnRuntimeStateStore.readGasDailyUsage(this)
-    val pct = ((usedToday * 100) / dailyLimit.coerceAtLeast(1)).coerceIn(0, 100)
-    val warnText = if (pct >= 80) {
-        if (isFarsi) "⚠️ هشدار: نزدیک به سقف سهمیه روزانه گوگل ($pct%)" else "⚠️ Warning: Approaching daily GAS quota ($pct%)"
-    } else {
-        if (isFarsi) "✅ سهمیه روزانه سالم ($usedToday از $dailyLimit درخواست · $pct%)" else "✅ Daily quota healthy ($usedToday / $dailyLimit · $pct%)"
-    }
-    val input = EditText(this).apply {
-        hint = "https://script.google.com/macros/s/AKfycb.../exec"
-        setText(VpnRuntimeStateStore.readGasRelayUrl(this@showGoogleAppsScriptRelayDialog))
-        setSingleLine(true)
-        layoutDirection = View.LAYOUT_DIRECTION_LTR
-        textDirection = View.TEXT_DIRECTION_LTR
-    }
-    val wrap = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(12), dp(20), dp(4))
-        addView(input)
-    }
-    MaterialAlertDialogBuilder(this)
-        .setTitle(
-            if (isFarsi) "🌐 رله گوگل (Google Apps Script Relay)"
-            else "🌐 Google Apps Script (GAS) Relay",
-        )
-        .setMessage(
-            if (isFarsi) "اتصال از راه اسکریپت گوگل شخصی شما روی دامنه باز script.google.com:\n$warnText\n\n۱) با دکمه «📋 کپی کد اسکریپت»، کد آماده را در script.google.com قرار دهید و Deploy کنید.\n۲) لینک Web App (.../exec) را در کادر زیر بگذارید و «🚀 ذخیره و اتصال» را بزنید:"
-            else "Connect via your personal Google Apps Script on script.google.com:\n$warnText\n\n1) Copy the ready Code.gs template and deploy as Web App in script.google.com.\n2) Paste your .../exec URL below and tap Save & Connect:",
-        )
-        .setView(wrap)
-        .setNegativeButton(android.R.string.cancel, null)
-        .setNeutralButton(if (isFarsi) "📋 کپی کد اسکریپت گوگل (Code.gs)" else "📋 Copy Code.gs Script") { _, _ ->
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("cat-gas-relay", WhiteDnsSmartScanner.buildGoogleAppsScriptRelaySource()))
-            Toast.makeText(
-                this,
-                if (isFarsi) "✅ کد کامل اسکریپت گوگل (Code.gs) کپی شد" else "✅ Copied Google Apps Script (Code.gs)",
-                Toast.LENGTH_LONG,
-            ).show()
-        }
-        .setPositiveButton(if (isFarsi) "🚀 ذخیره و اتصال با رله گوگل" else "🚀 Save & Connect via GAS Relay") { _, _ ->
-            val url = input.text?.toString()?.trim().orEmpty()
-            VpnRuntimeStateStore.saveGasRelayUrl(this, url)
-            VpnRuntimeStateStore.incrementGasDailyUsage(this, 1)
-            val gasUri = WhiteDnsSmartScanner.buildGasRelayUri(url, "Google-Apps-Script-Relay")
-            activityScope.launch {
-                runCatching {
-                    WhiteDnsSmartScanner.parseTunnelUri(gasUri)?.let { parsed ->
-                        withContext(Dispatchers.IO) {
-                            WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
-                        }
-                    }
-                    val title = "🌐 رله اسکریپت گوگل (GAS Relay)"
-                    val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
-                    val saved = withContext(Dispatchers.IO) {
-                        if (existing != null) {
-                            userSubscriptionManager.update(existing.id, title, gasUri)
-                        } else {
-                            userSubscriptionManager.add(title, gasUri)
-                        }
-                    }
-                    userSubscriptionManager.select(saved.id)
-                    renderSubscriptions()
-                    onSubscriptionSelected()
-                    renderAdvancedControls()
-                    openScreen(SCREEN_HOME)
-                    if (currentVpnServiceState == VpnState.Started) {
-                        reconnectForConnectionOptionChange()
-                    } else {
-                        beginConnectFlow(Actions.CONNECT)
-                    }
-                }
-            }
-        }
-        .create()
-        .showCatClientDialog()
-}
+/** beta249: the old stub saved a `gasrelay://` link no engine could run; the entry now opens the real 🌐 Cat GP engine. */
+internal fun MainActivity.showGoogleAppsScriptRelayDialog() = showCatGpDialog()
 
 internal fun MainActivity.showLiteWorkerGeneratorDialog() {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian

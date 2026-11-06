@@ -10,6 +10,14 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta249 / Panel 6.82.2 — 2026-11-06
+- Fanoos: `LanternPlanner.translate` reads `outbound_locations` (name «🏮 Cat Fanoos <flag> <country> <city> #n») + `servers` (offered) + `country`;
+  `configBody(..., Location?)` sends `preferred_location` {country, city, country_code}; `merge` keeps other countries (cap 40); store `ln_offered`, `ln_links`.
+- 🌐 Cat GP: `CatGpRelay.kt` (pure: `CatGpJson`, `CatGpCodec`, `CatGpDer`, `CatGpCa`, `CatGpFronter`, `CatGpProxy`, `CatGpScripts`), `CatGpEngine.kt` (prefs `cat_gp`,
+  CA in filesDir/catgp, port 10871 user `catgp`), `MainActivityCatGp.kt` (dialog), template `assets/catgp/Code.gs`. Service hook "2c" starts it when the yaml
+  points at 127.0.0.1:10871; `stopVpn` stops it; `deadLocalTags` exempts the port. Worker `catGpHop` at `/gp/<uuid>`.
+- Unknown until phone test: Conscrypt server TLS + Chrome trusting the user CA on a real phone; which Google front IPs work per operator; real GAS latency.
+
 ## beta248 / Panel 6.82.1 — 2026-11-06
 - Fanoos: `LanternPlanner.CONFIG_URLS` = df.getiantem.org first (radiance `kindling/client.go`: Google edge 403s Iran on df.iantem.io), `isEdgeBlock` → next host; body adds `backend`.
 - Worker `locFetch`: skip `isCloudflareIp` candidates (`skippedCf`), 24 tagged + own `proxyIps` (non-socks) within 24 s, 5 parallel, retry `www.cloudflare.com` on non-connect errors, `errors` histogram → UI `locWhy()`. `vercelApiRelay(request,url,master,env)` accepts enabled user ids.

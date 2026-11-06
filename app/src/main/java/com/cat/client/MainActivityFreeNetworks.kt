@@ -129,13 +129,13 @@ private fun MainActivity.freeProgress(title: String, work: suspend (step: (Strin
 }
 
 /** Saves [text] as the subscription remembered under [storedId] (updated in place), returning its id. */
-private suspend fun MainActivity.saveFreeSubscription(storedId: String, name: String, text: String): String = withContext(Dispatchers.IO) {
+internal suspend fun MainActivity.saveFreeSubscription(storedId: String, name: String, text: String): String = withContext(Dispatchers.IO) {
     val existing = userSubscriptionManager.list().firstOrNull { it.id == storedId } ?: userSubscriptionManager.list().firstOrNull { it.name == name }
     (if (existing != null) userSubscriptionManager.update(existing.id, name, text) else userSubscriptionManager.add(name, text)).id
 }
 
 /** Select the subscription and connect its first profile (disconnecting first when needed). */
-private fun MainActivity.connectFreeSubscription(subId: String) {
+internal fun MainActivity.connectFreeSubscription(subId: String) {
     val fa = freeFa()
     activityScope.launch {
         val profile = withContext(Dispatchers.IO) { userSubscriptionManager.cachedSnapshot(subId)?.catalog?.profiles.orEmpty().firstOrNull() }
@@ -238,12 +238,30 @@ private fun MainActivity.buildFreeProxy(regions: List<String>) {
 
 internal fun MainActivity.showFanoosDialog() {
     val fa = freeFa()
+    val offered = FreeNetworkStore(this).lanternOfferedList()
+    if (offered.isEmpty()) {
+        fetchFanoos(null)
+        return
+    }
+    // The service told us last time which locations it offers → let the user ask for one (or let it choose).
+    val labels = listOf(if (fa) "🎲 خودکار (بهترین را خود سرویس انتخاب کند)" else "🎲 Automatic (the service picks)") + offered.map { it.label() }
+    MaterialAlertDialogBuilder(this)
+        .setTitle(if (fa) "🏮 Cat Fanoos — کدام کشور؟" else "🏮 Cat Fanoos — which country?")
+        .setItems(labels.toTypedArray()) { _, which -> fetchFanoos(if (which == 0) null else offered[which - 1]) }
+        .setNegativeButton(if (fa) "بستن" else "Close", null)
+        .create().showCatClientDialog()
+}
+
+private fun MainActivity.fetchFanoos(preferred: LanternPlanner.Location?) {
+    val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
     val name = "🏮 Cat Fanoos"
+    val unknown = t("❔ کشور نامشخص", "❔ unknown country")
     freeProgress(t("⏳ گرفتن فهرست فانوس…", "⏳ Getting the Fanoos list…")) { step ->
         step(t("۱) ساخت کاربر ناشناس و گرفتن تنظیمات (فقط پروتکل‌های استاندارد)…", "1) Anonymous user + config (standard protocols only)…"))
+        if (preferred != null) step(t("   کشور درخواستی: ", "   Requested country: ") + preferred.label())
         val (result, tr) = try {
-            withContext(Dispatchers.IO) { FreeNetworkBuilder.lantern(this@showFanoosDialog, null) }
+            withContext(Dispatchers.IO) { FreeNetworkBuilder.lantern(this@fetchFanoos, preferred) }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             freeResult(t("❌ انجام نشد", "❌ Failed"), listOf(e.message ?: e.javaClass.simpleName), null,
@@ -258,18 +276,35 @@ internal fun MainActivity.showFanoosDialog() {
             return@freeProgress
         }
         step(t("۲) ذخیره به‌عنوان اشتراک «$name»…", "2) Saving as subscription “$name”…"))
-        val store = FreeNetworkStore(this@showFanoosDialog)
+        val store = FreeNetworkStore(this@fetchFanoos)
+        val fresh = result.links.mapIndexed { i, l -> l to (tr.linkLocations.getOrNull(i)?.code ?: "") }
+        val merged = LanternPlanner.merge(store.lanternLinks, fresh)
         val subId = try {
-            saveFreeSubscription(store.lanternSubId, name, result.links.joinToString("\n"))
+            saveFreeSubscription(store.lanternSubId, name, merged.joinToString("\n") { it.first })
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             freeResult(t("❌ ذخیره نشد", "❌ Not saved"), result.report + (e.message ?: e.javaClass.simpleName), null, "")
             return@freeProgress
         }
         store.lanternSubId = subId
+        store.lanternLinks = merged
         renderSubscriptions()
-        freeResult(t("✅ ${result.links.size} سرور فانوس اضافه شد", "✅ ${result.links.size} Fanoos servers added"), result.report, subId,
-            t("آزمایشی است: اگر یکی وصل نشد بعدی را امتحان کنید و برای سرورهای تازه دوباره همین را بزنید.", "Experimental: if one fails try the next, and tap this again for fresh servers."))
+        val report = result.report.toMutableList()
+        report += t("کشورهای این نوبت: ", "Countries this time: ") + tr.countrySummary(unknown)
+        val kept = merged.size - fresh.size
+        if (kept > 0) report += t("از قبل نگه داشته شد: $kept سرور از کشورهای دیگر", "Kept from before: $kept servers of other countries")
+        if (tr.clientCountry.isNotBlank()) report += t("سرویس شما را در این کشور می‌بیند: ", "The service sees you in: ") + LanternPlanner.flagOf(tr.clientCountry) + " " + tr.clientCountry
+        val honoured = LanternPlanner.honoured(preferred, tr.linkLocations)
+        val countryNote = when {
+            honoured == false -> t("⚠️ سرویس «${preferred?.label()}» را برای حساب رایگان نداد و به‌جایش همین‌ها را فرستاد. سرورهای کشورهای دیگر عوض نشدند.",
+                "⚠️ The service did not give “${preferred?.label()}” to a free account and sent these instead. Other countries' servers were kept.")
+            honoured == true -> t("✅ کشور درخواستی آمد.", "✅ The requested country came.")
+            tr.offered.size > 1 -> t("🌍 سرویس ${tr.offered.size} مکان دارد؛ برای کشور دیگر دوباره «🏮 فانوس» را بزنید و از فهرست انتخاب کنید (سرورهای فعلی می‌مانند).",
+                "🌍 The service offers ${tr.offered.size} locations; tap “🏮 Fanoos” again and pick one from the list (current servers stay).")
+            else -> t("سرویس فقط همین مکان را برای این حساب داد.", "The service only offered this location to this account.")
+        }
+        freeResult(t("✅ ${result.links.size} سرور فانوس اضافه شد", "✅ ${result.links.size} Fanoos servers added"), report, subId,
+            countryNote + "\n" + t("آزمایشی است: اگر یکی وصل نشد بعدی را امتحان کنید.", "Experimental: if one fails try the next."))
     }
 }
 

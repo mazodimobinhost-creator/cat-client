@@ -30,6 +30,7 @@ object ConnectionLabelPolicy {
                 1819 -> "Warp"
                 10829 -> "Fox VPN"
                 10809 -> "KCP"
+                CatGpEngine.PORT -> "Cat GP"
                 SstpLink.PLACEHOLDER_PORT -> "SSTP"
                 else -> "Local"
             }

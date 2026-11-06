@@ -108,3 +108,7 @@
 - Fanoos 403 → df.getiantem.org first; exit finder CF-IP skip + reasons + retry host + own ProxyIPs (panel 6.82.1); Vercel panel route from subscriptions + user UUID relay + clearer report; free networks next to Fox.
 - Local: harness Beta248 4/4, Vercel 7/7, FreeNetworks 14/14; npm test 162/162; codemap --check OK; minify/obfuscate/stealth --check OK.
 - CI: `13b91f5` push run 42220442629 ✅ + all PR twins ✅; release v1.10.0-beta248 prerelease 20 assets.
+
+## beta249 (2026-11-06)
+- Fanoos countries (names, picker via preferred_location, merge, honest "not given" note); 🌐 Cat GP engine (local MITM proxy → Google-fronted Apps Script relay, own CA, Code.gs asset, optional panel /gp hop 6.82.2).
+- Local: harness Beta249CatGp 7/7, Beta249Fanoos 5/5, Beta247FreeNetworks 14/14; TLS1.2 ECDSA check; npm test 164/164; codemap --check OK; minify/obfuscate/stealth --check OK (min.js 933 712).

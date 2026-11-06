@@ -974,7 +974,8 @@ class CatClientVpnService : VpnService() {
         // «health check at 127.0.0.1:2080».
         val deadLocalTags = withContext(Dispatchers.IO) {
             allProfiles.filter { p ->
-                LoopbackProfileGuard.isPlainLoopback(p.type, p.server, p.shareLink) && !LoopbackProfileGuard.isListening(p.port)
+                // beta249: 🌐 Cat GP's port is started by the app itself (step 2c below), so it is never "dead".
+                LoopbackProfileGuard.isPlainLoopback(p.type, p.server, p.shareLink) && p.port != CatGpEngine.PORT && !LoopbackProfileGuard.isListening(p.port)
             }.map { it.tag }.toSet()
         }
         val autoAetherCandidate = if (explicitCandidate == null && initialSnapshot != null) {
@@ -3215,6 +3216,17 @@ class CatClientVpnService : VpnService() {
             // 2b. beta247 🆓 Cat Free Proxy: credentials older than 6 h are renewed here, before the core starts.
             FreeNetworkBuilder.refreshFreeProxyCreds(applicationContext, yaml).let { if (it != yaml) { yaml = it; modified = true } }
 
+            // 2c. beta249 🌐 Cat GP: the config points at the local Google Apps Script relay → start it in this process
+            // (its sockets to Google are protected, so they leave outside the tunnel).
+            if (CatGpEngine.referencedIn(yaml)) {
+                CatGpEngine.ensureRunning(applicationContext) { protectOutboundSocket(it) }?.let { why ->
+                    android.util.Log.w("CatGP", why)
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        runCatching { android.widget.Toast.makeText(applicationContext, "🌐 Cat GP: $why", android.widget.Toast.LENGTH_LONG).show() }
+                    }
+                }
+            }
+
             // 3. Paqet / paqetNG (patth / patth ng) local SOCKS5 bridge
             val paqetRegex = Regex("""paqet-uri\s*:\s*['"]?([^'"\r\n]+)['"]?""")
             val paqetMatches = paqetRegex.findAll(yaml).toList()
@@ -3779,6 +3791,8 @@ class CatClientVpnService : VpnService() {
             closeSstp("disconnect")
             // beta211: pooled Cat Fox VPN HTTP/2 connections belong to this session's network; start clean next time.
             runCatching { FirefoxVpnEngine.resetUpstreamSessions("vpn stopped") }
+            // beta249: the 🌐 Cat GP local relay belongs to this session (its sockets are protected by this service).
+            runCatching { CatGpEngine.stop() }
             val terminalState = disconnectTerminalState(
                 stopCoreService(),
                 getString(R.string.state_connection_error),
