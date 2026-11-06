@@ -41,6 +41,8 @@ object ConnectionLabelPolicy {
             } else if (port == SstpLink.PLACEHOLDER_PORT) {
                 // beta212: many SSTP servers share a country; the measured speed from the list tells them apart.
                 Regex("""(\d{1,5})(?:\.\d+)?\s*Mbps""", RegexOption.IGNORE_CASE).find(raw)?.let { "${it.groupValues[1]} Mbps" }.orEmpty()
+            } else if (port == 10829 && "🔒" in raw) {
+                "🔒" // beta250: a Fox country locked for free accounts (Mozilla answers 403)
             } else ""
             val country = ConnectionLocationPolicy.countryFromText(Locale.ENGLISH, raw, "")
             val place = country?.country ?: "Auto"

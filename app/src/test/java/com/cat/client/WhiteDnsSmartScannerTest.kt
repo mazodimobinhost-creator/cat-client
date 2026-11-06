@@ -508,12 +508,15 @@ class WhiteDnsSmartScannerTest {
             cleanFastlyIp = "151.101.1.195",
             tlsFragment = true,
         )
-        assertTrue(fenixUri.startsWith("fenix://127.0.0.1:10829/"))
+        // beta250: the row's country rides in the SOCKS user, so many Fox rows can share the one bridge.
+        assertTrue(fenixUri.startsWith("fenix://fox-DE:cat@127.0.0.1:10829/"))
         val convertedFenix = SubConvConverter.convert(fenixUri)
         assertEquals(1, convertedFenix.size)
         assertEquals("socks5", convertedFenix.first().optString("type"))
         assertEquals("127.0.0.1", convertedFenix.first().optString("server"))
         assertEquals(10829, convertedFenix.first().optInt("port"))
+        assertEquals("fox-DE", convertedFenix.first().optString("username"))
+        assertEquals("cat", convertedFenix.first().optString("password"))
 
         // 4. Verify RealConfigTemplate extraction & repair ignores placeholder 11111111-... UUIDs
         val placeholderLine = "vless://11111111-2222-4333-8444-555555555555@188.114.98.0:443?type=ws&host=sub.workers.dev#Placeholder"

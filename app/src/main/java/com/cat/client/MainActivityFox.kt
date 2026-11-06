@@ -1213,51 +1213,46 @@ internal fun MainActivity.connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) 
                 return@launch
             }
 
-            val fenixUri = FirefoxVpnEngine.buildFenixTunnelUri(
-                country = chosenCountry,
-                localPort = localPort,
-                accountEmail = activeAccount.email,
-                cleanFastlyIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@connectFirefoxVpnDirectly),
-                tlsFragment = FirefoxVpnEngine.isTlsFragmentEnabled(this@connectFirefoxVpnDirectly),
+            // beta250: ONE «🦊 Cat Fox VPN» subscription with every country as its own row (Mozilla's pick, the free
+            // countries, then the locked ones marked 🔒) instead of one subscription per chosen country. Each row
+            // names its country in its SOCKS user, so it really leaves through that country and its ping is real.
+            val cleanIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@connectFirefoxVpnDirectly)
+            val frag = FirefoxVpnEngine.isTlsFragmentEnabled(this@connectFirefoxVpnDirectly)
+            val countries = FoxCountryRouting.ordered(
+                FirefoxVpnEngine.getAvailableCountries(this@connectFirefoxVpnDirectly) + chosenCountry,
+                { it.code },
+                { it.locked && it.code != FirefoxVpnEngine.COUNTRY_RECOMMENDED },
             )
-
-            val subTitle = "🦊 Cat Fox VPN (${chosenCountry.flag} ${chosenCountry.code})"
-            val existing = userSubscriptionManager.list().firstOrNull {
-                it.name.startsWith("🦊 Cat Fox VPN")
+            val rows = countries.map { c ->
+                FirefoxVpnEngine.buildFenixTunnelUri(
+                    country = c,
+                    localPort = localPort,
+                    accountEmail = "",
+                    cleanFastlyIp = if (c.code == chosenCountry.code) cleanIp else "",
+                    tlsFragment = frag,
+                )
             }
+            val subTitle = FoxCountryRouting.SUBSCRIPTION_NAME
             val saved = withContext(Dispatchers.IO) {
-                if (existing != null) {
-                    userSubscriptionManager.update(existing.id, subTitle, fenixUri)
-                } else {
-                    userSubscriptionManager.add(subTitle, fenixUri)
-                }
+                // Older builds made «🦊 Cat Fox VPN (🇩🇪 DE)», «… (🇳🇱 NL)» … — fold them all into the one subscription.
+                val olds = userSubscriptionManager.list().filter { it.name.startsWith(subTitle) }
+                val keep = olds.firstOrNull()
+                olds.drop(1).forEach { runCatching { userSubscriptionManager.delete(it.id) } }
+                val text = FoxCountryRouting.subscriptionText(rows)
+                if (keep != null) userSubscriptionManager.update(keep.id, subTitle, text) else userSubscriptionManager.add(subTitle, text)
             }
-            userSubscriptionManager.select(saved.id)
-
-            val curAether = aetherPreferenceStore.read()
-            if (curAether.enabled) {
-                aetherPreferenceStore.save(curAether.copy(enabled = false))
-            }
-            orbotEnginePreferenceStore.setEnabled(false)
-
             onChanged()
             renderSubscriptions()
-            onSubscriptionSelected()
-            renderAdvancedControls()
 
             val countryName = if (isFarsi) chosenCountry.nameFa else chosenCountry.nameEn
             Toast.makeText(
                 this@connectFirefoxVpnDirectly,
-                if (isFarsi) "🦊 Cat Fox VPN روی کشور «${chosenCountry.flag} $countryName» فعال شد — در حال اتصال…"
-                else "🦊 Cat Fox VPN active on '${chosenCountry.flag} $countryName' — connecting…",
+                if (isFarsi) "🦊 Cat Fox VPN: ${rows.size} کشور در یک اشتراک — اتصال روی «${chosenCountry.flag} $countryName»؛ بعد از وصل شدن پینگ همهٔ کشورها گرفته می‌شود."
+                else "🦊 Cat Fox VPN: ${rows.size} countries in one subscription — connecting on '${chosenCountry.flag} $countryName'; every country is pinged once connected.",
                 Toast.LENGTH_LONG,
             ).show()
-
-            openScreen(SCREEN_HOME)
-            if (currentVpnServiceState == VpnState.Started) {
-                reconnectForConnectionOptionChange()
-            } else {
-                beginConnectFlow(Actions.CONNECT)
+            connectFreeSubscription(saved.id) { profiles ->
+                profiles.getOrNull(FoxCountryRouting.pickRow(profiles.map { it.shareLink.orEmpty() }, chosenCountry.code))
             }
         }.onFailure { err ->
             Toast.makeText(

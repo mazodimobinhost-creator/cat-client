@@ -3183,9 +3183,9 @@ class CatClientVpnService : VpnService() {
             val fenixMatches = fenixRegex.findAll(yaml).toList()
             if (fenixMatches.isNotEmpty()) {
                 // Use the country written in the config itself (fenix://…?country=DE); it used to be ignored.
-                val fenixCountry = fenixMatches.first().groupValues[1].substringAfter('?', "")
-                    .split('&').firstOrNull { it.startsWith("country=", ignoreCase = true) }
-                    ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US)
+                // beta250: the one «Cat Fox VPN» subscription holds every country; each row names its country in its
+                // SOCKS user, so the bridge's default is then the country the user picked, not the first row.
+                val fenixCountry = if (fenixMatches.size > 1) null else FoxCountryRouting.codeFromFenixUri(fenixMatches.first().groupValues[1])
                 if (FirefoxVpnEngine.selectBestActiveAccount(FirefoxVpnEngine.loadAccounts(applicationContext)) == null) {
                     // beta206: without a signed-in Firefox Account Mozilla gives no ProxyPass, so every request
                     // through this profile fails. Say so instead of a bare «خطای اتصال».

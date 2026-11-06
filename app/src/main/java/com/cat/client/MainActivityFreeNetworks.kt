@@ -134,11 +134,19 @@ internal suspend fun MainActivity.saveFreeSubscription(storedId: String, name: S
     (if (existing != null) userSubscriptionManager.update(existing.id, name, text) else userSubscriptionManager.add(name, text)).id
 }
 
-/** Select the subscription and connect its first profile (disconnecting first when needed). */
-internal fun MainActivity.connectFreeSubscription(subId: String) {
+/**
+ * Select the subscription and connect its first profile (or the one [pick] chooses), disconnecting first when needed.
+ * beta250: a subscription with several rows (every Fox / Fanoos country) is then pinged row by row through the live
+ * connection, so the list shows each country's real ping right away.
+ */
+internal fun MainActivity.connectFreeSubscription(
+    subId: String,
+    pick: (List<ConnectionProfile>) -> ConnectionProfile? = { it.firstOrNull() },
+) {
     val fa = freeFa()
     activityScope.launch {
-        val profile = withContext(Dispatchers.IO) { userSubscriptionManager.cachedSnapshot(subId)?.catalog?.profiles.orEmpty().firstOrNull() }
+        val profiles = withContext(Dispatchers.IO) { userSubscriptionManager.cachedSnapshot(subId)?.catalog?.profiles.orEmpty() }
+        val profile = pick(profiles) ?: profiles.firstOrNull()
         if (profile == null) {
             Toast.makeText(this@connectFreeSubscription, if (fa) "کانفیگی برای اتصال نیست." else "No config to connect.", Toast.LENGTH_LONG).show()
             return@launch
@@ -154,6 +162,14 @@ internal fun MainActivity.connectFreeSubscription(subId: String) {
         handleConnectionSelected(profile, emptySet())
         openScreen(SCREEN_HOME)
         if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT)
+        if (profiles.size > 1) {
+            val until = SystemClock.elapsedRealtime() + 60_000L
+            while (buttonModel.state != VpnState.Started && SystemClock.elapsedRealtime() < until) delay(500)
+            if (buttonModel.state == VpnState.Started) {
+                delay(1_500) // let the first pages through before the sweep
+                runPingAll(autoConnect = false)
+            }
+        }
     }
 }
 
@@ -244,10 +260,21 @@ internal fun MainActivity.showFanoosDialog() {
         return
     }
     // The service told us last time which locations it offers → let the user ask for one (or let it choose).
-    val labels = listOf(if (fa) "🎲 خودکار (بهترین را خود سرویس انتخاب کند)" else "🎲 Automatic (the service picks)") + offered.map { it.label() }
+    // beta250: «🌍 every country» fills the ONE «🏮 Cat Fanoos» subscription with every location the service gives,
+    // each row named by its country; once connected every row is pinged, so the list shows all countries + pings.
+    val labels = listOf(
+        if (fa) "🌍 همهٔ کشورها (همه در همین یک اشتراک، با پینگ)" else "🌍 Every country (all in this one subscription, with pings)",
+        if (fa) "🎲 خودکار (بهترین را خود سرویس انتخاب کند)" else "🎲 Automatic (the service picks)",
+    ) + offered.map { it.label() }
     MaterialAlertDialogBuilder(this)
         .setTitle(if (fa) "🏮 Cat Fanoos — کدام کشور؟" else "🏮 Cat Fanoos — which country?")
-        .setItems(labels.toTypedArray()) { _, which -> fetchFanoos(if (which == 0) null else offered[which - 1]) }
+        .setItems(labels.toTypedArray()) { _, which ->
+            when (which) {
+                0 -> fetchFanoosAll(offered)
+                1 -> fetchFanoos(null)
+                else -> fetchFanoos(offered[which - 2])
+            }
+        }
         .setNegativeButton(if (fa) "بستن" else "Close", null)
         .create().showCatClientDialog()
 }
@@ -299,12 +326,76 @@ private fun MainActivity.fetchFanoos(preferred: LanternPlanner.Location?) {
             honoured == false -> t("⚠️ سرویس «${preferred?.label()}» را برای حساب رایگان نداد و به‌جایش همین‌ها را فرستاد. سرورهای کشورهای دیگر عوض نشدند.",
                 "⚠️ The service did not give “${preferred?.label()}” to a free account and sent these instead. Other countries' servers were kept.")
             honoured == true -> t("✅ کشور درخواستی آمد.", "✅ The requested country came.")
-            tr.offered.size > 1 -> t("🌍 سرویس ${tr.offered.size} مکان دارد؛ برای کشور دیگر دوباره «🏮 فانوس» را بزنید و از فهرست انتخاب کنید (سرورهای فعلی می‌مانند).",
-                "🌍 The service offers ${tr.offered.size} locations; tap “🏮 Fanoos” again and pick one from the list (current servers stay).")
+            tr.offered.size > 1 -> t("🌍 سرویس ${tr.offered.size} مکان دارد؛ دوباره «🏮 فانوس» را بزنید و «🌍 همهٔ کشورها» را انتخاب کنید تا همه با پینگ در همین اشتراک بیایند (سرورهای فعلی می‌مانند).",
+                "🌍 The service offers ${tr.offered.size} locations; tap “🏮 Fanoos” again and choose “🌍 Every country” to get them all, with pings, in this subscription (current servers stay).")
             else -> t("سرویس فقط همین مکان را برای این حساب داد.", "The service only offered this location to this account.")
         }
         freeResult(t("✅ ${result.links.size} سرور فانوس اضافه شد", "✅ ${result.links.size} Fanoos servers added"), report, subId,
             countryNote + "\n" + t("آزمایشی است: اگر یکی وصل نشد بعدی را امتحان کنید.", "Experimental: if one fails try the next."))
+    }
+}
+
+/** beta250: one request per offered location, all merged into the one «🏮 Cat Fanoos» subscription. */
+private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val name = "🏮 Cat Fanoos"
+    val targets = offered.take(LanternPlanner.ALL_COUNTRIES_MAX_LOCATIONS)
+    freeProgress(t("⏳ گرفتن سرورهای همهٔ کشورهای فانوس…", "⏳ Getting Fanoos servers for every country…")) { step ->
+        val collected = ArrayList<Pair<String, String>>()
+        val report = ArrayList<String>()
+        var failuresInARow = 0
+        for ((i, loc) in targets.withIndex()) {
+            step("${i + 1}/${targets.size}) ${loc.label()}…")
+            val got = try {
+                withContext(Dispatchers.IO) { FreeNetworkBuilder.lantern(this@fetchFanoosAll, loc) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                null.also { report += "❌ ${loc.label()}: " + (e.message ?: e.javaClass.simpleName).take(80) }
+            }
+            if (got == null) {
+                // Two dead answers in a row = the service (or this network) stopped answering; do not hammer it.
+                if (++failuresInARow >= 2) { report += t("⏹ سرویس دیگر جواب نداد؛ بقیه رها شد.", "⏹ The service stopped answering; the rest was skipped."); break }
+                continue
+            }
+            failuresInARow = 0
+            val (result, tr) = got
+            val rows = result.links.mapIndexed { k, l -> l to (tr.linkLocations.getOrNull(k)?.code ?: "") }
+            collected += rows
+            val codes = LanternPlanner.countriesOf(rows).joinToString(" ") { LanternPlanner.flagOf(it) + it }
+            report += when {
+                rows.isEmpty() -> "⚠️ ${loc.label()}: " + t("سرور قابل‌استفاده نداد", "no usable server")
+                LanternPlanner.honoured(loc, tr.linkLocations) == false -> "↩️ ${loc.label()}: " + t("نداد؛ به‌جایش $codes", "not given; sent $codes instead")
+                else -> "✅ ${loc.label()}: ${rows.size}"
+            }
+        }
+        val fresh = LanternPlanner.limitPerCountry(collected)
+        if (fresh.isEmpty()) {
+            freeResult(t("⚠️ سرور قابل‌استفاده‌ای نیامد", "⚠️ No usable server"), report, null,
+                t("سرویس فانوس از این شبکه سروری نداد که Cat واقعاً اجرا کند. با یک کانفیگ سالم وصل شوید و دوباره بزنید.",
+                    "Fanoos gave no server Cat can really run from this network. Connect with a working config and try again."))
+            return@freeProgress
+        }
+        val store = FreeNetworkStore(this@fetchFanoosAll)
+        val merged = LanternPlanner.merge(store.lanternLinks, fresh, cap = LanternPlanner.ALL_COUNTRIES_CAP)
+        val subId = try {
+            saveFreeSubscription(store.lanternSubId, name, merged.joinToString("\n") { it.first })
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), report + (e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.lanternSubId = subId
+        store.lanternLinks = merged
+        renderSubscriptions()
+        val countries = LanternPlanner.countriesOf(merged)
+        freeResult(
+            t("✅ ${merged.size} سرور از ${countries.size} کشور در «$name»", "✅ ${merged.size} servers from ${countries.size} countries in “$name”"),
+            report,
+            subId,
+            t("همه در همین یک اشتراک‌اند (هر ردیف با نام کشورش). «⚡ اتصال» را بزنید؛ بعد از وصل شدن پینگ همهٔ ردیف‌ها گرفته و کنار هر کدام نشان داده می‌شود.",
+                "All are in this one subscription (each row named by its country). Tap “⚡ Connect”; once connected every row is pinged and its ping is shown next to it."),
+        )
     }
 }
 

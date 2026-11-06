@@ -113,3 +113,9 @@
 - Fanoos countries (names, picker via preferred_location, merge, honest "not given" note); 🌐 Cat GP engine (local MITM proxy → Google-fronted Apps Script relay, own CA, Code.gs asset, optional panel /gp hop 6.82.2).
 - Local: harness Beta249CatGp 7/7, Beta249Fanoos 5/5, Beta247FreeNetworks 14/14; TLS1.2 ECDSA check; npm test 164/164; codemap --check OK; minify/obfuscate/stealth --check OK (min.js 933 712).
 - CI: `3c372f0` failed compile (test used `Context()`, abstract on Android) → `fe676a0` push run 42269567588 ✅ + all PR twins ✅; release v1.10.0-beta249 prerelease 20 assets.
+
+## beta250 (2026-11-06)
+- Fox: one «🦊 Cat Fox VPN» subscription with every country (REC, free, 🔒 locked); per-row routing via SOCKS5 user `fox-CC` (RFC 1929) in the local bridge (`FoxCountryRouting.kt`, `FirefoxVpnEngine.handleFenixClient`/`openUpstreamTunnelStream(rowNode)`); per-row real ping authenticates as its country; auto ping-all after connecting multi-row subs (`connectFreeSubscription`).
+- Fanoos: «🌍 همهٔ کشورها» (one request per offered location, ≤4 per country, cap 80) into the same subscription.
+- Local: harness Beta250 6/6 + Beta249Fanoos 5/5; codemap --check.
+

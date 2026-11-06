@@ -383,6 +383,22 @@ internal object LanternPlanner {
         return (fresh + kept).take(cap)
     }
 
+    /** beta250 «🌍 every country»: rows of one fetch round per location, at most [perCountry] servers per country. */
+    const val ALL_COUNTRIES_CAP = 80
+    const val ALL_COUNTRIES_MAX_LOCATIONS = 20
+
+    fun limitPerCountry(rows: List<Pair<String, String>>, perCountry: Int = 4): List<Pair<String, String>> {
+        val seen = HashMap<String, Int>()
+        return rows.distinctBy { it.first }.filter { (_, code) ->
+            val k = code.ifBlank { "?" }
+            val n = seen.getOrDefault(k, 0)
+            if (n >= perCountry) false else { seen[k] = n + 1; true }
+        }
+    }
+
+    /** Distinct countries among the rows, in order ("" = unknown is left out). */
+    fun countriesOf(rows: List<Pair<String, String>>): List<String> = rows.map { it.second }.filter(String::isNotBlank).distinct()
+
     /** Did the service honour the requested country? (null = nothing was requested.) */
     fun honoured(preferred: Location?, got: List<Location?>): Boolean? {
         if (preferred == null) return null

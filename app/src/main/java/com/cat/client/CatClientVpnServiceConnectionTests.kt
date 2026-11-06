@@ -715,15 +715,14 @@ internal fun CatClientVpnService.realFenixDelayMs(profile: ConnectionProfile, ra
         DiagnosticLogger.warn(this, "connection.delay.fenix", "profile=${profile.tag} error=no signed-in Firefox account")
         return null
     }
-    val code = rawShare.substringAfter('?', "").substringBefore('#').split('&')
-        .firstOrNull { it.startsWith("country=", ignoreCase = true) }
-        ?.substringAfter('=')?.trim()?.uppercase(java.util.Locale.US)
-    // One bridge, one upstream country: tests run one at a time, and a live Firefox VPN tunnel is never
-    // switched to another country just to measure a row.
-    return synchronized(fenixTestLock) {
-        val live = state == VpnState.Started && FirefoxVpnEngine.isLocalProxyRunning()
-        val port = if (live) FirefoxVpnEngine.activeProxyPort() else FirefoxVpnEngine.startLocalBridge(ctx, code)
-        if (port !in 1..65535) return@synchronized null
+    val code = FoxCountryRouting.codeFromFenixUri(rawShare)
+    // beta250: the row's country goes in the SOCKS user (fox-DE), so the bridge measures THAT country — also while
+    // a live tunnel runs through another one (the live tunnel is never switched just to measure a row).
+    val port = synchronized(fenixTestLock) {
+        if (FirefoxVpnEngine.isLocalProxyRunning()) FirefoxVpnEngine.activeProxyPort() else FirefoxVpnEngine.startLocalBridge(ctx, code)
+    }
+    if (port !in 1..65535) return null
+    return run {
         runCatching {
             val t0 = System.nanoTime()
             java.net.Socket().use { s ->
@@ -733,9 +732,20 @@ internal fun CatClientVpnService.realFenixDelayMs(profile: ConnectionProfile, ra
                 val inp = java.io.DataInputStream(s.getInputStream())
                 // SOCKS5 by hand (RFC 1928): no auth, CONNECT www.gstatic.com:443 by name (Mozilla's proxy is a
                 // CONNECT proxy meant for HTTPS), then a real TLS request inside it.
-                out.write(byteArrayOf(5, 1, 0)); out.flush()
-                val greet = ByteArray(2).also { inp.readFully(it) }
-                check(greet[0].toInt() == 5 && greet[1].toInt() == 0) { "socks greeting refused" }
+                if (code != null) {
+                    out.write(byteArrayOf(5, 1, 2)); out.flush()
+                    val greet = ByteArray(2).also { inp.readFully(it) }
+                    check(greet[0].toInt() == 5 && greet[1].toInt() == 2) { "socks greeting refused" }
+                    val u = FoxCountryRouting.userFor(code).toByteArray(Charsets.US_ASCII)
+                    val p = FoxCountryRouting.PASSWORD.toByteArray(Charsets.US_ASCII)
+                    out.write(byteArrayOf(1, u.size.toByte()) + u + byteArrayOf(p.size.toByte()) + p); out.flush()
+                    val auth = ByteArray(2).also { inp.readFully(it) }
+                    check(auth[1].toInt() == 0) { "socks auth refused" }
+                } else {
+                    out.write(byteArrayOf(5, 1, 0)); out.flush()
+                    val greet = ByteArray(2).also { inp.readFully(it) }
+                    check(greet[0].toInt() == 5 && greet[1].toInt() == 0) { "socks greeting refused" }
+                }
                 val host = "www.gstatic.com".toByteArray(Charsets.US_ASCII)
                 out.write(byteArrayOf(5, 1, 0, 3, host.size.toByte()) + host + byteArrayOf(1, 0xBB.toByte())); out.flush()
                 val head = ByteArray(4).also { inp.readFully(it) }

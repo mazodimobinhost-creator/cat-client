@@ -2122,6 +2122,18 @@ internal object FirefoxVpnEngine {
     private var activeFragmentTls: Boolean = true
     @Volatile
     private var appContextRef: Context? = null
+    /** beta250: country code → its Mozilla node, for rows that name their country (SOCKS user `fox-DE`). */
+    @Volatile
+    private var countryNodes: Map<String, Pair<String, Int>> = emptyMap()
+
+    private fun nodeForCode(code: String?): Pair<String, Int>? {
+        if (code == null) return null
+        countryNodes[code]?.let { return it }
+        val list = appContextRef?.let { ctx -> runCatching { getAvailableCountries(ctx) }.getOrNull() } ?: BUILTIN_COUNTRIES
+        val map = list.associate { it.code.uppercase(Locale.US) to (it.proxyHost to it.proxyPort) }
+        countryNodes = map
+        return map[code]
+    }
 
     fun isLocalProxyRunning(): Boolean =
         localProxyRunning.get() && localProxyServer?.isClosed == false
@@ -2148,6 +2160,7 @@ internal object FirefoxVpnEngine {
         }
         activeUpstreamHost = country.proxyHost
         activeUpstreamPort = country.proxyPort
+        countryNodes = emptyMap() // rebuilt on first use from the (possibly refreshed) country list
         activeCleanEdgeIp = cleanEdgeIp.trim()
         activeBearerPass = bearerPass.trim()
         activeFragmentTls = fragmentTls
@@ -2238,11 +2251,20 @@ internal object FirefoxVpnEngine {
                     // Established», which no HTTP client expects.
                     var forwardRequest: ByteArray? = null
 
+                    // beta250: the row's country (SOCKS user / Proxy-Authorization `fox-DE`), null = default country.
+                    var rowCountry: String? = null
                     if (isSocks5) {
                         val nMethods = inp.read().coerceAtLeast(0)
-                        if (nMethods > 0) readExactly(inp, nMethods) ?: return@use
-                        out.write(byteArrayOf(0x05, 0x00))
+                        val methods = if (nMethods > 0) readExactly(inp, nMethods) ?: return@use else ByteArray(0)
+                        val method = FoxCountryRouting.chooseSocksMethod(methods)
+                        out.write(byteArrayOf(0x05, method.toByte()))
                         out.flush()
+                        if (method == 0x02) {
+                            val (user, _) = FoxCountryRouting.readUserPass(inp) ?: return@use
+                            rowCountry = FoxCountryRouting.codeFromUser(user)
+                            out.write(byteArrayOf(0x01, 0x00))
+                            out.flush()
+                        }
 
                         val hdr = readExactly(inp, 4) ?: return@use
                         if (hdr[0].toInt() != 0x05) return@use
@@ -2278,6 +2300,7 @@ internal object FirefoxVpnEngine {
                         }
                         targetHost = plan.host
                         targetPort = plan.port
+                        rowCountry = FoxCountryRouting.codeFromProxyAuthorization(headerLines)
                         if (!plan.isConnect) {
                             forwardRequest = FoxHttpProxyRequest.originRequest(parts[0], plan.path, parts.getOrNull(2) ?: "HTTP/1.1", headerLines)
                         }
@@ -2305,7 +2328,7 @@ internal object FirefoxVpnEngine {
                     val tunnelTarget = route as FoxPortPolicy.Route.Tunnel
 
                     val upstreamStream = try {
-                        openUpstreamTunnelStream(tunnelTarget.host, tunnelTarget.port)
+                        openUpstreamTunnelStream(tunnelTarget.host, tunnelTarget.port, nodeForCode(rowCountry))
                     } catch (error: Throwable) {
                         val reason = error.message.orEmpty().take(200).ifEmpty { error.javaClass.simpleName }
                         if (reason != lastTunnelError) {
@@ -2363,12 +2386,16 @@ internal object FirefoxVpnEngine {
      * at the SNI boundary when enabled and protecting the socket with `VpnService.protect`) and
      * issues `CONNECT targetHost:targetPort HTTP/1.1` with `Proxy-Authorization: Bearer <ProxyPass>`.
      */
-    private fun openUpstreamTunnelStream(targetHost: String, targetPort: Int): Socket {
+    private fun openUpstreamTunnelStream(targetHost: String, targetPort: Int, rowNode: Pair<String, Int>? = null): Socket {
         if (isLoopbackOrSelfTarget(targetHost, targetPort)) {
             throw IOException("Blocked loopback target $targetHost:$targetPort")
         }
 
-        val sniHost = activeUpstreamHost
+        // beta250: a row that names another country uses that country's node. It gets no clean-IP override (that
+        // belongs to the selected node) and no fallback to Mozilla's anycast node: a locked country must fail and
+        // show as failed in the list, not quietly leave through another country under its flag.
+        val perRow = rowNode != null && !rowNode.first.equals(activeUpstreamHost, ignoreCase = true)
+        val sniHost = if (perRow) rowNode!!.first else activeUpstreamHost
         lastTunnelRequestAt = System.currentTimeMillis()
         var pass = ensureValidProxyPass()
         if (pass.isBlank()) {
@@ -2384,12 +2411,12 @@ internal object FirefoxVpnEngine {
         // Candidate Fastly MASQUE nodes, all on the real port (2499): the last node that worked, an optional
         // user-picked clean IP for the selected node, the selected country's node, then Mozilla's own
         // recommended anycast node (also used when a country is locked for the account: HTTP 403).
-        val upstreamPort = activeUpstreamPort.takeIf { it in 1..65535 } ?: FASTLY_MASQUE_PORT
+        val upstreamPort = (if (perRow) rowNode!!.second else activeUpstreamPort).takeIf { it in 1..65535 } ?: FASTLY_MASQUE_PORT
         val candidateEndpoints = buildList {
             lastGoodEndpoint?.takeIf { lastGoodFor == sniHost }?.let { add(it) }
-            if (activeCleanEdgeIp.isNotBlank()) add(Triple(activeCleanEdgeIp, upstreamPort, sniHost))
+            if (!perRow && activeCleanEdgeIp.isNotBlank()) add(Triple(activeCleanEdgeIp, upstreamPort, sniHost))
             add(Triple(sniHost, upstreamPort, sniHost))
-            if (!sniHost.equals(RECOMMENDED_NODE_HOST, ignoreCase = true)) {
+            if (!perRow && !sniHost.equals(RECOMMENDED_NODE_HOST, ignoreCase = true)) {
                 add(Triple(RECOMMENDED_NODE_HOST, FASTLY_MASQUE_PORT, RECOMMENDED_NODE_HOST))
             }
         }.distinct()
@@ -3037,6 +3064,8 @@ internal object FirefoxVpnEngine {
         val remark = buildString {
             append("🦊 Cat Fox VPN · ")
             append(country.flag).append(' ').append(country.nameFa.substringBefore(" ("))
+            // beta250: rows of the one subscription — a locked country (403 for free accounts) says so in its name.
+            if (country.locked && country.code != COUNTRY_RECOMMENDED) append(" 🔒")
             if (accountEmail.isNotBlank()) {
                 append(" · ").append(accountEmail.substringBefore('@'))
             }
@@ -3049,7 +3078,9 @@ internal object FirefoxVpnEngine {
             if (cleanFastlyIp.isNotBlank()) add("edge_ip=$cleanFastlyIp")
             add("frag=${if (tlsFragment) 1 else 0}")
         }.joinToString("&")
-        return "fenix://127.0.0.1:$localPort/?$params#$encRemark"
+        // beta250: the country rides in the SOCKS user name (fox-DE:cat), so many rows can share one bridge and each
+        // one still leaves through its own country (FoxCountryRouting).
+        return "fenix://${FoxCountryRouting.userFor(country.code)}:${FoxCountryRouting.PASSWORD}@127.0.0.1:$localPort/?$params#$encRemark"
     }
 
     fun formatQuotaSummaryFa(account: FirefoxVpnAccount?): String {

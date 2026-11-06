@@ -4,6 +4,28 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta250] — 2026-11-06 (Panel 6.82.2, unchanged)
+
+Owner: «Cat Fox VPN should not be added one by one like subscription links — one subscription like Fanoos, with every country and its ping; Fanoos the same, so the list does not get crowded».
+
+### Changed
+- **🦊 Cat Fox VPN = ONE subscription, every country a row.** Connecting writes every country (Mozilla's pick ⭐, the free countries, then the
+  locked ones marked 🔒) into the single «🦊 Cat Fox VPN» subscription and connects the chosen country's row; older per-country entries
+  («🦊 Cat Fox VPN (🇩🇪 DE)» …) are folded into it.
+  - Real per-country routing: each row carries its country as the SOCKS5 user (`fenix://fox-DE:cat@127.0.0.1:10829/…`, RFC 1929); the local
+    bridge reads it (or `Proxy-Authorization: Basic` on the HTTP side) and opens that connection on that country's Mozilla node.
+    Before, every Fox row left through the one country the bridge was started with. A per-row country gets no silent fallback to the anycast
+    node, so a locked country fails honestly instead of leaving under the wrong flag. Rows without a user (old links) keep the old behaviour.
+  - Real per-country ping: the row test authenticates as the row's country, so every country is measured through its own node — also while
+    connected (the live tunnel is no longer the only country that could be measured). The method finder's two Fox rows (⭐ + 🇩🇪) are now really different.
+  - After connecting, every row of a multi-row subscription is pinged automatically (also Fanoos / Free Proxy), so pings appear next to each country.
+- **🏮 Cat Fanoos «🌍 every country»:** the picker's first item asks the service for each offered location in turn (≤ 20, stops after two dead
+  answers, ≤ 4 servers per country, cap 80) and merges them into the same one «🏮 Cat Fanoos» subscription with a per-country report
+  (✅ / ↩️ not given, sent X instead / ❌ why).
+
+### Tests
+- `Beta250FoxOneSubscriptionTest` (6, incl. a real-socket RFC 1929 handshake as mihomo sends it); `WhiteDnsSmartScannerTest` now checks the Fox row's user/password.
+
 ## [1.10.0-beta249] — 2026-11-06 (Panel 6.82.2)
 
 Owner: «Fanoos gave configs but their countries are not shown — shouldn't there be more countries?» and «look at Aras-GP and see how we can add it under our own name».

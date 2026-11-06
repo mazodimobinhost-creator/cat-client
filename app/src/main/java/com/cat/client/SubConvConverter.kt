@@ -1150,6 +1150,15 @@ object SubConvConverter {
             // Mozilla's proxy only does HTTP CONNECT (TCP); declaring UDP made mihomo send UDP ASSOCIATE that always failed.
             .put("udp", false)
             .put("fenix-uri", line.trim())
+            .also { proxy ->
+                // beta250: the row's country as the SOCKS user (fox-DE:cat) — the bridge routes each row to its own
+                // country, so one subscription can hold every country (FoxCountryRouting).
+                val info = uri.rawUserInfo.orEmpty()
+                if (info.isNotBlank()) {
+                    val (user, pass) = socksCredentials(info)
+                    proxy.put("username", user).put("password", pass.orEmpty())
+                }
+            }
     }
 
     private fun parsePaqet(line: String, names: NameRegistry): JSONObject {
