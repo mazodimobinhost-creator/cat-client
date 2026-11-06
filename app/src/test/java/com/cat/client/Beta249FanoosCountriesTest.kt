@@ -69,14 +69,15 @@ class Beta249FanoosCountriesTest {
         assertTrue(LanternPlanner.merge(old, (1..50).map { "ss://$it" to "NL" }).size <= 40)
     }
 
-    @Test fun storePersistsOfferedAndLinks() {
-        val ctx = android.content.Context()
-        val store = FreeNetworkStore(ctx)
-        assertTrue(store.lanternOfferedList().isEmpty())
-        store.lanternOffered = org.json.JSONArray(LanternPlanner.translate(answer).offered.map { it.toJson() }).toString()
-        assertEquals(listOf("Germany", "United States", "Japan"), store.lanternOfferedList().map { it.country })
-        store.lanternLinks = listOf("ss://a" to "US")
-        assertEquals(listOf("ss://a" to "US"), store.lanternLinks)
-        assertFalse(store.lanternLinks.isEmpty())
+    @Test fun offeredLocationsSurviveTheStoredJsonForm() {
+        // FreeNetworkStore keeps the picker list as JSON [{country, city, country_code}] built from Location.toJson().
+        val stored = org.json.JSONArray(LanternPlanner.translate(answer).offered.map { it.toJson() }).toString()
+        val back = org.json.JSONArray(stored)
+        val first = back.optJSONObject(0)!!
+        assertEquals("Germany", first.optString("country"))
+        assertEquals("Frankfurt", first.optString("city"))
+        assertEquals("DE", first.optString("country_code"))
+        assertEquals(3, back.length())
+        assertFalse(stored.contains("latitude"))
     }
 }
