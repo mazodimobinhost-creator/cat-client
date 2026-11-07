@@ -254,12 +254,9 @@ private fun MainActivity.buildFreeProxy(regions: List<String>) {
 
 internal fun MainActivity.showFanoosDialog() {
     val fa = freeFa()
-    val offered = FreeNetworkStore(this).lanternOfferedList()
-    if (offered.isEmpty()) {
-        fetchFanoos(null)
-        return
-    }
-    // The service told us last time which locations it offers → let the user ask for one (or let it choose).
+    // beta251: the picker is always shown. A free account often gets no location list, so the catalog of common
+    // locations fills it in; «🌍 every country» asks for each of them and keeps what really comes back.
+    val offered = FreeNetworkStore(this).lanternOfferedList().ifEmpty { LanternPlanner.CATALOG }
     // beta250: «🌍 every country» fills the ONE «🏮 Cat Fanoos» subscription with every location the service gives,
     // each row named by its country; once connected every row is pinged, so the list shows all countries + pings.
     val labels = listOf(
@@ -270,7 +267,7 @@ internal fun MainActivity.showFanoosDialog() {
         .setTitle(if (fa) "🏮 Cat Fanoos — کدام کشور؟" else "🏮 Cat Fanoos — which country?")
         .setItems(labels.toTypedArray()) { _, which ->
             when (which) {
-                0 -> fetchFanoosAll(offered)
+                0 -> fetchFanoosAll(LanternPlanner.allTargets(FreeNetworkStore(this).lanternOfferedList()))
                 1 -> fetchFanoos(null)
                 else -> fetchFanoos(offered[which - 2])
             }
@@ -340,33 +337,46 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
     val name = "🏮 Cat Fanoos"
-    val targets = offered.take(LanternPlanner.ALL_COUNTRIES_MAX_LOCATIONS)
+    // beta251: one automatic request first (whatever the service gives by itself), then every location; locations the
+    // service reveals on the way join the queue. A location it refuses (HTTP 4xx) is reported, not treated as «down».
+    val queue = offered.take(LanternPlanner.ALL_COUNTRIES_MAX_LOCATIONS).toMutableList()
     freeProgress(t("⏳ گرفتن سرورهای همهٔ کشورهای فانوس…", "⏳ Getting Fanoos servers for every country…")) { step ->
         val collected = ArrayList<Pair<String, String>>()
         val report = ArrayList<String>()
+        val notGiven = ArrayList<String>()
         var failuresInARow = 0
-        for ((i, loc) in targets.withIndex()) {
-            step("${i + 1}/${targets.size}) ${loc.label()}…")
+        var i = -1
+        while (i < queue.size) {
+            val loc = if (i < 0) null else queue[i]
+            i++
+            val label = loc?.label() ?: t("🎲 خودکار", "🎲 Automatic")
+            step("${i + 1}/${queue.size + 1}) $label…")
+            var refused = false
             val got = try {
                 withContext(Dispatchers.IO) { FreeNetworkBuilder.lantern(this@fetchFanoosAll, loc) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                null.also { report += "❌ ${loc.label()}: " + (e.message ?: e.javaClass.simpleName).take(80) }
+                refused = LanternPlanner.answeredButRefused(e.message)
+                null.also { report += (if (refused) "↩️ " else "❌ ") + "$label: " + (e.message ?: e.javaClass.simpleName).take(80) }
             }
             if (got == null) {
+                if (loc != null) notGiven += loc.label()
+                if (refused) continue
                 // Two dead answers in a row = the service (or this network) stopped answering; do not hammer it.
                 if (++failuresInARow >= 2) { report += t("⏹ سرویس دیگر جواب نداد؛ بقیه رها شد.", "⏹ The service stopped answering; the rest was skipped."); break }
                 continue
             }
             failuresInARow = 0
             val (result, tr) = got
+            val more = LanternPlanner.extendQueue(queue, tr.offered)
+            if (more > 0) step(t("   سرویس $more مکان دیگر هم معرفی کرد؛ به صف اضافه شد.", "   The service named $more more locations; queued."))
             val rows = result.links.mapIndexed { k, l -> l to (tr.linkLocations.getOrNull(k)?.code ?: "") }
             collected += rows
             val codes = LanternPlanner.countriesOf(rows).joinToString(" ") { LanternPlanner.flagOf(it) + it }
             report += when {
-                rows.isEmpty() -> "⚠️ ${loc.label()}: " + t("سرور قابل‌استفاده نداد", "no usable server")
-                LanternPlanner.honoured(loc, tr.linkLocations) == false -> "↩️ ${loc.label()}: " + t("نداد؛ به‌جایش $codes", "not given; sent $codes instead")
-                else -> "✅ ${loc.label()}: ${rows.size}"
+                rows.isEmpty() -> "⚠️ $label: " + t("سرور قابل‌استفاده نداد", "no usable server")
+                LanternPlanner.honoured(loc, tr.linkLocations) == false -> "↩️ $label: " + t("نداد؛ به‌جایش $codes", "not given; sent $codes instead").also { notGiven += loc!!.label() }
+                else -> "✅ $label: ${rows.size} ($codes)"
             }
         }
         val fresh = LanternPlanner.limitPerCountry(collected)
@@ -389,6 +399,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         store.lanternLinks = merged
         renderSubscriptions()
         val countries = LanternPlanner.countriesOf(merged)
+        report += t("کشورهای رسیده: ", "Countries received: ") + countries.joinToString(" ") { LanternPlanner.flagOf(it) + it }
+        if (notGiven.isNotEmpty()) report += t("برای حساب رایگان داده نشد: ", "Not given to a free account: ") + notGiven.distinct().joinToString("، ")
         freeResult(
             t("✅ ${merged.size} سرور از ${countries.size} کشور در «$name»", "✅ ${merged.size} servers from ${countries.size} countries in “$name”"),
             report,

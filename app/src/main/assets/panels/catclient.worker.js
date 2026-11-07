@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.82.2';
+const CAT_PANEL_VERSION = '6.83.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -399,6 +399,78 @@ async function selfUpdateVercelPanel(env, host, override) {
 }
 
 /** Picks the right updater for where this panel runs. Node hosts are updated from the app (new zip). */
+/* ------------------------------------------------------------------ */
+/* 6.83.0 🌍 panel region (Cloudflare Workers «Placement»)            */
+/* ------------------------------------------------------------------ */
+/**
+ * Cloudflare runs a Worker next to the visitor unless the script carries a placement: `{ mode: 'smart' }` or a
+ * Placement Hint `{ region: '<provider>:<region>' }` (AWS / GCP / Azure ids; Cloudflare picks its data centre with the
+ * lowest latency to that cloud region). The direct 🌐 configs leave from wherever the Worker runs, so this moves
+ * their exit. Applying it re-uploads this panel with the same keep-everything path as the self-update.
+ * Region ids: provider docs (developers.cloudflare.com/workers/configuration/placement). Entry = id|CC|city.
+ */
+const PLACEMENT_KV = 'cat:v6:placement';
+const PLACEMENT_REGIONS = {
+  gcp: ['europe-west3|DE|Frankfurt', 'europe-west10|DE|Berlin', 'europe-west4|NL|Eemshaven', 'europe-west1|BE|St. Ghislain', 'europe-west2|GB|London',
+    'europe-west9|FR|Paris', 'europe-west6|CH|Zurich', 'europe-west8|IT|Milan', 'europe-west12|IT|Turin', 'europe-southwest1|ES|Madrid',
+    'europe-north1|FI|Hamina', 'europe-north2|SE|Stockholm', 'europe-central2|PL|Warsaw', 'me-central1|QA|Doha', 'me-central2|SA|Dammam',
+    'us-east4|US|Ashburn', 'us-east1|US|South Carolina', 'us-central1|US|Iowa', 'us-west1|US|Oregon', 'us-west2|US|Los Angeles',
+    'northamerica-northeast2|CA|Toronto', 'southamerica-east1|BR|Sao Paulo', 'asia-south1|IN|Mumbai', 'asia-southeast1|SG|Singapore',
+    'asia-east2|HK|Hong Kong', 'asia-east1|TW|Changhua', 'asia-northeast1|JP|Tokyo', 'asia-northeast3|KR|Seoul', 'australia-southeast1|AU|Sydney',
+    'africa-south1|ZA|Johannesburg'],
+  aws: ['eu-central-1|DE|Frankfurt', 'eu-west-1|IE|Dublin', 'eu-west-2|GB|London', 'eu-west-3|FR|Paris', 'eu-central-2|CH|Zurich',
+    'eu-south-1|IT|Milan', 'eu-south-2|ES|Aragon', 'eu-north-1|SE|Stockholm', 'me-central-1|AE|UAE', 'me-south-1|BH|Bahrain',
+    'us-east-1|US|N. Virginia', 'us-east-2|US|Ohio', 'us-west-1|US|N. California', 'us-west-2|US|Oregon', 'ca-central-1|CA|Montreal',
+    'sa-east-1|BR|Sao Paulo', 'ap-south-1|IN|Mumbai', 'ap-southeast-1|SG|Singapore', 'ap-east-1|HK|Hong Kong', 'ap-northeast-1|JP|Tokyo',
+    'ap-northeast-2|KR|Seoul', 'ap-southeast-2|AU|Sydney', 'af-south-1|ZA|Cape Town'],
+  azure: ['germanywestcentral|DE|Frankfurt', 'westeurope|NL|Amsterdam', 'northeurope|IE|Dublin', 'uksouth|GB|London', 'francecentral|FR|Paris',
+    'switzerlandnorth|CH|Zurich', 'italynorth|IT|Milan', 'swedencentral|SE|Gavle', 'norwayeast|NO|Oslo', 'polandcentral|PL|Warsaw',
+    'uaenorth|AE|Dubai', 'qatarcentral|QA|Doha', 'eastus|US|Virginia', 'centralus|US|Iowa', 'westus2|US|Washington', 'canadacentral|CA|Toronto',
+    'brazilsouth|BR|Sao Paulo', 'centralindia|IN|Pune', 'southeastasia|SG|Singapore', 'eastasia|HK|Hong Kong', 'japaneast|JP|Tokyo',
+    'koreacentral|KR|Seoul', 'australiaeast|AU|Sydney', 'southafricanorth|ZA|Johannesburg'],
+};
+/** 'smart' | 'off' | '<provider>:<region>' (from the list above) → normalised value, or '' when not valid. */
+function normalizePlacement(v) {
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  if (s === 'smart' || s === 'off') return s;
+  const m = /^(gcp|aws|azure):([a-z0-9-]{2,40})$/.exec(s);
+  if (!m) return '';
+  return (PLACEMENT_REGIONS[m[1]] || []).some((e) => e.split('|')[0] === m[2]) ? s : '';
+}
+/** Upload metadata for a placement value (null = default: next to the visitor). */
+function placementMeta(v) {
+  const p = normalizePlacement(v);
+  if (p === 'smart') return { mode: 'smart' };
+  if (p && p !== 'off') return { region: p };
+  return null;
+}
+/** What Cloudflare reports for the script (settings.placement / placement_mode) → our value. */
+function placementFromCf(result) {
+  const p = result && (result.placement || null);
+  if (p && typeof p.region === 'string' && p.region) return normalizePlacement(p.region) || 'off';
+  if ((p && p.mode === 'smart') || (result && result.placement_mode === 'smart')) return 'smart';
+  return 'off';
+}
+/** `cf-placement: remote-FRA | local-EWR` → { kind, colo }. */
+function parseCfPlacementHeader(v) {
+  const m = /^(remote|local)-([A-Z]{3})$/i.exec(String(v || '').trim());
+  return m ? { kind: m[1].toLowerCase(), colo: m[2].toUpperCase() } : null;
+}
+/** Where this Worker really runs right now: Cloudflare's own trace from inside it (colo = data centre). */
+async function placementLiveColo(fetchImpl) {
+  const F = fetchImpl || fetch;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 5000);
+    const res = await F('https://' + PX_PROBE_HOST + '/cdn-cgi/trace', { signal: ctl.signal, headers: { 'cache-control': 'no-store' } });
+    clearTimeout(timer);
+    const text = res && res.ok ? await res.text() : '';
+    const colo = (/^colo=([A-Z]{3})$/m.exec(text) || [])[1] || '';
+    const loc = (/^loc=([A-Z]{2})$/m.exec(text) || [])[1] || '';
+    return colo ? { colo, loc } : null;
+  } catch { return null; }
+}
+
 async function selfUpdatePanel(env, host, override) {
   if (isNodePlatform(env)) return { ok: false, status: 409, error: 'node-host-update-from-app', platform: 'node', message: 'Update this panel from Cat Client → Node host → Update (it uploads the new zip).' };
   if (isVercelPlatform(env)) return selfUpdateVercelPanel(env, host, override);
@@ -451,6 +523,12 @@ async function selfUpdatePanelWorker(env, host, override) {
     return { ok: false, status: setRes.status === 401 || setRes.status === 403 ? 401 : 502, error: 'cf-settings-read-failed' };
   }
   const oldBindings = Array.isArray(setJson.result.bindings) ? setJson.result.bindings : [];
+  // 6.83.0: the panel region survives every update (an upload without `placement` resets it to «next to visitor»).
+  const savedPlacement = normalizePlacement((await kvGetJson(env, PLACEMENT_KV, null) || {}).value);
+  // What Cloudflare reports wins (a region set in its dashboard); our saved value covers the API not echoing a region.
+  const cfPlacement = placementFromCf(setJson.result);
+  const wantPlacement = ov.placement !== undefined ? normalizePlacement(ov.placement) : (cfPlacement !== 'off' ? cfPlacement : (savedPlacement || 'off'));
+  if (ov.placement !== undefined && !wantPlacement) return { ok: false, status: 400, error: 'placement-invalid' };
   const bindings = [];
   let keepSecrets = false;
   let hasUuid = false;
@@ -490,6 +568,8 @@ async function selfUpdatePanelWorker(env, host, override) {
     bindings,
   };
   if (keepSecrets) meta.keep_secrets = true;
+  const plMeta = placementMeta(wantPlacement);
+  if (plMeta) meta.placement = plMeta;
   const form = new FormData();
   const cleanUploadText = String(src.text).replace(/^\/\*\s*CAT_PANEL_VERSION\s*=\s*'([^']+)'\s*\*\/(?:\r?\n\/\*[^\r\n]*\*\/)?/, '/* $1 */');
   form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }), 'metadata.json');
@@ -501,8 +581,9 @@ async function selfUpdatePanelWorker(env, host, override) {
     return { ok: false, status: putRes.status === 401 || putRes.status === 403 ? 401 : 502, error: 'cf-upload-failed', message: String(msg) };
   }
   await kvPutJson(env, KV_KEYS.cfDeploy, { token, accountId, workerName, updatedAt: Date.now() });
-  await pushEvent(env, 'panel-self-updated', CAT_PANEL_VERSION + ' -> ' + src.version);
-  return { ok: true, status: 200, updated: true, from: CAT_PANEL_VERSION, to: src.version, worker: workerName, accountId };
+  await kvPutJson(env, PLACEMENT_KV, { value: wantPlacement || 'off', at: Date.now() });
+  await pushEvent(env, 'panel-self-updated', CAT_PANEL_VERSION + ' -> ' + src.version + (ov.placement !== undefined ? ' · placement ' + (wantPlacement || 'off') : ''));
+  return { ok: true, status: 200, updated: true, from: CAT_PANEL_VERSION, to: src.version, worker: workerName, accountId, placement: wantPlacement || 'off' };
 }
 
 /* ------------------------------------------------------------------ */
@@ -4650,7 +4731,7 @@ async function readJsonKv(env, key, fallback) {
   if (!kv) return fallback;
   try { const v = await kv.get(key); return v ? Object.assign({}, fallback, JSON.parse(v)) : fallback; } catch { return fallback; }
 }
-/** txt: one address per line (`ip`, `ip:port`, `ip#CC`); json-speed: Matix {results:[{ip,ms,status}]}. */
+/** txt: one address per line (`ip`, `ip:port`, `ip#CC`, IPv6, or a clean domain); json-speed: Matix {results:[{ip,ms,status}]}. */
 function parseRepoFeed(kind, body) {
   const out = [];
   if (kind === 'json-speed') {
@@ -4674,7 +4755,8 @@ function parseRepoFeed(kind, body) {
     const pin = pinnedPortOf(a);
     if (pin) a = a.slice(0, a.lastIndexOf(':'));
     a = a.replace(/^\[/, '').replace(/\]$/, '');
-    if (isIpv4(a) || isIpv6(a)) out.push({ ip: a, cc: t.cc || '', ms: 9999 });
+    // 6.83.0: clean DOMAINS (a Cloudflare-fronted name used as the address) are library entries too, like IPv4/IPv6.
+    if (isIpv4(a) || isIpv6(a) || isHostname(a)) out.push({ ip: isHostname(a) ? a.toLowerCase() : a, cc: t.cc || '', ms: 9999 });
   }
   return out.slice(0, 400);
 }
@@ -8634,6 +8716,33 @@ async function handleApi(request, url, env, ctx) {
 
   /* beta240 🔌 tunnels on/off: a Worker without DATA_PLANE_ENABLED serves the panel but refuses every VLESS/Trojan
    * connection (403). GET tells the panel; POST (owner, confirmed) re-uploads this panel with the variable set. */
+  /* 6.83.0 🌍 panel region: GET = current value + where the Worker runs now; POST (owner, confirmed) = re-upload with
+   * the chosen placement ('smart' | 'off' | '<provider>:<region>'). Cloudflare only. */
+  if (path === '/api/placement') {
+    if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
+    const plat = isNodePlatform(env) ? 'node' : isVercelPlatform(env) ? 'vercel' : 'cf';
+    if (method === 'GET') {
+      const saved = normalizePlacement((await kvGetJson(env, PLACEMENT_KV, null) || {}).value) || 'off';
+      const live = plat === 'cf' ? await placementLiveColo() : null;
+      return json({
+        ok: true, platform: plat, value: saved, regions: PLACEMENT_REGIONS,
+        canApply: plat === 'cf' && (await hasDirectUpdateCreds(env)),
+        header: parseCfPlacementHeader(request.headers.get('cf-placement')),
+        ingress: String((request.cf && request.cf.colo) || ''),
+        live,
+      });
+    }
+    if (method === 'POST') {
+      const body = (await readJsonBody(request)) || {};
+      if (plat !== 'cf') return json({ ok: false, error: 'cf-only', platform: plat }, 409);
+      if (body.confirm !== true) return json({ ok: false, error: 'confirm' }, 400);
+      const want = normalizePlacement(body.placement);
+      if (!want) return json({ ok: false, error: 'placement-invalid' }, 400);
+      const res = await selfUpdatePanelWorker(env, host, { token: body.token, placement: want });
+      return json(res, res.status || (res.ok ? 200 : 502));
+    }
+  }
+
   if (path === '/api/data-plane') {
     if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'auth' }, 401);
     const plat = isNodePlatform(env) ? 'node' : isVercelPlatform(env) ? 'vercel' : 'cf';
@@ -11016,6 +11125,16 @@ ${vDoctor}
   <label class="btn" style="margin:0">⬆️ <span data-i="backup_up"></span><input type="file" id="restoreFile" accept="application/json" style="display:none"></label></div>
   <div id="restoreState" class="small" style="margin-top:10px"></div>
  </div>
+ <div class="card sec" id="plcCard" style="display:none">
+  <h2><span class="ic">🌍</span><span id="plcTitle">Region</span></h2>
+  <div class="small mute" id="plcHint"></div>
+  <div class="small" id="plcNow" style="margin-top:8px"></div>
+  <div class="row" style="margin-top:10px" id="plcModes"></div>
+  <div class="row" style="margin-top:8px;display:none" id="plcProv"></div>
+  <select id="plcRegion" style="display:none;margin-top:8px;width:100%;min-height:44px;font-size:14px"></select>
+  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px"></button>
+  <div class="small" id="plcMsg" style="margin-top:6px"></div>
+ </div>
  <div class="card sec">
   <h2><span class="ic">🧯</span><span data-i="limits"></span></h2>
   <div class="small mute" data-i="limits_text"></div>
@@ -12426,6 +12545,45 @@ if($('#dpFix'))$('#dpFix').addEventListener('click',async function(){var b=this,
   if(j&&j.ok){m.textContent='✅ '+tx('ثبت شد؛ ۳۰ ثانیه بعد صفحه را تازه کن و ساب را در اپ آپدیت کن.','Done; refresh this page in 30 s and update the sub in your app.');b.style.display='none'}
   else{m.textContent='✗ '+safeDiag((j&&(j.message||j.error))||'?')}}catch(e){m.textContent='✗ '+safeDiag(e&&e.message||e)}b.disabled=false});
 dpLoad();
+/* 6.83.0 🌍 panel region = Cloudflare Workers placement (Smart / a cloud region / default next to the user) */
+var PLC={v:'off',sel:'off',prov:'gcp',regions:{}};
+function plcEntry(v){var p=String(v||'').split(':');if(p.length!==2)return null;var l=PLC.regions[p[0]]||[];for(var i=0;i<l.length;i++){var e=l[i].split('|');if(e[0]===p[1])return {prov:p[0],id:e[0],cc:e[1],city:e[2]}}return null}
+function plcLabel(v){if(v==='smart')return '⚡ '+tx('خودکار (Smart) — کلودفلر خودش بهترین جا را انتخاب می‌کند','Automatic (Smart) — Cloudflare picks the best place');
+ var e=plcEntry(v);if(e)return flag(e.cc)+' '+e.city+' · '+e.prov.toUpperCase()+' '+e.id;return '📍 '+tx('پیش‌فرض — نزدیک‌ترین دیتاسنتر به کاربر','Default — the data centre nearest the user')}
+function plcRender(){var modes=$('#plcModes');if(!modes)return;var v=PLC.sel,kind=v==='smart'?'smart':(v==='off'?'off':'region');
+ modes.innerHTML=[['off','📍 '+tx('پیش‌فرض','Default')],['smart','⚡ Smart'],['region','🌐 '+tx('انتخاب دستی کشور','Pick a country')]].map(function(m){return '<button class="btn sm'+(kind===m[0]?' p':'')+'" type="button" data-plc-mode="'+m[0]+'">'+esc(m[1])+'</button>'}).join('');
+ var prov=$('#plcProv'),sel=$('#plcRegion');prov.style.display=kind==='region'?'':'none';sel.style.display=kind==='region'?'':'none';
+ if(kind==='region'){var e=plcEntry(v);if(e)PLC.prov=e.prov;
+  prov.innerHTML=[['gcp','Google Cloud'],['aws','AWS'],['azure','Azure']].map(function(k){return '<button class="btn sm'+(k[0]===PLC.prov?' p':'')+'" type="button" data-plc-prov="'+k[0]+'">'+k[1]+'</button>'}).join('');
+  sel.innerHTML=(PLC.regions[PLC.prov]||[]).map(function(x){var a=x.split('|'),id=PLC.prov+':'+a[0];return '<option value="'+esc(id)+'"'+(id===v?' selected':'')+'>'+esc(flag(a[1])+' '+a[2]+' ('+a[1]+') · '+a[0])+'</option>'}).join('');
+  if(!e||e.prov!==PLC.prov)PLC.sel=sel.value}
+ var b=$('#plcApply');b.textContent='🚀 '+tx('اعمال و دیپلوی','Apply & deploy');b.disabled=PLC.sel===PLC.v||!PLC.canApply}
+function plcLoad(){var c=$('#plcCard');if(!c)return;api('/api/placement').then(function(j){
+  // Only a Cloudflare Worker has placement: other hosts do not show the card at all.
+  if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';return}
+  c.style.display='';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.canApply=!!j.canApply;
+  $('#plcTitle').textContent=tx('ریجن پنل (لوکیشن کانفیگ‌های مستقیم 🌐)','Panel region (location of the direct 🌐 configs)');
+  $('#plcHint').textContent=tx('کلودفلر ورکر را معمولاً نزدیک کاربر اجرا می‌کند. اینجا می‌توانی بگویی کنار کدام دیتاسنتر ابری (Google Cloud / AWS / Azure) اجرا شود؛ کانفیگ‌های مستقیم 🌐 از همان‌جا بیرون می‌روند. کانفیگ‌هایی که ProxyIP یا SOCKS دارند خروجی خودشان را نگه می‌دارند. با «اعمال» همین پنل با این تنظیم دوباره آپلود می‌شود؛ UUID، KV، کاربران و Secretها دست نمی‌خورند.','Cloudflare normally runs the Worker next to the user. Here you choose which cloud region (Google Cloud / AWS / Azure) it should run next to; direct 🌐 configs then leave from there. Configs with a ProxyIP or SOCKS keep their own exit. Apply re-uploads this panel with the setting; UUID, KV, users and secrets stay.');
+  var now=[tx('تنظیم فعلی: ','Current setting: ')+plcLabel(PLC.v)];
+  if(j.live&&j.live.colo)now.push(tx('الان واقعاً در دیتاسنتر ','Really running now in data centre ')+j.live.colo+tx(' اجرا می‌شود',''));
+  if(j.header)now.push('cf-placement: '+j.header.kind+'-'+j.header.colo);
+  if(!j.canApply)now.push(tx('برای اعمال، یک بار توکن کلودفلر خواسته می‌شود.','Applying asks once for a Cloudflare token.'));
+  $('#plcNow').textContent=now.join(' · ');PLC.canApply=true;plcRender()}).catch(function(){c.style.display='none'})}
+if($('#plcCard'))$('#plcCard').addEventListener('click',function(ev){var t=ev.target.closest('[data-plc-mode],[data-plc-prov]');if(!t)return;
+ var m=t.getAttribute('data-plc-mode'),p=t.getAttribute('data-plc-prov');
+ if(m==='off'||m==='smart')PLC.sel=m;else if(m==='region'){if(!plcEntry(PLC.sel)){var l=PLC.regions[PLC.prov]||[];PLC.sel=l.length?PLC.prov+':'+l[0].split('|')[0]:'off'}}
+ else if(p){PLC.prov=p;var l2=PLC.regions[p]||[];PLC.sel=l2.length?p+':'+l2[0].split('|')[0]:PLC.sel}
+ plcRender()});
+if($('#plcRegion'))$('#plcRegion').addEventListener('change',function(){PLC.sel=this.value;plcRender()});
+if($('#plcApply'))$('#plcApply').addEventListener('click',async function(){var b=this,m=$('#plcMsg'),want=PLC.sel;
+ if(!(await ask(tx('ریجن پنل «','Set the panel region to “')+plcLabel(want)+tx('» شود؟ همین نسخهٔ پنل با این تنظیم دوباره روی ورکرت آپلود می‌شود (UUID، KV، کاربران و Secretها حفظ می‌شوند).','”? This panel is re-uploaded to your Worker with it (UUID, KV, users and secrets are kept).'),{ok:'🚀'})))return;
+ b.disabled=true;m.textContent='⏳ …';
+ try{var j=await api('/api/placement',{method:'POST',body:{confirm:true,placement:want}});
+  if(j&&j.needsSetup){var tok=await ask(tx('یک بار توکن کلودفلر لازم است (همان توکنی که با آن پنل را ساختی؛ دسترسی Workers Scripts:Edit).','A one-time Cloudflare token is needed (Workers Scripts:Edit).'),{ph:'Cloudflare API token',ok:'✓'});
+   if(!tok||!String(tok).trim()){m.textContent='';plcRender();return}j=await api('/api/placement',{method:'POST',body:{confirm:true,placement:want,token:String(tok).trim()}})}
+  if(j&&j.ok){PLC.v=want;m.textContent='✅ '+tx('ثبت شد. جابه‌جایی چند دقیقه طول می‌کشد؛ بعد صفحه را تازه کن و خط «الان واقعاً در دیتاسنتر …» را ببین، و ساب را در اپ آپدیت کن.','Saved. Moving takes a few minutes; then refresh this page, check the “really running now in …” line and update the sub in your app.')}
+  else m.textContent='✗ '+safeDiag((j&&(j.message||j.error))||'?')}catch(e){m.textContent='✗ '+safeDiag(e&&e.message||e)}plcRender()});
+plcLoad();
 /* beta245 💾 Vercel without permanent storage: one tap = private Blob store + connect + redeploy */
 async function vcStore(){if(vcStore.on)return;vcStore.on=1;try{
  if(!(await ask(tx('روی Vercel هنوز «حافظهٔ دائمی» وصل نیست، پس کاربر جدید ذخیره نمی‌شود (هر درخواست ممکن است به سرور تازه‌ای برسد). الان وصل شود؟ یک حافظهٔ خصوصی رایگان Blob ساخته، به همین پروژه وصل و پنل دوباره منتشر می‌شود (UUID و کانفیگ‌ها دست نمی‌خورند).','Permanent storage is not connected on Vercel, so a new user cannot be kept. Connect it now? A free private Blob store is created, connected to this project and the panel is redeployed (UUID and configs stay).'),{ok:'💾 '+tx('وصل کن','Connect')})))return;
@@ -13208,6 +13366,7 @@ export const _testing = {
   decodeEarlyData, websocketReadable, safeCloseWs, parseSocksAddress, parseVlessHeader, trojanPassword, parseTrojanRequest,
   sha224Hex, trojanHash, CF_CIDR_RANGES,
   __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, cronSelfCheck, cronCountryQuality, CF_V6_POOL, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath, dataPlaneEnabled,
+  PLACEMENT_REGIONS, normalizePlacement, placementMeta, placementFromCf, parseCfPlacementHeader,
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,

@@ -144,7 +144,8 @@ const source = readFileSync(sourcePath, 'utf8');
   // Raised 266 000 → 278 000 for 6.80.0 (see the raw-size note above; most of it the bilingual plain-words texts)
   // — measured 273 462 B.
   // Raised 278 000 → 284 000 for 6.81.4 (beta245, same four features as the raw-size note) — measured 280 857 B.
-  ok('gzip stays under the 284 KB regression budget', gz < 284_000, gz);
+  // Raised 284 000 → 290 000 for 6.83.0 (beta251, 🌍 panel region — see the raw-size note) — measured 286 050 B.
+  ok('gzip stays under the 290 KB regression budget', gz < 290_000, gz);
   // The panel UI is Persian, so the file is UTF-8 and NOT ASCII: what matters is
   // that it survives the Android asset → String → clipboard round-trip byte for
   // byte (bufferedReader() decodes UTF-8, ClipData stores UTF-16).

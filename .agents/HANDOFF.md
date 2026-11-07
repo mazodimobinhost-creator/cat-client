@@ -10,6 +10,11 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta251 / Panel 6.83.0 — 2026-11-07
+- **Panel region:** `PLACEMENT_REGIONS`/`normalizePlacement`/`placementMeta`/`placementFromCf` next to `selfUpdatePanel`; `selfUpdatePanelWorker` puts `meta.placement` and saves KV `cat:v6:placement`; route `/api/placement` (owner, cf-only POST with `confirm`); UI card `#plcCard` (backup tab) + client `plc*`. Smart needs traffic from several places and up to 15 min. Placement only moves fetch handlers — direct 🌐 configs; ProxyIP/SOCKS configs keep their exit.
+- **Fanoos:** `LanternPlanner.CATALOG`, `allTargets`, `extendQueue`, `answeredButRefused`; `fetchFanoosAll` loop in `MainActivityFreeNetworks.kt`. Whether the service honours catalog locations for free accounts is only known on a phone — the report says which were not given.
+- **Phone checks:** panel region apply + «الان واقعاً در دیتاسنتر …» line; Fanoos «🌍» country count; Fox one sub (beta250+).
+
 ## beta249 / Panel 6.82.2 — 2026-11-06
 - Fanoos: `LanternPlanner.translate` reads `outbound_locations` (name «🏮 Cat Fanoos <flag> <country> <city> #n») + `servers` (offered) + `country`;
   `configBody(..., Location?)` sends `preferred_location` {country, city, country_code}; `merge` keeps other countries (cap 40); store `ln_offered`, `ln_links`.

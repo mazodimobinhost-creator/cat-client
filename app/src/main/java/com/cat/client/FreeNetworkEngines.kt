@@ -385,7 +385,42 @@ internal object LanternPlanner {
 
     /** beta250 «🌍 every country»: rows of one fetch round per location, at most [perCountry] servers per country. */
     const val ALL_COUNTRIES_CAP = 80
-    const val ALL_COUNTRIES_MAX_LOCATIONS = 20
+    const val ALL_COUNTRIES_MAX_LOCATIONS = 24
+
+    /**
+     * beta251: the free account's answer often carries no `servers` list at all (the official client also only shows
+     * what config-new returns), so «every country» never appeared. These common locations are ASKED for as well;
+     * whatever the service really sends back is kept under its real country, and the report says which were not given.
+     */
+    val CATALOG: List<Location> = listOf(
+        Location("Germany", "Frankfurt", "DE"), Location("Netherlands", "Amsterdam", "NL"), Location("United Kingdom", "London", "GB"),
+        Location("France", "Paris", "FR"), Location("Finland", "Helsinki", "FI"), Location("Sweden", "Stockholm", "SE"),
+        Location("Poland", "Warsaw", "PL"), Location("Spain", "Madrid", "ES"), Location("Italy", "Milan", "IT"),
+        Location("Turkey", "Istanbul", "TR"), Location("United Arab Emirates", "Dubai", "AE"),
+        Location("United States", "New York", "US"), Location("United States", "Los Angeles", "US"), Location("Canada", "Toronto", "CA"),
+        Location("Brazil", "Sao Paulo", "BR"), Location("Japan", "Tokyo", "JP"), Location("Singapore", "Singapore", "SG"),
+        Location("Hong Kong", "Hong Kong", "HK"), Location("India", "Mumbai", "IN"), Location("Australia", "Sydney", "AU"),
+    )
+
+    /** A failed request the service itself answered (HTTP 4xx, e.g. a location it does not give) — not «it stopped answering». */
+    fun answeredButRefused(message: String?): Boolean = Regex("HTTP 4\\d\\d").containsMatchIn(message.orEmpty())
+
+    /** Adds the places [more] reveals that [queue] does not have yet (same key as [allTargets]); returns how many were added. */
+    fun extendQueue(queue: MutableList<Location>, more: List<Location>, max: Int = ALL_COUNTRIES_MAX_LOCATIONS): Int {
+        val seen = queue.mapTo(HashSet()) { it.code.uppercase(Locale.US) + "|" + it.city.lowercase(Locale.US) }
+        var added = 0
+        for (l in more) {
+            if (queue.size >= max) break
+            if (seen.add(l.code.uppercase(Locale.US) + "|" + l.city.lowercase(Locale.US))) { queue += l; added++ }
+        }
+        return added
+    }
+
+    /** What «every country» asks for: the service's own list first (exact entries), then the catalog's other places. */
+    fun allTargets(offered: List<Location>, max: Int = ALL_COUNTRIES_MAX_LOCATIONS): List<Location> {
+        val seen = HashSet<String>()
+        return (offered + CATALOG).filter { seen.add(it.code.uppercase(Locale.US) + "|" + it.city.lowercase(Locale.US)) }.take(max)
+    }
 
     fun limitPerCountry(rows: List<Pair<String, String>>, perCountry: Int = 4): List<Pair<String, String>> {
         val seen = HashMap<String, Int>()

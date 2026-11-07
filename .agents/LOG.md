@@ -119,3 +119,9 @@
 - Fanoos: «🌍 همهٔ کشورها» (one request per offered location, ≤4 per country, cap 80) into the same subscription.
 - Local: harness Beta250 6/6 + Beta249Fanoos 5/5; codemap --check.
 - CI: `6641e8d` push run 42273690163 ✅ + all PR twins ✅; release v1.10.0-beta250 prerelease 20 assets.
+
+## beta251 (2026-11-07)
+- Panel 6.83.0: 🌍 region (Cloudflare placement: Smart / GCP·AWS·Azure region / default) via `/api/placement` + self-update metadata `placement`, kept on every update (Cloudflare's reported value wins over the saved one); clean domains in library feeds.
+- Fanoos: picker always shown; «🌍» = auto + service list + `LanternPlanner.CATALOG` (20), queue grows with `tr.offered`, HTTP 4xx = «not given» (does not stop the run).
+- Fox: no change needed — beta250 already writes every country into one subscription; the hub's single-row Fox card is dead code (no caller).
+- Local: npm test 166/166 after budget raise; panel.yml list 31/31; placement-dom + panel-selfupdate on obf/stealth ✅; harness (rebuilt: /tmp was wiped) Beta251 5/5 + Beta250 6/6 + Beta249 5/5 + Beta247 14/14; codemap --check OK; min.js 945 260 / 950 000.

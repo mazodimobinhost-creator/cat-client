@@ -115,7 +115,9 @@ check("artifact passes PanelUpdate's module check (contains «export default»)"
 // 6.76.0: 800 000 → 860 000 characters (🔗 link panels); the release guard counts bytes and stays at 900 000.
 // 6.81.4 (beta245): 860 000 → 880 000 — several exit countries per user, ➕ library → panel list, 📶 per-operator
 // scanner memory and the one-tap Vercel storage fix — measured 872 076 characters.
-check('normal minified artifact stays below 880 K characters', artifact.length < 880000, String(artifact.length));
+// 6.83.0 (beta251): 880 000 → 895 000 — 🌍 panel region (Cloudflare placement: 77 cloud regions, owner route, card with a
+// bilingual plain-words hint), placement kept on every self-update, clean domains in the library — measured 887 731.
+check('normal minified artifact stays below 895 K characters', artifact.length < 895000, String(artifact.length));
 
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;

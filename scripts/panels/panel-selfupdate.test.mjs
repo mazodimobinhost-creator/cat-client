@@ -233,5 +233,79 @@ check('anonymous update-download → 401, no network', b.status === 401 && reque
   }
 }
 
+// 12) 6.83.0 🌍 panel region (Cloudflare Workers placement): the owner picks Smart / a cloud region / default; the
+//     panel re-uploads itself with `placement` in the metadata (bindings + secrets kept), every later self-update
+//     keeps it, an invalid region uploads nothing, and GET shows where the Worker really runs (Cloudflare trace).
+{
+  const prevFetch = globalThis.fetch;
+  const kv = new FakeKV();
+  let metas = [];
+  let cfPlacement = undefined;
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.includes(RELEASE)) return new Response(marked('6.99.9'), { status: 200 });
+    if (url.includes('/cdn-cgi/trace')) return new Response('fl=1\nh=speed.cloudflare.com\ncolo=FRA\nloc=DE\n', { status: 200 });
+    if (url.endsWith('/accounts/acc-direct/workers/scripts/edge-pedre/settings')) {
+      const bindings = [{ type: 'plain_text', name: 'UUID', text: UUID }, { type: 'kv_namespace', name: 'CAT_KV', namespace_id: 'kv-123' }, { type: 'secret_text', name: 'CF_API_TOKEN' }];
+      const result = { bindings };
+      if (cfPlacement) result.placement = cfPlacement;
+      return new Response(JSON.stringify({ success: true, result }), { status: 200 });
+    }
+    if (url.endsWith('/accounts/acc-direct/workers/scripts/edge-pedre') && init.method === 'PUT') {
+      metas.push(JSON.parse(await init.body.get('metadata').text()));
+      return new Response(JSON.stringify({ success: true, result: { id: 'edge-pedre' } }), { status: 200 });
+    }
+    return new Response('', { status: 404 });
+  };
+  const mk = (store) => ({ CAT_KV: store, UUID, OPEN_PANEL: 'true', CF_API_TOKEN: 'cf-bound-tok', CF_ACCOUNT_ID: 'acc-direct', CF_WORKER_NAME: 'edge-pedre' });
+  let env = mk(kv);
+  const go = async (method, p, body, headers = {}) => {
+    const init = { method, headers: Object.assign({ 'content-type': 'application/json' }, headers) };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await worker.fetch(new Request(HOST + p, init), env, { waitUntil() {} });
+    let j = null; try { j = await res.json(); } catch {}
+    return { status: res.status, j };
+  };
+  const last = () => metas[metas.length - 1];
+  try {
+    let r = await go('GET', '/api/placement', undefined, { 'cf-placement': 'local-EWR' });
+    check('region GET: default «off», region lists, live colo from Cloudflare trace, cf-placement header parsed',
+      r.status === 200 && r.j.ok && r.j.value === 'off' && r.j.platform === 'cf' && r.j.canApply === true
+        && r.j.regions.gcp.some((e) => e.startsWith('europe-west3|DE|')) && r.j.regions.aws.length > 10 && r.j.regions.azure.length > 10
+        && r.j.live && r.j.live.colo === 'FRA' && r.j.header && r.j.header.kind === 'local' && r.j.header.colo === 'EWR', JSON.stringify(r.j).slice(0, 200));
+    r = await go('POST', '/api/placement', { placement: 'gcp:europe-west3' });
+    check('region POST without confirm → 400, nothing uploaded', r.status === 400 && metas.length === 0);
+    r = await go('POST', '/api/placement', { confirm: true, placement: 'gcp:mars-1' });
+    check('unknown region → 400, nothing uploaded', r.status === 400 && metas.length === 0, JSON.stringify(r.j));
+    r = await go('POST', '/api/placement', { confirm: true, placement: 'GCP:europe-west3' });
+    check('region POST re-uploads with placement.region (bindings + secrets kept)',
+      r.status === 200 && r.j.placement === 'gcp:europe-west3' && JSON.stringify(last().placement) === JSON.stringify({ region: 'gcp:europe-west3' })
+        && last().keep_secrets === true && last().bindings.some((b) => b.name === 'CAT_KV') && last().bindings.some((b) => b.name === 'UUID' && b.text === UUID), JSON.stringify(last()).slice(0, 300));
+    r = await go('GET', '/api/placement');
+    check('region GET now reports the saved region', r.j.value === 'gcp:europe-west3');
+    r = await go('POST', '/api/update-apply', {});
+    check('a later self-update keeps the region', r.status === 200 && JSON.stringify(last().placement) === JSON.stringify({ region: 'gcp:europe-west3' }));
+    r = await go('POST', '/api/placement', { confirm: true, placement: 'smart' });
+    check('Smart → placement.mode = smart', r.status === 200 && JSON.stringify(last().placement) === JSON.stringify({ mode: 'smart' }));
+    r = await go('POST', '/api/placement', { confirm: true, placement: 'azure:westeurope' });
+    check('Azure region accepted', r.status === 200 && last().placement.region === 'azure:westeurope');
+    r = await go('POST', '/api/placement', { confirm: true, placement: 'off' });
+    check('Default → no placement key at all', r.status === 200 && !('placement' in last()));
+    r = await go('POST', '/api/update-apply', {});
+    check('…and the next self-update does not add one back', r.status === 200 && !('placement' in last()));
+    // A panel whose placement was set in the Cloudflare dashboard (nothing in KV): the self-update keeps it.
+    env = mk(new FakeKV()); cfPlacement = { region: 'aws:eu-central-1' };
+    r = await go('POST', '/api/update-apply', {});
+    check('a region set in the Cloudflare dashboard survives the self-update', r.status === 200 && last().placement && last().placement.region === 'aws:eu-central-1', JSON.stringify(last().placement));
+    env = mk(new FakeKV()); cfPlacement = { mode: 'smart' };
+    r = await go('POST', '/api/update-apply', {});
+    check('dashboard Smart survives the self-update', r.status === 200 && last().placement && last().placement.mode === 'smart');
+    const anon = await worker.fetch(new Request(HOST + '/api/placement'), { CAT_KV: new FakeKV(), UUID }, { waitUntil() {} });
+    check('region API is owner-only', anon.status === 401);
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+}
+
 console.log(failures ? '\nPANEL SELF-UPDATE TESTS FAILED (' + failures + ')' : '\nPANEL SELF-UPDATE TESTS PASSED');
 process.exit(failures ? 1 : 0);

@@ -4,6 +4,31 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta251] — 2026-11-07 (Panel 6.83.0)
+
+Owner: «Fanoos shows only 2–3 configs; bring the region change and the other improvements of the newest panels into ours; Fox brings one location — I want every location in one subscription».
+
+### Added
+- **🌍 Panel region (Cloudflare Workers placement), panel 6.83.0.** Backup tab → «ریجن پنل»: 📍 Default (next to the user), ⚡ Smart, or
+  🌐 a hand-picked cloud region — 30 Google Cloud, 23 AWS and 24 Azure regions with flags and cities. «🚀 Apply» asks first, then re-uploads the
+  newest panel source with `placement` in the upload metadata (UUID, KV, D1, bindings and secrets kept; a token is asked once only when none is
+  bound). The card shows the saved setting, the data centre the Worker really runs in now (Cloudflare trace) and the `cf-placement` header.
+  Every later self-update keeps the region; a region set in the Cloudflare dashboard is kept too. Only Cloudflare Workers show the card; Vercel
+  and Node hosts get `409 cf-only`. Owner-only `GET/POST /api/placement`.
+- **Clean domains in the address library.** Library feeds may list Cloudflare-fronted domains next to IPv4/IPv6 (lower-cased, `#CC` tag kept).
+
+### Changed
+- **🏮 Fanoos «🌍 every country» really asks for every country.** The free account's answer usually has no location list, so the country picker
+  and «🌍» never appeared and only the default 2–3 servers came. The picker is now always shown; «🌍» asks automatically first, then the service's
+  own locations, then a catalog of 20 common locations (≤24 requests), adds any location the service names on the way, keeps what really comes
+  back under its real country (≤4 per country, cap 80) and reports «countries received» and «not given to a free account». A refused location
+  (HTTP 4xx) no longer stops the run; only two network failures in a row do.
+
+### Tests
+- `scripts/panels/placement-dom.test.mjs` (20, real page + real routes, Cloudflare API mocked; also on the obfuscated/stealth artifacts),
+  `panel-selfupdate` +13 placement checks, `cat-panel` +6, `Beta251FanoosCatalogTest` (5). Size budgets raised with justification
+  (880 000 → 895 000 chars, gzip 284 000 → 290 000).
+
 ## [1.10.0-beta250] — 2026-11-06 (Panel 6.82.2, unchanged)
 
 Owner: «Cat Fox VPN should not be added one by one like subscription links — one subscription like Fanoos, with every country and its ping; Fanoos the same, so the list does not get crowded».

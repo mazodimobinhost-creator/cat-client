@@ -797,7 +797,15 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.82.2', T.CAT_PANEL_VERSION === '6.82.2');
+  check('panel version is 6.83.0', T.CAT_PANEL_VERSION === '6.83.0');
+  // 6.83.0 🌍 panel region (Cloudflare placement) + clean domains in the library feed
+  check('placement: smart / off / provider:region normalised, unknown refused', T.normalizePlacement('Smart') === 'smart' && T.normalizePlacement('off') === 'off' && T.normalizePlacement('AWS:eu-central-1') === 'aws:eu-central-1' && T.normalizePlacement('gcp:mars-1') === '' && T.normalizePlacement('x:y') === '' && T.normalizePlacement('') === '');
+  check('placement metadata: {mode:smart} / {region} / none for default', JSON.stringify(T.placementMeta('smart')) === '{"mode":"smart"}' && JSON.stringify(T.placementMeta('azure:westeurope')) === '{"region":"azure:westeurope"}' && T.placementMeta('off') === null && T.placementMeta('junk') === null);
+  check('placement read back from Cloudflare settings', T.placementFromCf({ placement: { region: 'gcp:europe-west3' } }) === 'gcp:europe-west3' && T.placementFromCf({ placement: { mode: 'smart' } }) === 'smart' && T.placementFromCf({ placement_mode: 'smart' }) === 'smart' && T.placementFromCf({}) === 'off');
+  check('cf-placement header parsed', JSON.stringify(T.parseCfPlacementHeader('remote-FRA')) === '{"kind":"remote","colo":"FRA"}' && T.parseCfPlacementHeader('nope') === null);
+  check('every region entry is id|CC|city with a 2-letter country', ['gcp', 'aws', 'azure'].every((k) => T.PLACEMENT_REGIONS[k].every((e) => /^[a-z0-9-]+\|[A-Z]{2}\|[^|]+$/.test(e))));
+  { const f = T.parseRepoFeed('txt', '# x\n104.16.1.1\n[2606:4700::1]:443\nCDN.Example.com#DE\nnot a host\nlocalhost\n');
+    check('library feed keeps IPv4, IPv6 and clean domains (lower-cased, country tag kept), drops junk', f.length === 3 && f[1].ip === '2606:4700::1' && f[2].ip === 'cdn.example.com' && f[2].cc === 'DE', JSON.stringify(f)); }
   check('non-CF whitelist targets & 5 CF spoof methods & MasterDNS/VayDNS catalogs exist', Array.isArray(T.NON_CF_WHITELIST_TARGETS) && T.NON_CF_WHITELIST_TARGETS.length >= 10 && Array.isArray(T.CF_SPOOF_5_METHODS) && T.CF_SPOOF_5_METHODS.length === 5 && T.MASTERDNS_BALANCERS_0_8.length === 9 && T.VAYDNS_RECORD_TYPES.length === 9);
   // ── Error 1101, second face ────────────────────────────────────────────────
   // The three checks below read the SOURCE, so they only mean anything on the
