@@ -1,8 +1,8 @@
-# Android failure report (41371f5)
+# Android failure report (8b6bed8)
 
+    - java.lang.AssertionError" type="java.lang.AssertionError">java.lang.AssertionError
 
 ## files with compile errors
-     60 app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt
       6 app/src/main/java/com/cat/client/MainActivity.kt
       4 app/src/main/java/com/cat/client/MainActivityFox.kt
       3 app/src/main/java/com/cat/client/MainActivitySubscriptions.kt
@@ -22,6 +22,7 @@
       1 app/src/main/java/com/cat/client/MainActivityCloud.kt
       1 app/src/main/java/com/cat/client/MainActivityCatWarp.kt
       1 app/src/main/java/com/cat/client/MainActivityAntiFilterTools.kt
+      1 app/src/main/java/com/cat/client/MainActivityAmneziaSstp.kt
 ## log tail
 ### step18.log
   type: 'test'
@@ -29,43 +30,43 @@
 # Subtest: the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)
 ok 6 - the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)
   ---
-  duration_ms: 1.637795
+  duration_ms: 1.966685
   type: 'test'
   ...
 # Subtest: a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node
 ok 7 - a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node
   ---
-  duration_ms: 1.390131
+  duration_ms: 1.373371
   type: 'test'
   ...
 # Subtest: no exits typed → no built-in default ProxyIP lines on a node
 ok 8 - no exits typed → no built-in default ProxyIP lines on a node
   ---
-  duration_ms: 0.521788
+  duration_ms: 0.52423
   type: 'test'
   ...
 # Subtest: data plane on a node: a pinned 🎯 ProxyIP carries the Cloudflare-hosted names, other sites go direct
 ok 9 - data plane on a node: a pinned 🎯 ProxyIP carries the Cloudflare-hosted names, other sites go direct
   ---
-  duration_ms: 1.951289
+  duration_ms: 1.873003
   type: 'test'
   ...
 # Subtest: panel page on a node: «server IPs» view present, body marked node (Clean IP no longer blank)
 ok 10 - panel page on a node: «server IPs» view present, body marked node (Clean IP no longer blank)
   ---
-  duration_ms: 7.136652
+  duration_ms: 6.596555
   type: 'test'
   ...
 # Subtest: rendered page: node CSS shows the server-IP view and Locations (Vercel still hides Locations)
 ok 11 - rendered page: node CSS shows the server-IP view and Locations (Vercel still hides Locations)
   ---
-  duration_ms: 11.22738
+  duration_ms: 10.875917
   type: 'test'
   ...
 # Subtest: /api/node/ips: each typed IP comes back ✅/❌ with its test result; the page has the per-host capability list + save & test
 ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; the page has the per-host capability list + save & test
   ---
-  duration_ms: 48.287598
+  duration_ms: 48.731987
   type: 'test'
   ...
 1..12
@@ -76,7 +77,7 @@ ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; th
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 6207.388775
+# duration_ms 6206.029622
 ✓ ClientHello SNI parser: a real hello → its SNI
 ✓ ClientHello SNI parser: half a hello → «wait for more» (null), HTTP → null
 ✓ X25519 pair in Xray text form (43 base64url chars each) + 8-hex shortId
@@ -104,7 +105,7 @@ ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; th
 ✓ Reality off → status off and the lines (Reality + SS-2022) leave the sub
 
 ALL PASSED
-(node:3764) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3791) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -117,7 +118,7 @@ tunnel grain tests passed
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3771) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3798) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -145,6 +146,70 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
 
 sni lab: 20 passed, 0 FAILED
 ### kotlin-precheck.log
+
+Welcome to Gradle 8.9!
+
+Here are the highlights of this release:
+ - Enhanced Error and Warning Messages
+ - IDE Integration Improvements
+ - Daemon JVM Information
+
+For more details see https://docs.gradle.org/8.9/release-notes.html
+
+Starting a Gradle Daemon (subsequent builds will be faster)
+Daemon JVM discovery is an incubating feature.
+
+> Configure project :app
+w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:113:41: Unnecessary non-null assertion (!!) on a non-null receiver of type String
+w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:113:84: Unnecessary non-null assertion (!!) on a non-null receiver of type String
+w: file:///home/runner/work/cat-client/cat-client/app/build.gradle.kts:142:9: 'jvmTarget: String' is deprecated. Please migrate to the compilerOptions DSL. More details are here: https://kotl.in/u1r8ln
+
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+
+> Task :app:processDebugMainManifest
+/home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-244:19 Warning:
+	application@android:allowBackup was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
+/home/runner/work/cat-client/cat-client/app/src/main/AndroidManifest.xml:26:5-244:19 Warning:
+	application@android:dataExtractionRules was tagged at AndroidManifest.xml:26 to replace other declarations but no other declaration present
+
+> Task :app:processDebugManifest
+> Task :app:javaPreCompileDebug
+> Task :app:processDebugManifestForPackage
+> Task :app:processDebugResources
+> Task :app:compileDebugKotlin
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:13:5 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppAccent.kt:82:50 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppDesign.kt:12:44 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppDesign.kt:24:45 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/AppDesign.kt:41:48 This annotation is currently applied to the value parameter only, but in the future it will also be applied to field.
 - To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
 - To keep applying to the value parameter only, use the '@param:' annotation target.
 
@@ -185,83 +250,178 @@ w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/clie
 
 > Task :app:compileDebugJavaWithJavac
 > Task :app:bundleDebugClassesToCompileJar
-
 > Task :app:compileDebugUnitTestKotlin
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:4:15 Unresolved reference 'test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:5:15 Unresolved reference 'test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:6:15 Unresolved reference 'test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:7:15 Unresolved reference 'test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:8:15 Unresolved reference 'test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:9:15 Unresolved reference 'test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:13:6 Unresolved reference 'Test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:17:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:18:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:23:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:24:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:27:6 Unresolved reference 'Test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:29:18 Unresolved reference 'assertFailsWith'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:32:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:33:20 Unresolved reference 'assertFailsWith'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:36:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:37:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:38:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:43:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:44:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:45:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:47:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:48:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:50:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:51:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:54:6 Unresolved reference 'Test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:66:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:68:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:69:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:71:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:72:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:76:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:77:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:79:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:80:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:82:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:83:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:87:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:88:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:90:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:91:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:92:9 Unresolved reference 'assertNull'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:95:6 Unresolved reference 'Test'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:97:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:98:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:99:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:100:9 Unresolved reference 'assertFalse'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:101:9 Unresolved reference 'assertEquals'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:102:9 Unresolved reference 'assertNull'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:107:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:108:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:109:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:110:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:111:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:112:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:113:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:114:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:115:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:116:9 Unresolved reference 'assertTrue'.
-e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:117:9 Unresolved reference 'assertFalse'.
 
-> Task :app:compileDebugUnitTestKotlin FAILED
+BUILD SUCCESSFUL in 2m 48s
+19 actionable tasks: 19 executed
+### build-log.txt
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: 12 warnings generated.
+C/C++: In file included from /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/desync.c:30:
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: 17 warnings generated.
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/packets.c:48:35: warning: unknown attribute 'nonstring' ignored [-Wunknown-attributes]
+C/C++:    48 | char http_data[43] __attribute__((nonstring)) = {
+C/C++:       |                                   ^~~~~~~~~
+C/C++: 1 warning generated.
+C/C++: In file included from /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/main.c:11:
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: 8 warnings generated.
+C/C++: In file included from /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/proxy.c:13:
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: 23 warnings generated.
+
+> Task :app:mergeDebugJniLibFolders
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:mergeDebugNativeLibs
+> Task :app:stripDebugDebugSymbols
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 1m
+46 actionable tasks: 29 executed, 17 up-to-date
+### unit-test.log
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac UP-TO-DATE
+> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :app:compileDebugUnitTestKotlin UP-TO-DATE
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+> Task :app:bundleDebugClassesToRuntimeJar
+
+> Task :app:testDebugUnitTest
+
+Beta267CatConnectKitTest > pairingCodeShapeAndHttpsOrigin FAILED
+    java.lang.AssertionError at Beta267CatConnectKitTest.kt:97
+
+823 tests completed, 1 failed
+
+> Task :app:testDebugUnitTest FAILED
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugUnitTestKotlin'.
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
+Execution failed for task ':app:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///home/runner/work/cat-client/cat-client/app/build/reports/tests/testDebugUnitTest/index.html
 
 * Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
 > Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
 
-BUILD FAILED in 2m 40s
-19 actionable tasks: 19 executed
+BUILD FAILED in 12s
+24 actionable tasks: 4 executed, 20 up-to-date
