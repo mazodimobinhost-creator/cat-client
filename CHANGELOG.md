@@ -4,6 +4,17 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta259] — 2026-11-07 (Panel 6.84.0, unchanged)
+
+Owner: the other Fox client shipped a new release with new protocols and countries — add them all.
+
+### Added
+- **🦊 Cat Fox VPN protocols:** HTTP/2 (default), HTTP/1.1 (one TLS connection per site), automatic (HTTP/2 then HTTP/1.1). HTTP/3 is listed; this build has no QUIC stack so it uses HTTP/2. Hub item «پروتکل تونل».
+- **🦊 Every Mozilla country** is offered (no more 🔒 «falls back to Recommended»). Live `vpn-serverlist` keeps every city/server and extra Fastly nodes of the same country are tried if the first fails. New country codes get Persian names.
+
+### Tests
+- `Beta259FoxTransportTest`, `Beta211FenixHttp2Test` (NL is not locked).
+
 ## [1.10.0-beta258] — 2026-11-07 (Panel 6.84.0, unchanged)
 
 Owner: re-check free methods; add something that actually works in Iran; do not fake paid VPNs.

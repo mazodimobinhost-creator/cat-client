@@ -164,8 +164,8 @@ class Beta211FenixHttp2Test {
     @Test
     fun engineUsesHttp2WithHttp1FallbackAndClearErrors() {
         val engine = src("FirefoxVpnEngine.kt")
-        assertTrue(engine.contains("arrayOf(\"h2\", \"http/1.1\")"))
-        assertTrue(engine.contains("if (alpn != \"h2\") return null to ssl"))
+        assertTrue(engine.contains("FoxTransport.alpn(activeTransport)"))
+        assertTrue(engine.contains("if (!wantH2 || alpn != \"h2\") return null to ssl"))
         assertTrue(engine.contains("return H2TunnelSocket(stream)"))
         assertTrue(engine.contains("\"proxy-authorization\" to \"Bearer \$pass\""))
         assertTrue(engine.contains("throw (statusError ?: lastError"))
@@ -178,7 +178,7 @@ class Beta211FenixHttp2Test {
         val byCode = FirefoxVpnEngine.BUILTIN_COUNTRIES.associateBy { it.code }
         assertTrue(byCode.getValue("REC").locked.not())
         assertTrue(byCode.getValue("DE").locked.not())
-        assertTrue(byCode.getValue("NL").locked)
+        assertTrue(byCode.getValue("NL").locked.not())
         assertTrue(FirefoxVpnEngine.guardianTokenError(200, null).isEmpty())
         assertTrue(FirefoxVpnEngine.guardianTokenError(429, "3600").contains("3600"))
         assertTrue(FirefoxVpnEngine.guardianTokenError(451, null).contains("451"))
@@ -193,6 +193,6 @@ class Beta211FenixHttp2Test {
         assertTrue(src("FirefoxVpnEngine.kt").contains("passLocalExpiry[pass]?.let { return it }")) // beta237: localPassExpiry()
         val engine = src("FirefoxVpnEngine.kt")
         assertTrue(engine.contains("only carries web ports \${FoxPortPolicy.WEB_PORTS_TEXT}"))
-        assertTrue(engine.contains("filter { !it.locked }"))
+        assertTrue(engine.contains("FoxTransport.nodesFromRecord"))
     }
 }

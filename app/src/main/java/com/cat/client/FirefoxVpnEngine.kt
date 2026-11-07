@@ -62,10 +62,11 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  *      by extracting `sessionToken` from `localStorage["__fxa_storage.accounts"]`.
  *    - Enrolls new accounts via `POST /api/v1/fpn/activate`, then `/api/v1/fpn/auth?experiment=alpha` (Firefox's
  *      own `GUARDIAN_EXPERIMENT_TYPE`).
- * 3. **Protected sockets + loopback guard + HTTP/2**:
+ * 3. **Protected sockets + loopback guard + HTTP/2 / HTTP/1.1**:
  *    Protects all outbound sockets via `protectOutboundSocket(socket)` so traffic never loops back
- *    into `tun0`, caps tunnels with [FenixTunnelSlots], and carries every tunnel as an HTTP/2 `CONNECT` stream
- *    (ALPN `h2`, HTTP/1.1 only when a node does not offer it) to `<node>.m1.fastly-masque.net:2499`.
+ *    into `tun0`, caps tunnels with [FenixTunnelSlots], and carries every tunnel as HTTP CONNECT
+ *    (`h2` default, `http/1.1` when chosen or when a node does not offer h2) to
+ *    `<node>.m1.fastly-masque.net:2499`. Extra Fastly nodes of the same country are tried next.
  * 4. **ProxyPass renewal like Firefox** ([FenixPassPolicy], beta237): one background renewal a few minutes before
  *    the pass ends, never a renewal per tunnel.
  */
@@ -78,6 +79,7 @@ internal object FirefoxVpnEngine {
     private const val KEY_CLEAN_FASTLY_IP = "clean_fastly_edge_ip"
     private const val KEY_AUTO_FAILOVER = "multi_account_auto_failover"
     private const val KEY_CACHED_COUNTRIES = "cached_remote_countries_json"
+    private const val KEY_TRANSPORT = "fox_transport"
 
     const val FXA_AUTH_SERVER = "https://api.accounts.firefox.com/v1"
     const val FXA_OAUTH_SERVER = "https://oauth.accounts.firefox.com/v1"
@@ -217,14 +219,17 @@ internal object FirefoxVpnEngine {
         val proxyHost: String,
         val proxyPort: Int = 2499,
         val masqueTemplate: String = "",
-        /** Mozilla marks most locations `locked` for free accounts (the node answers 403); REC always works. */
+        /** Mozilla may still mark a location `locked` in Remote Settings; Cat offers every node anyway. */
         val locked: Boolean = false,
+        /** Other Fastly nodes of the same country (host:port), tried if the first one fails. */
+        val extraEndpoints: List<String> = emptyList(),
     ) {
         val exactEndpoint: String get() = "$proxyHost:$proxyPort"
     }
 
-    /** Locations Mozilla's live `vpn-serverlist` offered unlocked (free) on 2026-10-29; the sync refreshes this. */
-    internal val FREE_COUNTRY_CODES = setOf("REC", "ZA", "AR", "AU", "JP", "DE", "US")
+    /** Every builtin country is offered. Mozilla's `locked` flag is kept only as a note. */
+    internal val FREE_COUNTRY_CODES: Set<String>
+        get() = BUILTIN_COUNTRIES.map { it.code.uppercase(Locale.US) }.toSet()
 
     data class CountryPingResult(
         val country: FirefoxVpnCountry,
@@ -287,7 +292,7 @@ internal object FirefoxVpnEngine {
         FirefoxVpnCountry("MY", "🇲🇾", "مالزی (کوالالامپور)", "Malaysia (Kuala Lumpur)", "Kuala Lumpur", "kul98.m1.fastly-masque.net", 2499),
         FirefoxVpnCountry("PH", "🇵🇭", "فیلیپین (مانیل)", "Philippines (Manila)", "Manila", "mnl215.m1.fastly-masque.net", 2499),
         FirefoxVpnCountry("TH", "🇹🇭", "تایلند (بانکوک)", "Thailand (Bangkok)", "Bangkok", "bkk228.m1.fastly-masque.net", 2499),
-    ).map { it.copy(locked = it.code !in FREE_COUNTRY_CODES) }
+    ).map { it.copy(locked = false) }
 
     // =========================================================================
     // 1. Input Normalization & PICL v1 Cryptographic Key Derivation
@@ -565,6 +570,18 @@ internal object FirefoxVpnEngine {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_SELECTED_COUNTRY, code.trim().uppercase(Locale.US))
+            .apply()
+    }
+
+    fun readTransport(context: Context): String =
+        FoxTransport.normalize(
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_TRANSPORT, FoxTransport.AUTO),
+        )
+
+    fun saveTransport(context: Context, mode: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_TRANSPORT, FoxTransport.normalize(mode))
             .apply()
     }
 
@@ -1879,7 +1896,8 @@ internal object FirefoxVpnEngine {
                     proxyHost = o.optString("proxyHost"),
                     proxyPort = o.optInt("proxyPort", 2499),
                     masqueTemplate = o.optString("masqueTemplate"),
-                    locked = if (o.has("locked")) o.optBoolean("locked") else o.optString("code").uppercase(Locale.US) !in FREE_COUNTRY_CODES,
+                    locked = false,
+                    extraEndpoints = FoxTransport.parseExtraEndpoints(o.opt("extraEndpoints") ?: o.optString("extraEndpoints")),
                 )
             }
             sanitizeCountries(remoteList)
@@ -1927,34 +1945,38 @@ internal object FirefoxVpnEngine {
                 val rec = dataArr.optJSONObject(i) ?: continue
                 val code = rec.optString("code").trim().uppercase(Locale.US)
                 if (code.isBlank()) continue
+                val nodes = FoxTransport.nodesFromRecord(rec)
+                if (nodes.isEmpty()) continue
+                val names = FoxCountryNames.of(code, rec.optString("name"), rec.optJSONArray("cities")?.optJSONObject(0)?.optString("name").orEmpty())
+                val cityName = rec.optJSONArray("cities")?.optJSONObject(0)?.optString("name").orEmpty()
+                val extras = FoxTransport.extraEndpointsJson(nodes).let { arr ->
+                    List(arr.length()) { arr.optString(it) }.filter { it.isNotBlank() }
+                }
+                val masque = nodes.firstOrNull { it.masqueTemplate.isNotBlank() }?.masqueTemplate.orEmpty()
                 if (code == "REC") {
-                    val recSrv = rec.optJSONArray("cities")?.optJSONObject(0)?.optJSONArray("servers")?.optJSONObject(0)
-                    val recHost = recSrv?.optString("hostname").orEmpty()
-                    if (recHost.isNotBlank()) {
-                        result[0] = result[0].copy(proxyHost = recHost, proxyPort = recSrv?.optInt("port", 2499)?.takeIf { it > 0 } ?: 2499)
-                    }
+                    result[0] = result[0].copy(
+                        proxyHost = nodes.first().host,
+                        proxyPort = nodes.first().port,
+                        extraEndpoints = extras,
+                        masqueTemplate = masque.ifBlank { result[0].masqueTemplate },
+                        locked = false,
+                    )
                     continue
                 }
                 // The list can carry two records for one code (version-filtered); the first one is the current node.
                 if (result.any { it.code == code }) continue
-                val nameEn = rec.optString("name").ifBlank { code }
-                val cities = rec.optJSONArray("cities")
-                val firstCity = cities?.optJSONObject(0)
-                val cityName = firstCity?.optString("name").orEmpty()
-                val servers = firstCity?.optJSONArray("servers")
-                val firstSrv = servers?.optJSONObject(0)
-                val host = firstSrv?.optString("hostname")?.takeIf { it.isNotBlank() } ?: continue
-                val port = firstSrv?.optInt("port", 2499)?.takeIf { it > 0 } ?: 2499
                 val existing = builtinByCode[code]
                 result += FirefoxVpnCountry(
                     code = code,
-                    flag = existing?.flag ?: countryCodeToFlagEmoji(code),
-                    nameFa = existing?.nameFa ?: "$nameEn ($code)",
-                    nameEn = existing?.nameEn ?: "$nameEn ($cityName)".trimEnd(' ', '(', ')'),
+                    flag = existing?.flag ?: names.flag,
+                    nameFa = existing?.nameFa ?: names.fa,
+                    nameEn = existing?.nameEn ?: names.en,
                     cityName = cityName.ifBlank { existing?.cityName.orEmpty() },
-                    proxyHost = host,
-                    proxyPort = port,
-                    locked = rec.optBoolean("locked", false),
+                    proxyHost = nodes.first().host,
+                    proxyPort = nodes.first().port,
+                    masqueTemplate = masque,
+                    locked = false,
+                    extraEndpoints = extras,
                 )
             }
             // Countries missing from the live list are not offered by Mozilla any more: do not re-add them.
@@ -1971,7 +1993,11 @@ internal object FirefoxVpnEngine {
                         .put("proxyHost", c.proxyHost)
                         .put("proxyPort", c.proxyPort)
                         .put("masqueTemplate", c.masqueTemplate)
-                        .put("locked", c.locked),
+                        .put("locked", false)
+                        .put(
+                            "extraEndpoints",
+                            JSONArray().also { arr -> c.extraEndpoints.forEach { e -> arr.put(e) } },
+                        ),
                 )
             }
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1990,12 +2016,10 @@ internal object FirefoxVpnEngine {
      */
     fun pingCountries(
         context: Context,
-        maxCountries: Int = 12,
+        maxCountries: Int = 40,
         timeoutMs: Int = 900,
     ): List<CountryPingResult> {
-        // Locked locations answer 403 for free accounts, so "fastest" only races the ones that can carry traffic.
-        val countries = getAvailableCountries(context).filter { !it.locked }.ifEmpty { getAvailableCountries(context) }
-            .take(maxCountries.coerceAtLeast(1))
+        val countries = getAvailableCountries(context).take(maxCountries.coerceAtLeast(1))
         val effectiveTimeout = timeoutMs.coerceAtLeast(1_100)
         val pool = java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
             Thread(null, r, "fenix-ping", 128 * 1024L).apply { isDaemon = true }
@@ -2125,14 +2149,31 @@ internal object FirefoxVpnEngine {
     /** beta250: country code → its Mozilla node, for rows that name their country (SOCKS user `fox-DE`). */
     @Volatile
     private var countryNodes: Map<String, Pair<String, Int>> = emptyMap()
+    @Volatile
+    private var countryAlts: Map<String, List<Pair<String, Int>>> = emptyMap()
+    @Volatile
+    private var activeTransport: String = FoxTransport.AUTO
+
+    private fun refreshCountryMaps(list: List<FirefoxVpnCountry>) {
+        countryNodes = list.associate { it.code.uppercase(Locale.US) to (it.proxyHost to it.proxyPort) }
+        countryAlts = list.associate { c ->
+            c.code.uppercase(Locale.US) to c.extraEndpoints.mapNotNull { FoxTransport.parseEndpoint(it) }
+        }
+    }
 
     private fun nodeForCode(code: String?): Pair<String, Int>? {
         if (code == null) return null
         countryNodes[code]?.let { return it }
         val list = appContextRef?.let { ctx -> runCatching { getAvailableCountries(ctx) }.getOrNull() } ?: BUILTIN_COUNTRIES
-        val map = list.associate { it.code.uppercase(Locale.US) to (it.proxyHost to it.proxyPort) }
-        countryNodes = map
-        return map[code]
+        refreshCountryMaps(list)
+        return countryNodes[code]
+    }
+
+    private fun altsForCode(code: String?): List<Pair<String, Int>> {
+        if (code == null) return emptyList()
+        countryAlts[code]?.let { return it }
+        nodeForCode(code)
+        return countryAlts[code].orEmpty()
     }
 
     fun isLocalProxyRunning(): Boolean =
@@ -2157,10 +2198,12 @@ internal object FirefoxVpnEngine {
     ): Int {
         if (context != null) {
             appContextRef = context.applicationContext
+            activeTransport = readTransport(context)
         }
         activeUpstreamHost = country.proxyHost
         activeUpstreamPort = country.proxyPort
         countryNodes = emptyMap() // rebuilt on first use from the (possibly refreshed) country list
+        countryAlts = emptyMap()
         activeCleanEdgeIp = cleanEdgeIp.trim()
         activeBearerPass = bearerPass.trim()
         activeFragmentTls = fragmentTls
@@ -2412,10 +2455,14 @@ internal object FirefoxVpnEngine {
         // user-picked clean IP for the selected node, the selected country's node, then Mozilla's own
         // recommended anycast node (also used when a country is locked for the account: HTTP 403).
         val upstreamPort = (if (perRow) rowNode!!.second else activeUpstreamPort).takeIf { it in 1..65535 } ?: FASTLY_MASQUE_PORT
+        val rowCode = countryNodes.entries.firstOrNull {
+            it.value.first.equals(sniHost, ignoreCase = true)
+        }?.key
         val candidateEndpoints = buildList {
             lastGoodEndpoint?.takeIf { lastGoodFor == sniHost }?.let { add(it) }
             if (!perRow && activeCleanEdgeIp.isNotBlank()) add(Triple(activeCleanEdgeIp, upstreamPort, sniHost))
             add(Triple(sniHost, upstreamPort, sniHost))
+            altsForCode(rowCode).forEach { (h, p) -> add(Triple(h, p, h)) }
             if (!perRow && !sniHost.equals(RECOMMENDED_NODE_HOST, ignoreCase = true)) {
                 add(Triple(RECOMMENDED_NODE_HOST, FASTLY_MASQUE_PORT, RECOMMENDED_NODE_HOST))
             }
@@ -2451,7 +2498,7 @@ internal object FirefoxVpnEngine {
                         )
                         lastGoodEndpoint = Triple(connectHost, connectPort, nodeSni)
                         lastGoodFor = sniHost
-                        lastTransport = "HTTP/2 · $connectHost:$connectPort"
+                        lastTransport = "${FoxTransport.wireName(activeTransport)} · $connectHost:$connectPort"
                         targetFailures.success()
                         return H2TunnelSocket(stream)
                     }
@@ -2563,30 +2610,31 @@ internal object FirefoxVpnEngine {
      * page opening 20 tunnels at once shares one handshake instead of 20.
      */
     private fun h2SessionOrTls(key: String, connectHost: String, connectPort: Int, nodeSni: String): Pair<FenixH2Session?, SSLSocket?> {
-        pooledH2(key)?.let { return it to null }
+        val wantH2 = !FoxTransport.forceH1(activeTransport)
+        if (wantH2) pooledH2(key)?.let { return it to null }
         val lock = h2CreateLocks.getOrPut(key) { java.util.concurrent.locks.ReentrantLock() }
         if (!lock.tryLock()) {
             // Another tunnel is already dialling the extra connection: ride a busy one instead of queueing behind it.
-            pooledH2(key, spread = false)?.let { return it to null }
+            if (wantH2) pooledH2(key, spread = false)?.let { return it to null }
             lock.lock()
         }
         try {
-            pooledH2(key)?.let { return it to null }
+            if (wantH2) pooledH2(key)?.let { return it to null }
             h2DialFailures[key]?.let { (at, error) ->
                 // A busy but working connection beats waiting out a recent dial failure.
-                pooledH2(key, spread = false)?.let { return it to null }
+                if (wantH2) pooledH2(key, spread = false)?.let { return it to null }
                 if (System.currentTimeMillis() - at < 4_000L) throw IOException("recent dial failure: ${error.message}", error)
             }
             val ssl = try {
-                openNodeTls(connectHost, connectPort, nodeSni, arrayOf("h2", "http/1.1"))
+                openNodeTls(connectHost, connectPort, nodeSni, FoxTransport.alpn(activeTransport))
             } catch (e: Throwable) {
                 h2DialFailures[key] = System.currentTimeMillis() to e
-                pooledH2(key, spread = false)?.let { return it to null }
+                if (wantH2) pooledH2(key, spread = false)?.let { return it to null }
                 throw e
             }
             h2DialFailures.remove(key)
             val alpn = negotiatedAlpn(ssl)
-            if (alpn != "h2") return null to ssl
+            if (!wantH2 || alpn != "h2") return null to ssl
             ssl.soTimeout = 0 // the session pings an idle connection itself
             val session = FenixH2Session(ssl, "$nodeSni via $connectHost:$connectPort", pingIdleMs = 12_000L, pingTimeoutMs = 10_000L, log = { msg ->
                 appContextRef?.let { ctx -> runCatching { DiagnosticLogger.info(ctx, "fenix.h2", msg.take(200)) } }
@@ -3064,8 +3112,6 @@ internal object FirefoxVpnEngine {
         val remark = buildString {
             append("🦊 Cat Fox VPN · ")
             append(country.flag).append(' ').append(country.nameFa.substringBefore(" ("))
-            // beta250: rows of the one subscription — a locked country (403 for free accounts) says so in its name.
-            if (country.locked && country.code != COUNTRY_RECOMMENDED) append(" 🔒")
             if (accountEmail.isNotBlank()) {
                 append(" · ").append(accountEmail.substringBefore('@'))
             }
@@ -3218,13 +3264,5 @@ internal object FirefoxVpnEngine {
             cleanEdgeIp = cleanIp,
             fragmentTls = frag,
         )
-    }
-
-    private fun countryCodeToFlagEmoji(code: String): String {
-        val c = code.trim().uppercase(Locale.US)
-        if (c.length != 2 || c[0] !in 'A'..'Z' || c[1] !in 'A'..'Z') return "🌐"
-        val first = Character.toChars(0x1F1E6 + (c[0].code - 'A'.code))
-        val second = Character.toChars(0x1F1E6 + (c[1].code - 'A'.code))
-        return String(first) + String(second)
     }
 }

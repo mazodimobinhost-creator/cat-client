@@ -984,20 +984,22 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
     val options = if (isFarsi) {
         arrayOf(
             "🦊 ۱) اتصال فوری با Cat Fox VPN (روشن کردن تانل کل گوشی همین الان)",
-            "🌍 ۲) انتخاب کشور (✅ رایگان‌ها اول؛ 🔒 قفل‌ها خودکار میرن رو پیشنهادی)",
+            "🌍 ۲) انتخاب کشور (همهٔ کشورهای موزیلا — ${FirefoxVpnEngine.getAvailableCountries(this).size} تا)",
             "⚡ ۳) تست پینگ زنده همه کشورها و انتخاب خودکار سریع‌ترین کشور روی خط من",
             "👤 ۴) مدیریت حساب‌های ۵۰ گیگابایتی فایرفاکس (افزودن چند اکانت + چرخش خودکار)",
             "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
             "🛡️ ۶) روشن/خاموش کردن برش بسته TLS در مرز SNI (ضد فیلترینگ Cat Fox VPN)",
+            "🔗 ۷) پروتکل تونل: ${FoxTransport.shortFa(FirefoxVpnEngine.readTransport(this))}",
         )
     } else {
         arrayOf(
             "🦊 1) Connect Cat Fox VPN Immediately (Full-Device Tunnel Now)",
-            "🌍 2) Select Exit Country from 35 Mozilla Fastly Locations",
+            "🌍 2) Select Exit Country (${FirefoxVpnEngine.getAvailableCountries(this).size} Mozilla Fastly locations)",
             "⚡ 3) Live Ping All Countries & Auto-Select Fastest on My ISP",
             "👤 4) Manage 50 GB/mo Firefox Accounts (Multi-Account Auto-Failover)",
             "🛰️ 5) Scan Clean Fastly Edge IP for Net Melli & MCI / Irancell Bypass",
             "🛡️ 6) Toggle Anti-DPI TLS ClientHello Split @ SNI",
+            "🔗 7) Tunnel protocol: ${FoxTransport.shortEn(FirefoxVpnEngine.readTransport(this))}",
         )
     }
 
@@ -1019,7 +1021,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
                     ).show()
                     activityScope.launch {
                         val pings = withContext(Dispatchers.IO) {
-                            FirefoxVpnEngine.pingCountries(this@showFirefoxVpnFenixHubDialog, maxCountries = 14, timeoutMs = 850)
+                            FirefoxVpnEngine.pingCountries(this@showFirefoxVpnFenixHubDialog, maxCountries = 40, timeoutMs = 850)
                         }
                         val best = pings.firstOrNull { it.reachable } ?: pings.firstOrNull()
                         val report = buildString {
@@ -1107,6 +1109,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
+                6 -> showFoxTransportDialog(onChanged)
             }
         }
         .setNegativeButton(android.R.string.cancel, null)
@@ -1213,15 +1216,15 @@ internal fun MainActivity.connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) 
                 return@launch
             }
 
-            // beta250: ONE «🦊 Cat Fox VPN» subscription with every country as its own row (Mozilla's pick, the free
-            // countries, then the locked ones marked 🔒) instead of one subscription per chosen country. Each row
+            // beta250: ONE «🦊 Cat Fox VPN» subscription with every country as its own row (Mozilla's pick first).
+            // Each row
             // names its country in its SOCKS user, so it really leaves through that country and its ping is real.
             val cleanIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this@connectFirefoxVpnDirectly)
             val frag = FirefoxVpnEngine.isTlsFragmentEnabled(this@connectFirefoxVpnDirectly)
             val countries = FoxCountryRouting.ordered(
                 FirefoxVpnEngine.getAvailableCountries(this@connectFirefoxVpnDirectly) + chosenCountry,
                 { it.code },
-                { it.locked && it.code != FirefoxVpnEngine.COUNTRY_RECOMMENDED },
+                { false },
             )
             val rows = countries.map { c ->
                 FirefoxVpnEngine.buildFenixTunnelUri(
@@ -1269,10 +1272,11 @@ internal fun MainActivity.connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) 
 
 internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit = {}) {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-    // Free (unlocked) locations first; locked ones answer 403 for a free account and fall back to «Recommended».
-    val countries = FirefoxVpnEngine.getAvailableCountries(this).let { all ->
-        all.filter { !it.locked } + all.filter { it.locked }
-    }
+    val countries = FoxCountryRouting.ordered(
+        FirefoxVpnEngine.getAvailableCountries(this),
+        { it.code },
+        { false },
+    )
     val codes = listOf(FirefoxVpnEngine.COUNTRY_FASTEST) + countries.map { it.code }
     val labels = buildList {
         add(
@@ -1281,12 +1285,8 @@ internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit =
         )
         countries.forEach { c ->
             val name = if (isFarsi) c.nameFa else c.nameEn
-            val tag = when {
-                !c.locked -> if (isFarsi) "✅ رایگان" else "✅ free"
-                isFarsi -> "🔒 قفل برای حساب رایگان (خودکار میره رو پیشنهادی)"
-                else -> "🔒 locked for free accounts (falls back to Recommended)"
-            }
-            add("${c.flag} $name · $tag · ${c.exactEndpoint}")
+            val extra = if (c.extraEndpoints.isEmpty()) "" else if (isFarsi) " · +${c.extraEndpoints.size} سرور" else " · +${c.extraEndpoints.size} servers"
+            add("${c.flag} $name · ${c.exactEndpoint}$extra")
         }
     }.toTypedArray()
     val currentCode = FirefoxVpnEngine.readSelectedCountryCode(this)
@@ -1294,8 +1294,8 @@ internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit =
 
     MaterialAlertDialogBuilder(this)
         .setTitle(
-            if (isFarsi) "🌍 انتخاب کشور Cat Fox VPN — ${countries.count { !it.locked }} کشور رایگان از ${countries.size}"
-            else "🌍 Cat Fox VPN country — ${countries.count { !it.locked }} free of ${countries.size}",
+            if (isFarsi) "🌍 انتخاب کشور Cat Fox VPN — ${countries.size} کشور"
+            else "🌍 Cat Fox VPN country — ${countries.size} locations",
         )
         .setSingleChoiceItems(labels, checkedIdx) { dlg, idx ->
             dlg.dismiss()
@@ -1322,6 +1322,31 @@ internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit =
                     Toast.LENGTH_SHORT,
                 ).show()
             }
+        }
+        .setNegativeButton(android.R.string.cancel, null)
+        .create()
+        .showCatClientDialog()
+}
+
+internal fun MainActivity.showFoxTransportDialog(onChanged: () -> Unit = {}) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val modes = FoxTransport.MODES
+    val labels = modes.map { if (isFarsi) FoxTransport.labelFa(it) else FoxTransport.labelEn(it) }.toTypedArray()
+    val current = FirefoxVpnEngine.readTransport(this)
+    val checked = modes.indexOf(current).coerceAtLeast(0)
+    MaterialAlertDialogBuilder(this)
+        .setTitle(if (isFarsi) "🔗 پروتکل تونل Cat Fox VPN" else "🔗 Cat Fox VPN tunnel protocol")
+        .setSingleChoiceItems(labels, checked) { dlg, idx ->
+            dlg.dismiss()
+            val mode = modes[idx]
+            FirefoxVpnEngine.saveTransport(this, mode)
+            onChanged()
+            Toast.makeText(
+                this,
+                if (isFarsi) "✅ پروتکل: ${FoxTransport.shortFa(mode)}"
+                else "✅ Protocol: ${FoxTransport.shortEn(mode)}",
+                Toast.LENGTH_SHORT,
+            ).show()
         }
         .setNegativeButton(android.R.string.cancel, null)
         .create()

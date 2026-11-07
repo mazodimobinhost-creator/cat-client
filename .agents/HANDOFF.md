@@ -10,6 +10,10 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta259 / Panel 6.84.0 — 2026-11-07
+- Owner: other Fox client new release — add new protocols and all countries.
+- Independent: HTTP/1.1 selectable, HTTP/2 default, HTTP/3 listed (uses HTTP/2; no QUIC). All 34 builtin countries offered; extra servers from Mozilla list. No GPL copy.
+
 ## beta258 / Panel 6.84.0 — 2026-11-07
 - Owner: re-check free methods; add something that works in Iran; do not fake paid VPNs.
 - 🎁 hub: 🌀 one-tap Warp→Psiphon (no account), 🌏 SSTP/VPN Gate, 🔑 Outline. Psiphon uses `simplifyModeForChain` (wireguard/masque-h2/existing Warp).

@@ -34,7 +34,7 @@
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFox.kt` | 1389 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFox.kt` | 1414 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFreeNetworks.kt` | 1016 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 896 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
@@ -107,7 +107,7 @@
 | `FenixHttp2.kt` | 925 | beta211: a small, dependency-free HTTP/2 client for Cat Fox VPN (RFC 9113 + HPACK RFC 7541). | Beta211FenixHttp2Test · — |
 | `FenixPassPolicy.kt` | 77 | beta237: when Cat Fox VPN renews its Mozilla ProxyPass, and what to do with each Guardian answer — the same rules Firefox's own IP Protection uses… | Beta237FoxPassTest · — |
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
-| `FirefoxVpnEngine.kt` | 3230 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, WhiteDnsSmartScannerTest · — |
+| `FirefoxVpnEngine.kt` | 3268 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, Beta259FoxTransportTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3424 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
 | `MlmAndNextGenVpnHub.kt` | 1310 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
@@ -307,9 +307,11 @@
 | `CoreOptionsSettings.kt` | 72 | beta240 — three engine options that other clients show in their settings screen and Cat did not have. | Beta240CoreOptionsTest · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
 | `DpiPresetTester.kt` | 132 | beta247 🧪 «Which fragmenting method works on my internet?» — the per-network automatic method choice idea (Shroudly-style: try each way of splittin… | Beta247DpiPresetTest · — |
+| `FoxCountryNames.kt` | 175 | Names and flags for Cat Fox VPN country codes. | Beta259FoxTransportTest · — |
 | `FoxCountryRouting.kt` | 93 | beta250: ONE «🦊 Cat Fox VPN» subscription with every country as its own row. | Beta250FoxOneSubscriptionTest · — |
 | `FoxFastlyChallenge.kt` | 205 | beta239: Mozilla's sign-in (accounts.firefox.com) and VPN (vpn.mozilla.org) servers sit behind Fastly's bot check. | Beta239FoxFastlyTest · — |
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
+| `FoxTransport.kt` | 161 | Cat Fox VPN tunnel protocol (independent of other clients). | Beta211FenixHttp2Test, Beta259FoxTransportTest · — |
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
 | `FreeNetworkEngines.kt` | 958 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
@@ -321,7 +323,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_263 Kotlin files, 113576 lines._
+_265 Kotlin files, 113975 lines._
 
 ## MainActivity screens — function index
 
@@ -376,9 +378,9 @@ for the dialog/button you want to change.
 
 `buildAntiCensorshipEnginesCard`:109, `showWhiteDnsAndAetherToolsDialog`:676, `showIphoneIosConnectionHubDialog`:782, `showWhiteDnsResolverMethodsDialog`:1088, `showMasterDnsAndDnstGeneratorDialog`:1456, `showPaqetPatthEngineDialog`:1629, `showSmartConfigDoctorAndFluxDialog`:1823, `showOutlineFreeHubDialog`:1929, `showAmneziaAndProtonWgHubDialog`:2092, `runCloudflareZeroByteAndIpv6HealerDialog`:2209, `showFourPowerFeaturesCenterDialog`:2311, `showUniversalOmniConfigHubDialog`:2857, `showIspProtocolMatrixDialog`:3084, `showLiveWhitelistTlsClonerDialog`:3198, `showServerlessV52MethodDialog`:3294, `runFetchSevenGitHubFreeConfigSourcesDialog`:3385, `showEasyHotspotShareWithQrDialog`:3474, `runOneClickCleanAndSortConfigsDialog`:3576, `showCloudflareFiveSpoofMethodsDialog`:3701, `runIranDnsAndDnsttScanDialog`:3852, `runOneClickRepairMyRealConfigAndConnect`:3943
 
-### `MainActivityFox.kt` (7 functions)
+### `MainActivityFox.kt` (8 functions)
 
-`buildFirefoxVpnFenixCard`:113, `showFirefoxAccountManagerDialog`:278, `showFirefoxEmailLoginDialog`:802, `showFirefoxVpnFenixHubDialog`:982, `connectFirefoxVpnDirectly`:1124, `showFirefoxCountryPickerDialog`:1270, `showFirefoxTokenImportDialog`:1331
+`buildFirefoxVpnFenixCard`:113, `showFirefoxAccountManagerDialog`:278, `showFirefoxEmailLoginDialog`:802, `showFirefoxVpnFenixHubDialog`:982, `connectFirefoxVpnDirectly`:1127, `showFirefoxCountryPickerDialog`:1273, `showFoxTransportDialog`:1331, `showFirefoxTokenImportDialog`:1356
 
 ### `MainActivityFreeNetworks.kt` (25 functions)
 
@@ -680,11 +682,13 @@ for the dialog/button you want to change.
 | `ForeignServiceStatus` | `ForeignServiceProbe.kt` |
 | `ForeignServiceTarget` | `ForeignServiceProbe.kt` |
 | `FoxCookieJar` | `FoxFastlyChallenge.kt` |
+| `FoxCountryNames` | `FoxCountryNames.kt` |
 | `FoxCountryRouting` | `FoxCountryRouting.kt` |
 | `FoxFastlyChallenge` | `FoxFastlyChallenge.kt` |
 | `FoxHttpProxyRequest` | `FoxPortPolicy.kt` |
 | `FoxNetworkReset` | `FenixPassPolicy.kt` |
 | `FoxPortPolicy` | `FoxPortPolicy.kt` |
+| `FoxTransport` | `FoxTransport.kt` |
 | `FoxWebChannel` | `FoxWebChannel.kt` |
 | `FreeAccountLinks` | `FreeNetworkEngines.kt` |
 | `FreeConfigs` | `FreeConfigs.kt` |
