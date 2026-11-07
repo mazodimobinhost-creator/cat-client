@@ -9,9 +9,19 @@ internal data class DnsRuntimeSettings(
     val mode: DnsPrivacyMode,
     val dohUrl: String,
     val dotEndpoint: String,
+    /** QUIC-based resolver endpoints (DoQ / DoH3). Defaults keep the field non-null for
+     *  callers that only care about the TCP modes. */
+    val doqEndpoint: String = DnsPrivacyPolicy.DEFAULT_DOQ_ENDPOINT,
+    val doh3Url: String = DnsPrivacyPolicy.DEFAULT_DOH3_URL,
 )
 
 internal data class SessionPlanPreferences(
+    /**
+     * The Orbot hop for this attempt, or null while the engine is off / Orbot is not reachable
+     * on the loopback port. Decided and probed once per attempt in the service, so the runtime
+     * YAML, the switch in the UI and the log line all describe the same choice.
+     */
+    val orbot: OrbotProxySettings? = null,
     val frontingIps: List<String>,
     val connectionOptions: MihomoConnectionOptions,
     val selectedSubscriptionId: String,
@@ -25,6 +35,7 @@ internal data class SessionPlanPreferences(
     val alwaysOn: Boolean,
     val lockdown: Boolean,
     val tlsIntegrityEnabled: Boolean,
+    val sniOverride: String = "",
 )
 
 internal data class SessionPlanRequest(
@@ -36,10 +47,14 @@ internal data class SessionPlanRequest(
     val validateConnectivity: Boolean,
     val dpiBypassEnabled: Boolean,
     val dpiBypassPort: Int?,
+    /** beta220: DPI bypass runs only for proxies with `final-mask: tlshello…` (see MihomoDpiBypassPatcher). */
+    val dpiBypassFinalMaskOnly: Boolean = false,
     val forcedProxyName: String? = null,
     val excludedProfileFingerprint: String = "",
     val allowAutomaticBridge: Boolean = true,
     val quickSpeedRequested: Boolean = false,
+    /** beta223: local inbound ports for the Xray engine (empty = Xray off for this attempt). */
+    val xrayPorts: List<Int> = emptyList(),
 )
 
 internal data class SessionPlan(
@@ -61,6 +76,8 @@ internal data class SessionPlan(
     val lanSharing: LanSharingSettings,
     val routingMode: RoutingMode,
     val dns: DnsRuntimeSettings,
+    /** Orbot outbound for this attempt (null = engine off or Orbot absent). */
+    val orbot: OrbotProxySettings? = null,
     val effectiveDeviceAccess: EffectiveDeviceAccess,
     val tlsIntegrityEnabled: Boolean,
     val serverOverrideIp: String?,
@@ -72,6 +89,9 @@ internal data class SessionPlan(
     val bridgeResult: MihomoAutomaticRoutingBridgeResult,
     val runtimeYaml: String,
     val selectedMap: Map<String, String>,
+    /** beta223: Xray config for the proxies [MihomoXrayPatcher] moved to Xray (null = none). */
+    val xrayConfigJson: String? = null,
+    val xrayRoutes: List<XrayRoute> = emptyList(),
 )
 
 internal object SessionPlanner {
@@ -84,12 +104,16 @@ internal object SessionPlanner {
             rawYaml = request.snapshot.rawConfig,
             serverOverrideIp = serverOverrideIp,
             serverOverridePort = serverOverridePort,
+            sniOverride = preferences.sniOverride.takeIf { it.isNotBlank() },
         )
         val optionsYaml = MihomoConnectionOptionsPatcher.patch(frontedYaml, preferences.connectionOptions)
+        // beta223: proxies with Xray-only options (finalMask) become local SOCKS entries served by Xray.
+        val xrayPatch = MihomoXrayPatcher.patch(optionsYaml, request.xrayPorts)
         val baseRuntimeYaml = MihomoDpiBypassPatcher.patch(
-            rawYaml = optionsYaml,
+            rawYaml = xrayPatch.yaml,
             enabled = request.dpiBypassEnabled,
             proxyPort = request.dpiBypassPort ?: DpiBypassDefaults.FALLBACK_PROXY_PORT,
+            finalMaskOnly = request.dpiBypassFinalMaskOnly,
         )
         val automaticSelections = MihomoSelectionPolicy.desiredSelections(
             request.snapshot.summary,
@@ -142,6 +166,7 @@ internal object SessionPlanner {
             lanSharing = preferences.lanSharing,
             routingMode = preferences.routingMode,
             dns = preferences.dns,
+            orbot = preferences.orbot,
             effectiveDeviceAccess = if (
                 ConnectionModePolicy.shouldStartTun(
                     preferences.connectionMode,
@@ -163,6 +188,8 @@ internal object SessionPlanner {
             bridgeResult = bridgeResult,
             runtimeYaml = bridgeResult.yaml,
             selectedMap = selectedMap,
+            xrayConfigJson = xrayPatch.configJson,
+            xrayRoutes = xrayPatch.routes,
         )
     }
 }

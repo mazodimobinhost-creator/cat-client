@@ -63,7 +63,7 @@ object ConnectionDetailsPresenter {
     ): String {
         val normalizedType = profile.type.lowercase()
         val outbound = when (normalizedType) {
-            "mihomo-group" -> "Mihomo"
+            "mihomo-group" -> "Cat core"
             "wireguard" -> "WireGuard"
             "vless" -> "VLESS"
             "vmess" -> "VMess"

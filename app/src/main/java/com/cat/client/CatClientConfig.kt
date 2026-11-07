@@ -32,7 +32,7 @@ internal fun parseCachedMihomoConfig(
 ): MihomoSubscriptionSnapshot {
     return MihomoConfigParser.parse(yaml, fetchedAt).also { snapshot ->
         if (snapshot.catalog.profiles.isEmpty()) {
-            throw IOException("Cached Mihomo subscription did not contain proxies")
+            throw IOException("Cached Cat core subscription did not contain proxies")
         }
     }
 }

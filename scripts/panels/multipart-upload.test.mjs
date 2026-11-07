@@ -123,7 +123,7 @@ check(
 
 // The real worker must still export the panel surface (guards against asset drift).
 const src = scriptPart.body.toString('utf8');
-for (const needle of ['/sub', '/ws', 'X-Forwarded-Sni', 'ok: true']) {
+for (const needle of ['/sub', '/ws', 'CAT_PANEL_VERSION', 'ok: true']) {
   if (needle === 'main_module') continue;
   check(`worker source contains ${JSON.stringify(needle)}`, src.includes(needle));
 }

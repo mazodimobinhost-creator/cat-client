@@ -6,6 +6,8 @@ data class ConnectionTestSettings(
     val timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS,
     val concurrency: Int = DEFAULT_CONCURRENCY,
     val speedTestMegabytes: Int = DEFAULT_SPEED_TEST_MEGABYTES,
+    /** beta240: the address every config's ping is measured against (other clients let the owner pick it). */
+    val delayTestUrl: String = DEFAULT_DELAY_TEST_URL,
 ) {
     fun normalized(): ConnectionTestSettings = copy(
         timeoutSeconds = timeoutSeconds.coerceIn(MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS),
@@ -14,6 +16,7 @@ data class ConnectionTestSettings(
             MIN_SPEED_TEST_MEGABYTES,
             MAX_SPEED_TEST_MEGABYTES,
         ),
+        delayTestUrl = delayTestUrl.takeIf { it in DELAY_TEST_URLS } ?: DEFAULT_DELAY_TEST_URL,
     )
 
     val speedTestBytes: Long
@@ -30,6 +33,10 @@ data class ConnectionTestSettings(
         const val MIN_SPEED_TEST_MEGABYTES = 1
         const val MAX_SPEED_TEST_MEGABYTES = 100
         const val BYTES_PER_MEGABYTE = 1_000_000L
+        const val DEFAULT_DELAY_TEST_URL = MihomoRuntimeDefaults.DELAY_TEST_URL
+
+        /** HTTPS «204 No Content» endpoints only: plain HTTP can be answered by a middlebox and fake a good ping. */
+        val DELAY_TEST_URLS = listOf(DEFAULT_DELAY_TEST_URL, "https://cp.cloudflare.com/generate_204")
     }
 }
 
@@ -43,6 +50,7 @@ class ConnectionTestSettingsPreferenceStore(context: Context) {
             KEY_SPEED_TEST_MEGABYTES,
             ConnectionTestSettings.DEFAULT_SPEED_TEST_MEGABYTES,
         ),
+        delayTestUrl = prefs.getString(KEY_DELAY_TEST_URL, null) ?: ConnectionTestSettings.DEFAULT_DELAY_TEST_URL,
     ).normalized()
 
     fun save(settings: ConnectionTestSettings) {
@@ -51,6 +59,7 @@ class ConnectionTestSettingsPreferenceStore(context: Context) {
             .putInt(KEY_TIMEOUT_SECONDS, normalized.timeoutSeconds)
             .putInt(KEY_CONCURRENCY, normalized.concurrency)
             .putInt(KEY_SPEED_TEST_MEGABYTES, normalized.speedTestMegabytes)
+            .putString(KEY_DELAY_TEST_URL, normalized.delayTestUrl)
             .apply()
     }
 
@@ -59,5 +68,6 @@ class ConnectionTestSettingsPreferenceStore(context: Context) {
         const val KEY_TIMEOUT_SECONDS = "timeout_seconds"
         const val KEY_CONCURRENCY = "concurrency"
         const val KEY_SPEED_TEST_MEGABYTES = "speed_test_megabytes"
+        const val KEY_DELAY_TEST_URL = "delay_test_url"
     }
 }

@@ -1,233 +1,371 @@
+import { JSDOM } from 'jsdom';
 /**
- * Cat Panel DOM test — loads the panel HTML in jsdom, runs the embedded client
- * script and asserts the UI actually renders and reacts.
- *
- * Optional dev tool (needs `npm i jsdom`); the dependency-free suite is
- * scripts/panels/cat-panel.test.mjs. If jsdom is missing this script skips.
- *
+ * DOM smoke test of the v6 panel UI (needs `npm i` for jsdom).
  * Usage: node scripts/panels/panel-dom.test.mjs
  */
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-
 const here = path.dirname(fileURLToPath(import.meta.url));
-const workerPath = path.join(here, '../../app/src/main/assets/panels/catclient.worker.js');
-
-let JSDOM;
-let VirtualConsole;
-try {
-  ({ JSDOM, VirtualConsole } = await import('jsdom'));
-} catch (e) {
-  console.log('SKIP: jsdom is not installed (npm i jsdom).');
-  process.exit(0);
-}
-
-const mod = await import(workerPath);
+const mod = await import(path.join(here, '../../app/src/main/assets/panels/catclient.worker.js'));
 const worker = mod.default;
-const HOST = 'catpanel-demo.workers.dev';
-const ENV = {
-  OPEN_PANEL: 'true', // the panel is locked by default in v5; DOM tests look at the unlocked shell
- CF_IPS: '104.16.6.62,172.67.181.32', SNI_LIST: 'cdn.example.ir' };
-
-const html = await (await worker.fetch(new Request('https://' + HOST + '/', { headers: { Host: HOST } }), ENV)).text();
-
+const KV = { m: new Map(), async get(k){return this.m.get(k)??null}, async put(k,v){this.m.set(k,v)}, async list(){return {keys:[]}} };
+const env = { CAT_KV: KV, UUID: '11111111-2222-4333-8444-555555555555', OPEN_PANEL: 'true' };
+const HOST='https://p.workers.dev';
+// beta57 stealth default: the UI lives at /panel — / is the camouflage page.
+const htmlRes = await worker.fetch(new Request(HOST + '/panel'), env, {});
+const html = await htmlRes.text();
 const errors = [];
-const virtualConsole = new VirtualConsole();
-virtualConsole.on('jsdomError', (e) => errors.push('jsdomError: ' + e.message));
-virtualConsole.on('error', (...args) => errors.push('console.error: ' + args.join(' ')));
-
-const pings = [];
-const dom = new JSDOM(html, {
-  runScripts: 'dangerously',
-  url: 'https://' + HOST + '/',
-  pretendToBeVisual: true,
-  virtualConsole,
+let failUserCreate = false;
+let failUserNonJson = false;
+let failUserList = false;
+let failSubscription = false;
+let emptySubscription = false;
+const dom = new JSDOM(html, { url: HOST + '/', runScripts: 'dangerously', pretendToBeVisual: true,
   beforeParse(window) {
-    window.localStorage.clear();
-    window.confirm = () => false;
-    window.open = () => null;
-    window.fetch = async (url) => {
-      const target = String(url);
-      pings.push(target);
-      await new Promise((r) => setTimeout(r, 1));
-      return new Response('fl=1\ncolo=FRA\n', { status: 200 });
+    window.fetch = async (path, init={}) => {
+      const url = new URL(path, HOST);
+      if (failUserList && url.pathname === '/api/users' && (init.method || 'GET') === 'GET') {
+        return new Response('user-list unavailable', { status: 503, headers: { 'content-type': 'text/plain' } });
+      }
+      if (failUserCreate && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'internal', message: 'diagnostic detail https://example.test/private/11111111-2222-4333-8444-555555555555' }), {
+          status: 500, headers: { 'content-type': 'application/json', 'cf-ray': 'diagnostic-user-create-ray' },
+        });
+      }
+      if (failUserNonJson && url.pathname === '/api/users' && (init.method || 'GET') === 'POST') {
+        return new Response('PRIVATE_INTERNAL_HTML https://example.test/hidden/11111111-2222-4333-8444-555555555555', {
+          status: 500, headers: { 'content-type': 'text/html; charset=utf-8', 'cf-ray': 'diagnostic-user-non-json-ray' },
+        });
+      }
+      if (failSubscription && url.pathname.startsWith('/sub/')) {
+        return new Response('worker-private-body', { status: 502, headers: { 'content-type': 'text/plain', 'cf-ray': 'diagnostic-subscription-ray' } });
+      }
+      if (emptySubscription && url.pathname.startsWith('/sub/')) {
+        return new Response('\n', { status: 200, headers: { 'content-type': 'text/plain' } });
+      }
+      // 6.80.0: canned repo answers + the browser's own reachability test of candidates (no real network)
+      if (url.pathname === '/api/ip-repo') return new Response(JSON.stringify({ ok: true, op: 'mtn', cands: [{ a: '188.114.97.7:443', k: 'v4' }, { a: '[2606:4700:3030::6815:30c9]:443', k: 'v6' }, { a: 'www.visa.com:443', k: 'dom' }, { a: '188.114.98.9:443', k: 'v4' }, { a: '188.114.96.1:443', k: 'v4' }] }), { headers: { 'content-type': 'application/json' } });
+      if (url.pathname === '/api/ech-pool') return new Response(JSON.stringify(url.searchParams.get('what') === 'dns' ? { ok: true, dns: [{ ip: '8.8.8.8', doh: true }, { ip: '84.200.69.80', doh: false }] } : { ok: true, domains: ['crypto.cloudflare.com'], checked: 4 }), { headers: { 'content-type': 'application/json' } });
+      if (url.hostname !== new URL(HOST).hostname) {
+        const h = url.hostname;
+        if (h === '[2606:4700:4700::1111]' || h === '2606:4700:4700::1111') return new Promise((res) => setTimeout(() => res(new Response('')), 50));
+        if (h === '188.114.96.1') return Promise.reject(new TypeError('refused')); // instant → local refusal, not alive
+        if (h === '188.114.98.9') return new Promise((res, rej) => { const t = setTimeout(() => res(new Response('')), 9000); if (init.signal) init.signal.addEventListener('abort', () => { clearTimeout(t); rej(new Error('abort')); }); });
+        return new Promise((res) => setTimeout(() => res(new Response('')), 60));
+      }
+      const r = await worker.fetch(new Request(url, { method: init.method||'GET', headers: init.headers||{}, body: init.body }), env, {});
+      return r;
     };
-  },
-});
-
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-await wait(200);
-const { document } = dom.window;
-const win = dom.window;
-
-let failures = 0;
-const check = (name, cond, extra) => {
-  const ok = !!cond;
-  if (!ok) failures++;
-  console.log((ok ? '✓ ' : '✗ ') + name + (!ok && extra ? ' — ' + extra : ''));
-};
-const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-
-const realErrors = errors.filter((e) => !e.includes('scrollTo'));
-check('no script errors', realErrors.length === 0, realErrors.join(' | '));
-check('state injected', win.CAT_STATE?.host === HOST);
-check('nine tabs render (spoof + precise included)', document.querySelectorAll('.side-nav button').length === 9, String(document.querySelectorAll('.side-nav button').length));
-check('precise scanner tab section renders', !!document.querySelector('[data-tab-panel="precise"]') && !!document.getElementById('preciseStart') && !!document.getElementById('preciseTable'));
-check('cipherSuites edit card renders in Spoof', !!document.getElementById('spoofCipherSuites') && !!document.getElementById('cipherSuitesSave'));
-check('operator chips render in scanner + builder', document.querySelectorAll('#scanOps .chip[data-op]').length >= 6 && document.querySelectorAll('#cfgOps .chip[data-op]').length >= 6, String(document.querySelectorAll('#scanOps .chip[data-op]').length) + '/' + String(document.querySelectorAll('#cfgOps .chip[data-op]').length));
-check('users tab exists', !!document.querySelector('[data-tab-panel="users"]'));
-check('tools tab exists', !!document.querySelector('[data-tab-panel="tools"]'));
-check('home tab active by default', document.querySelector('[data-tab-panel="home"]').classList.contains('active'));
-check('config table filled', document.querySelectorAll('#cfgTable tr').length >= 5);
-check('IR clean-IP library listed', (document.querySelector('#irIpsOut')?.textContent || '').includes('104.16.0.1'));
-check('tools expose KV state', !!document.querySelector('#tSave') && !!document.querySelector('#selfTable'));
-const allLinks = document.querySelector('#cfgAllText')?.textContent || '';
-check('links include vless/trojan/warp', allLinks.includes('vless://') && allLinks.includes('trojan://') && allLinks.includes('warp://'));
-check('clean-IP variants built', allLinks.includes('104.16.6.62'));
-const dnsRows = document.querySelectorAll('#dnsTable tr').length;
-check('dns table filled', dnsRows >= 6, 'rows=' + dnsRows);
-check('dns presets include new resolvers', (document.querySelector('#dnsTable')?.textContent || '').includes('dns.mullvad.net'));
-check('custom DoH/DoT inputs render', !!document.querySelector('#dohCustom') && !!document.querySelector('#dotCustom'));
-check('DoT presets render', document.querySelectorAll('#dotTable tr').length >= 6 || document.body.innerHTML.includes('one.one.one.one'));
-check('theme picker renders options', document.querySelectorAll('[data-theme-pick]').length === 5);
-check('single-config builder renders', !!document.querySelector('#singleBuild') && !!document.querySelector('#singleAddr'));
-check('single config builds a vless link', (() => {
-  document.querySelector('#singleAddr').value = '104.16.6.62';
-  document.querySelector('#singleName').value = 'Cat Single';
-  click(document.querySelector('#singleBuild'));
-  const out = document.querySelector('#singleOut').textContent;
-  return out.startsWith('vless://') && out.includes('104.16.6.62') && out.includes(HOST);
-})(), (document.querySelector('#singleOut') || {}).textContent);
-check('single config add link points at the app', (document.querySelector('#singleAdd')?.getAttribute('href') || '').startsWith('catclient://add-sub?url='));
-check('theme switch toggles the body attribute', (() => {
-  click(document.querySelector('[data-theme-pick="mono"]'));
-  return win.document.documentElement.getAttribute('data-theme') === 'mono';
-})());
-check('sub + doh urls shown', (document.querySelector('#subUrlText')?.textContent || '').includes('/sub') && (document.querySelector('#dohUrlText')?.textContent || '').includes('/dns-query'));
-check('deep link present', document.body.innerHTML.includes('catclient://add-sub?url='));
-check('scan targets embedded', (win.CAT_STATE?.scanTargets || []).length > 20);
-check('scanner sni prefilled with panel host', document.querySelector('#scanSni')?.value === HOST);
-check('config builder lists CF_IPS as addresses', (document.querySelector('#cfgAddresses')?.value || '').includes('104.16.6.62'));
-check('sub url carries the uuid', (document.querySelector('#subUrlText')?.textContent || '').includes('/sub/' + win.CAT_STATE.uuid));
-check('config table has address × port rows', document.querySelectorAll('#cfgTable tr').length >= 6);
-
-click(document.querySelector('#subFormats .chip[data-fmt="/clash"]'));
-check('format chip switches url', (document.querySelector('#subUrlText')?.textContent || '').includes('/clash'));
-
-// --- BPB-style builder: pick ports + protocol, apply, url + table update ---
-check('BPB default ports preselected (80,443,2053,8443,8080)', ['80', '443', '2053', '8443', '8080'].every((p) => document.querySelector('#cfgPorts .chip[data-port="' + p + '"]')?.classList.contains('active')));
-click(document.querySelector('#cfgPorts .chip[data-port="8443"]')); // off
-click(document.querySelector('#cfgPorts .chip[data-port="8080"]')); // off
-click(document.querySelector('#cfgPorts .chip[data-port="2083"]')); // on
-click(document.querySelector('#cfgProtos .chip[data-proto="trojan"]')); // turn trojan off
-document.querySelector('#cfgSni').value = 'cdn.example.ir';
-click(document.querySelector('#cfgApply'));
-await wait(20);
-const cfgUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
-check('apply embeds ports in the sub url', cfgUrl.includes('ports=443,2053,2083,80'), cfgUrl);
-check('apply embeds protocol filter', cfgUrl.includes('proto=vless'), cfgUrl);
-check('apply embeds custom sni', cfgUrl.includes('sni=cdn.example.ir'), cfgUrl);
-const allText = document.querySelector('#cfgAllText')?.textContent || '';
-check('table drops trojan after toggle', !allText.includes('trojan://'));
-check('table has plain-http port-80 config', allText.includes(':80?encryption=none&security=none'));
-check('table has tls port-2053 config', allText.includes(':2053?encryption=none&security=tls'));
-const embeddedSub = await (await worker.fetch(new Request(cfgUrl.replace('/clash', ''), { headers: { Host: HOST } }), ENV)).text();
-const decodedSub = Buffer.from(embeddedSub, 'base64').toString('utf8');
-check('worker honours the embedded options', decodedSub.includes('@104.16.6.62:2053') && decodedSub.includes('sni=cdn.example.ir') && !decodedSub.includes('trojan://'));
-
-click(document.querySelector('#langBtn'));
-check('language toggles to EN', document.body.getAttribute('data-lang') === 'en');
-check('nav labels translated', document.querySelector('[data-nav-label="home"]').textContent === 'Home');
-click(document.querySelector('#langBtn'));
-check('language toggles back to FA', document.body.getAttribute('data-lang') === 'fa');
-
-// --- §52 control-center drawer ---
-check('nav badge shows clean-ip count', document.querySelector('.side-nav button[data-tab="configs"] .nav-badge')?.textContent === '2');
-check('nav badges are numeric', Array.from(document.querySelectorAll('.side-nav .nav-badge')).every((b) => /^\d+$/.test(b.textContent)));
-check('side brand shows control-center subtitle', document.querySelector('#sideSub')?.textContent.includes('مرکز کنترل'));
-click(document.querySelector('#burgerBtn'));
-check('burger opens the drawer + backdrop', document.querySelector('#hmenu').classList.contains('show') && document.querySelector('#drawerBg').classList.contains('show'));
-click(document.querySelector('#drawerBg'));
-check('backdrop click closes the drawer', !document.querySelector('#hmenu').classList.contains('show') && !document.querySelector('#drawerBg').classList.contains('show'));
-click(document.querySelector('#burgerBtn'));
-click(document.querySelector('#hmenu [data-setlang="en"]'));
-check('drawer lang pill switches to EN + active sync', document.body.getAttribute('data-lang') === 'en' && document.querySelector('#hmenu [data-setlang="en"]').classList.contains('active'));
-check('drawer nav is translated', document.querySelector('#hmenu [data-nav-label="home"]').textContent === 'Home');
-click(document.querySelector('#hmenu [data-setlang="fa"]'));
-check('drawer lang pill back to FA', document.body.getAttribute('data-lang') === 'fa');
-check('drawer has its own lang pill + meta', document.querySelectorAll('#hmenu [data-setlang]').length === 2 && !!document.querySelector('#hmenu .drawer-foot'));
-check('BUGFIX: drawer + backdrop are body-level (not inside the sticky glass header)', !document.querySelector('#hmenu').closest('header.top') && !document.querySelector('#drawerBg').closest('header.top'));
-check('hero has the Aras-style connect pill', (document.querySelector('.hero-cta .cta-main')?.getAttribute('href') || '').startsWith('catclient://add-sub') && !!document.querySelector('.hero-cta [data-copy-sub]'));
-check('builder shows the SNI-filter diagnosis hint (FA)', document.querySelector('[data-i18n="builderSniHint"]')?.textContent.includes('workers.dev'));
-click(document.querySelector('#langBtn'));
-check('builder hint translated to EN', document.querySelector('[data-i18n="builderSniHint"]')?.textContent.startsWith('💡 Most configs get no ping'));
-click(document.querySelector('#langBtn'));
-
-click(document.querySelector('.side-nav button[data-tab="scanner"]'));
-check('scanner tab activates', document.querySelector('[data-tab-panel="scanner"]').classList.contains('active'));
-
-click(document.querySelector('[data-qr-target="subUrlText"]'));
-check('QR modal opens with svg url', (document.querySelector('#qrImg')?.getAttribute('src') || '').includes('/qr.svg?d='));
-
-// --- run a scan against the stubbed fetch and use the results ---
-document.querySelector('#scanLimit').value = '8';
-click(document.querySelector('#scanStart'));
-await wait(600);
-const scanRows = document.querySelectorAll('#scanTable tr').length;
-check('scan produced result rows', scanRows >= 1, 'rows=' + scanRows);
-check('scan probed the CDN trace endpoint', pings.some((u) => u.includes('/cdn-cgi/trace')), pings.slice(0, 2).join(','));
-check('scan status reports completion', (document.querySelector('#scanStatus')?.textContent || '').length > 0);
-document.querySelectorAll('#scanTable [data-ip-check]').forEach((cb) => { cb.checked = true; cb.dispatchEvent(new win.Event('change', { bubbles: true })); });
-click(document.querySelector('#useIpsInConfigs'));
-await wait(50);
-check('scan → configs moves ips into the builder', document.querySelector('[data-tab-panel="configs"]').classList.contains('active') && (document.querySelector('#cfgAddresses')?.value || '').split('\n').length >= 2);
-check('scan → configs rebuilt the sub url', (document.querySelector('#cfgSubUrl')?.textContent || '').includes('ips='));
-
-// --- scanner multi-port (5.23.7): add 8080 to the scan set ---
-document.querySelector('#scanClear').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-click(document.querySelector('#scanPortChips .chip[data-port="8080"]'));
-document.querySelector('#scanLimit').value = '8';
-click(document.querySelector('#scanStart'));
-await wait(600);
-check('scanner probes user-added ports (8080) from the browser', pings.some((u) => u.includes(':8080/')));
-check('added-port results render in the row', (document.querySelector('#scanTable')?.textContent || '').includes('8080:'));
-click(document.querySelector('#useIpsInConfigs'));
-await wait(50);
-const ports2 = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
-check('applied configs keep 80+443 and gain 8080 when it answers', ['80', '443', '8080'].every((x) => ports2.includes(x)), ports2.join(','));
-
-const activePorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
-check('scan → configs syncs the ALIVE port chips (80+443)', activePorts.includes('80') && activePorts.includes('443'), 'chips=' + activePorts.join(','));
-const portsParam = decodeURIComponent(((document.querySelector('#cfgSubUrl')?.textContent || '').match(/ports=([^&]+)/) || [])[1] || '').split(',');
-check('sub url keeps the proven ports on', portsParam.includes('80') && portsParam.includes('443'), portsParam.join(','));
-
-// --- quick build (recommended recipe, 5.23.8): env SNI prefill 'cdn.example.ir' -> TLS recipe ---
-click(document.querySelector('#cfgQuickBuild'));
-await wait(50);
-const qbPorts = Array.from(document.querySelectorAll('#cfgPorts .chip.active')).map((c) => c.getAttribute('data-port'));
-check('quick build picks the TLS recipe (clean SNI present)', ['443', '2053', '2083', '8443'].every((x) => qbPorts.includes(x)) && !qbPorts.includes('80'), qbPorts.join(','));
-const qbAddr = (document.querySelector('#cfgAddresses')?.value || '').split('\n').filter(Boolean);
-check('quick build fills ≤10 verified/default IPs', qbAddr.length >= 1 && qbAddr.length <= 10, 'rows=' + qbAddr.length);
-check('quick build drops host + v6 entries', !document.querySelector('#cfgProtos .chip[data-flag="host"]').classList.contains('active') && !document.querySelector('#cfgProtos .chip[data-flag="v6"]').classList.contains('active'));
-const qbUrl = document.querySelector('#cfgSubUrl')?.textContent || '';
-check('quick build sub: no host, no v6, TLS ports on', qbUrl.includes('host=0') && qbUrl.includes('v6=0') && qbUrl.includes('443'), qbUrl.slice(0, 130));
-
-// --- QR endpoint: the served SVG must contain exactly the encoder's dark modules ---
-const payload = 'https://' + HOST + '/sub';
-const svg = await (await worker.fetch(new Request('https://' + HOST + '/qr.svg?d=' + encodeURIComponent(payload)), ENV)).text();
-const countSvg = ((svg.match(/<path d="([^"]*)"/) || [])[1]?.match(/M/g) || []).length;
-const encoded = mod._testing.qrEncode(payload, 'M');
-const countLocal = encoded.modules.reduce((n, row) => n + row.filter(Boolean).length, 0);
-check('qr svg served', svg.startsWith('<svg') && countSvg > 0);
-check('qr svg module count matches the encoder', countLocal === countSvg, `${countLocal} encoder vs ${countSvg} svg`);
-try {
-  const { default: QRCode } = await import('qrcode');
-  const ref = QRCode.create([{ data: payload, mode: 'byte' }], { errorCorrectionLevel: 'M' });
-  const countRef = ref.modules.data.reduce((n, v) => n + (v ? 1 : 0), 0);
-  check('qr svg module count matches the reference library', countRef === countSvg, `${countRef} ref vs ${countSvg} svg`);
-} catch (e) {
-  console.log('· skipped cross-library QR comparison (npm i qrcode)');
+    window.confirm = () => true;
+    if (!window.URL.createObjectURL) window.URL.createObjectURL = () => 'blob:mock';
+    if (!window.URL.revokeObjectURL) window.URL.revokeObjectURL = () => {};
+    window.addEventListener('error', (e) => errors.push(e.error ? String(e.error.stack||e.error) : e.message));
+    window.console.error = (...a) => errors.push(a.join(' '));
+  } });
+const { window } = dom; const { document } = window;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+await sleep(300);
+let failures=0; const check=(n,c,x)=>{ if(c) console.log('✓ '+n); else { failures++; console.error('✗ '+n+(x?' — '+x:'')); } };
+check('no JS errors on load', errors.length===0, errors.join('\n'));
+check('stats rendered', document.querySelector('#stUsers').textContent==='0');
+// Aether builder: preserve the classic URI, expose PattNG's newer WG-over-MASQUE mode,
+// and keep the H2 fingerprint/fragment query names exactly as its parser expects.
+{
+  const parseAether = (link) => new URLSearchParams(link.split('?')[1].split('#')[0]);
+  const classic = parseAether(document.querySelector('#aeLink').value);
+  check('Aether default keeps legacy Gool as WireGuard-in-WireGuard', classic.get('protocol') === 'gool' && classic.get('scan') === 'balanced' && !classic.has('transport'));
+  document.querySelector('#aePick [data-v="wg-over-masque"]').click();
+  const wgMasqueLink = document.querySelector('#aeLink').value;
+  const wgMasque = parseAether(wgMasqueLink);
+  check('Aether exposes new WireGuard-over-MASQUE Gool over HTTP/2', wgMasque.get('protocol') === 'wg-over-masque' && wgMasque.get('transport') === 'h2' && wgMasque.get('ip') === 'both');
+  check('new Gool uses PattNG fingerprint and native Aether fragmentation keys', wgMasque.get('fingerprint') === 'semi-python' && wgMasque.get('fragment') === '1' && wgMasque.get('fragment_size') === '8-16' && wgMasque.get('fragment_delay') === '5-10' && !wgMasque.has('fingerPrint') && !wgMasque.has('fm'));
+  document.querySelector('#aePick [data-v="masque"]').click();
+  const masque = parseAether(document.querySelector('#aeLink').value);
+  check('MASQUE/H2 link uses the same parser-supported TLS options', masque.get('protocol') === 'masque' && masque.get('transport') === 'h2' && masque.get('fingerprint') === 'semi-python' && masque.get('fragment') === '1' && !masque.has('fm'));
+  document.querySelector('#aePick [data-v="warp"]').click();
+  check('single-hop WARP link uses PattNG protocol identifier wg', parseAether(document.querySelector('#aeLink').value).get('protocol') === 'wg');
+  document.querySelector('#aePick [data-v="wg-over-masque"]').click();
+  document.querySelector('#aeChain [data-v="psiphon"]').click();
+  const psiphonChain = parseAether(document.querySelector('#aeLink').value);
+  check('chaining Psiphon switches from wg-over-masque to simple wg protocol', psiphonChain.get('protocol') === 'wg' && psiphonChain.get('chain') === 'psiphon');
+  document.querySelector('#aeChain [data-v="tor"]').click();
+  const torChain = parseAether(document.querySelector('#aeLink').value);
+  check('chaining Tor uses simple wg/masque protocol and sets chain=tor', torChain.get('protocol') === 'wg' && torChain.get('chain') === 'tor');
+  document.querySelector('#aeLoc [data-v="iran"]').click();
+  const iranLoc = parseAether(document.querySelector('#aeLink').value);
+  check('choosing Iran exit IP switches to single-hop and sets exit_loc=IR', iranLoc.get('exit_loc') === 'IR' && iranLoc.get('protocol') === 'wg' && !iranLoc.has('chain'));
+  document.querySelector('#aeLoc [data-v="foreign"]').click();
+  const foreignLoc = parseAether(document.querySelector('#aeLink').value);
+  check('choosing Foreign exit IP upgrades single-hop to Gool and sets exit_loc=!IR', foreignLoc.get('exit_loc') === '!IR' && foreignLoc.get('protocol') === 'gool');
+  document.querySelector('#aeChain [data-v="none"]').click();
+  document.querySelector('#aePick [data-v="gool-classic"]').click();
 }
 
-console.log(failures === 0 ? '\nPANEL DOM TESTS PASSED' : `\n${failures} DOM TEST(S) FAILED`);
-process.exit(failures ? 1 : 0);
+check('i18n applied (fa)', document.querySelector('[data-i="users"]').textContent.length>2 && document.documentElement.dir==='rtl');
+check('kv chip ok', document.querySelector('#chipKv').classList.contains('ok'));
+check('clean-IP feed auto-add is visibly ON by default', document.querySelector('#rpAuto').classList.contains('p'));
+// add user via drawer
+document.querySelector('#btnAdd').click();
+check('drawer opens', document.querySelector('#drawer').classList.contains('show'));
+const f = document.querySelector('#fUser'); f.elements.uname.value='sara'; f.elements.days.value='15';
+f.dispatchEvent(new window.Event('submit', { cancelable: true }));
+await sleep(300);
+check('user created + rendered', document.querySelectorAll('#rows tr').length===1 && document.querySelector('#rows').textContent.includes('sara'), document.querySelector('#rows').innerHTML.slice(0,200));
+check('stat updated', document.querySelector('#stUsers').textContent==='1');
+// toggle
+document.querySelector('[data-toggle]').click(); await sleep(300);
+check('toggle → disabled chip', document.querySelector('#rows').textContent.includes('غیرفعال'));
+// settings save
+document.querySelector('[data-view="settings"]').click();
+check('settings view shown', document.querySelector('#v-settings').classList.contains('on'));
+const fs = document.querySelector('#fSettings'); fs.elements.ptitle.value='My Cat'; fs.elements.entryLimit.value='20';
+document.querySelector('#swHealth').click();
+fs.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(300);
+check('settings saved → brand title', document.querySelector('#brandTitle').textContent==='My Cat');
+check('health-order control persists scanner ordering', (await (await window.fetch('/api/settings')).json()).settings.healthOrder === true);
+// ip import
+document.querySelector('#ipPaste').value='1.1.1.1#de, 2.2.2.2:2053#NL\n198.51.100.10\n[2606:4700::1]:8443#us example.com nope';
+document.querySelector('#btnIpAppend').click(); await sleep(300);
+check('WhiteDNS bare-IP export plus tagged/pinned scanner lines imported', document.querySelector('#ipCount').textContent==='5', document.querySelector('#ipCount').textContent);
+const importedScan = (await (await window.fetch('/api/settings')).json()).settings;
+check('plain WhiteDNS IPv4 plus tagged scanner ports/countries are preserved', importedScan.ips.includes('198.51.100.10') && importedScan.ips.includes('2.2.2.2:2053') && importedScan.ips.includes('[2606:4700::1]:8443') && importedScan.ipCountries['1.1.1.1']==='DE' && importedScan.ipCountries['2.2.2.2:2053']==='NL' && importedScan.ipCountries['[2606:4700::1]:8443']==='US', JSON.stringify({ips:importedScan.ips, countries:importedScan.ipCountries}));
+await window.fetch('/api/ips', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ips: ['[2606:4700::2]:8443#US'], source: 'scanner', pingMs: { '[2606:4700::2]:8443#US': 342 }, countries: { '[2606:4700::2]:8443': 'US' } }) });
+document.querySelector('#ipPaste').value='[2606:4700::2]:8443#US';
+document.querySelector('#btnIpAppend').click(); await sleep(300);
+check('tagged scanner result displays its source and measured latency', document.querySelector('#ipList').textContent.includes('از اسکنر') && document.querySelector('#ipList').textContent.includes('342ms'));
+// delete user — goes through the ask() modal now (no native confirm)
+document.querySelector('[data-del]').click(); await sleep(100);
+check('ask modal shown', document.querySelector('#ask').classList.contains('show'));
+document.querySelector('#askYes').click(); await sleep(300);
+check('user deleted', document.querySelectorAll('#rows tr').length===0);
+// A failed write must show a useful, redacted API reason instead of the generic «error» toast.
+failUserCreate = true;
+document.querySelector('#btnAdd').click();
+const fFail = document.querySelector('#fUser'); fFail.elements.uname.value='diagnostic-user'; fFail.elements.days.value='30';
+fFail.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(100);
+const saveError = document.querySelector('#toast').textContent;
+check('user-save error shows detail, content type + CF-Ray but redacts URLs + UUIDs', saveError.includes('HTTP 500') && saveError.includes('internal') && saveError.includes('diagnostic detail') && saveError.includes('application/json') && saveError.includes('diagnostic-user-create-ray') && !saveError.includes('example.test') && !saveError.includes('11111111-2222-4333-8444-555555555555'), saveError);
+failUserCreate = false;
+document.querySelector('[data-close]').click();
+// A non-JSON 500 includes safe response metadata for triage, never its body.
+failUserNonJson = true;
+document.querySelector('#btnAdd').click();
+const fNonJson = document.querySelector('#fUser'); fNonJson.elements.uname.value='non-json-diagnostic'; fNonJson.elements.days.value='30';
+fNonJson.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(100);
+const nonJsonSaveError = document.querySelector('#toast').textContent;
+check('non-JSON save error shows status, content type + CF-Ray but not body', nonJsonSaveError.includes('HTTP 500') && nonJsonSaveError.includes('text/html') && nonJsonSaveError.includes('diagnostic-user-non-json-ray') && nonJsonSaveError.includes('non-JSON response') && !nonJsonSaveError.includes('PRIVATE_INTERNAL_HTML') && !nonJsonSaveError.includes('example.test') && !nonJsonSaveError.includes('11111111-2222-4333-8444-555555555555'), nonJsonSaveError);
+failUserNonJson = false;
+document.querySelector('[data-close]').click();
+// A 201 create followed by a failed GET is not a failed save; don't mislead the owner into retrying.
+failUserList = true;
+document.querySelector('#btnAdd').click();
+const fRefresh = document.querySelector('#fUser'); fRefresh.elements.uname.value='saved-but-refresh-failed'; fRefresh.elements.days.value='30';
+fRefresh.dispatchEvent(new window.Event('submit', { cancelable: true })); await sleep(200);
+const refreshError = document.querySelector('#toast').textContent;
+check('post-save refresh error says the user was saved', refreshError.includes('ذخیره شد') && refreshError.includes('HTTP 503'), refreshError);
+failUserList = false;
+const usersAfterRefreshError = await (await window.fetch('/api/users')).json();
+check('user persists after refresh-only failure', usersAfterRefreshError.users.some(u => u.name === 'saved-but-refresh-failed'));
+// settings export: real click → a download anchor appears (BPB-style backup)
+document.querySelector('[data-view="settings"]').click();
+document.querySelector('#btnSetExport').click(); await sleep(100);
+check('settings export → download anchor', !!document.querySelector('a[download="cat-panel-settings.json"]'));
+
+// settings import: real File → FileReader → merged PUT → UI re-renders
+{
+  const file = new window.File([JSON.stringify({ _cat: 'cat-panel-settings', v: 1, settings: { title: 'ImportedTitle' } })], 's.json', { type: 'application/json' });
+  const inp = document.querySelector('#setImportFile');
+  Object.defineProperty(inp, 'files', { value: [file] });
+  inp.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await sleep(400);
+  check('settings import → merged + rendered', document.querySelector('#brandTitle').textContent === 'ImportedTitle', document.querySelector('#brandTitle').textContent);
+  check('import did not touch chain field', inp && document.querySelector('#fSettings').elements.chain !== undefined);
+}
+
+// about view: supported clients card (BPB parity)
+document.querySelector('[data-view="about"]').click();
+check('supported clients card', document.querySelectorAll('.clients a').length === 6 && document.querySelector('.clients').textContent.includes('v2rayNG'));
+const rec1101 = document.querySelector('[data-i="rec_hint"]').textContent + ' ' + document.querySelector('[data-i="rec_steps"]').textContent;
+check('1101 guidance points to runtime logs without calling it a ban or suggesting account changes', rec1101.includes('1101') && rec1101.includes('Logs') && rec1101.includes('stack trace') && !rec1101.includes('اکانت تازه') && !rec1101.includes('ساب‌دامینه را'));
+
+// hamburger menu: burger opens the drawer, items are labeled, view switch closes it
+document.querySelector('#btnBurger').click(); await sleep(80);
+check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
+check('menu has 11 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab; 6.76.0: + 🔗 link panels)', document.querySelectorAll('#menu .mlist > button').length === 11 && document.querySelector('#menu .mtx b').textContent.length > 2);
+document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
+check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
+check('no bottom nav in DOM', !document.querySelector('.nav'));
+
+// 6.47.0 grouping: settings form split into 10 labeled topic cards (chain no
+// longer sits next to the deploy block); health endpoint de-fingerprinted
+document.querySelector('[data-view="settings"]').click();
+check('settings = 10 topic cards', document.querySelectorAll('#fSettings > .card.sec').length === 10, document.querySelectorAll('#fSettings > .card.sec').length);
+check('card titles rendered (fa)', document.querySelector('[data-i="g_chain"]').textContent.length > 3);
+{
+  const cards = Array.from(document.querySelectorAll('#fSettings > .card.sec'));
+  const chainCard = cards.find(c => c.querySelector('[data-i="g_chain"]'));
+  const ghCard = cards.find(c => c.querySelector('[data-i="g_gh"]'));
+  check('chain card separate from deploy card', !!chainCard && !!ghCard && chainCard !== ghCard);
+  const order = cards.findIndex(c => c.querySelector('input[name="chain"]'));
+  const tg = cards.findIndex(c => c.querySelector('input[name="tgToken"]'));
+  check('chain card comes before telegram card', order >= 0 && tg >= 0 && order < tg);
+}
+
+// 6.48.0: service-proof card (BPB parity) in the nodes view
+document.querySelector('[data-view="nodes"]').click();
+check('service-proof card present', !!document.querySelector('#btnAiTest') && document.querySelector('[data-i="ai_title"]').textContent.length > 2);
+
+// 6.75.0 page tabs: busy pages are split into tabs; old «nodes»/«spoof» links land on the right tab
+{
+  const live = (sel) => { const el = document.querySelector(sel); const c = el && el.closest('.card,.ncard'); return !!c && !c.classList.contains('pt-off'); };
+  check('scan page has a tab bar (scanner / panel IPs / pools / sources / app)', document.querySelectorAll('#v-scan .ptabs [data-pt^="scan:"]').length === 5);
+  check('«nodes» link opens Clean IP → panel IPs tab', document.getElementById('v-scan').classList.contains('on') && live('#ipList') && !live('#rsCard'));
+  document.querySelector('[data-pt="scan:scan"]').click();
+  check('tab click switches cards', live('#rsCard') && !live('#ipList'));
+  check('loc page tabs exist and spoof cards moved into it', document.querySelectorAll('#v-loc .ptabs [data-pt^="loc:"]').length === 5 && document.getElementById('v-loc').contains(document.getElementById('fSpoof')));
+  check('tools page holds the survival pack + DNS lab as tabs', document.getElementById('v-tools').contains(document.getElementById('survCard')) && document.getElementById('v-tools').contains(document.getElementById('wdnsCard')));
+  check('builder: numbered steps + optional firewall section', document.querySelectorAll('#v-build .bstep').length === 3 && !!document.querySelector('#v-build details.bmore #bFw'));
+  check('sidebar has no separate nodes/spoof pages', !document.querySelector('#sideNav [data-view="nodes"]') && !document.querySelector('#sideNav [data-view="spoof"]'));
+}
+// keep the old flow: the service-proof card is reachable (it lives in Locations → Exit tests now)
+document.querySelector('[data-view="nodes"]').click();
+
+// 6.46.0 motion/iOS design: marquee strip, spring drawer CSS, press-scale CSS
+check('dashboard marquee strip', !!document.querySelector('.marq .mi2') && document.querySelectorAll('.marq span').length === 2);
+const css = document.querySelector('style') ? Array.from(document.querySelectorAll('style')).map(x => x.textContent).join('') : '';
+check('iOS motion CSS present', css.includes('--spring') && css.includes('@keyframes marq') && css.includes('prefers-reduced-motion'));
+
+// beta58: ✍️ manual add — real click, real POST, real storage (regression:
+// a template-literal escape bug once mangled every entry into «a.com:443»)
+{
+  const before = ((await (await window.fetch('/api/settings')).json()).settings.ips || []).length;
+  document.querySelector('#manualIps').value = '198.51.100.9\n2606:4700:4700::1111\nwww.visa.com';
+  document.querySelector('#manualTest').checked = false;
+  document.querySelector('#btnManualAdd').click();
+  await sleep(400);
+  const st = (await (await window.fetch('/api/settings')).json()).settings;
+  const ips = st.ips || [];
+  check('manual add: 3 entries stored', ips.includes('198.51.100.9:443') && ips.includes('[2606:4700:4700::1111]:443') && ips.includes('www.visa.com:443'), JSON.stringify(ips));
+  check('manual add: list grew by 3', ips.length === before + 3, before + ' → ' + ips.length);
+  check('manual add: src=manual badge', !!(st.ipSources && Object.values(st.ipSources).some((v) => v && v.src === 'manual')));
+}
+// beta90 survival card: the real button reaches the owner-only API, applies
+// the safe SNI=Host fallback set, and renders the emergency subscription URL.
+{
+  check('survival pack card + button are present', !!document.querySelector('#survCard #btnSurvival') && document.querySelector('#survCard [data-i="surv_title"]').textContent.length > 3);
+  document.querySelector('#btnSurvival').click();
+  await sleep(700);
+  const st = (await (await window.fetch('/api/settings')).json()).settings;
+  check('survival button applies fallback settings', st.subRotate === 'daily' && st.sniFront === false && st.sniRotate === false && st.plainEnabled && st.healthOrder === true && st.protocols.vless && st.protocols.trojan, JSON.stringify([st.subRotate, st.sniFront, st.sniRotate, st.plainEnabled, st.healthOrder, st.protocols]));
+  const a = document.querySelector('#survOut a');
+  check('survival button renders shareable ?survive=1 link', !!a && a.href.endsWith('?survive=1'), a && a.href);
+  const surviveFormats = Array.from(document.querySelectorAll('#survOut [data-copy]')).map(b => b.getAttribute('data-copy'));
+  check('survival has raw, base64, Clash, sing-box and Xray format links', surviveFormats.length === 5 && surviveFormats.some(u => u.includes('/clash/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/singbox/') && u.endsWith('?survive=1')) && surviveFormats.some(u => u.includes('/xray/') && u.endsWith('?survive=1')), surviveFormats.join(' | '));
+}
+
+// The builder must surface HTTP failures rather than mislabeling them «no clean IPs».
+{
+  document.querySelector('[data-view="build"]').click();
+  failSubscription = true;
+  document.querySelector('#bGen').click();
+  await sleep(100);
+  check('builder shows status, content type + CF-Ray when subscription request fails', document.querySelector('#bEmpty').textContent.includes('HTTP 502') && document.querySelector('#bEmpty').textContent.includes('text/plain') && document.querySelector('#bEmpty').textContent.includes('diagnostic-subscription-ray'), document.querySelector('#bEmpty').textContent);
+  check('builder does not expose the raw response body', !document.querySelector('#bEmpty').textContent.includes('worker-private-body'));
+  failSubscription = false;
+  document.querySelector('#bGen').click();
+  const generatedDeadline = Date.now() + 2000;
+  while (Date.now() < generatedDeadline && !(Number(document.querySelector('#bCount').textContent) > 0 && document.querySelector('#bEmpty').style.display === 'none')) await sleep(50);
+  const generatedCount = Number(document.querySelector('#bCount').textContent);
+  const generatedPreview = document.querySelector('#bPrev').value;
+  check('builder counts successful URI lines', generatedCount > 0 && generatedCount <= 24, String(generatedCount));
+  check('builder preview contains generated configs', /^(vless|trojan):\/\//m.test(generatedPreview), generatedPreview.slice(0, 100));
+  emptySubscription = true;
+  document.querySelector('#bGen').click();
+  const emptyDeadline = Date.now() + 2000;
+  while (Date.now() < emptyDeadline && !(document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').style.display !== 'none' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'))) await sleep(50);
+  check('builder distinguishes a successful but empty HTTP response', document.querySelector('#bCount').textContent === '0' && document.querySelector('#bEmpty').textContent.includes('HTTP 200'), JSON.stringify({ count: document.querySelector('#bCount').textContent, shown: document.querySelector('#bEmpty').style.display, text: document.querySelector('#bEmpty').textContent }));
+  emptySubscription = false;
+  const fwIds = ['mci-ech', 'mci-ipv6', 'mci-ipv6-ff', 'irancell-ff'];
+  check('builder exposes four firewall presets and an editable entry IP', fwIds.every(id => !!document.querySelector('#bFw [data-v="' + id + '"]')) && !!document.querySelector('#bAddr'));
+  const builderSettingsBeforeFw = (await (await window.fetch('/api/settings')).json()).settings;
+  document.querySelector('#bFw [data-v="irancell-ff"]').click();
+  document.querySelector('#bGen').click();
+  await sleep(350);
+  let fwLink = new URL(document.querySelector('#bLink').value);
+  const fwXrayLink = new URL(document.querySelector('#bXrayLink').value);
+  check('Builder links the Irancell profile, its suggested IP and Xray endpoint per-link', fwLink.searchParams.get('fw') === 'irancell-ff' && fwLink.searchParams.get('addr') === '188.114.97.6' && fwXrayLink.pathname.includes('/xray/') && fwXrayLink.searchParams.get('fw') === 'irancell-ff', fwLink.href + ' | ' + fwXrayLink.href);
+  check('Builder shows Xray import and hides incompatible Cat Client/Hiddify buttons', document.querySelector('#bXrayWrap').style.display === 'block' && document.querySelector('#bCat').style.display === 'none' && document.querySelector('#bHid').style.display === 'none');
+  const builderCustomIp = document.querySelector('#bAddr');
+  builderCustomIp.value = '198.51.100.42';
+  builderCustomIp.dispatchEvent(new window.Event('input', { bubbles: true }));
+  document.querySelector('#bGen').click();
+  await sleep(350);
+  fwLink = new URL(document.querySelector('#bLink').value);
+  check('Builder keeps the editable IP in the profile link', fwLink.searchParams.get('fw') === 'irancell-ff' && fwLink.searchParams.get('addr') === '198.51.100.42');
+  document.querySelector('#bFw [data-v=""]').click();
+  document.querySelector('#bGen').click();
+  await sleep(350);
+  const defaultBuilderLink = new URL(document.querySelector('#bLink').value);
+  const builderSettingsAfterFw = (await (await window.fetch('/api/settings')).json()).settings;
+  check('Builder clears profile-only state when reset to default', !defaultBuilderLink.searchParams.has('fw') && document.querySelector('#bXrayWrap').style.display === 'none' && document.querySelector('#bCat').style.display !== 'none' && document.querySelector('#bHid').style.display !== 'none');
+  check('Builder firewall selection never persists into settings', builderSettingsBeforeFw.fingerprint === builderSettingsAfterFw.fingerprint && builderSettingsBeforeFw.echList === builderSettingsAfterFw.echList && builderSettingsBeforeFw.cipherSuites === builderSettingsAfterFw.cipherSuites);
+}
+{
+  check('WhiteDNS Resolver & DNS Tunnel Lab card is present in scan view', !!document.querySelector('#wdnsCard') && !!document.querySelector('#wdnsOut'));
+  document.querySelector('#wdnsResPick [data-wdres="10.202.10.202"]').click();
+  document.querySelector('#wdnsTrPick [data-wdtr="doq"]').click();
+  document.querySelector('#wdnsRecPick [data-wdrec="null"]').click();
+  document.querySelector('#wdnsPrPick [data-wdpr="iran-download-heavy"]').click();
+  const wdnsText = document.querySelector('#wdnsOut').textContent || '';
+  check('WhiteDNS Lab generates CottenMax, StormDNS, Soar, DNSTT and DoQ/DoH3 lines', wdnsText.includes('cottendns://10.202.10.202:53/') && wdnsText.includes('transport=doq') && wdnsText.includes('delivery=null') && wdnsText.includes('preset=iran-download-heavy') && wdnsText.includes('stormdns://') && wdnsText.includes('soar://') && wdnsText.includes('DoQ=quic://10.202.10.202:853'));
+}
+
+// 6.76.0 🔗 link panels page: real clicks against the real worker
+{
+  document.querySelector('#sideNav [data-view="link"]').click(); await sleep(150);
+  check('🔗 link page opens from the sidebar', document.getElementById('v-link').classList.contains('on'));
+  check('… lists «no linked panel yet» from GET /api/links', /no linked panel|هنوز پنلی/i.test(document.querySelector('#lkList').textContent), document.querySelector('#lkList').textContent.slice(0, 80));
+  document.querySelector('#lkMake').click(); await sleep(150);
+  const code = document.querySelector('#lkOut').value;
+  check('«make code» shows a CATLINK1- code', /^CATLINK1-/.test(code) && document.querySelector('#lkOutBox').style.display === 'block', code.slice(0, 20));
+  document.querySelector('#lkCode').value = code; document.querySelector('#lkJoin').click(); await sleep(150);
+  check('pasting the code in the same panel shows a clear refusal', /❌/.test(document.querySelector('#lkMsg').textContent), document.querySelector('#lkMsg').textContent);
+  check('the plain-words guide is on the page', document.querySelectorAll('#v-link ul li').length >= 5);
+}
+
+// 6.80.0 🗃️ clean-IP repository: the browser tests, only answering ones (≥ 40 ms, not timed out) are added on :443
+{
+  document.querySelector('#repoKinds input[value="v6"]').checked = true;
+  document.querySelector('#repoKinds input[value="dom"]').checked = true;
+  document.querySelector('#repoN').value = '5';
+  document.querySelector('#repoGo').click();
+  for (let i = 0; i < 60 && document.querySelector('#repoGo').disabled; i++) await sleep(150);
+  const out = document.querySelector('#repoOut').textContent;
+  check('repo picker: candidates listed with a result each', /188\.114\.97\.7:443/.test(out) && /www\.visa\.com:443/.test(out) && /3 \/ 5/.test(out), out.slice(0, 300));
+  check('repo picker: «add» appears once something answered', document.querySelector('#repoAdd').style.display === '');
+  document.querySelector('#repoAdd').click(); await sleep(400);
+  const ips = JSON.parse(await KV.get('cat:v6:settings')).ips;
+  check('repo picker: exactly the 3 that answered are added, each on :443 (instant refusal + timeout left out)', ['188.114.97.7:443', '[2606:4700:3030::6815:30c9]:443', 'www.visa.com:443'].every((a) => ips.includes(a)) && !ips.some((a) => /188\.114\.9[68]\./.test(a)), JSON.stringify(ips));
+}
+// 6.80.0 🔐 advanced ECH: fetch → combine (UDP for all, DoH only for IP-certificate resolvers, never TCP) → save
+{
+  document.querySelector('#echDomsGet').click(); await sleep(150);
+  document.querySelector('#echDnsGet').click(); await sleep(150);
+  check('ECH: fetched names and DNS fill the boxes', /crypto\.cloudflare\.com/.test(document.querySelector('#echDoms').value) && /8\.8\.8\.8/.test(document.querySelector('#echDns').value) && /84\.200\.69\.80/.test(document.querySelector('#echDns').value));
+  document.querySelector('#echMix').click();
+  const lines = document.querySelector('#echPoolTa').value.split('\n').filter(Boolean);
+  check('ECH: combine = UDP for each DNS + DoH only where the resolver has an IP certificate, no tcp://', lines.includes('crypto.cloudflare.com+udp://8.8.8.8') && lines.includes('crypto.cloudflare.com+udp://84.200.69.80') && lines.includes('crypto.cloudflare.com+https://8.8.8.8/dns-query') && !lines.some((l) => /84\.200\.69\.80\/dns-query|tcp:/.test(l)), lines.join(' | '));
+  document.querySelector('#echPoolSave').click(); await sleep(300);
+  const pool = JSON.parse(await KV.get('cat:v6:settings')).echPool;
+  check('ECH: «save» stores the list in the panel settings', Array.isArray(pool) && pool.length === lines.length, JSON.stringify(pool));
+}
+// 6.80.0 user modal: «reset every N days» exists; ☁️ quota line + 🔒 Reality card stay hidden where they do not apply
+check('user modal has the auto-reset field', !!document.querySelector('#fUser [name="resetdays"]'));
+check('Reality card hidden on a Cloudflare panel', document.querySelector('#rlCard').style.display === 'none');
+
+// lang toggle triggers reload (location.reload not implemented in jsdom → ignore errors from that)
+check('no JS errors overall', errors.filter(e=>!/reload/.test(e)).length===0, errors.join('\n'));
+// login page + info page parse
+const login = await (await worker.fetch(new Request(HOST + '/panel'), { CAT_KV: KV, UUID: env.UUID }, {})).text();
+const d2 = new JSDOM(login, { runScripts:'dangerously' }); check('login page has form', !!d2.window.document.querySelector('#f'));
+console.log(failures ? failures+' FAILED' : 'DOM PASSED'); process.exit(failures?1:0);

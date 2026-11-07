@@ -73,6 +73,13 @@ internal class AppUpdateUi(
             setLineSpacing(dp(2).toFloat(), 1f)
         }
         panel.addView(securityNote, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        // Play Protect shows «App scan recommended» for every APK Google has not seen yet (each new
+        // version is a new file). It is not an error; tell the user what each button does.
+        panel.addView(label(activity.getString(R.string.update_play_protect_note)).apply {
+            textSize = 11f
+            setTextColor(palette.textSecondary)
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         status = label("")
         panel.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
