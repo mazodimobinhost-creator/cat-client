@@ -855,6 +855,18 @@ internal class FreeNetworkStore(context: Context) {
     var windSubId: String
         get() = prefs.getString("wd_sub", "").orEmpty()
         set(v) { prefs.edit().putString("wd_sub", v).apply() }
+    var windWgPriv: String
+        get() = prefs.getString("wd_wgp", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_wgp", v).apply() }
+    var windWgPub: String
+        get() = prefs.getString("wd_wgu", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_wgu", v).apply() }
+    var windWgPsk: String
+        get() = prefs.getString("wd_wgs", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_wgs", v).apply() }
+    var windWgAllowed: String
+        get() = prefs.getString("wd_wga", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_wga", v).apply() }
 }
 
 /** Fetch + build for the free proxy network and Lantern; blocking, off the main thread. */

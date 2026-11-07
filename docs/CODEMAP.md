@@ -35,8 +35,8 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1268 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind. | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 900 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 9 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1429 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -91,7 +91,7 @@
 | `AetherEngineSlot.kt` | 98 | beta215: the Cat Warp native core runs ONE engine per app process (the bridge keeps a global run slot and answers «engine is already running» to pr… | Beta215AetherEngineSlotTest, Beta218ConnectFreezeTest · — |
 | `AetherFallbackStages.kt` | 30 | beta243 (review round 2). | Beta241AetherNetworkPlanTest, Beta243AetherReviewRound2Test · — |
 | `AetherIdentityStore.kt` | 221 | Read-only view of the WARP identities the Cat Warp core keeps next to `aether.toml`. | Beta209WarpEditorTest · — |
-| `AetherMode.kt` | 58 | User-facing Aether stacks. | AetherModePolicyTest, AetherRuntimeConfigTest, AetherSelectionTest, Beta206EngineTest, Beta209WarpEditorTest, Beta218ConnectFreezeTest, Beta219TunnelTrafficTest, Beta241AetherNetworkPlanTest, Beta243AetherReviewRound2Test, WhiteDnsSmartScannerTest · — |
+| `AetherMode.kt` | 58 | User-facing Aether stacks. | 11 JVM · 0 panel (see `affected-tests.py`) |
 | `AetherNetworkPlanner.kt` | 157 | beta241 — «the Cat Warp configs my app builds only work on my own internet». | Beta241AetherNetworkPlanTest, Beta243AetherReviewRound2Test · — |
 | `AetherOperations.kt` | 747 | Explicit foreground operations only; callers own coroutine/lifecycle cancellation. | AetherOperationsTest, Beta206EngineTest, Beta209WarpEditorTest, WhiteDnsSmartScannerTest · — |
 | `AetherPreferenceStore.kt` | 1148 | — | AetherRuntimeConfigTest, AetherSelectionTest, Beta209WarpEditorTest, Beta241AetherNetworkPlanTest, Beta243AetherReviewRound2Test, WhiteDnsSmartScannerTest · — |
@@ -121,7 +121,7 @@
 | `VercelRelay.kt` | 684 | Vercel XHTTP relay ("config on Vercel"). | Beta247VercelRoutesTest, VercelRelayTest · — |
 | `VercelRelayController.kt` | 1801 | "🔺 Config on Vercel": deploys an XHTTP relay into the user's own Vercel account with their token, then builds ready configs (vercel.com address, pr… | — · — |
 | `VerifiedTunnelChain.kt` | 41 | — | — · — |
-| `WarpRegistration.kt` | 486 | Real Cloudflare WARP registration for `awg://auto@…` / `wireguard://auto@…` configs. | Beta209WarpEditorTest, Beta210WarpAutoKeyTest · — |
+| `WarpRegistration.kt` | 486 | Real Cloudflare WARP registration for `awg://auto@…` / `wireguard://auto@…` configs. | Beta209WarpEditorTest, Beta210WarpAutoKeyTest, Beta265IranMethodsTest · — |
 | `WhiteDnsSmartScanner.kt` | 3267 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, WhiteDnsSmartScannerTest · — |
 | `WhiteDnsToolkit.kt` | 853 | Scanner toolkit inspired by the sections of WhiteDNS IP Scanner (independent implementation, no code copied): ASN → CIDR export, CIDR → IP list, op… | Beta238FoxWebChannelTest, WhiteDnsToolkitTest · — |
 | `XrayEngine.kt` | 262 | Runs the official Xray-core (XTLS/Xray-core, MPL-2.0 — built unmodified from source in CI by `scripts/build-xray-core.sh` together with Cat's tiny… | Beta223XrayEngineTest · — |
@@ -301,7 +301,8 @@
 | `CatClientApplication.kt` | 87 | — | — · — |
 | `CatGpEngine.kt` | 206 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | — · — |
 | `CatGpRelay.kt` | 835 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest · — |
-| `CatWindEngine.kt` | 325 | beta263 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox account: t… | Beta263CatWindTest · — |
+| `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
+| `CatWindEngine.kt` | 502 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
@@ -314,10 +315,10 @@
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
 | `FoxTransport.kt` | 161 | Cat Fox VPN tunnel protocol (independent of other clients). | Beta211FenixHttp2Test, Beta259FoxTransportTest · — |
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
-| `FreeNetworkEngines.kt` | 977 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest · — |
+| `FreeNetworkEngines.kt` | 989 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
-| `LiveNetPing.kt` | 89 | TCP connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest · — |
+| `LiveNetPing.kt` | 89 | TCP connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest, Beta265IranMethodsTest · — |
 | `MethodFinderPlan.kt` | 302 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest · — |
 | `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
@@ -325,7 +326,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_267 Kotlin files, 114819 lines._
+_268 Kotlin files, 115247 lines._
 
 ## MainActivity screens — function index
 
@@ -384,13 +385,13 @@ for the dialog/button you want to change.
 
 `buildFirefoxVpnFenixCard`:114, `showFirefoxAccountManagerDialog`:285, `showFirefoxEmailLoginDialog`:809, `showFirefoxVpnFenixHubDialog`:989, `connectFirefoxVpnDirectly`:1134, `showFirefoxCountryPickerDialog`:1280, `showFoxTransportDialog`:1409, `showFirefoxTokenImportDialog`:1434
 
-### `MainActivityFreeNetworks.kt` (29 functions)
+### `MainActivityFreeNetworks.kt` (32 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:168, `freeProgress`:184, `saveFreeSubscription`:209, `connectFreeSubscription`:219, `freeResult`:253, `showFreeProxyDialog`:271, `buildFreeProxy`:292, `showFanoosDialog`:333, `fetchFanoos`:380, `fetchFanoosAll`:439, `showFreeAccountDialog`:576, `showProtonDialog`:721, `showProtonPaste`:743, `showProtonWebView`:767, `addProtonConfs`:886, `showFreePsiphonDialog`:958, `pickFreePsiphonCountry`:996, `connectFreePsiphon`:1015, `showCatWindDialog`:1054, `showCatWindLogin`:1137, `connectCatWind`:1204, `jsString`:1268
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:174, `freeProgress`:190, `saveFreeSubscription`:215, `connectFreeSubscription`:225, `freeResult`:259, `showFreeProxyDialog`:277, `buildFreeProxy`:298, `showFanoosDialog`:339, `fetchFanoos`:386, `fetchFanoosAll`:445, `showFreeAccountDialog`:582, `showProtonDialog`:727, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:892, `showFreePsiphonDialog`:964, `pickFreePsiphonCountry`:1002, `connectFreePsiphon`:1021, `showCatWarpFreeDialog`:1060, `connectCatWarpFree`:1121, `showCatWindDialog`:1156, `showCatWindLogin`:1241, `pickWindProtocol`:1308, `connectCatWind`:1326, `jsString`:1429
 
 ### `MainActivityGuides.kt` (9 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:495, `normalizeFinderText`:730, `featureFinderBar`:734, `showFirewallConnectionGuideDialog`:765, `showPrivacyPolicyIfNeeded`:819, `showPrivacyPolicyDialog`:825
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:499, `normalizeFinderText`:734, `featureFinderBar`:738, `showFirewallConnectionGuideDialog`:769, `showPrivacyPolicyIfNeeded`:823, `showPrivacyPolicyDialog`:829
 
 ### `MainActivityMethodFinder.kt` (7 functions)
 
@@ -520,6 +521,7 @@ for the dialog/button you want to change.
 | `CatGpJson` | `CatGpRelay.kt` |
 | `CatGpProxy` | `CatGpRelay.kt` |
 | `CatGpScripts` | `CatGpRelay.kt` |
+| `CatWarpFreePlanner` | `CatWarpFree.kt` |
 | `CatWarpListPolicy` | `CatWarpListPolicy.kt` |
 | `CatWindClient` | `CatWindEngine.kt` |
 | `CatWindPlanner` | `CatWindEngine.kt` |

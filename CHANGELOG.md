@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta265] — 2026-11-07 (Panel 6.87.0, unchanged)
+
+Owner: check two YouTube methods and add the ones that work, like Fox.
+
+### Added
+- **🚀 Cat Warp in free networks:** Cloudflare-tunnel picker with **live TCP ping** of each listed `IP:port` (WireGuard IPv4 :2408 / IPv6 :2408, MASQUE-HTTP/2 :443, MASQUE in MASQUE :443). One tap connects. Exit is a Cloudflare IP (not a country-change VPN). Independent; Cat branding only. SSTP stays the separate VPN Gate item.
+- **🌬️ Cat Wind WireGuard:** protocol picker — Stealth (HTTPS CONNECT :443) or WireGuard (UDP :443 via public `WgConfigs/init` + `connect`). Live ping still uses the listed :443 (never rewritten). Custom SNI is not emitted (would need skip-cert-verify). Registry wipe / extra-account farming is not added.
+
 ## [1.10.0-beta264] — 2026-11-07 (Panel 6.87.0)
 
 Owner: worker panel returned Cloudflare Error 1102.

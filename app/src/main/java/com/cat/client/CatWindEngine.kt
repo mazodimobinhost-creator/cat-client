@@ -8,13 +8,17 @@ import java.util.Base64
 import java.util.Locale
 
 /**
- * beta263 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities),
+ * beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities),
  * used the same way Cat Fox uses a free Firefox account: the user creates / signs in with their
  * own account (Cat never fills the human check), Cat takes the public city list, times each host
- * on THIS network, then builds ordinary `https://user:pass@host:443` rows (TCP/TLS CONNECT — the
- * same shape as Cat Free Proxy) so the existing core can connect. WireGuard UDP is not faked.
+ * on THIS network, then the user picks a protocol:
+ *  • Stealth = ordinary `https://user:pass@host:443` CONNECT/TLS (TCP).
+ *  • WireGuard = `wireguard://` on the listed UDP **:443** (never rewritten) via public
+ *    `WgConfigs/init` + `WgConfigs/connect`. Private key stays on device.
+ * Custom SNI (e.g. python.org) is **not** emitted: that needs skip-cert-verify, which Cat never
+ * sets. Registry wipe / extra-account farming is not implemented.
  *
- * Protocol from the public HTTP API shape (`Session`, `ServerCredentials`,
+ * Protocol from the public HTTP API shape (`Session`, `ServerCredentials`, `WgConfigs`,
  * `assets…/serverlist/mob-v2`) documented by independent clients; independent Kotlin, no copy of
  * that service's app (GPL). Premium cities are not unlocked. Ports are never rewritten.
  */
@@ -23,11 +27,17 @@ internal object CatWindPlanner {
     const val LOGIN_PAGE = "https://windscribe.com/login"
     const val SESSION = "https://api.windscribe.com/Session"
     const val CREDENTIALS = "https://api.windscribe.com/ServerCredentials"
+    const val WG_INIT = "https://api.windscribe.com/WgConfigs/init"
+    const val WG_CONNECT = "https://api.windscribe.com/WgConfigs/connect"
     const val LIST_FREE = "https://assets.windscribe.com/serverlist/mob-v2/0/"
     const val LIST_ALL = "https://assets.windscribe.com/serverlist/mob-v2/1/"
     const val UA = "CatClient"
     const val PORT = 443
+    const val WG_PORT = 443
     const val NAME = "🌬️ Cat Wind"
+    const val WG_MAX = 4
+
+    enum class Proto { Stealth, WireGuard }
 
     data class Location(
         val country: String,
@@ -36,14 +46,19 @@ internal object CatWindPlanner {
         val hostname: String,
         val ip: String,
         val premiumOnly: Boolean,
+        val ip3: String = "",
+        val wgPubKey: String = "",
     ) {
         val pingHost: String get() = ip.ifBlank { hostname }
+        fun pingHostFor(proto: Proto): String =
+            if (proto == Proto.WireGuard) ip3.ifBlank { pingHost } else pingHost
         fun names() = FoxCountryNames.of(country, region, city)
         fun label(fa: Boolean): String {
             val n = names()
             val where = city.ifBlank { if (fa) n.fa else n.en }
             return "${n.flag} $where"
         }
+        fun canWireGuard(): Boolean = wgPubKey.isNotBlank() && WireGuardConfText.isKey32(wgPubKey)
     }
 
     data class Session(
@@ -188,9 +203,14 @@ internal object CatWindPlanner {
                 val host = node.optString("hostname").trim().lowercase(Locale.US)
                 if (host.isBlank() || '.' !in host) continue
                 val ip = node.optString("ip").ifBlank { group.optString("ping_ip") }.trim()
+                val ip3 = node.optString("ip3").ifBlank { group.optString("ip3") }.trim()
+                val wg = node.optString("wg_pubkey").ifBlank { group.optString("wg_pubkey") }.trim()
                 val key = cc + "\u0000" + city.lowercase(Locale.US)
                 if (!seen.add(key)) continue
-                out += Location(cc.ifBlank { "XX" }, regionName, city, host, ip, pro || premiumOnly(group))
+                out += Location(
+                    cc.ifBlank { "XX" }, regionName, city, host, ip,
+                    pro || premiumOnly(group), ip3, wg,
+                )
             }
         }
         out
@@ -212,11 +232,105 @@ internal object CatWindPlanner {
     /**
      * One `https://` CONNECT-over-TLS row per city. Port is always the listed 443 — never rewritten.
      * TLS is verified against the hostname (`sni=host`); a bare IP would get no SNI.
+     * Custom SNI is not used (would need skip-cert-verify).
      */
     fun httpsLink(user: String, pass: String, loc: Location, fa: Boolean): String {
         val n = loc.names()
         val title = "$NAME · ${n.flag} " + (if (fa) n.fa else n.en)
         return "https://${enc(user)}:${enc(pass)}@${loc.hostname}:$PORT?sni=${enc(loc.hostname)}#${enc(title)}"
+    }
+
+    fun keyPair(privStored: String, pubStored: String): Pair<String, String> {
+        if (WireGuardConfText.isKey32(privStored) && WireGuardConfText.isKey32(pubStored)) {
+            return privStored.trim() to pubStored.trim()
+        }
+        val priv = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        WarpRegistration.clamp(priv)
+        val pub = WarpRegistration.publicKeyOf(priv)
+        val b64 = Base64.getEncoder()
+        return b64.encodeToString(priv) to b64.encodeToString(pub)
+    }
+
+    /** `data.config.PresharedKey` + `AllowedIPs` from `POST /WgConfigs/init`. */
+    fun wgInit(json: String): Pair<String, String>? = runCatching {
+        val root = JSONObject(json)
+        if (root.has("errorCode") && root.optInt("errorCode") != 0) return@runCatching null
+        val data = root.optJSONObject("data") ?: return@runCatching null
+        val cfg = data.optJSONObject("config") ?: data
+        val psk = cfg.optString("PresharedKey").ifBlank { cfg.optString("presharedKey") }
+        val allowed = cfg.optString("AllowedIPs").ifBlank { "0.0.0.0/0, ::/0" }
+        if (psk.isBlank() && !cfg.has("PresharedKey") && !cfg.has("AllowedIPs")) return@runCatching null
+        psk to allowed
+    }.getOrNull()
+
+    /** Assigned tunnel address + DNS from `POST /WgConfigs/connect`. */
+    fun wgAddress(json: String): Pair<String, String>? = runCatching {
+        val root = JSONObject(json)
+        if (root.has("errorCode") && root.optInt("errorCode") != 0) return@runCatching null
+        val data = root.optJSONObject("data") ?: return@runCatching null
+        val obj = data.optJSONObject("config")
+        val raw = if (obj == null) data.optString("config") else ""
+        fun line(key: String): String = raw.lineSequence()
+            .firstOrNull { it.trim().startsWith(key, ignoreCase = true) && '=' in it }
+            ?.substringAfter('=')?.trim().orEmpty()
+        val address = obj?.optString("Address").orEmpty()
+            .ifBlank { obj?.optString("address").orEmpty() }
+            .ifBlank { data.optString("Address") }
+            .ifBlank { data.optString("address") }
+            .ifBlank { line("Address") }
+            .ifBlank { if ('/' in raw && '[' !in raw) raw.trim() else "" }
+        val dns = obj?.optString("DNS").orEmpty()
+            .ifBlank { obj?.optString("dns").orEmpty() }
+            .ifBlank { data.optString("DNS") }
+            .ifBlank { data.optString("dns") }
+            .ifBlank { line("DNS") }
+            .ifBlank { "10.255.255.3" }
+        if (address.isBlank()) null else address to dns
+    }.getOrNull()
+
+    fun endpointLiteral(host: String): String =
+        if (':' in host && !host.startsWith("[")) "[$host]" else host
+
+    fun wireguardConf(
+        privateKey: String,
+        loc: Location,
+        address: String,
+        dns: String,
+        psk: String,
+        allowedIps: String,
+        fa: Boolean,
+        peerPub: String = loc.wgPubKey,
+    ): String {
+        val host = loc.ip3.ifBlank { loc.ip }.ifBlank { loc.hostname }
+        val n = loc.names()
+        val title = "$NAME · WG · ${n.flag} " + (if (fa) n.fa else n.en)
+        val allowed = allowedIps.ifBlank { "0.0.0.0/0, ::/0" }
+        return buildString {
+            append("# Name = $title\n")
+            append("[Interface]\n")
+            append("PrivateKey = ${privateKey.trim()}\n")
+            append("Address = ${address.trim()}\n")
+            if (dns.isNotBlank()) append("DNS = ${dns.trim()}\n")
+            append("\n[Peer]\n")
+            append("PublicKey = ${peerPub.trim()}\n")
+            if (psk.isNotBlank()) append("PresharedKey = ${psk.trim()}\n")
+            append("AllowedIPs = $allowed\n")
+            append("Endpoint = ${endpointLiteral(host)}:$WG_PORT\n")
+            append("PersistentKeepalive = 25\n")
+        }
+    }
+
+    fun wireguardLink(
+        privateKey: String,
+        loc: Location,
+        address: String,
+        dns: String,
+        psk: String,
+        allowedIps: String,
+        fa: Boolean,
+    ): String? {
+        if (!loc.canWireGuard() || address.isBlank()) return null
+        return WireGuardConfText.toUris(wireguardConf(privateKey, loc, address, dns, psk, allowedIps, fa)).firstOrNull()
     }
 
     fun subscriptionText(links: List<String>): String =
@@ -260,6 +374,10 @@ internal class CatWindClient(private val store: FreeNetworkStore) {
         store.windAuth = ""
         store.windProxyUser = ""
         store.windProxyPass = ""
+        store.windWgPriv = ""
+        store.windWgPub = ""
+        store.windWgPsk = ""
+        store.windWgAllowed = ""
     }
 
     fun login(username: String, password: String, otp: String = ""): CatWindPlanner.Session {
@@ -322,6 +440,63 @@ internal class CatWindClient(private val store: FreeNetworkStore) {
         return pair
     }
 
-    fun ping(loc: CatWindPlanner.Location, timeoutMs: Int = 850): CatWindPlanner.Ping =
-        CatWindPlanner.Ping(loc, LiveNetPing.tcpMs(loc.pingHost, CatWindPlanner.PORT, timeoutMs))
+    fun ping(
+        loc: CatWindPlanner.Location,
+        timeoutMs: Int = 850,
+        proto: CatWindPlanner.Proto = CatWindPlanner.Proto.Stealth,
+    ): CatWindPlanner.Ping =
+        CatWindPlanner.Ping(loc, LiveNetPing.tcpMs(loc.pingHostFor(proto), CatWindPlanner.PORT, timeoutMs))
+
+    fun wgKeys(): Pair<String, String> {
+        val pair = CatWindPlanner.keyPair(store.windWgPriv, store.windWgPub)
+        if (store.windWgPriv != pair.first) {
+            store.windWgPriv = pair.first
+            store.windWgPub = pair.second
+            store.windWgPsk = ""
+            store.windWgAllowed = ""
+        }
+        return pair
+    }
+
+    fun wgInit(session: CatWindPlanner.Session): Pair<String, String> {
+        if (store.windWgPsk.isNotBlank()) return store.windWgPsk to store.windWgAllowed
+        val pub = wgKeys().second
+        val headers = CatWindPlanner.headers(session.auth) + mapOf("Content-Type" to "application/x-www-form-urlencoded")
+        fun post(force: Int): Pair<String, String>? {
+            val a = FreeNetHttp.request(
+                CatWindPlanner.WG_INIT,
+                "POST",
+                headers,
+                CatWindPlanner.form(mapOf("wg_pubkey" to pub, "force_init" to force.toString())),
+                timeoutMs = 15_000,
+            )
+            return CatWindPlanner.wgInit(a.body).also { parsed ->
+                if (parsed == null) log += "wg init HTTP ${a.code}: ${CatWindPlanner.sessionError(a.body).take(80)}"
+            }
+        }
+        val first = post(0) ?: post(1) ?: throw IOException("WireGuard init failed")
+        store.windWgPsk = first.first
+        store.windWgAllowed = first.second
+        log += "wg init ✓"
+        return first
+    }
+
+    fun wgLink(session: CatWindPlanner.Session, loc: CatWindPlanner.Location, fa: Boolean): String {
+        if (!loc.canWireGuard()) throw IOException("no WireGuard key for ${loc.hostname}")
+        val (priv, pub) = wgKeys()
+        val (psk, allowed) = wgInit(session)
+        val a = FreeNetHttp.request(
+            CatWindPlanner.WG_CONNECT,
+            "POST",
+            CatWindPlanner.headers(session.auth) + mapOf("Content-Type" to "application/x-www-form-urlencoded"),
+            CatWindPlanner.form(mapOf("wg_pubkey" to pub, "hostname" to loc.hostname, "wg_ttl" to "0")),
+            timeoutMs = 15_000,
+        )
+        val assigned = CatWindPlanner.wgAddress(a.body)
+            ?: throw IOException(CatWindPlanner.sessionError(a.body).ifBlank { "HTTP ${a.code}" })
+        val link = CatWindPlanner.wireguardLink(priv, loc, assigned.first, assigned.second, psk, allowed, fa)
+            ?: throw IOException("WireGuard row was not a valid conf")
+        log += "wg ✓ ${loc.hostname}:${CatWindPlanner.WG_PORT}"
+        return link
+    }
 }

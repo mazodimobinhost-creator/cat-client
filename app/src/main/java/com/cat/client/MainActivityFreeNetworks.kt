@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt.
+// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind · 🚀 Cat Warp. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt / CatWarpFree.kt.
 
 private fun MainActivity.freeFa(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
 
@@ -103,10 +103,16 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showFirefoxCountryPickerDialog() }
     entry(
         t("🌬️ Cat Wind — کشورها با پینگ روی خط شما", "🌬️ Cat Wind — countries with ping on your line"),
-        t("اینو بزنی: پینگ واقعی هر شهر روی همین اینترنت نشان داده می‌شود. برای اتصال حساب رایگان ۱۰ گیگ در ماه لازم است (خودت می‌سازی، مثل فاکس)؛ خودِ پینگ حساب نمی‌خواهد. وصل شدن TCP روی ۴۴۳ است.",
-            "Tap: live ping of each city on this network. Connecting needs the free 10 GB/month account (you create it, like Fox); the ping itself does not. Connect is TCP on 443."),
+        t("اینو بزنی: پینگ واقعی هر شهر روی همین اینترنت. پروتکل را خودت انتخاب می‌کنی: Stealth (TCP ۴۴۳) یا WireGuard (UDP ۴۴۳). حساب رایگان ۱۰ گیگ (خودت می‌سازی، مثل فاکس)؛ خودِ پینگ حساب نمی‌خواهد.",
+            "Tap: live ping of each city on this network. You pick the protocol: Stealth (TCP 443) or WireGuard (UDP 443). Connecting needs the free 10 GB account (you create it, like Fox); the ping itself does not."),
         accent = true,
     ) { showCatWindDialog() }
+    entry(
+        t("🚀 Cat Warp — تونل کلودفلر با پینگ زنده", "🚀 Cat Warp — Cloudflare tunnel with live ping"),
+        t("اینو بزنی: پروتکل را انتخاب می‌کنی (وایرگارد برای ایرانسل، MASQUE-H2 برای همراه اول)، پینگ واقعی همان IP:port روی خط تو، بعد وصل می‌شود. خروجی آی‌پی کلودفلر است — تعویض کشور نیست. SSTP جدا در همین فهرست است.",
+            "Tap: pick a protocol (WireGuard for Irancell, MASQUE-H2 for Hamrah-e Aval), live ping of that IP:port on your line, then connect. Exit is a Cloudflare IP — not a country-change VPN. SSTP is a separate item in this list."),
+        accent = true,
+    ) { showCatWarpFreeDialog() }
     entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
         t("اینو بزنی: برنامه از یک شبکهٔ رایگان عمومی سرور تازه با رمز می‌گیرد و وصل می‌شود. فقط وب و اپ‌ها (TCP)؛ تماس صوتی و بازی‌هایی که UDP می‌خواهند کار نمی‌کنند. رمزها هر ۶ ساعت خودکار نو می‌شوند.",
@@ -1049,6 +1055,102 @@ internal fun MainActivity.connectFreePsiphon(region: String) {
     }
 }
 
+// ───────────── 🚀 Cat Warp (Cloudflare tunnel, live ping) ─────────────
+
+internal fun MainActivity.showCatWarpFreeDialog() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val pingBy = java.util.concurrent.ConcurrentHashMap<String, Long?>()
+    val display = ArrayList(CatWarpFreePlanner.PROTOS)
+    fun line(p: CatWarpFreePlanner.Proto): String {
+        val ms = if (p.id in pingBy) {
+            if (fa) LiveNetPing.labelFa(pingBy[p.id]) else LiveNetPing.labelEn(pingBy[p.id])
+        } else {
+            if (fa) LiveNetPing.waitingFa() else LiveNetPing.waitingEn()
+        }
+        return "${p.label(fa)} · ${p.hint(fa)} · $ms · ${p.host}:${p.port}"
+    }
+    val labels = ArrayList(display.map { line(it) })
+    val adapter = ArrayAdapter(this, android.R.layout.select_dialog_item, ArrayList(labels))
+    fun push() {
+        adapter.clear()
+        adapter.addAll(labels)
+        adapter.notifyDataSetChanged()
+    }
+    var pingJob: Job? = null
+    val shown = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🚀 Cat Warp — پینگ زنده روی خط شما", "🚀 Cat Warp — live ping on your line"))
+        .setAdapter(adapter) { dlg, idx ->
+            dlg.dismiss()
+            val p = display.getOrNull(idx) ?: return@setAdapter
+            connectCatWarpFree(p)
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    shown.setOnDismissListener { pingJob?.cancel() }
+    shown.showCatClientDialog()
+    pingJob = activityScope.launch(Dispatchers.IO) {
+        CatWarpFreePlanner.PROTOS.forEach { p ->
+            pingBy[p.id] = LiveNetPing.tcpMs(p.host, p.port)
+            withContext(Dispatchers.Main) {
+                if (!shown.isShowing) return@withContext
+                val i = display.indexOfFirst { it.id == p.id }
+                if (i >= 0) {
+                    labels[i] = line(display[i])
+                    push()
+                }
+            }
+        }
+        val sorted = display.sortedWith(
+            compareBy(
+                { pingBy[it.id] == null },
+                { pingBy[it.id] ?: 9_999L },
+            ),
+        )
+        withContext(Dispatchers.Main) {
+            if (!shown.isShowing) return@withContext
+            display.clear()
+            display.addAll(sorted)
+            labels.clear()
+            display.forEach { labels += line(it) }
+            push()
+        }
+    }
+}
+
+internal fun MainActivity.connectCatWarpFree(proto: CatWarpFreePlanner.Proto) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val cur = aetherPreferenceStore.read()
+    val ready = cur.copy(
+        enabled = true,
+        mode = proto.mode,
+        chainTarget = "none",
+        exitLocation = if (proto.mode == AetherMode.MasqueInMasque) "foreign" else cur.exitLocation.ifBlank { "auto" },
+        psiphonRegion = "",
+        endpoint = proto.endpoint,
+        ipScan = proto.ipScan,
+        endpointScannedAt = System.currentTimeMillis(),
+        profileName = "Cat Warp · ${proto.label(fa)}",
+    )
+    Toast.makeText(
+        this,
+        t("🚀 در حال ساخت Cat Warp (${proto.label(fa)})…", "🚀 Building Cat Warp (${proto.labelEn})…"),
+        Toast.LENGTH_SHORT,
+    ).show()
+    activityScope.launch {
+        val tomlFile = java.io.File(filesDir, "aether.toml")
+        if (!tomlFile.exists() || tomlFile.length() == 0L) {
+            withContext(Dispatchers.IO) {
+                runCatching { AetherOperations.provision(proto.mode, tomlFile, null, proto.ipScan) }
+            }
+        }
+        saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = true) {
+            connectCatWarpAfterSave()
+        }
+    }
+}
+
 // ───────────── 🌬️ Cat Wind ─────────────
 
 internal fun MainActivity.showCatWindDialog() {
@@ -1086,7 +1188,9 @@ internal fun MainActivity.showCatWindDialog() {
         .setAdapter(adapter) { dlg, idx ->
             dlg.dismiss()
             val codes = if (idx <= 0) emptySet() else setOf(display.getOrNull(idx - 1)?.country.orEmpty())
-            connectCatWind(codes.filter { it.length == 2 && it != "XX" }.toSet())
+            pickWindProtocol { proto ->
+                connectCatWind(codes.filter { it.length == 2 && it != "XX" }.toSet(), proto)
+            }
         }
         .setNeutralButton(t("🔑 ورود / ساخت حساب", "🔑 Sign in / create account")) { _, _ ->
             showCatWindLogin { showCatWindDialog() }
@@ -1201,13 +1305,31 @@ private fun MainActivity.showCatWindLogin(after: () -> Unit) {
     dialog.showCatClientDialog()
 }
 
-private fun MainActivity.connectCatWind(codes: Set<String>) {
+private fun MainActivity.pickWindProtocol(onPick: (CatWindPlanner.Proto) -> Unit) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("پروتکل Cat Wind", "Cat Wind protocol"))
+        .setItems(
+            arrayOf(
+                t("🛡️ Stealth — TCP روی ۴۴۳ (وب، تلگرام)", "🛡️ Stealth — TCP on 443 (web, Telegram)"),
+                t("🔐 WireGuard — UDP روی ۴۴۳ (ایران؛ تماس/بازی)", "🔐 WireGuard — UDP on 443 (Iran; voice/games)"),
+            ),
+        ) { _, i ->
+            onPick(if (i == 0) CatWindPlanner.Proto.Stealth else CatWindPlanner.Proto.WireGuard)
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+        .showCatClientDialog()
+}
+
+private fun MainActivity.connectCatWind(codes: Set<String>, proto: CatWindPlanner.Proto = CatWindPlanner.Proto.Stealth) {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
     val store = FreeNetworkStore(this)
     val client = CatWindClient(store)
     if (client.cachedSession() == null) {
-        showCatWindLogin { connectCatWind(codes) }
+        showCatWindLogin { connectCatWind(codes, proto) }
         return
     }
     val name = CatWindPlanner.NAME
@@ -1228,17 +1350,50 @@ private fun MainActivity.connectCatWind(codes: Set<String>) {
                 t("پلن رایگان فقط چند شهر دارد؛ پلن پولی جعل نمی‌شود.", "The free plan only has a handful of cities; a paid plan is not faked."))
             return@freeProgress
         }
-        step(t("۲) گرفتن رمز اتصال…", "2) Fetching connect credentials…"))
-        val creds = try {
-            withContext(Dispatchers.IO) { withPhysicalNet { client.credentials(session) } }
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            client.forget()
-            freeResult(t("❌ ورود منقضی شد", "❌ Sign-in expired"), listOf(e.message ?: e.javaClass.simpleName), null,
-                t("دوباره وارد شو.", "Sign in again."))
-            return@freeProgress
+        val links: List<String>
+        if (proto == CatWindPlanner.Proto.WireGuard) {
+            step(t("۲) ساخت WireGuard روی ۴۴۳…", "2) Building WireGuard on 443…"))
+            val wgPool = chosen.filter { it.canWireGuard() }.ifEmpty { chosen }
+            val ranked = withContext(Dispatchers.IO) {
+                wgPool.map { it to client.ping(it, proto = CatWindPlanner.Proto.WireGuard) }
+                    .sortedWith(compareBy({ !it.second.reachable }, { it.second.rttMs ?: 9_999L }))
+                    .map { it.first }
+                    .take(CatWindPlanner.WG_MAX)
+            }
+            val built = ArrayList<String>()
+            val errors = ArrayList<String>()
+            for (loc in ranked) {
+                try {
+                    built += withContext(Dispatchers.IO) { withPhysicalNet { client.wgLink(session, loc, fa) } }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    errors += "${loc.hostname}: ${e.message ?: e.javaClass.simpleName}"
+                }
+            }
+            if (built.isEmpty()) {
+                if (errors.any { it.contains("expired", true) || it.contains("session", true) }) client.forget()
+                freeResult(
+                    t("❌ WireGuard ساخته نشد", "❌ WireGuard was not built"),
+                    client.log + errors,
+                    null,
+                    t("Stealth را بزن، یا دوباره وارد شو. پلن پولی جعل نمی‌شود.", "Tap Stealth, or sign in again. A paid plan is not faked."),
+                )
+                return@freeProgress
+            }
+            links = built
+        } else {
+            step(t("۲) گرفتن رمز اتصال…", "2) Fetching connect credentials…"))
+            val creds = try {
+                withContext(Dispatchers.IO) { withPhysicalNet { client.credentials(session) } }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                client.forget()
+                freeResult(t("❌ ورود منقضی شد", "❌ Sign-in expired"), listOf(e.message ?: e.javaClass.simpleName), null,
+                    t("دوباره وارد شو.", "Sign in again."))
+                return@freeProgress
+            }
+            links = chosen.map { CatWindPlanner.httpsLink(creds.first, creds.second, it, fa) }
         }
-        val links = chosen.map { CatWindPlanner.httpsLink(creds.first, creds.second, it, fa) }
         val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
         step(t("۳) ذخیره به‌عنوان «$name»…", "3) Saving as “$name”…"))
         val subId = try {
@@ -1254,12 +1409,18 @@ private fun MainActivity.connectCatWind(codes: Set<String>) {
         report += client.log
         report += t("شهرها: ${chosen.size}", "Cities: ${chosen.size}")
         report += pingLines
+        val tip = if (proto == CatWindPlanner.Proto.WireGuard) {
+            t("«⚡ اتصال» را بزن. WireGuard روی UDP پورت ۴۴۳ است (وب، تلگرام، تماس/بازی). اگر یکی وصل نشد بعدی را از فهرست بزن.",
+                "Tap “⚡ Connect”. WireGuard on UDP port 443 (web, Telegram, voice/games). If one fails, pick the next in the list.")
+        } else {
+            t("«⚡ اتصال» را بزن. TCP روی پورت ۴۴۳ است (وب، تلگرام…). تماس صوتی/بازی UDP کار نمی‌کند. اگر یکی وصل نشد بعدی را از فهرست بزن.",
+                "Tap “⚡ Connect”. TCP on port 443 (web, Telegram…). UDP voice/games do not work. If one fails, pick the next in the list.")
+        }
         freeResult(
             t("✅ ${ordered.size} سرور Cat Wind آماده است", "✅ ${ordered.size} Cat Wind servers ready"),
             report,
             subId,
-            t("«⚡ اتصال» را بزن. TCP روی پورت ۴۴۳ است (وب، تلگرام…). تماس صوتی/بازی UDP کار نمی‌کند. اگر یکی وصل نشد بعدی را از فهرست بزن.",
-                "Tap “⚡ Connect”. TCP on port 443 (web, Telegram…). UDP voice/games do not work. If one fails, pick the next in the list."),
+            tip,
         )
     }
 }
