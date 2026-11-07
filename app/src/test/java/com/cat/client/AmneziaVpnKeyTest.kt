@@ -72,7 +72,7 @@ class AmneziaVpnKeyTest {
 
     @Test
     fun confImportKeepsJunkPacketSpacesAndV15Fields() {
-        val conf = "[Interface]\nPrivateKey = a2V5\nAddress = 10.0.0.2/32\nJc = 3\nI1 = <b 0x01 02>\nJ1 = <t>\nItime = 120\n[Peer]\nPublicKey = cHVi\nEndpoint = 198.51.100.1:51820\n"
+        val conf = "[Interface]\nPrivateKey = ERERERERERERERERERERERERERERERERERERERERERE=\nAddress = 10.0.0.2/32\nJc = 3\nI1 = <b 0x01 02>\nJ1 = <t>\nItime = 120\n[Peer]\nPublicKey = IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=\nEndpoint = 198.51.100.1:51820\n"
         val uri = WireGuardConfText.toUris(conf).single()
         assertTrue(uri, uri.contains("i1=%3Cb%200x01%2002%3E"))
         assertTrue(uri, uri.contains("j1=%3Ct%3E"))

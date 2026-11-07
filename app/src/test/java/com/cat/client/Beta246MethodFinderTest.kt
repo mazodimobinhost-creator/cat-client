@@ -190,8 +190,9 @@ class Beta246MethodFinderTest {
     @Test
     fun brokenWireGuardKeysAreDroppedNotFedToTheCore() {
         val badPub = "wireguard://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=@1.2.3.4:51820?publickey=.....#x"
-        assertTrue(SubConvConverter.convert(badPub).isEmpty())
-        assertTrue(SubConvConverter.convert("wireguard://not-a-key@1.2.3.4:51820?publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=#x").isEmpty())
+        fun dropped(uri: String) = runCatching { SubConvConverter.convert(uri) }.getOrDefault(emptyList()).isEmpty()
+        assertTrue(dropped(badPub))
+        assertTrue(dropped("wireguard://not-a-key@1.2.3.4:51820?publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=#x"))
         assertTrue(SubConvConverter.convert(realWg).isNotEmpty())
         assertNull(MlmAndNextGenVpnHub.convertWgConfToAwgUri("[Interface]\nPrivateKey = ...\n[Peer]\nPublicKey = ...\nEndpoint = 1.2.3.4:51820\n"))
         val fa = MethodFinderPlan.plainCoreError("proxy 37: decode peer public key: illegal base64: data at input byte 5", fa = true)

@@ -112,12 +112,12 @@ class WhiteDnsToolkitTest {
     @Test fun wireGuardConfBecomesAShareLinkWithoutInventedObfuscation() {
         val conf = """
             [Interface]
-            PrivateKey = aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8tMTI=
+            PrivateKey = ERERERERERERERERERERERERERERERERERERERERERE=
             Address = 10.2.0.2/32
             DNS = 10.2.0.1
 
             [Peer]
-            PublicKey = cGVlci1wZWVyLXBlZXItcGVlci1wZWVyLXBlZXItMTI=
+            PublicKey = IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=
             AllowedIPs = 0.0.0.0/0
             Endpoint = 185.159.157.1:51820
         """.trimIndent()
@@ -131,7 +131,7 @@ class WhiteDnsToolkitTest {
     }
 
     @Test fun amneziaConfKeepsItsOwnParameters() {
-        val conf = "[Interface]\nPrivateKey = a\nAddress = 10.0.0.2/32\nJc = 4\nS1 = 15\n[Peer]\nPublicKey = b\nEndpoint = 1.2.3.4:443\n"
+        val conf = "[Interface]\nPrivateKey = ERERERERERERERERERERERERERERERERERERERERERE=\nAddress = 10.0.0.2/32\nJc = 4\nS1 = 15\n[Peer]\nPublicKey = IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=\nEndpoint = 1.2.3.4:443\n"
         val uri = WireGuardConfText.toUris(conf).single()
         assertTrue(uri, uri.startsWith("awg://"))
         assertTrue(uri, "jc=4" in uri && "s1=15" in uri)
