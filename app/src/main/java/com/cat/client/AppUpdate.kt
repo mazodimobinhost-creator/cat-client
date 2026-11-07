@@ -142,7 +142,7 @@ object AppUpdatePolicy {
 
 object GitHubReleaseClient {
     suspend fun latest(variant: ApkVariant?): AppRelease = withContext(Dispatchers.IO) {
-        parseReleaseList(readText(RELEASES_URL, 2_097_152, asset = false), variant)
+        parseReleaseList(fetchReleasesJson(), variant)
     }
 
     /** GitHub's /releases/latest excludes every pre-release. Cat Client itself
@@ -178,22 +178,10 @@ object GitHubReleaseClient {
         // GitHub's /releases/latest/download excludes pre-releases, exactly like
         // /releases/latest. Resolve the asset from the newest non-draft release
         // first, otherwise the repair/update buttons silently reinstall an old
-        // Worker even though the APK itself is current.
-        val releasesJson = readText(RELEASES_URL, 2_097_152, asset = false)
-        val direct = resolveReleaseAssetUrl(releasesJson, name)
-        val candidates = buildList {
-            add(direct)
-            ASSET_MIRRORS.forEach { add(it + direct) }
-        }
-        var lastError: IOException? = null
-        for (candidate in candidates) {
-            try {
-                return readText(candidate, maxBytes, asset = true)
-            } catch (error: IOException) {
-                lastError = error
-            }
-        }
-        throw (lastError ?: IOException("GitHub asset download failed"))
+        // Worker even though the APK itself is current. The list URL itself is
+        // also mirrored: api.github.com is often blocked in Iran.
+        val direct = resolveReleaseAssetUrl(fetchReleasesJson(), name)
+        return readMirroredAsset(direct, maxBytes)
     }
 
     /** A file straight from the repository active branch via jsDelivr or raw GitHub —
@@ -246,7 +234,7 @@ object GitHubReleaseClient {
         val checksums = release.checksums ?: throw IOException("Release checksums are not uploaded yet")
         requireAssetUrl(checksums.url, release.version, "SHA256SUMS")
         requireAssetUrl(apk.url, release.version, apk.name)
-        parseChecksum(readText(checksums.url, 65_536, asset = true), apk.name)
+        parseChecksum(readMirroredAsset(checksums.url, 65_536), apk.name)
     }
 
     suspend fun releaseAssetSha256(assetName: String): String? = withContext(Dispatchers.IO) {
@@ -352,7 +340,7 @@ object GitHubReleaseClient {
                 if (uri.host !in ASSET_HOSTS) {
                     throw IOException("GitHub asset redirected to an invalid host")
                 }
-            } else if (url != RELEASES_URL) {
+            } else if (!isAllowedReleasesFetch(url)) {
                 throw IOException("GitHub API redirected to an invalid URL")
             }
             val connection = URL(url).openConnection() as HttpURLConnection
@@ -390,11 +378,89 @@ object GitHubReleaseClient {
         throw IOException("GitHub release redirected too many times")
     }
 
+    private suspend fun fetchReleasesJson(): String {
+        var lastError: IOException? = null
+        for (url in RELEASES_URLS) {
+            try {
+                return readText(url, 2_097_152, asset = false)
+            } catch (error: IOException) {
+                lastError = error
+            }
+        }
+        throw lastError ?: IOException("GitHub release list was unavailable")
+    }
+
+    private suspend fun readMirroredAsset(githubUrl: String, maxBytes: Int): String {
+        var lastError: IOException? = null
+        for (candidate in assetUrlCandidates(githubUrl)) {
+            try {
+                return readText(candidate, maxBytes, asset = true)
+            } catch (error: IOException) {
+                lastError = error
+            }
+        }
+        throw lastError ?: IOException("GitHub asset download failed")
+    }
+
+    internal fun assetUrlCandidates(githubUrl: String): List<String> =
+        listOf(githubUrl) + ASSET_MIRRORS.map { it + githubUrl }
+
+    suspend fun reachableAssetUrl(githubUrl: String): String = withContext(Dispatchers.IO) {
+        val candidates = assetUrlCandidates(githubUrl)
+        for (candidate in candidates) {
+            if (probeAsset(candidate)) return@withContext candidate
+        }
+        candidates.getOrNull(1) ?: candidates.first()
+    }
+
+    private fun probeAsset(url: String): Boolean {
+        val uri = try {
+            checkedUri(url)
+        } catch (_: IOException) {
+            return false
+        }
+        if (uri.host !in ASSET_HOSTS) return false
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 5_000
+        connection.readTimeout = 5_000
+        connection.instanceFollowRedirects = true
+        connection.requestMethod = "HEAD"
+        connection.setRequestProperty("User-Agent", "Cat Client/${BuildConfig.VERSION_NAME}")
+        return try {
+            val status = connection.responseCode
+            status in 200..399 || status == 405 || status == 501
+        } catch (_: Exception) {
+            false
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    internal fun isAllowedReleasesFetch(url: String): Boolean {
+        val uri = try {
+            checkedUri(url)
+        } catch (_: IOException) {
+            return false
+        }
+        if (uri.host == "api.github.com") return uri.rawPath == RELEASES_PATH
+        if (uri.host in ASSET_HOSTS) {
+            val inner = uri.rawPath.trimStart('/')
+            return inner == "https://api.github.com$RELEASES_PATH" ||
+                inner.startsWith("https://api.github.com$RELEASES_PATH?")
+        }
+        return false
+    }
+
     private const val GITHUB_OWNER = "mazodimobinhost-creator"
     private const val GITHUB_REPOSITORY = "cat-client"
     private const val ACTIVE_BRANCH = "arena/c5b36768-cat-client"
-    private const val RELEASES_URL =
-        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20"
+    private val RELEASES_PATH = "/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases"
+    private val RELEASES_URLS = listOf(
+        "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://ghproxy.net/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://gh-proxy.com/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://ghproxy.link/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+    )
     private val ASSET_HOSTS = setOf(
         "github.com",
         "raw.githubusercontent.com",

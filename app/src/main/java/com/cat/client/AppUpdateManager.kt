@@ -74,7 +74,7 @@ class AppUpdateManager(context: Context) {
             coroutineContext.ensureActive()
             clearDownload(previous)
             val apk = release.apk!!
-            val request = DownloadManager.Request(Uri.parse(apk.url))
+            val request = DownloadManager.Request(Uri.parse(GitHubReleaseClient.reachableAssetUrl(apk.url)))
                 .setTitle(context.getString(R.string.app_name))
                 .setDescription(context.getString(R.string.update_downloading))
                 .setMimeType("application/vnd.android.package-archive")

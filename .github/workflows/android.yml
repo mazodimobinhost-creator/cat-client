@@ -943,16 +943,15 @@ jobs:
             rel_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id' || true)"
             if [[ -n "$rel_id" ]]; then
               if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
-                pre_notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
-                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -F prerelease=true -f body="$(printf '%b' "$pre_notes")" >/dev/null || true
-              else
-                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -f body="$(printf '%b' "$notes")" >/dev/null || true
+                notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
               fi
+              # Never mark Cat betas as GitHub pre-releases: /releases/latest 404s
+              # when every tag is prerelease, so the in-app updater cannot see them.
+              gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${rel_id}" -F prerelease=false -F make_latest=true -f body="$(printf '%b' "$notes")" >/dev/null || true
             fi
           else
-            release_flags=()
+            release_flags=(--latest)
             if [[ "$APP_VERSION" == *-beta* && "$BETA113_DEVICE_SIGNOFF" != "true" ]]; then
-              release_flags+=(--prerelease)
               notes="⚠️ PRE-RELEASE CANDIDATE — physical-device and live Cloudflare E2E sign-off pending.\n\n${notes}"
             fi
             gh release create "$TAG" "${release_assets[@]}" "${release_flags[@]}" --title "Cat Client v${APP_VERSION} ($TAG)" --notes "$notes"

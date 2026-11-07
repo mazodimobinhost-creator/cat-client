@@ -12,8 +12,8 @@ class Beta269CatGpCoreHealthTest {
     fun versionIsBeta269() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 336"))
-        assertTrue(gradle.contains("1.10.0-beta269"))
+        assertTrue(gradle.contains("versionCode = 337"))
+        assertTrue(gradle.contains("1.10.0-beta270"))
     }
 
     @Test

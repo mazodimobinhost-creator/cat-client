@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta270] — 2026-11-08 (Panel 6.89.0)
+
+Owner: in-app update never appeared after 269.
+
+### Fixed
+- **In-app updater can list and download GitHub releases from Iran.** The check talked only to `api.github.com` (often blocked) and every beta was a GitHub pre-release, so `/releases/latest` 404'd. The client now walks ghproxy mirrors for the release list, SHA256SUMS, and the APK download. New GitHub releases are marked Latest, not pre-release.
+
 ## [1.10.0-beta269] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat GP failed connection test — «No config passed the health check at 127.0.0.1:2080».
