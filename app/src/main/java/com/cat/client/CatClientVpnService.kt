@@ -319,6 +319,9 @@ class CatClientVpnService : VpnService() {
     internal var sstpConnection: SstpConnection? = null
     @Volatile
     internal var sstpTunFd: android.os.ParcelFileDescriptor? = null
+    /** beta269: Cat GP dummy TUN (system HTTP proxy to :10871). Never with Mihomo. */
+    @Volatile
+    internal var catGpTunFd: android.os.ParcelFileDescriptor? = null
     internal var aetherPsiphonChain: AetherPsiphonChain? = null
     internal var aetherTorCarrier: AetherProxyCarrier? = null
     private var stopJob: Job? = null
@@ -617,6 +620,7 @@ class CatClientVpnService : VpnService() {
         aetherTorCarrier?.close()
         aetherTorCarrier = null
         closeSstp("service destroyed")
+        closeCatGp("service destroyed")
         stopCoreImmediately()
         scope.cancel()
         currentVpnService = null
@@ -968,6 +972,14 @@ class CatClientVpnService : VpnService() {
                 runSstpStartup(eventPrefix, selectedSubscriptionId, candidates)
                 return
             }
+        }
+        // beta269: 🌐 Cat GP cannot pass the Cat core health check at :2080 (GAS is HTTP-only).
+        val gpProfiles = allProfiles.filter { CatGpEngine.isProfile(it) }
+        val explicitGp = explicitCandidate?.takeIf { CatGpEngine.isProfile(it) }
+        val autoGp = explicitCandidate == null && gpProfiles.isNotEmpty() && gpProfiles.size == allProfiles.size
+        if (explicitGp != null || autoGp) {
+            runCatGpStartup(eventPrefix, selectedSubscriptionId, explicitGp ?: gpProfiles.first())
+            return
         }
         // beta214: plain socks/http rows on 127.0.0.1 with nothing listening (copied out of another app's config)
         // can never work; they are left out of the Automatic decision and explained instead of failing with
@@ -3789,6 +3801,7 @@ class CatClientVpnService : VpnService() {
             aetherTorCarrier?.close()
             aetherTorCarrier = null
             closeSstp("disconnect")
+            closeCatGp("disconnect")
             // beta211: pooled Cat Fox VPN HTTP/2 connections belong to this session's network; start clean next time.
             runCatching { FirefoxVpnEngine.resetUpstreamSessions("vpn stopped") }
             // beta249: the 🌐 Cat GP local relay belongs to this session (its sockets are protected by this service).
@@ -3823,6 +3836,7 @@ class CatClientVpnService : VpnService() {
         runCatching { aetherTorCarrier?.close() }
         aetherTorCarrier = null
         closeSstp("failure")
+        closeCatGp("failure")
         stopCoreService()
         sessionStartedAtElapsedMs = 0L
         activeProfile = null

@@ -20,6 +20,10 @@ internal object CatGpEngine {
     const val PORT = 10871
     const val USER = "catgp"
     const val SUB_NAME = "🌐 Cat GP"
+    const val CORE_UNSUPPORTED =
+        "🌐 Cat GP is a browser HTTP relay through Google Apps Script. " +
+            "The Cat core cannot health-check it at 127.0.0.1:2080 (no UDP, no CONNECT tunnel). " +
+            "Install the certificate and open Chrome; Telegram/Instagram will not open this way."
     private const val PREFS = "cat_gp"
 
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -125,6 +129,23 @@ internal object CatGpEngine {
             "http://$USER:${proxyPass(c)}@127.0.0.1:$PORT#" + Uri.encode(SUB_NAME)
 
     fun referencedIn(yaml: String): Boolean = CatGpScripts.referencedIn(yaml, PORT)
+
+    fun isProfile(type: String?, server: String?, port: Int, shareLink: String?): Boolean =
+        CatGpScripts.isLocalRelay(type, server, port, shareLink, PORT)
+
+    fun isProfile(profile: ConnectionProfile): Boolean =
+        isProfile(profile.type, profile.server, profile.port, profile.shareLink)
+
+    /**
+     * Real delay: one HTTP generate_204 through Google → Code.gs. Never the Cat core at :2080.
+     * Null = the script did not answer (no /exec, Anyone, or Google front blocked).
+     */
+    fun delayMs(c: Context, timeoutMs: Int = 15_000): Int? {
+        val t0 = System.nanoTime()
+        val r = test(c, deployments(c))
+        if (!r.ok) return null
+        return ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1).coerceAtMost(timeoutMs)
+    }
 
     @Volatile private var proxy: CatGpProxy? = null
     @Volatile private var fronter: CatGpFronter? = null

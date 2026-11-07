@@ -23,6 +23,7 @@ internal object ConnectionFaultExplainer {
         Refused,
         Timeout,
         HealthCheck,
+        CatGp,
         Unknown,
     }
 
@@ -61,6 +62,7 @@ internal object ConnectionFaultExplainer {
             "dns resolve", "nxdomain", "servfail"),
         Cause.Refused to listOf("connection refused", "econnrefused", "connection reset", "econnreset",
             "broken pipe", "unexpected eof", "server closed", "eof"),
+        Cause.CatGp to listOf("cat gp", "google apps script", "10871"),
         Cause.HealthCheck to listOf("health check", "passed the runtime", "passed mihomo delay", "no working",
             "all candidates failed", "no candidate"),
         Cause.Timeout to listOf("timeout", "timed out", "deadline exceeded", "i/o timeout", "handshake did not complete"),
@@ -147,6 +149,12 @@ internal object ConnectionFaultExplainer {
                 "Server closed the connection",
                 "سرور خاموش است یا فایروال اپراتور این مسیر را بسته. سرور/کانفیگ دیگری امتحان کنید.",
                 "The server is down or the operator firewall blocks this path. Try another server/config.",
+                text)
+            Cause.CatGp -> Fault(cause,
+                "Cat GP را هستهٔ Cat تست نمی‌کند",
+                "Cat GP is not a Cat-core tunnel",
+                "این روش رلهٔ مرورگر از اسکریپت گوگل است (فقط HTTP، بدون UDP). اینستاگرام و تلگرام باز نمی‌شوند. گواهی را نصب کنید و کروم را باز کنید — آزمایش اتصال هسته (:2080) برایش معنی ندارد.",
+                "This is a browser HTTP relay through Google Apps Script (no UDP). Instagram and Telegram will not open. Install the certificate and use Chrome — the core health check at :2080 cannot pass.",
                 text)
             Cause.HealthCheck -> Fault(cause,
                 "هیچ کانفیگی از تست سلامت رد نشد",

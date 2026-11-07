@@ -410,6 +410,11 @@ internal suspend fun <T> CatClientVpnService.withConnectionTestController(
     if (sstpCoreless && requiredProfiles.isNotEmpty() && requiredProfiles.all { it.shareLink?.trim()?.startsWith("sstp://", ignoreCase = true) == true }) {
         return block(MihomoControllerClient(""), false)
     }
+    // beta269: 🌐 Cat GP is Google Apps Script HTTP, not a Mihomo outbound. Starting the temporary core
+    // health-checks 127.0.0.1:2080 and always fails («No config passed the health check»).
+    if (requiredProfiles.isNotEmpty() && requiredProfiles.all { CatGpEngine.isProfile(it) }) {
+        return block(MihomoControllerClient(""), false)
+    }
     val runtime = connectionTestWakeLock.hold {
         connectionTestControllerMutex.withLock {
             val shared = connectionTestRuntime
@@ -635,6 +640,10 @@ internal suspend fun CatClientVpnService.realConnectionDelayMs(
     if (scheme == SstpLink.SCHEME) {
         // beta212: the full SSTP handshake (TLS → SSTP → PPP → login → IP address), then hang up.
         return withContext(Dispatchers.IO) { realSstpDelayMs(rawShare, timeoutMs) }
+    }
+    if (CatGpEngine.isProfile(profile)) {
+        // beta269: HTTP generate_204 through the owner's Code.gs — never mixed-port 2080.
+        return withContext(Dispatchers.IO) { CatGpEngine.delayMs(applicationContext, timeoutMs) }
     }
     if (scheme == "fenix" || scheme == "firefoxvpn") {
         // beta206: a real HTTP request through the local Firefox VPN bridge and Mozilla's proxy.

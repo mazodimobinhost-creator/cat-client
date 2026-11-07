@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta269] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat GP failed connection test — «No config passed the health check at 127.0.0.1:2080».
+
+### Fixed
+- **🌐 Cat GP is not a Cat-core tunnel.** Google Apps Script is HTTP only (no UDP, no CONNECT). The tester used to start Mihomo and health-check mixed-port 2080, which always failed. Delay tests now probe `generate_204` through the owner's Code.gs; connect uses a dummy TUN + system HTTP proxy to `:10871`. Chrome after the CA; Telegram/Instagram still will not open this way.
+
 ## [1.10.0-beta268] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Code.gs Unexpected token `*` at line 64; 3D graphics on the app.

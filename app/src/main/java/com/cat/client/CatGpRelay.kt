@@ -819,6 +819,24 @@ internal object CatGpScripts {
             if (key.isNotBlank()) "$u/$key" else u
         }.distinct()
 
+    /**
+     * True when this row is Cat's own Google Apps Script relay (`http://127.0.0.1:10871`),
+     * not a copied inbound from another app. The Cat core (mixed-port 2080) cannot health-check
+     * it: GAS is HTTP only (no UDP, no CONNECT tunnel), and HTTPS through Mihomo fails the CA.
+     */
+    fun isLocalRelay(type: String?, server: String?, port: Int, shareLink: String?, relayPort: Int = 10871): Boolean {
+        val loop = LoopbackProfileGuard.isLoopbackHost(server) && port == relayPort
+        if (loop) {
+            val t = type?.trim()?.lowercase().orEmpty()
+            if (t.isEmpty() || t == "http" || t == "https") return true
+        }
+        val link = shareLink?.trim()?.lowercase().orEmpty()
+        if (!link.startsWith("http://") && !link.startsWith("https://")) return false
+        return link.contains("127.0.0.1:$relayPort") ||
+            link.contains("localhost:$relayPort") ||
+            link.contains("[::1]:$relayPort")
+    }
+
     /** Fills assets/catgp/Code.gs: the key and the optional worker hop become JS string literals. */
     fun fill(template: String, key: String, workerUrl: String): String {
         val hop = workerUrl.trim().takeIf { it.matches(Regex("""https://[A-Za-z0-9.-]+/gp/[0-9a-f-]{36}(?:/[A-Za-z0-9_-]{8,64})?""")) }.orEmpty()

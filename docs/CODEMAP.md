@@ -51,9 +51,10 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 4361 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 13 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnService.kt` | 4375 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 13 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceCatGp.kt` | 83 | beta269 🌐 Cat GP connect + dummy TUN (system HTTP proxy). | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatWarp.kt` | 407 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 13 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceConnectionTests.kt` | 826 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 13 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceConnectionTests.kt` | 835 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 13 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
@@ -166,7 +167,7 @@
 | `CleanIp.kt` | 519 | — | ConnectionChainTunnelTest, SmartRouteMeasurementAdapterTest · — |
 | `CleanIpCache.kt` | 49 | — | — · — |
 | `CommunityIpLibrary.kt` | 131 | Community clean-IP library (imported from public shared lists, 2026-09). | — · — |
-| `ConnectionFaultExplainer.kt` | 186 | Turns a raw connection failure (core/engine exception text, including its cause chain) into a short, plain-language reason and a "what to do" hint,… | Beta214CatWarpListTest, Beta215AetherEngineSlotTest, ConnectionFaultExplainerTest · — |
+| `ConnectionFaultExplainer.kt` | 194 | Turns a raw connection failure (core/engine exception text, including its cause chain) into a short, plain-language reason and a "what to do" hint,… | Beta214CatWarpListTest, Beta215AetherEngineSlotTest, Beta269CatGpCoreHealthTest, ConnectionFaultExplainerTest · — |
 | `CurrentEndpointNetwork.kt` | 46 | Reads only coarse, permission-safe network attributes used to scope probe evidence. | — · — |
 | `DeploymentProfileProbe.kt` | 45 | — | — · — |
 | `EdgeLocation.kt` | 409 | Human-friendly locations for the edge codes returned by /cdn-cgi/trace. | — · — |
@@ -301,8 +302,8 @@
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
 | `CatBranding.kt` | 43 | beta207: only Cat's own names on screen. | Beta206EngineTest, Beta263CatWindTest · — |
 | `CatClientApplication.kt` | 87 | — | — · — |
-| `CatGpEngine.kt` | 206 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | — · — |
-| `CatGpRelay.kt` | 835 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest · — |
+| `CatGpEngine.kt` | 227 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, ConnectionFaultExplainerTest · — |
+| `CatGpRelay.kt` | 853 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest · — |
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
 | `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
 | `CatWindEngine.kt` | 502 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest · — |
@@ -331,7 +332,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_273 Kotlin files, 115939 lines._
+_274 Kotlin files, 116092 lines._
 
 ## MainActivity screens — function index
 

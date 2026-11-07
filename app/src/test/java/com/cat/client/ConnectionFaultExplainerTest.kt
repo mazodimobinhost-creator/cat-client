@@ -23,6 +23,10 @@ class ConnectionFaultExplainerTest {
             ConnectionFaultExplainer.Cause.HealthCheck,
             cause("No configured connection chain passed the runtime health check"),
         )
+        assertEquals(
+            ConnectionFaultExplainer.Cause.CatGp,
+            cause(CatGpEngine.CORE_UNSUPPORTED),
+        )
         assertEquals(ConnectionFaultExplainer.Cause.Unknown, cause(""))
         assertEquals(ConnectionFaultExplainer.Cause.Unknown, cause("something odd"))
     }
