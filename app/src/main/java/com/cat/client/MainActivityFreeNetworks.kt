@@ -1063,7 +1063,7 @@ internal fun MainActivity.showCatWarpFreeDialog() {
     val pingBy = java.util.concurrent.ConcurrentHashMap<String, Long?>()
     val display = ArrayList(CatWarpFreePlanner.PROTOS)
     fun line(p: CatWarpFreePlanner.Proto): String {
-        val ms = if (p.id in pingBy) {
+        val ms = if (pingBy.containsKey(p.id)) {
             if (fa) LiveNetPing.labelFa(pingBy[p.id]) else LiveNetPing.labelEn(pingBy[p.id])
         } else {
             if (fa) LiveNetPing.waitingFa() else LiveNetPing.waitingEn()
