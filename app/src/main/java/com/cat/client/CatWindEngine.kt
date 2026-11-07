@@ -128,8 +128,10 @@ internal object CatWindPlanner {
     fun b64plain(raw: String): String {
         val s = raw.trim()
         if (s.isBlank()) return ""
+        // "text" is technically valid Base64; only unwrap when the payload is printable ASCII.
+        if (s.length % 4 != 0 || !s.matches(Regex("^[A-Za-z0-9+/]+={0,2}$"))) return s
         val decoded = runCatching { String(Base64.getDecoder().decode(s), Charsets.UTF_8) }.getOrNull() ?: return s
-        return if (decoded.isNotBlank() && decoded.none { it.code < 32 }) decoded else s
+        return if (decoded.isNotBlank() && decoded.all { it.code in 32..126 }) decoded else s
     }
 
     fun countryOf(code: String, region: String): String {
