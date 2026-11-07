@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta264] — 2026-11-07 (Panel 6.87.0)
+
+Owner: worker panel returned Cloudflare Error 1102.
+
+### Fixed
+- **Cat Panel 6.87.0 Error 1102:** the dashboard template compiled lazily on the first GET. That compile is fine on a laptop and **Error 1102 (CPU/memory cap)** on a cold Cloudflare free isolate (10 ms request CPU). The isolate now compiles `panelPage` / `loginPage` during startup (400 ms budget) so opening the panel is a cheap string fill. UUID, KV, users and secrets are not touched.
+
 ## [1.10.0-beta263] — 2026-11-07 (Panel 6.86.0, unchanged)
 
 Owner: add Windscribe like Firefox — with live pings, and it should connect.

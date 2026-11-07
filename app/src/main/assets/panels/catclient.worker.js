@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.86.0';
+const CAT_PANEL_VERSION = '6.87.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -13317,6 +13317,16 @@ api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.curr
 })();
 </script></body></html>`;
 }
+
+// 6.87.0: the dashboard template is ~294 KB of JS. V8 compiles it lazily on the
+// first call. That compile is ~6 ms on a laptop and Error 1102 (CPU/memory cap)
+// on a cold Cloudflare free isolate (10 ms request CPU). Startup CPU is ~400 ms,
+// so compiling here keeps the owner's first panel GET inside the request budget.
+// Must never throw — a throw at module load is 1101 on every path.
+try {
+  panelPage({}, defaultSettings(), 'warmup.workers.dev', '00000000-0000-0000-0000-000000000000');
+  loginPage({}, defaultSettings(), true, '00000000-0000-0000-0000-000000000000', false);
+} catch { /* ignore */ }
 
 
 /* ------------------------------------------------------------------ */
