@@ -137,3 +137,4 @@
 ## beta253 (2026-11-07)
 - Owner asked why Fanoos lacks countries «free for Iran». Lantern store listing 10.0.5: «free plan genuinely free … Pro unlocks unlimited data, server selection». Added «service saw you in» + VPN note to the «🌍» report (geo through a connected VPN is not IR).
 - Local: harness Beta252 6/6 + Beta251 5/5 + Beta249 5/5; syntax 405/416 (same 11); codemap OK.
+- CI: `885a29f` push run 42351550439 ✅ + all PR twins ✅; release v1.10.0-beta253 prerelease 20 assets.
