@@ -10,6 +10,12 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta254 / Panel 6.83.0 — 2026-11-07
+- Owner asked for Fanoos “free Pro for Iran”, Proton like Fox, Amnezia and other free VPNs. **Not done:** fake Pro tokens, identity rotation, Play-Integrity guest login.
+- **Fanoos:** official Radiance `X-Lantern-Config-Client-IP` (public IP looked up off the VPN) + IANA timezone; config-new bound to SIM/Wi-Fi (`FreeNetHttp.openOnPhysical`). Timezone `Asia/Tehran` is stronger evidence of Iran than the connecting IP. If the service still only gives DE+SG after that, it is the free-account cap.
+- **🟢 Cat Proton:** official signup/sign-in WebView (human check stays the user's). `.conf` download/paste → `wireguard://` by country. Free plan countries NL/JP/US/CA/RO/PL/NO/SG. Plus is not faked.
+- **🔐 Cat Amnezia:** no free cloud account — hub entry to the existing vpn:// / `.conf` import.
+
 ## beta252 / Panel 6.83.0 — 2026-11-07
 - Fanoos free accounts get a fixed country set (owner phone: 🇩🇪 + 🇸🇬, requested country ignored). `FixedCheck` stops «🌍» after 3 ignored requests and the result is remembered 24 h (`lanternFixedRecent`). Do not add identity rotation to get other countries — that dodges the service's paid tier.
 

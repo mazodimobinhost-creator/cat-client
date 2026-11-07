@@ -33,7 +33,19 @@ import java.util.UUID
  * hosts are often filtered in Iran but reachable once any config is connected.
  */
 internal object FreeNetHttp {
-    class Answer(val code: Int, val body: String, val viaTunnel: Boolean)
+    class Answer(val code: Int, val body: String, val viaTunnel: Boolean, val viaPhysical: Boolean = false) {
+        fun routeLabel(): String = when {
+            viaPhysical -> " (physical)"
+            viaTunnel -> " (tunnel)"
+            else -> ""
+        }
+    }
+
+    /**
+     * beta254: open the URL on the phone's Wi-Fi / SIM, bypassing Cat's own TUN. Set from the UI
+     * process ([MainActivity.activePhysicalNetwork]); unit tests leave it null.
+     */
+    @Volatile var openOnPhysical: ((URL) -> java.net.URLConnection)? = null
 
     fun tunnelPortOpen(): Boolean = runCatching {
         Socket().use { it.connect(InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT), 300) }
@@ -49,10 +61,13 @@ internal object FreeNetHttp {
         allowTunnel: Boolean = true,
     ): Answer {
         var last: IOException? = null
-        val routes = if (allowTunnel && tunnelPortOpen()) listOf(false, true) else listOf(false)
-        for (viaTunnel in routes) {
+        val routes = ArrayList<Pair<Boolean, Boolean>>() // tunnel, physical
+        if (openOnPhysical != null) routes += false to true
+        routes += false to false
+        if (allowTunnel && tunnelPortOpen()) routes += true to false
+        for ((viaTunnel, viaPhysical) in routes) {
             try {
-                return once(url, method, headers, body, timeoutMs, viaTunnel)
+                return once(url, method, headers, body, timeoutMs, viaTunnel, viaPhysical)
             } catch (e: IOException) {
                 last = e
             }
@@ -60,9 +75,21 @@ internal object FreeNetHttp {
         throw last ?: IOException("no route")
     }
 
-    private fun once(url: String, method: String, headers: Map<String, String>, body: String?, timeoutMs: Int, viaTunnel: Boolean): Answer {
+    private fun once(
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        body: String?,
+        timeoutMs: Int,
+        viaTunnel: Boolean,
+        viaPhysical: Boolean,
+    ): Answer {
         val u = URL(url)
-        val conn = (if (viaTunnel) u.openConnection(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT))) else u.openConnection()) as HttpURLConnection
+        val conn = (when {
+            viaTunnel -> u.openConnection(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MihomoRuntimeDefaults.MIXED_PORT)))
+            viaPhysical -> (openOnPhysical ?: throw IOException("no physical")).invoke(u)
+            else -> u.openConnection()
+        }) as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.connectTimeout = timeoutMs
@@ -79,7 +106,7 @@ internal object FreeNetHttp {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            return Answer(code, text, viaTunnel)
+            return Answer(code, text, viaTunnel, viaPhysical)
         } finally {
             conn.disconnect()
         }
@@ -303,7 +330,45 @@ internal object LanternPlanner {
     const val VERSION = "10.0.5"
     val PROTOCOLS = listOf("shadowsocks", "vless", "trojan", "hysteria2", "vmess", "tuic")
 
-    fun headers(deviceId: String, userId: String, token: String): Map<String, String> = buildMap {
+    fun timeZone(): String = TimeZone.getDefault().id
+
+    /** Official client: IANA zone is stronger evidence of country than the connecting IP (Iran/Myanmar through a relay). */
+    fun looksLikeIranTimeZone(tz: String = timeZone()): Boolean {
+        val t = tz.trim()
+        return t.equals("Asia/Tehran", ignoreCase = true) || t.equals("Iran", ignoreCase = true) || t.endsWith("/Tehran", ignoreCase = true)
+    }
+
+    fun parsePublicIp(body: String): String? {
+        val trimmed = body.trim()
+        if (trimmed.isEmpty()) return null
+        val fromTrace = trimmed.lineSequence().firstOrNull { it.startsWith("ip=", ignoreCase = true) }?.substringAfter('=')?.trim()
+        val candidate = fromTrace ?: trimmed.lineSequence().firstOrNull()?.trim().orEmpty()
+        return candidate.takeIf { isPublicIp(it) }
+    }
+
+    fun isPublicIp(ip: String): Boolean {
+        val v4 = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""").matchEntire(ip)
+        if (v4 != null) {
+            val o = v4.groupValues.drop(1).map { it.toInt() }
+            if (o.any { it > 255 }) return false
+            val a = o[0]
+            return when {
+                a == 0 || a == 10 || a == 127 || a == 169 -> false
+                a == 192 && o[1] == 168 -> false
+                a == 172 && o[1] in 16..31 -> false
+                a >= 224 -> false
+                else -> true
+            }
+        }
+        if (':' in ip && ip.any { it.isLetterOrDigit() }) {
+            val lower = ip.lowercase(Locale.US)
+            if (lower == "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd")) return false
+            return true
+        }
+        return false
+    }
+
+    fun headers(deviceId: String, userId: String, token: String, clientIp: String = ""): Map<String, String> = buildMap {
         put("Content-Type", "application/json")
         put("Accept", "application/json")
         put("X-Lantern-App-Version", VERSION)
@@ -311,10 +376,12 @@ internal object LanternPlanner {
         put("X-Lantern-Platform", "android")
         put("X-Lantern-App", "lantern")
         put("X-Lantern-Device-Id", deviceId)
-        put("X-Lantern-Time-Zone", TimeZone.getDefault().id)
+        put("X-Lantern-Time-Zone", timeZone())
         put("X-Lantern-Rand", "x".repeat((deviceId.hashCode() and 0x7f) + 8))
         if (userId.isNotBlank()) put("X-Lantern-User-Id", userId)
         if (token.isNotBlank()) put("X-Lantern-Pro-Token", token)
+        // Official Radiance: X-Lantern-Config-Client-IP = the phone's public IP looked up off the VPN.
+        if (isPublicIp(clientIp)) put("X-Lantern-Config-Client-IP", clientIp.trim())
     }
 
     /** user-create answer → (userId, token) or null. */
@@ -750,6 +817,15 @@ internal class FreeNetworkStore(context: Context) {
     fun lanternFixedRecent(now: Long = System.currentTimeMillis()): List<String> =
         if (now - lanternFixedAt in 0..24L * 3600 * 1000) lanternFixed.split(',').map(String::trim).filter(String::isNotBlank) else emptyList()
 
+    /** Last public IP looked up on the physical network, sent as X-Lantern-Config-Client-IP (official client). */
+    var lanternPublicIp: String
+        get() = prefs.getString("ln_pubip", "").orEmpty()
+        set(v) { prefs.edit().putString("ln_pubip", v).apply() }
+
+    var protonSubId: String
+        get() = prefs.getString("pr_sub", "").orEmpty()
+        set(v) { prefs.edit().putString("pr_sub", v).apply() }
+
     var freeAccountSubId: String
         get() = prefs.getString("fa_sub", "").orEmpty()
         set(v) { prefs.edit().putString("fa_sub", v).apply() }
@@ -798,13 +874,28 @@ internal object FreeNetworkBuilder {
         val store = FreeNetworkStore(context)
         val dev = store.lanternDeviceId()
         val report = mutableListOf<String>()
+        val tz = LanternPlanner.timeZone()
+        report += "tz $tz"
+        val ip = store.lanternPublicIp.takeIf { LanternPlanner.isPublicIp(it) } ?: run {
+            val urls = listOf("https://www.cloudflare.com/cdn-cgi/trace", "https://1.1.1.1/cdn-cgi/trace", "https://api.ipify.org")
+            urls.firstNotNullOfOrNull { u ->
+                runCatching { FreeNetHttp.request(u, allowTunnel = false, timeoutMs = 6_000) }.getOrNull()
+                    ?.takeIf { it.code in 200..299 }
+                    ?.let { LanternPlanner.parsePublicIp(it.body) }
+            }.orEmpty()
+        }
+        if (LanternPlanner.isPublicIp(ip)) {
+            store.lanternPublicIp = ip
+            report += "client-ip $ip"
+        }
+        val hdr = { uid: String, tok: String -> LanternPlanner.headers(dev, uid, tok, clientIp = store.lanternPublicIp) }
         if (store.lanternUser.isBlank()) {
-            val a = FreeNetHttp.request(LanternPlanner.USER_CREATE, "POST", LanternPlanner.headers(dev, "", ""), "{}", timeoutMs = 15_000)
+            val a = FreeNetHttp.request(LanternPlanner.USER_CREATE, "POST", hdr("", ""), "{}", timeoutMs = 15_000)
             val user = (if (a.code in 200..299) LanternPlanner.user(a.body) else null)
                 ?: throw IOException("user-create HTTP ${a.code} " + a.body.take(80))
             store.lanternUser = user.first
             store.lanternToken = user.second
-            report += "user ✓" + if (a.viaTunnel) " (tunnel)" else ""
+            report += "user ✓" + a.routeLabel()
         }
         var c: FreeNetHttp.Answer? = null
         val tries = mutableListOf<String>()
@@ -813,7 +904,7 @@ internal object FreeNetworkBuilder {
             val answer = try {
                 FreeNetHttp.request(
                     url, "POST",
-                    LanternPlanner.headers(dev, store.lanternUser, store.lanternToken),
+                    hdr(store.lanternUser, store.lanternToken),
                     LanternPlanner.configBody(dev, store.lanternUser, store.lanternToken, preferred), timeoutMs = 20_000,
                 )
             } catch (e: IOException) {
@@ -822,7 +913,7 @@ internal object FreeNetworkBuilder {
             }
             c = answer
             if (answer.code in 200..299) {
-                report += "config ✓ $host" + if (answer.viaTunnel) " (tunnel)" else ""
+                report += "config ✓ $host" + answer.routeLabel()
                 break
             }
             tries += "$host → HTTP ${answer.code}" + if (LanternPlanner.isEdgeBlock(answer.code, answer.body)) " (CDN block page)" else " " + answer.body.take(60)

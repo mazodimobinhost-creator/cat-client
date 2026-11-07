@@ -138,3 +138,11 @@
 - Owner asked why Fanoos lacks countries «free for Iran». Lantern store listing 10.0.5: «free plan genuinely free … Pro unlocks unlimited data, server selection». Added «service saw you in» + VPN note to the «🌍» report (geo through a connected VPN is not IR).
 - Local: harness Beta252 6/6 + Beta251 5/5 + Beta249 5/5; syntax 405/416 (same 11); codemap OK.
 - CI: `885a29f` push run 42351550439 ✅ + all PR twins ✅; release v1.10.0-beta253 prerelease 20 assets.
+
+## beta254 (2026-11-07)
+- Owner: Fanoos is free-Pro for Iran (tested official app); Proton like Fox; Amnezia and other free VPNs.
+- Not done: fake Pro tokens, identity rotation, Play-Integrity guest login, Amnezia cloud accounts (none exist).
+- Fanoos: official Radiance headers `X-Lantern-Config-Client-IP` + timezone; config-new bound to physical network; report explains Tehran clock vs VPN vs free-account cap.
+- Proton: official page WebView + `.conf` intercept/paste → `wireguard://` by country (vanilla WG, not AWG junk).
+- Amnezia: hub entry to existing import.
+- Local: harness Beta254 + Beta252 + Beta251 + Beta249; syntax; codemap.

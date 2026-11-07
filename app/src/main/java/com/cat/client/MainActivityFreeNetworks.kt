@@ -66,7 +66,19 @@ private fun MainActivity.freeBox() = LinearLayout(this).apply {
 
 private fun MainActivity.freeLp(top: Int = 8) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
 
-/** Hub: three free networks, each explained in one line («اینو بزنی این میشه»). */
+/** beta254: Fanoos config-new on the SIM/Wi-Fi, so the service sees Iran — not the VPN exit. */
+private inline fun <T> MainActivity.withPhysicalNet(block: () -> T): T {
+    val net = activePhysicalNetwork()
+    val prev = FreeNetHttp.openOnPhysical
+    if (net != null) FreeNetHttp.openOnPhysical = { url -> net.openConnection(url) }
+    try {
+        return block()
+    } finally {
+        FreeNetHttp.openOnPhysical = prev
+    }
+}
+
+/** Hub: free networks, each explained in one line («اینو بزنی این میشه»). */
 internal fun MainActivity.showFreeNetworksHub() {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
@@ -94,6 +106,18 @@ internal fun MainActivity.showFreeNetworksHub() {
             "Tap: a server list is fetched from the free Fanoos service and every server Cat's core can run is added. If none is usable it says exactly why."),
         accent = false,
     ) { showFanoosDialog() }
+    entry(
+        t("🟢 Cat Proton (حساب رایگان، چند کشور)", "🟢 Cat Proton (free account, several countries)"),
+        t("اینو بزنی: صفحهٔ رسمی پروتون داخل برنامه باز می‌شود؛ خودتان حساب رایگان می‌سازید (تیک ربات با شماست، مثل فاکس). Cat فایل WireGuard همان کشورها را برمی‌دارد. پلن رایگان پروتون چند کشور دارد (هلند، ژاپن، آمریکا، …) — پلن پولی جعل نمی‌شود.",
+            "Tap: Proton's official page opens in the app; you create the free account yourself (the human check stays yours, like Fox). Cat picks up that account's WireGuard files. The free plan has several countries (NL, JP, US, …) — Plus is not faked."),
+        accent = true,
+    ) { showProtonDialog() }
+    entry(
+        t("🔐 Cat Amnezia (کلید خودت)", "🔐 Cat Amnezia (your own key)"),
+        t("آمنزیا سرور ابری رایگان نمی‌دهد — سرور مال خودت است. اینو بزنی: کلید vpn:// یا فایل .conf را می‌چسبانی و Cat وصل می‌کند.",
+            "Amnezia does not give a free cloud account — the server is yours. Tap: paste a vpn:// key or a .conf file and Cat connects."),
+        accent = false,
+    ) { showAmneziaAndProtonWgHubDialog() }
     val built = MaterialAlertDialogBuilder(this)
         .setTitle(t("🎁 شبکه‌های رایگان", "🎁 Free networks"))
         .setView(ScrollView(this).apply { addView(box) })
@@ -308,7 +332,7 @@ private fun MainActivity.fetchFanoos(preferred: LanternPlanner.Location?) {
         step(t("۱) ساخت کاربر ناشناس و گرفتن تنظیمات (فقط پروتکل‌های استاندارد)…", "1) Anonymous user + config (standard protocols only)…"))
         if (preferred != null) step(t("   کشور درخواستی: ", "   Requested country: ") + preferred.label())
         val (result, tr) = try {
-            withContext(Dispatchers.IO) { FreeNetworkBuilder.lantern(this@fetchFanoos, preferred) }
+            withContext(Dispatchers.IO) { withPhysicalNet { FreeNetworkBuilder.lantern(this@fetchFanoos, preferred) } }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             freeResult(t("❌ انجام نشد", "❌ Failed"), listOf(e.message ?: e.javaClass.simpleName), null,
@@ -371,6 +395,9 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         var fixedConfirmed = false
         var seenIn = ""
         var viaTunnel = false
+        var viaPhysical = false
+        var seenTz = ""
+        var seenIp = ""
         var failuresInARow = 0
         var i = -1
         while (i < queue.size) {
@@ -380,7 +407,7 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
             step("${i + 1}/${queue.size + 1}) $label…")
             var refused = false
             val got = try {
-                withContext(Dispatchers.IO) { FreeNetworkBuilder.lantern(this@fetchFanoosAll, loc) }
+                withContext(Dispatchers.IO) { withPhysicalNet { FreeNetworkBuilder.lantern(this@fetchFanoosAll, loc) } }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 refused = LanternPlanner.answeredButRefused(e.message)
@@ -397,6 +424,9 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
             val (result, tr) = got
             if (seenIn.isBlank()) seenIn = tr.clientCountry
             if (result.report.any { it.startsWith("config ✓") && it.contains("(tunnel)") }) viaTunnel = true
+            if (result.report.any { it.contains("(physical)") }) viaPhysical = true
+            if (seenTz.isBlank()) seenTz = result.report.firstOrNull { it.startsWith("tz ") }?.removePrefix("tz ").orEmpty()
+            if (seenIp.isBlank()) seenIp = result.report.firstOrNull { it.startsWith("client-ip ") }?.removePrefix("client-ip ").orEmpty()
             val more = LanternPlanner.extendQueue(queue, tr.offered)
             if (more > 0) step(t("   سرویس $more مکان دیگر هم معرفی کرد؛ به صف اضافه شد.", "   The service named $more more locations; queued."))
             val rows = result.links.mapIndexed { k, l -> l to (tr.linkLocations.getOrNull(k)?.code ?: "") }
@@ -425,13 +455,30 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         } else if (fixed.honouredSeen) {
             store.lanternFixed = ""
         }
-        // beta252: where the service thinks the user is. Through a connected VPN it sees the VPN's country, not Iran.
+        // beta254: official client sends timezone + the phone's public IP (looked up off the VPN).
+        val tz = seenTz.ifBlank { LanternPlanner.timeZone() }
+        report += t("ساعت گوشی: ", "Phone timezone: ") + tz
+        if (seenIp.isNotBlank()) report += t("آی‌پی فرستاده‌شده (شبکهٔ خود گوشی): ", "Public IP sent (phone network): ") + seenIp
         if (seenIn.isNotBlank()) {
-            report += t("سرویس شما را در این کشور دید: ", "The service saw you in: ") + LanternPlanner.flagOf(seenIn) + " " + seenIn +
-                (if (viaTunnel) t(" (درخواست از داخل VPN روشن رفت)", " (the request went through the running VPN)") else "")
-            if (!seenIn.equals("IR", ignoreCase = true)) report += t(
-                "ℹ️ سرویس شما را ایران ندید. اگر می‌خواهید ببینید برای ایران فرق می‌کند: VPN را قطع کنید (یا Cat را در «تقسیم تونل» از VPN بیرون بگذارید) و دوباره بزنید.",
-                "ℹ️ The service did not see you in Iran. To check whether Iran gets more: disconnect the VPN (or exclude Cat in split tunnelling) and try again.")
+            val how = when {
+                viaPhysical -> t(" (از سیم‌کارت/وای‌فای، نه از داخل VPN)", " (over SIM/Wi-Fi, not through the VPN)")
+                viaTunnel -> t(" (درخواست از داخل VPN روشن رفت)", " (the request went through the running VPN)")
+                else -> ""
+            }
+            report += t("سرویس شما را در این کشور دید: ", "The service saw you in: ") + LanternPlanner.flagOf(seenIn) + " " + seenIn + how
+            if (!seenIn.equals("IR", ignoreCase = true)) {
+                report += when {
+                    !LanternPlanner.looksLikeIranTimeZone(tz) -> t(
+                        "ℹ️ ساعت گوشی تهران نیست. اپ رسمی فانوس از ساعت برای تشخیص ایران استفاده می‌کند — اگر در ایران هستید ساعت را روی تهران بگذارید و دوباره «🌍» را بزنید.",
+                        "ℹ️ The phone timezone is not Tehran. The official Fanoos app uses the timezone to detect Iran — if you are in Iran set the clock to Tehran and tap “🌍” again.")
+                    viaPhysical -> t(
+                        "ℹ️ درخواست از خود گوشی رفت و ساعت تهران است، ولی سرویس باز هم ایران ندید. پس محدودیت حساب رایگان همان سرویس است، نه تشخیص کشور.",
+                        "ℹ️ The request left from the phone itself and the clock is Tehran, but the service still did not see Iran. That is the free-account limit of the service, not country detection.")
+                    else -> t(
+                        "ℹ️ سرویس شما را ایران ندید. اگر VPN روشن است، Cat سعی می‌کند از سیم‌کارت بفرستد؛ اگر باز هم نشد VPN را قطع کنید و دوباره بزنید.",
+                        "ℹ️ The service did not see you in Iran. If a VPN is on, Cat tries to send over SIM/Wi-Fi; if it still fails, disconnect the VPN and try again.")
+                }
+            }
         }
         val fresh = LanternPlanner.limitPerCountry(collected, LanternPlanner.perCountryFor(LanternPlanner.countriesOf(collected).size))
         if (fresh.isEmpty()) {
@@ -608,6 +655,239 @@ internal fun MainActivity.showFreeAccountDialog() {
             delay(2_000)
             runCatching { webView.evaluateJavascript(FreeAccountLinks.SCAN_JS) { raw -> scanText(jsString(raw)) } }
         }
+    }
+}
+
+// ───────────── 🟢 Cat Proton ─────────────
+
+internal fun MainActivity.showProtonDialog() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val countries = ProtonFreePlanner.FREE_COUNTRIES
+    val checked = BooleanArray(countries.size) { true }
+    val labels = countries.map { it.label(fa) }.toTypedArray()
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("🟢 Cat Proton — کدام کشورها؟", "🟢 Cat Proton — which countries?"))
+        .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
+        .setPositiveButton(t("🌐 ساخت / ورود حساب رایگان", "🌐 Create / sign in free account")) { _, _ ->
+            val want = countries.filterIndexed { i, _ -> checked[i] }.map { it.code }.toSet()
+            showProtonWebView(want)
+        }
+        .setNeutralButton(t("📋 چسباندن فایل .conf", "📋 Paste a .conf file")) { _, _ ->
+            val want = countries.filterIndexed { i, _ -> checked[i] }.map { it.code }.toSet()
+            showProtonPaste(want)
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+        .showCatClientDialog()
+}
+
+private fun MainActivity.showProtonPaste(want: Set<String>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val input = EditText(this).apply {
+        hint = "[Interface]\nPrivateKey = …\n\n[Peer]\nPublicKey = …\nEndpoint = …"
+        minLines = 8
+        gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("📋 فایل WireGuard پروتون", "📋 Proton WireGuard file"))
+        .setView(ScrollView(this).apply { addView(input, LinearLayout.LayoutParams(-1, dp(280))) })
+        .setPositiveButton(t("➕ افزودن", "➕ Add")) { _, _ ->
+            val text = input.text?.toString().orEmpty()
+            addProtonConfs(listOf("paste.conf" to text), want)
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+        .showCatClientDialog()
+}
+
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+private fun MainActivity.showProtonWebView(want: Set<String>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    var dialogRef: AlertDialog? = null
+    var poll: Job? = null
+    val collected = ArrayList<Pair<String, String>>() // filename to conf
+
+    val box = freeBox()
+    box.addView(freeText(t(
+        "مثل فاکس: حساب را خودتان در صفحهٔ رسمی می‌سازید (ایمیل + تیک «من ربات نیستم»). Cat فرم را پر نمی‌کند و پلن پولی را جعل نمی‌کند.\\n۱) «ساخت حساب» یا اگر حساب دارید «ورود».\\n۲) بعد از ورود «دانلود کانفیگ» را بزنید، پروتکل WireGuard و کشور را انتخاب کنید و فایل را دانلود کنید — Cat همان فایل را برمی‌دارد.\\n۳) یا فایل را کپی کنید و «از کلیپ‌بورد بخوان» را بزنید.",
+        "Like Fox: you create the account on the official page (email + human check). Cat does not fill the form and does not fake Plus.\\n1) “Create account”, or “Sign in” if you already have one.\\n2) After sign-in tap “Download configs”, pick WireGuard and a country, download the file — Cat picks it up.\\n3) Or copy the file and tap “read the clipboard”.",
+    ), 12f))
+    val status = freeText(t("⏳ منتظر فایل WireGuard…", "⏳ Waiting for a WireGuard file…"), 12.5f, TEAL, bold = true)
+
+    val webView = object : android.webkit.WebView(this) {
+        override fun onCheckIsTextEditor(): Boolean = true
+    }.apply {
+        isFocusable = true
+        isFocusableInTouchMode = true
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.loadsImagesAutomatically = true
+        setOnTouchListener { v, event ->
+            if (event.action == android.view.MotionEvent.ACTION_DOWN || event.action == android.view.MotionEvent.ACTION_UP) {
+                dialogRef?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                if (!v.hasFocus()) v.requestFocus()
+            }
+            false
+        }
+    }
+    runCatching { android.webkit.CookieManager.getInstance().setAcceptCookie(true) }
+
+    fun note(msg: String) { status.text = msg }
+
+    fun takeConf(name: String, text: String) {
+        if (!ProtonFreePlanner.looksLikeConf(text)) return
+        if (collected.any { it.second == text }) return
+        collected += name to text
+        val code = ProtonFreePlanner.countryOfConf(text, name).ifBlank { "?" }
+        note(t("✅ ${collected.size} فایل · آخرین: $code", "✅ ${collected.size} file(s) · last: $code"))
+    }
+
+    fun downloadUrl(url: String, filename: String) {
+        activityScope.launch(Dispatchers.IO) {
+            val text = runCatching {
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 15_000
+                conn.readTimeout = 20_000
+                conn.instanceFollowRedirects = true
+                val cookie = android.webkit.CookieManager.getInstance().getCookie(url)
+                if (!cookie.isNullOrBlank()) conn.setRequestProperty("Cookie", cookie)
+                conn.setRequestProperty("User-Agent", webView.settings.userAgentString ?: "CatClient")
+                val code = conn.responseCode
+                val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+                conn.disconnect()
+                body
+            }.getOrDefault("")
+            runOnUiThread { takeConf(filename.ifBlank { url.substringAfterLast('/') }, text) }
+        }
+    }
+
+    webView.setDownloadListener { url, _, contentDisposition, _, _ ->
+        val name = Regex("""filename\*?=(?:UTF-8'')?"?([^";]+)""", RegexOption.IGNORE_CASE)
+            .find(contentDisposition.orEmpty())?.groupValues?.get(1)?.trim()
+            ?: url.substringAfterLast('/').substringBefore('?').ifBlank { "proton.conf" }
+        if (url.startsWith("http", true)) downloadUrl(url, name) else note(t("دانلود از این نشانی پشتیبانی نمی‌شود؛ فایل را کپی کنید.", "This download URL is not supported; copy the file instead."))
+    }
+    webView.webViewClient = object : android.webkit.WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+            val url = request?.url?.toString().orEmpty()
+            if (url.startsWith("http://", true) || url.startsWith("https://", true)) return false
+            return true
+        }
+    }
+
+    box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = true) { webView.loadUrl(ProtonFreePlanner.SIGNUP) }, freeLp(6))
+    box.addView(freeButton(t("🔑 ورود (اگر حساب دارید)", "🔑 Sign in (if you have an account)"), accent = false) { webView.loadUrl(ProtonFreePlanner.LOGIN) }, freeLp(4))
+    box.addView(freeButton(t("⬇️ صفحهٔ دانلود WireGuard", "⬇️ WireGuard downloads page"), accent = false) { webView.loadUrl(ProtonFreePlanner.DOWNLOADS) }, freeLp(4))
+    box.addView(webView, LinearLayout.LayoutParams(-1, dp(380)).apply { topMargin = dp(6) })
+    box.addView(status, freeLp(6))
+    box.addView(freeButton(t("📋 از کلیپ‌بورد بخوان", "📋 Read the clipboard"), accent = false) {
+        val clip = readClipboardConfigText().orEmpty()
+        if (ProtonFreePlanner.looksLikeConf(clip)) takeConf("clipboard.conf", clip)
+        else Toast.makeText(this, t("در کلیپ‌بورد فایل .conf نبود.", "No .conf in the clipboard."), Toast.LENGTH_LONG).show()
+    }, freeLp(4))
+    box.addView(freeButton(t("➕ افزودن فایل‌های گرفته‌شده به Cat", "➕ Add the collected files to Cat"), accent = true) {
+        if (collected.isEmpty()) {
+            Toast.makeText(this, t("هنوز فایلی نیامده.", "No file yet."), Toast.LENGTH_LONG).show()
+        } else {
+            dialogRef?.dismiss()
+            addProtonConfs(collected.toList(), want)
+        }
+    }, freeLp(8))
+
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🟢 حساب رایگان پروتون", "🟢 Free Proton account"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    dialogRef = dialog
+    dialog.setOnDismissListener {
+        poll?.cancel()
+        runCatching { webView.stopLoading(); webView.destroy() }
+    }
+    dialog.showCatClientDialog()
+    webView.loadUrl(ProtonFreePlanner.SIGNUP)
+    poll = activityScope.launch {
+        while (true) {
+            delay(2_500)
+            runCatching {
+                webView.evaluateJavascript(ProtonFreePlanner.SCAN_JS) { raw ->
+                    val text = jsString(raw)
+                    if (ProtonFreePlanner.looksLikeConf(text)) takeConf("page.conf", text)
+                }
+            }
+        }
+    }
+}
+
+private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want: Set<String>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val name = "🟢 Cat Proton"
+    freeProgress(t("⏳ ساخت کانفیگ‌های پروتون…", "⏳ Building Proton configs…")) { step ->
+        val links = ArrayList<String>()
+        val report = ArrayList<String>()
+        val codes = ArrayList<String>()
+        for ((filename, text) in files) {
+            if (!ProtonFreePlanner.looksLikeConf(text)) {
+                report += "⚠️ $filename: " + t("فایل WireGuard کامل نیست", "not a complete WireGuard file")
+                continue
+            }
+            val code = ProtonFreePlanner.countryOfConf(text, filename)
+            if (want.isNotEmpty() && code.isNotBlank() && code !in want) {
+                report += "↩️ $filename: $code " + t("انتخاب نشده بود", "was not selected")
+                continue
+            }
+            val label = ProtonFreePlanner.rowLabel(text, filename, fa)
+            val rows = WireGuardConfText.toUris(text).map { link ->
+                val base = link.substringBefore('#')
+                val tag = java.net.URLEncoder.encode("🟢 Cat Proton · $label", "UTF-8").replace("+", "%20")
+                "$base#$tag"
+            }
+            if (rows.isEmpty()) {
+                report += "⚠️ $filename: " + t("لینک ساخته نشد", "no link built")
+                continue
+            }
+            if (rows.any { it.startsWith("awg://") }) {
+                report += "⚠️ $filename: " + t("این فایل Amnezia است نه پروتون؛ از بخش آمنزیا اضافه کنید", "this file is Amnezia, not Proton; add it in the Amnezia section")
+                continue
+            }
+            links += rows
+            if (code.isNotBlank()) codes += code
+            report += "✅ $filename → ${ProtonFreePlanner.flagOf(code)} $code ×${rows.size}"
+        }
+        if (links.isEmpty()) {
+            freeResult(t("⚠️ کانفیگی ساخته نشد", "⚠️ No config built"), report, null,
+                t("فایل باید PrivateKey و PublicKey و Endpoint داشته باشد. از صفحهٔ دانلود پروتون، WireGuard را بگیرید.",
+                    "The file needs PrivateKey, PublicKey and Endpoint. From Proton's downloads page, get WireGuard."))
+            return@freeProgress
+        }
+        step(t("ذخیره به‌عنوان «$name»…", "Saving as “$name”…"))
+        val text = ProtonFreePlanner.subscriptionText(links)
+        val store = FreeNetworkStore(this@addProtonConfs)
+        val subId = try {
+            saveFreeSubscription(store.protonSubId, name, text)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), report + (e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.protonSubId = subId
+        renderSubscriptions()
+        val countries = codes.distinct()
+        report += t("کشورها: ", "Countries: ") + countries.joinToString(" ") { ProtonFreePlanner.flagOf(it) + it }
+        freeResult(
+            t("✅ ${links.size} سرور پروتون از ${countries.size.coerceAtLeast(1)} کشور", "✅ ${links.size} Proton servers from ${countries.size.coerceAtLeast(1)} countries"),
+            report,
+            subId,
+            t("وایرگارد خام روی بعضی اپراتورهای ایران بسته است. اگر وصل نشد، «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کنید. این کانفیگ‌ها مال حساب خودتان است، نه کلید مشترک.",
+                "Plain WireGuard is blocked on some Iranian operators. If it does not connect, try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”. These configs belong to your account, not a shared key."),
+        )
     }
 }
 

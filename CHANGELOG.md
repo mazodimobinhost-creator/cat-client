@@ -4,6 +4,17 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta254] — 2026-11-07 (Panel 6.83.0, unchanged)
+
+Owner: Fanoos is free-Pro for Iran (tested in the official app); want Proton like Fox (create an account, show locations); Amnezia and other free VPNs.
+
+### Added
+- **🟢 Cat Proton** in 🎁 free networks: official signup/sign-in page in the app (human check stays the user's, like Fox). Cat picks up the WireGuard `.conf` files that page issues, groups them by country, and saves `wireguard://` rows. The free plan's published countries (NL, JP, US, CA, RO, PL, NO, SG) are the picker; Plus is not faked. Paste a `.conf` works too.
+- **🔐 Cat Amnezia** in the same hub: Amnezia has no free cloud account — opens the existing vpn:// / `.conf` import.
+
+### Changed
+- **🏮 Fanoos** now talks to the service the way the official client does: `X-Lantern-Config-Client-IP` = the phone's public IP looked up on SIM/Wi-Fi (not the VPN exit), and the IANA timezone (`Asia/Tehran` is stronger evidence of Iran than the connecting IP). Requests prefer the physical network. The «🌍» report says timezone, the IP sent, and whether the request left over SIM/Wi-Fi.
+
 ## [1.10.0-beta253] — 2026-11-07 (Panel 6.83.0, unchanged)
 
 Owner: «why not every country — it was made free for Iran».
