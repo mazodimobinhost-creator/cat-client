@@ -1,7 +1,27 @@
-# Android failure report (cabab0d)
+# Android failure report (41371f5)
 
 
 ## files with compile errors
+     60 app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt
+      6 app/src/main/java/com/cat/client/MainActivity.kt
+      4 app/src/main/java/com/cat/client/MainActivityFox.kt
+      3 app/src/main/java/com/cat/client/MainActivitySubscriptions.kt
+      3 app/src/main/java/com/cat/client/AppDesign.kt
+      2 app/src/main/java/com/cat/client/MainActivityRealInternet.kt
+      2 app/src/main/java/com/cat/client/AppAccent.kt
+      1 app/src/main/java/com/cat/client/SmartRouteScout.kt
+      1 app/src/main/java/com/cat/client/MapOrigin.kt
+      1 app/src/main/java/com/cat/client/MainActivityUiKit.kt
+      1 app/src/main/java/com/cat/client/MainActivityScanner.kt
+      1 app/src/main/java/com/cat/client/MainActivityNetworkTools.kt
+      1 app/src/main/java/com/cat/client/MainActivityGuides.kt
+      1 app/src/main/java/com/cat/client/MainActivityEngines.kt
+      1 app/src/main/java/com/cat/client/MainActivityDiagnostics.kt
+      1 app/src/main/java/com/cat/client/MainActivityDashboard.kt
+      1 app/src/main/java/com/cat/client/MainActivityConnectionTesting.kt
+      1 app/src/main/java/com/cat/client/MainActivityCloud.kt
+      1 app/src/main/java/com/cat/client/MainActivityCatWarp.kt
+      1 app/src/main/java/com/cat/client/MainActivityAntiFilterTools.kt
 ## log tail
 ### step18.log
   type: 'test'
@@ -9,43 +29,43 @@
 # Subtest: the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)
 ok 6 - the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)
   ---
-  duration_ms: 1.384961
+  duration_ms: 1.637795
   type: 'test'
   ...
 # Subtest: a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node
 ok 7 - a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node
   ---
-  duration_ms: 1.176937
+  duration_ms: 1.390131
   type: 'test'
   ...
 # Subtest: no exits typed → no built-in default ProxyIP lines on a node
 ok 8 - no exits typed → no built-in default ProxyIP lines on a node
   ---
-  duration_ms: 0.478462
+  duration_ms: 0.521788
   type: 'test'
   ...
 # Subtest: data plane on a node: a pinned 🎯 ProxyIP carries the Cloudflare-hosted names, other sites go direct
 ok 9 - data plane on a node: a pinned 🎯 ProxyIP carries the Cloudflare-hosted names, other sites go direct
   ---
-  duration_ms: 1.597953
+  duration_ms: 1.951289
   type: 'test'
   ...
 # Subtest: panel page on a node: «server IPs» view present, body marked node (Clean IP no longer blank)
 ok 10 - panel page on a node: «server IPs» view present, body marked node (Clean IP no longer blank)
   ---
-  duration_ms: 5.610701
+  duration_ms: 7.136652
   type: 'test'
   ...
 # Subtest: rendered page: node CSS shows the server-IP view and Locations (Vercel still hides Locations)
 ok 11 - rendered page: node CSS shows the server-IP view and Locations (Vercel still hides Locations)
   ---
-  duration_ms: 8.794428
+  duration_ms: 11.22738
   type: 'test'
   ...
 # Subtest: /api/node/ips: each typed IP comes back ✅/❌ with its test result; the page has the per-host capability list + save & test
 ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; the page has the per-host capability list + save & test
   ---
-  duration_ms: 39.077496
+  duration_ms: 48.287598
   type: 'test'
   ...
 1..12
@@ -56,7 +76,7 @@ ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; th
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 6175.769668
+# duration_ms 6207.388775
 ✓ ClientHello SNI parser: a real hello → its SNI
 ✓ ClientHello SNI parser: half a hello → «wait for more» (null), HTTP → null
 ✓ X25519 pair in Xray text form (43 base64url chars each) + 8-hex shortId
@@ -84,7 +104,7 @@ ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; th
 ✓ Reality off → status off and the lines (Reality + SS-2022) leave the sub
 
 ALL PASSED
-(node:3773) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3764) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -97,7 +117,7 @@ tunnel grain tests passed
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3781) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3771) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -124,3 +144,124 @@ To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/
   ✓ the settings payload advertises the defaults so the page can offer them
 
 sni lab: 20 passed, 0 FAILED
+### kotlin-precheck.log
+- To opt in to applying to both value parameter and field, add '-Xannotation-default-target=param-property' to your compiler arguments.
+- To keep applying to the value parameter only, use the '@param:' annotation target.
+
+See https://youtrack.jetbrains.com/issue/KT-73255 for more details.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/CatClientVpnServiceRealInternet.kt:140:24 Condition is always 'true'.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/DefaultNetworkMonitor.kt:145:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/IpGeolocation.kt:156:51 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:700:13 'fun setSelectedTabIndicatorHeight(p0: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:1440:58 'static field TRIM_MEMORY_RUNNING_LOW: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:1450:26 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:1450:43 'static fun parseActivityResult(p0: Int, p1: Int, p2: Intent!): IntentResult!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivity.kt:2874:12 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityAdvanced.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityAmneziaSstp.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityAntiFilterTools.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityCatWarp.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityCloud.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityConnectionTesting.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityDashboard.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityDiagnostics.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityEngines.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityFox.kt:82:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityFox.kt:438:22 'var databaseEnabled: Boolean' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityFox.kt:518:93 'static field SHOW_FORCED: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityFox.kt:791:61 'static field SOFT_INPUT_ADJUST_RESIZE: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityGuides.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityNetworkTools.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityRealInternet.kt:132:18 Condition is always 'false'.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityRealInternet.kt:153:19 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityScanner.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivitySubscriptions.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivitySubscriptions.kt:1708:5 'constructor(p0: Activity!): IntentIntegrator' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivitySubscriptions.kt:1710:42 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MainActivityUiKit.kt:81:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/MapOrigin.kt:33:30 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/client/SmartRouteScout.kt:61:35 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+> Task :app:bundleDebugClassesToCompileJar
+
+> Task :app:compileDebugUnitTestKotlin
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:4:15 Unresolved reference 'test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:5:15 Unresolved reference 'test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:6:15 Unresolved reference 'test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:7:15 Unresolved reference 'test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:8:15 Unresolved reference 'test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:9:15 Unresolved reference 'test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:13:6 Unresolved reference 'Test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:17:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:18:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:23:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:24:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:27:6 Unresolved reference 'Test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:29:18 Unresolved reference 'assertFailsWith'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:32:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:33:20 Unresolved reference 'assertFailsWith'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:36:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:37:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:38:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:43:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:44:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:45:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:47:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:48:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:50:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:51:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:54:6 Unresolved reference 'Test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:66:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:68:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:69:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:71:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:72:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:76:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:77:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:79:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:80:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:82:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:83:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:87:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:88:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:90:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:91:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:92:9 Unresolved reference 'assertNull'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:95:6 Unresolved reference 'Test'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:97:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:98:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:99:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:100:9 Unresolved reference 'assertFalse'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:101:9 Unresolved reference 'assertEquals'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:102:9 Unresolved reference 'assertNull'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:107:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:108:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:109:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:110:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:111:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:112:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:113:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:114:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:115:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:116:9 Unresolved reference 'assertTrue'.
+e: file:///home/runner/work/cat-client/cat-client/app/src/test/java/com/cat/client/Beta267CatConnectKitTest.kt:117:9 Unresolved reference 'assertFalse'.
+
+> Task :app:compileDebugUnitTestKotlin FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugUnitTestKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 2m 40s
+19 actionable tasks: 19 executed
