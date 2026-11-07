@@ -1,12 +1,12 @@
 package com.cat.client
 
 import java.io.File
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class Beta267CatConnectKitTest {
 
@@ -26,11 +26,11 @@ class Beta267CatConnectKitTest {
 
     @Test
     fun naiveIsRejectedNotRewrittenToHttp() {
-        val ex = assertFailsWith<IllegalArgumentException> {
+        val ex = assertThrows(IllegalArgumentException::class.java) {
             SubConvConverter.convert("naive+https://user:pass@naive.example:443")
         }
         assertTrue(ex.message!!.contains("Chromium NaiveProxy"))
-        val quic = assertFailsWith<IllegalArgumentException> {
+        val quic = assertThrows(IllegalArgumentException::class.java) {
             SubConvConverter.convert("naive+quic://user:pass@naive.example:443")
         }
         assertTrue(quic.message!!.contains("کرومیوم") || quic.message!!.contains("Chromium"))
