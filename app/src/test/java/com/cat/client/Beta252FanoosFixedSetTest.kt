@@ -96,5 +96,7 @@ class Beta252FanoosFixedSetTest {
         assertTrue(all.contains("store.lanternFixed = base.joinToString(\",\")"))
         assertTrue(all.contains("LanternPlanner.perCountryFor("))
         assertTrue("ignored locations are grouped, not one line each", all.contains("-> notGiven += loc!!.label()"))
+        // beta253: the report says where the service saw the user (through a running VPN it is not Iran).
+        assertTrue(all.contains("if (seenIn.isBlank()) seenIn = tr.clientCountry") && all.contains("!seenIn.equals(\"IR\", ignoreCase = true)"))
     }
 }

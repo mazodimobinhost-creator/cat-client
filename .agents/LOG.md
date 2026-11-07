@@ -133,3 +133,7 @@
 - No identity rotation to get more countries (that would dodge the service's paid-tier limit).
 - Local: harness Beta252 6/6 + Beta251 5/5 + Beta250 6/6 + Beta249 5/5 + Beta247 14/14; codemap --check OK; syntax 405/416 (same 11 known).
 - CI: `0ac2f5c` push run 42349168737 ✅ + all PR twins ✅; release v1.10.0-beta252 prerelease 20 assets.
+
+## beta253 (2026-11-07)
+- Owner asked why Fanoos lacks countries «free for Iran». Lantern store listing 10.0.5: «free plan genuinely free … Pro unlocks unlimited data, server selection». Added «service saw you in» + VPN note to the «🌍» report (geo through a connected VPN is not IR).
+- Local: harness Beta252 6/6 + Beta251 5/5 + Beta249 5/5; syntax 405/416 (same 11); codemap OK.

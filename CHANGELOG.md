@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta253] — 2026-11-07 (Panel 6.83.0, unchanged)
+
+Owner: «why not every country — it was made free for Iran».
+
+### Changed
+- **🏮 Fanoos «🌍» report says where the service saw you** (`🇩🇪 DE`, and whether the request went through the running VPN). If it was not
+  Iran, it explains how to check whether Iran gets more (disconnect the VPN or exclude Cat in split tunnelling and try again). Lantern's
+  own store listing (10.0.5) says the free plan is free, while server selection is a Pro feature.
+
 ## [1.10.0-beta252] — 2026-11-07 (Panel 6.83.0, unchanged)
 
 Owner's screenshot: «🌍 every country» → «8 servers from 2 countries»; 20 requested locations, each answered with 🇩🇪 + 🇸🇬.

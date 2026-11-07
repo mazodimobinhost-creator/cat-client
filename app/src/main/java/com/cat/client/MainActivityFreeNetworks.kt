@@ -369,6 +369,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         val notGiven = ArrayList<String>()
         val fixed = LanternPlanner.FixedCheck()
         var fixedConfirmed = false
+        var seenIn = ""
+        var viaTunnel = false
         var failuresInARow = 0
         var i = -1
         while (i < queue.size) {
@@ -393,6 +395,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
             }
             failuresInARow = 0
             val (result, tr) = got
+            if (seenIn.isBlank()) seenIn = tr.clientCountry
+            if (result.report.any { it.startsWith("config ✓") && it.contains("(tunnel)") }) viaTunnel = true
             val more = LanternPlanner.extendQueue(queue, tr.offered)
             if (more > 0) step(t("   سرویس $more مکان دیگر هم معرفی کرد؛ به صف اضافه شد.", "   The service named $more more locations; queued."))
             val rows = result.links.mapIndexed { k, l -> l to (tr.linkLocations.getOrNull(k)?.code ?: "") }
@@ -420,6 +424,14 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
                 "🔒 The Fanoos service gives this free account only: $flags — we asked for ${notGiven.size} other countries and got the same each time, so the rest was not asked (choosing a country seems to be for its paid accounts only).")
         } else if (fixed.honouredSeen) {
             store.lanternFixed = ""
+        }
+        // beta252: where the service thinks the user is. Through a connected VPN it sees the VPN's country, not Iran.
+        if (seenIn.isNotBlank()) {
+            report += t("سرویس شما را در این کشور دید: ", "The service saw you in: ") + LanternPlanner.flagOf(seenIn) + " " + seenIn +
+                (if (viaTunnel) t(" (درخواست از داخل VPN روشن رفت)", " (the request went through the running VPN)") else "")
+            if (!seenIn.equals("IR", ignoreCase = true)) report += t(
+                "ℹ️ سرویس شما را ایران ندید. اگر می‌خواهید ببینید برای ایران فرق می‌کند: VPN را قطع کنید (یا Cat را در «تقسیم تونل» از VPN بیرون بگذارید) و دوباره بزنید.",
+                "ℹ️ The service did not see you in Iran. To check whether Iran gets more: disconnect the VPN (or exclude Cat in split tunnelling) and try again.")
         }
         val fresh = LanternPlanner.limitPerCountry(collected, LanternPlanner.perCountryFor(LanternPlanner.countriesOf(collected).size))
         if (fresh.isEmpty()) {
