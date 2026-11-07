@@ -126,3 +126,10 @@
 - Fox: no change needed — beta250 already writes every country into one subscription; the hub's single-row Fox card is dead code (no caller).
 - Local: npm test 166/166 after budget raise; panel.yml list 31/31; placement-dom + panel-selfupdate on obf/stealth ✅; harness (rebuilt: /tmp was wiped) Beta251 5/5 + Beta250 6/6 + Beta249 5/5 + Beta247 14/14; codemap --check OK; min.js 945 260 / 950 000.
 - CI: `df57bec` push run 42346733504 ✅ + all PR twins ✅; release v1.10.0-beta251 prerelease 20 assets (catclient.worker.js 945 260 B).
+
+## beta252 (2026-11-07)
+- Owner screenshot: Fanoos «🌍» = 8 servers / 2 countries (DE+SG for all 20 requests) → service assigns a fixed set to free accounts.
+- `LanternPlanner.FixedCheck` (stop after 3 ignored), `serverKey` (dedupe by server), `perCountryFor` (1–2 countries → 8 each); store `ln_fixed`/`ln_fixed_at` (24 h); picker offers «🔄 fresh servers» when known; grouped «not given» line.
+- No identity rotation to get more countries (that would dodge the service's paid-tier limit).
+- Local: harness Beta252 6/6 + Beta251 5/5 + Beta250 6/6 + Beta249 5/5 + Beta247 14/14; codemap --check OK; syntax 405/416 (same 11 known).
+

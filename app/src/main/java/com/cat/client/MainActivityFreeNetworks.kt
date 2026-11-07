@@ -257,6 +257,29 @@ internal fun MainActivity.showFanoosDialog() {
     // beta251: the picker is always shown. A free account often gets no location list, so the catalog of common
     // locations fills it in; «🌍 every country» asks for each of them and keeps what really comes back.
     val offered = FreeNetworkStore(this).lanternOfferedList().ifEmpty { LanternPlanner.CATALOG }
+    // beta252: if the last run showed that this account only gets a fixed set of countries, say so and offer what
+    // really works (fresh servers of those countries) first, instead of 20 country rows that all give the same.
+    val fixed = FreeNetworkStore(this).lanternFixedRecent()
+    if (fixed.isNotEmpty()) {
+        val flags = fixed.joinToString(" ") { LanternPlanner.flagOf(it) + " " + it }
+        val items = listOf(
+            if (fa) "🔄 سرورهای تازهٔ همین کشورها ($flags)" else "🔄 Fresh servers of these countries ($flags)",
+            if (fa) "🌍 دوباره امتحان همهٔ کشورها" else "🌍 Try every country again",
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (fa) "🏮 Cat Fanoos" else "🏮 Cat Fanoos")
+            .setMessage(
+                if (fa) "دفعهٔ قبل سرویس فانوس به حساب رایگان فقط این کشورها را داد: $flags — درخواست کشورهای دیگر را نادیده گرفت. برای کشورهای بیشتر «🦊 Cat Fox VPN» را امتحان کنید."
+                else "Last time the Fanoos service gave a free account only: $flags — it ignored requests for other countries. For more countries try “🦊 Cat Fox VPN”.",
+            )
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which == 0) fetchFanoosAll(emptyList())
+                else fetchFanoosAll(LanternPlanner.allTargets(FreeNetworkStore(this).lanternOfferedList()))
+            }
+            .setNegativeButton(if (fa) "بستن" else "Close", null)
+            .create().showCatClientDialog()
+        return
+    }
     // beta250: «🌍 every country» fills the ONE «🏮 Cat Fanoos» subscription with every location the service gives,
     // each row named by its country; once connected every row is pinged, so the list shows all countries + pings.
     val labels = listOf(
@@ -344,6 +367,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         val collected = ArrayList<Pair<String, String>>()
         val report = ArrayList<String>()
         val notGiven = ArrayList<String>()
+        val fixed = LanternPlanner.FixedCheck()
+        var fixedConfirmed = false
         var failuresInARow = 0
         var i = -1
         while (i < queue.size) {
@@ -372,21 +397,37 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
             if (more > 0) step(t("   سرویس $more مکان دیگر هم معرفی کرد؛ به صف اضافه شد.", "   The service named $more more locations; queued."))
             val rows = result.links.mapIndexed { k, l -> l to (tr.linkLocations.getOrNull(k)?.code ?: "") }
             collected += rows
-            val codes = LanternPlanner.countriesOf(rows).joinToString(" ") { LanternPlanner.flagOf(it) + it }
-            report += when {
-                rows.isEmpty() -> "⚠️ $label: " + t("سرور قابل‌استفاده نداد", "no usable server")
-                LanternPlanner.honoured(loc, tr.linkLocations) == false -> "↩️ $label: " + t("نداد؛ به‌جایش $codes", "not given; sent $codes instead").also { notGiven += loc!!.label() }
-                else -> "✅ $label: ${rows.size} ($codes)"
+            val gotSet = LanternPlanner.countriesOf(rows).toSet()
+            val codes = gotSet.joinToString(" ") { LanternPlanner.flagOf(it) + it }
+            val sameAsAlways = fixed.isSameAsAlways(loc, gotSet)
+            val stop = fixed.add(loc, gotSet)
+            when {
+                rows.isEmpty() -> report += "⚠️ $label: " + t("سرور قابل‌استفاده نداد", "no usable server")
+                // Ignored silently (the same countries as always): grouped into one line at the end, not one line each.
+                sameAsAlways || fixed.isSameAsAlways(loc, gotSet) -> notGiven += loc!!.label()
+                LanternPlanner.honoured(loc, tr.linkLocations) == false -> { report += "↩️ $label: " + t("نداد؛ به‌جایش $codes", "not given; sent $codes instead"); notGiven += loc!!.label() }
+                else -> report += "✅ $label: ${rows.size} ($codes)"
             }
+            if (stop) { fixedConfirmed = true; break }
         }
-        val fresh = LanternPlanner.limitPerCountry(collected)
+        val store = FreeNetworkStore(this@fetchFanoosAll)
+        val base = fixed.base.orEmpty()
+        if (fixedConfirmed && base.isNotEmpty()) {
+            store.lanternFixed = base.joinToString(",")
+            store.lanternFixedAt = System.currentTimeMillis()
+            val flags = base.joinToString(" ") { LanternPlanner.flagOf(it) + " " + it }
+            report += t("🔒 سرویس فانوس به این حساب رایگان فقط این کشورها را می‌دهد: $flags — ${notGiven.size} کشور دیگر را خواستیم و هر بار همین‌ها را فرستاد، پس بقیه را نپرسیدیم (ظاهراً انتخاب کشور فقط برای حساب پولی خودش است).",
+                "🔒 The Fanoos service gives this free account only: $flags — we asked for ${notGiven.size} other countries and got the same each time, so the rest was not asked (choosing a country seems to be for its paid accounts only).")
+        } else if (fixed.honouredSeen) {
+            store.lanternFixed = ""
+        }
+        val fresh = LanternPlanner.limitPerCountry(collected, LanternPlanner.perCountryFor(LanternPlanner.countriesOf(collected).size))
         if (fresh.isEmpty()) {
             freeResult(t("⚠️ سرور قابل‌استفاده‌ای نیامد", "⚠️ No usable server"), report, null,
                 t("سرویس فانوس از این شبکه سروری نداد که Cat واقعاً اجرا کند. با یک کانفیگ سالم وصل شوید و دوباره بزنید.",
                     "Fanoos gave no server Cat can really run from this network. Connect with a working config and try again."))
             return@freeProgress
         }
-        val store = FreeNetworkStore(this@fetchFanoosAll)
         val merged = LanternPlanner.merge(store.lanternLinks, fresh, cap = LanternPlanner.ALL_COUNTRIES_CAP)
         val subId = try {
             saveFreeSubscription(store.lanternSubId, name, merged.joinToString("\n") { it.first })
@@ -400,7 +441,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         renderSubscriptions()
         val countries = LanternPlanner.countriesOf(merged)
         report += t("کشورهای رسیده: ", "Countries received: ") + countries.joinToString(" ") { LanternPlanner.flagOf(it) + it }
-        if (notGiven.isNotEmpty()) report += t("برای حساب رایگان داده نشد: ", "Not given to a free account: ") + notGiven.distinct().joinToString("، ")
+        if (notGiven.isNotEmpty()) report += t("خواسته شد ولی داده نشد: ", "Asked for but not given: ") + notGiven.map { it.substringBefore(' ') }.distinct().joinToString(" ")
+        if (countries.size <= 2) report += t("برای کشورهای بیشتر: «🦊 Cat Fox VPN» (چند کشور با حساب رایگان فایرفاکس) یا «🆓 Cat Free Proxy».", "For more countries: “🦊 Cat Fox VPN” (several countries with a free Firefox account) or “🆓 Cat Free Proxy”.")
         freeResult(
             t("✅ ${merged.size} سرور از ${countries.size} کشور در «$name»", "✅ ${merged.size} servers from ${countries.size} countries in “$name”"),
             report,

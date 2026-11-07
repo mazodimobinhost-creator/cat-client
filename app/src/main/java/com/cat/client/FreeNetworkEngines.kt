@@ -379,7 +379,8 @@ internal object LanternPlanner {
         if (fresh.isEmpty()) return old
         if (fresh.all { it.second.isBlank() }) return fresh.take(cap)
         val freshCodes = fresh.map { it.second }.toSet()
-        val kept = old.filter { it.second.isNotBlank() && it.second !in freshCodes && fresh.none { f -> f.first == it.first } }
+        val freshKeys = fresh.mapTo(HashSet()) { serverKey(it.first) }
+        val kept = old.filter { it.second.isNotBlank() && it.second !in freshCodes && serverKey(it.first) !in freshKeys }
         return (fresh + kept).take(cap)
     }
 
@@ -424,11 +425,57 @@ internal object LanternPlanner {
 
     fun limitPerCountry(rows: List<Pair<String, String>>, perCountry: Int = 4): List<Pair<String, String>> {
         val seen = HashMap<String, Int>()
-        return rows.distinctBy { it.first }.filter { (_, code) ->
+        return rows.distinctBy { serverKey(it.first) }.filter { (_, code) ->
             val k = code.ifBlank { "?" }
             val n = seen.getOrDefault(k, 0)
             if (n >= perCountry) false else { seen[k] = n + 1; true }
         }
+    }
+
+    /**
+     * beta252: the same server under another row name («… #1» in one answer, «… #3» in the next) is one server. Key =
+     * the link without its name: the `#fragment`, or for vmess the base64 JSON without its «ps» name.
+     */
+    fun serverKey(link: String): String {
+        val l = link.trim()
+        if (l.startsWith("vmess://", ignoreCase = true)) {
+            val body = l.substring(8).substringBefore('#')
+            val json = runCatching { String(Base64.getDecoder().decode(body.padEnd((body.length + 3) / 4 * 4, '='))) }.getOrNull()
+            val o = json?.let { runCatching { JSONObject(it) }.getOrNull() }
+            if (o != null) { o.remove("ps"); return "vmess://" + o.toString() }
+        }
+        return l.substringBefore('#')
+    }
+
+    /** Few countries → keep more servers of each (more to choose from when one is blocked): 1–2 → 8, 3 → 5, more → 4. */
+    fun perCountryFor(countries: Int): Int = (16 / countries.coerceAtLeast(1)).coerceIn(4, 8)
+
+    /**
+     * beta252: a free account gets a FIXED set of countries — every requested country was ignored and the same set
+     * came back (owner's phone: 🇩🇪 + 🇸🇬 for all 20 requests). After [needed] such answers it is clear, so the run stops
+     * instead of spending 20 requests. A request for a country already in that set proves nothing either way;
+     * a request that brings a NEW country (the service honoured it) turns the early stop off.
+     */
+    class FixedCheck(private val needed: Int = 3) {
+        var base: Set<String>? = null
+            private set
+        var honouredSeen = false
+            private set
+        private var ignored = 0
+        /** true = «the service gives this account only [base]», stop asking. */
+        fun add(requested: Location?, got: Set<String>): Boolean {
+            if (got.isEmpty()) return false
+            val first = base ?: got.also { base = it }
+            if (requested == null) return false
+            val code = requested.code.uppercase(Locale.US)
+            if (code in first) return false
+            if (got.any { it.equals(code, ignoreCase = true) }) { honouredSeen = true; return false }
+            if (got == first) ignored++
+            return !honouredSeen && ignored >= needed
+        }
+        /** The locations this answer ignored silently (same set as always): grouped in the report, not one line each. */
+        fun isSameAsAlways(requested: Location?, got: Set<String>): Boolean =
+            requested != null && base != null && got == base && requested.code.uppercase(Locale.US) !in base!!
     }
 
     /** Distinct countries among the rows, in order ("" = unknown is left out). */
@@ -693,6 +740,15 @@ internal class FreeNetworkStore(context: Context) {
     var lanternSubId: String
         get() = prefs.getString("ln_sub", "").orEmpty()
         set(v) { prefs.edit().putString("ln_sub", v).apply() }
+    /** beta252: «this account only gets these countries» (comma list) and when that was seen — the picker says so for 24 h. */
+    var lanternFixed: String
+        get() = prefs.getString("ln_fixed", "").orEmpty()
+        set(v) { prefs.edit().putString("ln_fixed", v).apply() }
+    var lanternFixedAt: Long
+        get() = prefs.getLong("ln_fixed_at", 0L)
+        set(v) { prefs.edit().putLong("ln_fixed_at", v).apply() }
+    fun lanternFixedRecent(now: Long = System.currentTimeMillis()): List<String> =
+        if (now - lanternFixedAt in 0..24L * 3600 * 1000) lanternFixed.split(',').map(String::trim).filter(String::isNotBlank) else emptyList()
 
     var freeAccountSubId: String
         get() = prefs.getString("fa_sub", "").orEmpty()

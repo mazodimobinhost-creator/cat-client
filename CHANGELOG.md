@@ -4,6 +4,22 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta252] — 2026-11-07 (Panel 6.83.0, unchanged)
+
+Owner's screenshot: «🌍 every country» → «8 servers from 2 countries»; 20 requested locations, each answered with 🇩🇪 + 🇸🇬.
+
+### Changed
+- **🏮 Fanoos tells the truth quickly.** The free account gets a fixed set of countries and ignores the requested one. After 3 ignored
+  requests the run stops («🔒 this free account only gets 🇩🇪 🇸🇬»), and the app remembers it for 24 h: the next tap offers
+  «🔄 fresh servers of these countries» (one request) or «🌍 try every country again». A request that brings a new country turns
+  the early stop off. Ignored locations are one line of flags instead of one line each; with ≤2 countries the report points to
+  🦊 Cat Fox VPN / 🆓 Cat Free Proxy for more countries.
+- **More servers when few countries come:** 1–2 countries keep up to 8 servers each (3 → 5, more → 4).
+- **No duplicate servers:** the same server under another row name (`#1` vs `#3`, or vmess `ps`) counts once (`LanternPlanner.serverKey`).
+
+### Tests
+- `Beta252FanoosFixedSetTest` (6) replays the screenshot case.
+
 ## [1.10.0-beta251] — 2026-11-07 (Panel 6.83.0)
 
 Owner: «Fanoos shows only 2–3 configs; bring the region change and the other improvements of the newest panels into ours; Fox brings one location — I want every location in one subscription».

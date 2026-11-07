@@ -10,6 +10,9 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta252 / Panel 6.83.0 — 2026-11-07
+- Fanoos free accounts get a fixed country set (owner phone: 🇩🇪 + 🇸🇬, requested country ignored). `FixedCheck` stops «🌍» after 3 ignored requests and the result is remembered 24 h (`lanternFixedRecent`). Do not add identity rotation to get other countries — that dodges the service's paid tier.
+
 ## beta251 / Panel 6.83.0 — 2026-11-07
 - **Panel region:** `PLACEMENT_REGIONS`/`normalizePlacement`/`placementMeta`/`placementFromCf` next to `selfUpdatePanel`; `selfUpdatePanelWorker` puts `meta.placement` and saves KV `cat:v6:placement`; route `/api/placement` (owner, cf-only POST with `confirm`); UI card `#plcCard` (backup tab) + client `plc*`. Smart needs traffic from several places and up to 15 min. Placement only moves fetch handlers — direct 🌐 configs; ProxyIP/SOCKS configs keep their exit.
 - **Fanoos:** `LanternPlanner.CATALOG`, `allTargets`, `extendQueue`, `answeredButRefused`; `fetchFanoosAll` loop in `MainActivityFreeNetworks.kt`. Whether the service honours catalog locations for free accounts is only known on a phone — the report says which were not given.
