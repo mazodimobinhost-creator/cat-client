@@ -13,8 +13,9 @@ import java.security.SecureRandom
  *
  * Life cycle: the subscription «🌐 Cat GP» holds ONE link, `http://catgp:<secret>@127.0.0.1:10871`. When the VPN
  * connects with a config that points at that port, [ensureRunning] starts the proxy inside the VPN service's
- * process (sockets to Google are protected, so they bypass the tunnel). The secret keeps other apps on the phone
- * from using the proxy.
+ * process (sockets to Google are protected, so they bypass the tunnel). The local listener is 127.0.0.1 only.
+ * Android's [android.net.ProxyInfo.buildDirectProxy] cannot send a username, so Chrome would pop
+ * «The proxy http://127.0.0.1:10871 requires a username and password» if we 407'd loopback. Auth is off.
  */
 internal object CatGpEngine {
     const val PORT = 10871
@@ -164,7 +165,9 @@ internal object CatGpEngine {
         val f = CatGpFronter(paths, frontIps(ctx), protect = protect)
         val relay = catGpRelayFunction(f) { VpnRuntimeStateStore.incrementGasDailyUsage(ctx, 1) }
         return try {
-            proxy = CatGpProxy(PORT, USER, proxyPass(ctx), ca(ctx), relay, key(ctx)).start()
+            // Empty Basic auth: VpnService.setHttpProxy cannot pass credentials, and Chrome
+            // then shows a Sign-in dialog for 127.0.0.1:10871. Loopback bind is the gate.
+            proxy = CatGpProxy(PORT, "", "", ca(ctx), relay, key(ctx)).start()
             fronter = f
             runningFor = signature
             null

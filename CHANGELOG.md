@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta271] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Chrome «The proxy http://127.0.0.1:10871 requires a username and password».
+
+### Fixed
+- **Cat GP no longer asks Chrome to log into the local proxy.** Connect sets a system HTTP proxy to `:10871` with no username (Android cannot send one). The listener still 407'd, so Chrome showed a Sign-in dialog. Auth is off on loopback; Chrome can load pages. Instagram/Telegram apps still will not (no UDP, they ignore this proxy).
+
 ## [1.10.0-beta270] — 2026-11-08 (Panel 6.89.0)
 
 Owner: in-app update never appeared after 269.
