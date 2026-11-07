@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta268] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Code.gs Unexpected token `*` at line 64; 3D graphics on the app.
+
+### Fixed
+- **Cat GP Code.gs:** Apps Script treats `}/**` as a regex, which is `Unexpected token '*'`. The paste is `//` comments + `var` only (no block comments). Delete the default `myFunction` still, but a leftover brace no longer blows up the parser.
+
+### Added
+- **Home globe is 3D:** the dashboard map is an orthographic rotating sphere (land, grid, Iran → exit arc), not a flat map. Cat look unchanged — same panel, same colors.
+
 ## [1.10.0-beta267] — 2026-11-07 (Panel 6.89.0)
 
 Owner: add all six Cat-branded gaps (honest Naive reject, TUIC/WG/Aether editor+connect, panel↔app pairing + live `/api/version`, WARP/MASQUE studio in the panel, browser line test next to worker health, Hiddify/Amnezia one-tap). Independent; no GPL copy; Cat look unchanged.

@@ -265,7 +265,7 @@
 | `AppLanguage.kt` | 60 | — | — · — |
 | `AppTheme.kt` | 54 | — | — · — |
 | `ConnectButtonModel.kt` | 45 | — | — · — |
-| `ConnectionGlobeView.kt` | 378 | ConnectionGlobeView — a real, flat world map (Natural Earth 110m land silhouette) for the Cat dashboard, ProtonVPN-style: - actual continents drawn… | — · — |
+| `ConnectionGlobeView.kt` | 426 | ConnectionGlobeView — a rotating 3D orthographic globe on the Cat dashboard: - Natural Earth 110m land projected onto a sphere (not a flat map), -… | — · — |
 | `ConnectionOrbView.kt` | 882 | A smooth liquid orb button with gentle morphing, layered gradients, and particle effects - matching the Cat Client design. | — · — |
 | `DashboardStatePresentation.kt` | 123 | — | — · — |
 | `DashboardViews.kt` | 819 | — | — · android-contrast |
@@ -320,6 +320,7 @@
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
 | `FreeNetworkEngines.kt` | 989 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
+| `Globe3d.kt` | 39 | Orthographic 3D globe math for the home connection sphere. | Beta268Globe3dTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
 | `LiveNetPing.kt` | 89 | TCP connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest, Beta265IranMethodsTest · — |
 | `MethodFinderPlan.kt` | 302 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest · — |
@@ -330,7 +331,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_272 Kotlin files, 115852 lines._
+_273 Kotlin files, 115939 lines._
 
 ## MainActivity screens — function index
 
@@ -729,6 +730,7 @@ for the dialog/button you want to change.
 | `GeminiWorkerReviewOutcome` | `WorkerStaticAnalyzer.kt` |
 | `GitHostProfiles` | `GitHostProfiles.kt` |
 | `GitHubReleaseClient` | `AppUpdate.kt` |
+| `Globe3d` | `Globe3d.kt` |
 | `GlobeDrawable` | `GlobeDrawable.kt` |
 | `HostRegions` | `HostRegions.kt` |
 | `ImportedUserSubscription` | `UserSubscriptions.kt` |

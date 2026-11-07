@@ -19,6 +19,22 @@ function check(name, cond, extra) { if (cond) console.log('✓ ' + name); else {
 check('template has exactly the two placeholders', (tpl.match(/__CAT_KEY__/g) || []).length === 1 && (tpl.match(/__CAT_WORKER__/g) || []).length === 1);
 check('script forwards k to the worker hop', /k:\s*CAT_KEY/.test(tpl) && /CAT_WORKER/.test(tpl));
 check('script does not echo the worker body on a bad hop answer', /worker HTTP/.test(tpl) && !/t\.slice/.test(tpl));
+check('no block comments (GAS reads }/** as a regex → Unexpected token *)', !/\/\*/.test(tpl));
+{
+  try {
+    const s = {
+      UrlFetchApp: {},
+      Utilities: {},
+      ContentService: { MimeType: { JSON: 'json' }, createTextOutput(t) { return { text: t, setMimeType() { return this; } }; } },
+      JSON,
+    };
+    vm.createContext(s);
+    vm.runInContext('function myFunction(){\n}\n' + tpl.replace('__CAT_KEY__', '"k"').replace('__CAT_WORKER__', '""'), s);
+    check('parses when pasted after the default myFunction', typeof s.doPost === 'function' && typeof s.doGet === 'function');
+  } catch (err) {
+    check('parses when pasted after the default myFunction', false, String(err));
+  }
+}
 
 function load(key, worker, fetchImpl) {
   const fetches = [];
