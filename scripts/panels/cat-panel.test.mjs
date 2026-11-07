@@ -797,9 +797,27 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.87.0', T.CAT_PANEL_VERSION === '6.87.0');
+  check('panel version is 6.88.0', T.CAT_PANEL_VERSION === '6.88.0');
   check('6.87.0 compiles panelPage at isolate startup so a cold GET is not Error 1102',
     readFileSync(workerPath, 'utf8').includes('warmup.workers.dev'));
+  check('6.88.0 keeps a compiled panelPage shell and fills only host/uuid',
+    readFileSync(workerPath, 'utf8').includes('zzcathostzz.invalid') &&
+    readFileSync(workerPath, 'utf8').includes('panelPageBuild'));
+  {
+    const src = T.defaultSettings();
+    const a = T.panelPage({}, src, 'alpha.workers.dev', '11111111-2222-4333-8444-555555555555');
+    const b = T.panelPage({}, src, 'beta.workers.dev', '11111111-2222-4333-8444-555555555555');
+    check('cached panelPage names this request host, not the placeholder or the other host',
+      a.includes('alpha.workers.dev') && b.includes('beta.workers.dev') &&
+      a.includes('11111111-2222-4333-8444-555555555555') &&
+      !a.includes('zzcathostzz.invalid') && !b.includes('zzcathostzz.invalid') &&
+      !a.includes('warmup.workers.dev') && !b.includes('warmup.workers.dev') &&
+      !a.includes('beta.workers.dev') && !b.includes('alpha.workers.dev'));
+    const first = T.loginPage({}, src, true, '11111111-2222-4333-8444-555555555555', false);
+    const later = T.loginPage({ PANEL_PASSWORD: 'secret' }, src, true, '11111111-2222-4333-8444-555555555555', false);
+    check('login cache does not reuse the first-run card after a password exists',
+      first.includes('admin</code>') && !later.includes('admin</code>'));
+  }
   // 6.84.0 🌐 Cat GP hop: /gp/<uuid>/<key> + POST q.k (UUID leak cannot fetch)
   // 6.83.0 🌍 panel region (Cloudflare placement) + clean domains in the library feed
   check('placement: smart / off / provider:region normalised, unknown refused', T.normalizePlacement('Smart') === 'smart' && T.normalizePlacement('off') === 'off' && T.normalizePlacement('AWS:eu-central-1') === 'aws:eu-central-1' && T.normalizePlacement('gcp:mars-1') === '' && T.normalizePlacement('x:y') === '' && T.normalizePlacement('') === '');

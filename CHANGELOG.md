@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta266] — 2026-11-07 (Panel 6.88.0)
+
+Owner: optimize the panel so Error 1102 stops and consumption stays low.
+
+### Fixed
+- **Cat Panel 6.88.0 Error 1102 / CPU:** 6.87.0 compiled the 550 KB dashboard at isolate startup, then threw that HTML away and built it again on every GET. The isolate now keeps one compiled shell per language/theme/platform and each GET only fills host + UUID (a split, not a rebuild). UUID, KV, users and secrets are not touched. Deploy this Worker (rollback first if the live one is already 1102).
+
 ## [1.10.0-beta265] — 2026-11-07 (Panel 6.87.0, unchanged)
 
 Owner: check two YouTube methods and add the ones that work, like Fox.

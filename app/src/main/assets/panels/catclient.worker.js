@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.87.0';
+const CAT_PANEL_VERSION = '6.88.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -9397,7 +9397,7 @@ button,a,.btn,.chip,.side a,.side button{outline:none}
 .tpgrid button.on span{color:var(--violet2)}
 @keyframes zin{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}`;
 
-function loginPage(env, settings, needsUser, uuid, stale) {
+function loginPageBuild(env, settings, needsUser, uuid, stale) {
   const fa = settings.lang !== 'en';
   const title = panelTitle(env, settings);
   const uiTheme = PANEL_THEMES.includes(settings.uiTheme) ? settings.uiTheme : DEFAULT_PANEL_THEME;
@@ -9806,7 +9806,7 @@ html[data-theme=clean] .side button.on{background:var(--nav-bg);border-color:var
 html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 `;
 
-function panelPage(env, settings, host, masterUuid) {
+function panelPageBuild(env, settings, host, masterUuid) {
   const fa = settings.lang !== 'en';
   const tr2 = (a, b) => (fa ? a : b);
   // Cosmetic only: a bad id can never break the page, it just falls back to the default skin.
@@ -13318,10 +13318,46 @@ api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.curr
 </script></body></html>`;
 }
 
+// 6.88.0: interpolate the 550 KB dashboard ONCE per isolate (lang/theme/platform),
+// keep the shell, and fill only host+uuid on each GET. Together with 6.87.0 startup
+// compile this keeps a cold Cloudflare free GET inside the 10 ms CPU / 128 MB cap
+// (Error 1102). Placeholders are not real names — fill is a split, not a rebuild.
+const PANEL_PH_HOST = 'zzcathostzz.invalid';
+const PANEL_PH_UUID = '00000000-0000-4000-8000-00000000cafe';
+const _ppCache = new Map();
+const _lpCache = new Map();
+function _ppKey(env, s) {
+  return (s.lang === 'en' ? 'en' : 'fa') + '|' + (PANEL_THEMES.includes(s.uiTheme) ? s.uiTheme : DEFAULT_PANEL_THEME) + '|' + panelTitle(env, s) + '|' + (isVercelPlatform(env) ? 'v' + vercelCfFront(env, s) + vercelCustomDomain(env, s) : isNodePlatform(env) ? 'n' + nodeEdge(env) + nodePort(env) + (env.CAT_HOST || '') : 'c');
+}
+function _ppFill(shell, host, uuid) {
+  return String(shell).split(PANEL_PH_HOST).join(escapeHtml(String(host || ''))).split(PANEL_PH_UUID).join(escapeHtml(String(uuid || '')));
+}
+function panelPage(env, settings, host, masterUuid) {
+  const key = _ppKey(env, settings);
+  let shell = _ppCache.get(key);
+  if (!shell) {
+    shell = panelPageBuild(env, settings, PANEL_PH_HOST, PANEL_PH_UUID);
+    if (_ppCache.size >= 2) _ppCache.clear();
+    _ppCache.set(key, shell);
+  }
+  return _ppFill(shell, host, masterUuid);
+}
+function loginPage(env, settings, needsUser, uuid, stale) {
+  const key = _ppKey(env, settings) + '|' + (needsUser ? '1' : '0') + '|' + (stale ? '1' : '0') + '|' + (kvBinding(env) ? 'k' : 'n') + '|' + (settings.passwordHash || env.PANEL_PASSWORD ? 'p' : 'o');
+  let shell = _lpCache.get(key);
+  if (!shell) {
+    shell = loginPageBuild(env, settings, needsUser, PANEL_PH_UUID, stale);
+    if (_lpCache.size >= 2) _lpCache.clear();
+    _lpCache.set(key, shell);
+  }
+  return _ppFill(shell, '', uuid);
+}
+
 // 6.87.0: the dashboard template is ~294 KB of JS. V8 compiles it lazily on the
 // first call. That compile is ~6 ms on a laptop and Error 1102 (CPU/memory cap)
 // on a cold Cloudflare free isolate (10 ms request CPU). Startup CPU is ~400 ms,
 // so compiling here keeps the owner's first panel GET inside the request budget.
+// 6.88.0 also seeds the shell cache (default lang/theme) so that GET is a fill.
 // Must never throw — a throw at module load is 1101 on every path.
 try {
   panelPage({}, defaultSettings(), 'warmup.workers.dev', '00000000-0000-0000-0000-000000000000');
