@@ -3,10 +3,12 @@ package com.cat.client
 import android.net.ProxyInfo
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import com.cat.client.CatClientVpnService.Companion.coreLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import java.io.IOException
 
 // beta269 🌐 Cat GP connect + dummy TUN (system HTTP proxy). Not the Cat core at :2080.
@@ -74,7 +76,7 @@ internal suspend fun CatClientVpnService.runCatGpStartup(
     DiagnosticLogger.info(this, "$eventPrefix.catgp.ready", "port=${CatGpEngine.PORT} udp=no")
     publishState(VpnState.Started)
     try {
-        while (isActive && state != VpnState.Stopping && state != VpnState.Stopped) {
+        while (currentCoroutineContext().isActive && state != VpnState.Stopping && state != VpnState.Stopped) {
             delay(400)
         }
     } finally {
