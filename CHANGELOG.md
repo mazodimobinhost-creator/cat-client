@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta261] — 2026-11-07 (Panel 6.85.0)
+
+Owner: Find for ProxyIP/SOCKS returned only `no-trace`; Zeus «تغییر ریجن» was not on the Countries tab.
+
+### Fixed
+- **Cat Panel 6.85.0 Find:** production Workers omit SNI when `connect()` is given an IP (`workerd#6903`), so every feed ProxyIP came back `no-trace`. Find now proves the exit for real: `/meta` with `resolveOverride` (rejects a short-circuit that would stamp the Worker's own country on every IP), sockets `/cdn-cgi/trace` without pre-resolving hostnames, then a TLS 1.2 ClientHello that carries SNI plus geo of that IP only when the cert is Cloudflare. SOCKS Find reports why it failed and tries 16 candidates.
+- **تغییر ریجن** is on the Countries tab (Cloudflare Workers placement) — same control as 6.83.0, no longer buried in Backup.
+
 ## [1.10.0-beta259] — 2026-11-07 (Panel 6.84.0, unchanged)
 
 Owner: the other Fox client shipped a new release with new protocols and countries — add them all.

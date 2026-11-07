@@ -71,6 +71,7 @@ async function openPanel(HOST, env) {
   check('page script runs without errors', errs.length === 0, errs.join(' | '));
   const card = $('#plcCard');
   check('🌍 region card is shown on a Cloudflare Worker', card && card.style.display !== 'none');
+  check('the card is titled تغییر ریجن', /تغییر ریجن/.test(($('#plcTitle') && $('#plcTitle').textContent) || ''), $('#plcTitle') && $('#plcTitle').textContent);
   check('it shows the current setting and the live data centre', /پیش‌فرض|Default/.test($('#plcNow').textContent) && $('#plcNow').textContent.includes('AMS'), $('#plcNow').textContent);
   check('nothing to apply until something else is picked', $('#plcApply').disabled === true);
   $('#plcModes [data-plc-mode="region"]').click();

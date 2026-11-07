@@ -177,6 +177,7 @@ check('the user form saves exits + every picked country (exitCcs) + exitCc for o
 check('beta245: both country pickers accept several countries', /id="uLocCc" multiple/.test(html) && /id="locCc" multiple/.test(html));
 check('beta245: tapping a country toggles it (several per user, max 6)', html.includes('else if(i>=0)UL.ccs.splice(i,1);else if(UL.ccs.length<6)UL.ccs.push(cc)'));
 check('beta245: «Find» runs each ticked country one after another', html.includes('async function locFetchMany(') && html.includes("locFetchMany(ccs,$('#uLocKind').value") && html.includes("locFetchMany(ccs,$('#locKind').value"));
+check('6.85.0: Countries tab hosts تغییر ریجن', html.includes("['#plcCard','#locLib'") && html.includes('تغییر ریجن'));
 check('beta245: library rows + countries have ➕ to-panel buttons', html.includes('data-locadd="') && html.includes('data-locadd-cc="') && html.includes("'/api/locations/to-panel'"));
 check('beta245: scanner has the operator picker + suggestion button', html.includes('id="rsOp"') && html.includes('id="rsOpGo"') && html.includes("'/api/scan-ops'"));
 

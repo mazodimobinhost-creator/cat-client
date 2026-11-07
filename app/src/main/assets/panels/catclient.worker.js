@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.84.0';
+const CAT_PANEL_VERSION = '6.85.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1258,8 +1258,7 @@ async function healthProbe(sockets, opts) {
       const tlsHost = kind === 'proxyip'
         ? PX_PROBE_HOST
         : (opts.host && !/^\d{1,3}(\.\d{1,3}){3}$/.test(opts.host) && opts.host.indexOf(':') < 0 && opts.host !== 'localhost' ? opts.host : PX_PROBE_HOST);
-      const up = raw.startTls({ expectedServerHostname: tlsHost });
-      if (up && up.writable) sock = up;
+      sock = await upgradeTls(raw, tlsHost);
     }
     const req = kind === 'proxyip'
       ? 'GET /cdn-cgi/trace HTTP/1.1\r\nHost: ' + PX_PROBE_HOST + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n'
@@ -3314,8 +3313,135 @@ function withUserExits(settings, user) {
   }
   return Object.assign({}, settings, { [PXIPS_KEY]: user.exits.slice(), proxyCountries: tags, proxyRepoAuto: false, proxyVip: '', country: '', userExits: true });
 }
-/** ProxyIP check that PROVES the exit country: TCP → TLS(speed.cloudflare.com) → GET /cdn-cgi/trace through the
- * ProxyIP. Cloudflare answers with «loc=XX» = the country it sees the connection coming from, i.e. the exit. */
+/** ProxyIP check that PROVES the exit country.
+ * 6.85.0: the production edge ignores startTls({expectedServerHostname}) when connect() was given an IP
+ * (workerd#6903 — ClientHello has no SNI). Every feed IP then came back «no-trace». We still try the
+ * sockets + /cdn-cgi/trace path (works for hostnames, and in tests), but for IPs we also:
+ *   1. fetch https://speed.cloudflare.com[:port]/meta with cf.resolveOverride = that IP (fetch sends SNI)
+ *      and REJECT a short-circuit that would stamp every IP with the Worker's own country;
+ *   2. if that cannot be trusted, a TLS 1.2 ClientHello WITH SNI on a raw socket + the IP's geo
+ *      (only when the server presents a Cloudflare cert for that SNI). */
+async function upgradeTls(raw, hostname) {
+  if (!raw || typeof raw.startTls !== 'function') return raw;
+  const up = await Promise.resolve(raw.startTls({ expectedServerHostname: hostname, servername: hostname }));
+  return (up && up.writable) ? up : raw;
+}
+function parseCfMeta(j) {
+  if (!j || typeof j !== 'object') return null;
+  const loc = normalizeCountry(j.country || (j.colo && j.colo.cca2) || '');
+  const coloRaw = typeof j.colo === 'string' ? j.colo : (j.colo && (j.colo.iata || j.colo.colo));
+  const colo = String(coloRaw || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+  const exitIp = String(j.clientIp || j.ip || '').replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45);
+  return loc ? { loc, colo, exitIp } : null;
+}
+let PX_OWN_META_IP = undefined;
+async function workerOwnExitIp() {
+  if (PX_OWN_META_IP !== undefined) return PX_OWN_META_IP;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 5000);
+    const res = await fetch('https://' + PX_PROBE_HOST + '/meta', { signal: ctl.signal, headers: { 'cache-control': 'no-store' }, cf: { cacheTtl: 0 } });
+    clearTimeout(timer);
+    const j = res && res.ok ? JSON.parse(await res.text()) : null;
+    PX_OWN_META_IP = String((j && (j.clientIp || j.ip)) || '') || '';
+  } catch { PX_OWN_META_IP = ''; }
+  return PX_OWN_META_IP;
+}
+async function pxMetaProbe(ip, port, host) {
+  const t0 = Date.now();
+  const own = await workerOwnExitIp();
+  if (!own) return { ok: false, ms: Date.now() - t0, error: 'no-own-meta' };
+  const TH = host || PX_PROBE_HOST;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 7000);
+  try {
+    const portPart = port && Number(port) !== 443 ? ':' + Number(port) : '';
+    const res = await fetch('https://' + TH + portPart + '/meta', {
+      signal: ctl.signal,
+      headers: { 'cache-control': 'no-store', 'user-agent': 'Mozilla/5.0 (compatible; EdgeProbe/1.0)' },
+      cf: { cacheTtl: 0, resolveOverride: String(ip).replace(/^\[|\]$/g, '') },
+    });
+    let j = null; try { j = JSON.parse(await res.text()); } catch { /* ignore */ }
+    const p = parseCfMeta(j);
+    const ms = Date.now() - t0;
+    if (!p) return { ok: false, ms, error: res && res.status ? 'http ' + res.status : 'no-meta' };
+    if (p.exitIp && p.exitIp === own) return { ok: false, ms, error: 'short-circuit' };
+    return { ok: true, ms, loc: p.loc, exitIp: p.exitIp, colo: p.colo };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 60) };
+  } finally { clearTimeout(timer); }
+}
+function tlsClientHello(sni) {
+  const name = new TextEncoder().encode(String(sni || PX_PROBE_HOST).slice(0, 253));
+  const u16 = (n) => [(n >> 8) & 255, n & 255];
+  const u24 = (n) => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const nameEntry = [0, ...u16(name.length), ...name];
+  const nameList = [...u16(nameEntry.length), ...nameEntry];
+  const sniExt = [...u16(0), ...u16(nameList.length), ...nameList];
+  const groups = [0, 10, 0, 8, 0, 6, 0, 0x1d, 0, 0x17, 0, 0x18];
+  const points = [0, 11, 0, 2, 1, 0];
+  const sigs = [0, 13, 0, 8, 0, 6, 4, 3, 8, 4, 4, 1];
+  const ext = [...sniExt, ...groups, ...points, ...sigs];
+  const ciphers = [0xc0, 0x2b, 0xc0, 0x2f, 0xc0, 0x2c, 0xc0, 0x30, 0x00, 0x9c, 0x00, 0x2f];
+  const random = new Array(32).fill(1);
+  const body = [3, 3, ...random, 0, ...u16(ciphers.length), ...ciphers, 1, 0, ...u16(ext.length), ...ext];
+  const hs = [1, ...u24(body.length), ...body];
+  return new Uint8Array([22, 3, 3, ...u16(hs.length), ...hs]);
+}
+async function geoIpCountry(ip) {
+  const v = String(ip || '').replace(/^\[|\]$/g, '');
+  if (!isIpv4(v) && !isIpv6(v)) return '';
+  try {
+    const r = await fetch('http://ip-api.com/json/' + encodeURIComponent(v) + '?fields=status,countryCode', { cf: { cacheTtl: 1800 } });
+    const j = await r.json();
+    if (j && j.status === 'success') return normalizeCountry(j.countryCode) || '';
+  } catch { /* next */ }
+  try {
+    const r = await fetch('https://ipinfo.io/' + encodeURIComponent(v) + '/country', { cf: { cacheTtl: 1800 } });
+    return normalizeCountry((await r.text()).trim()) || '';
+  } catch { return ''; }
+}
+async function pxHelloGeoProbe(sockets, addr, sni) {
+  const TH = sni || PX_PROBE_HOST;
+  const hp = splitHostPort(String(addr), 443);
+  const port = hp.port || 443;
+  const dial = String(hp.hostname || '').replace(/^\[|\]$/g, '');
+  const t0 = Date.now();
+  let raw = null;
+  try {
+    raw = sockets.connect({ hostname: dial, port }, { allowHalfOpen: false });
+    await withTimeout(raw.opened, 5000, 'connect-timeout');
+    const w = raw.writable.getWriter();
+    await w.write(tlsClientHello(TH));
+    try { w.releaseLock(); } catch (e) { /* ignore */ }
+    const reader = raw.readable.getReader();
+    let buf = new Uint8Array(0);
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && buf.length < 16384) {
+      const chunk = await withTimeout(reader.read(), Math.max(1, deadline - Date.now()), 'read-timeout');
+      if (chunk.done) break;
+      if (chunk.value && chunk.value.byteLength) {
+        const n = new Uint8Array(buf.length + chunk.value.byteLength);
+        n.set(buf); n.set(chunk.value, buf.length); buf = n;
+      }
+      if (buf.length >= 5 && (buf[0] === 0x15 || buf.length > 400)) break;
+    }
+    const ms = Date.now() - t0;
+    if (!buf.length || (buf[0] !== 0x16 && buf[0] !== 0x17)) return { ok: false, ms, error: buf[0] === 0x15 ? 'tls-alert' : 'no-tls' };
+    const latin = new TextDecoder('latin1').decode(buf);
+    if (!/cloudflare/i.test(latin) && latin.indexOf(TH) < 0) return { ok: false, ms, error: 'not-cf-cert' };
+    const loc = await geoIpCountry(dial);
+    if (!loc) return { ok: false, ms, error: 'no-geo' };
+    return { ok: true, ms, loc, exitIp: dial, colo: '' };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 60) };
+  } finally {
+    try { if (raw) raw.close(); } catch (e) { /* ignore */ }
+  }
+}
+function pxNeedsFallback(err) {
+  return /no-trace|no-http|no-meta|no-own-meta|short-circuit|tls-alert|not-cf|no-tls|no-geo/i.test(String(err || '')) || !err;
+}
 async function pxTraceProbe(sockets, addr, traceHost) {
   const TH = traceHost || PX_PROBE_HOST;
   const hp = splitHostPort(String(addr), 443);
@@ -3323,12 +3449,11 @@ async function pxTraceProbe(sockets, addr, traceHost) {
   const t0 = Date.now();
   let raw = null;
   try {
-    let dial = String(hp.hostname || '').replace(/^\[|\]$/g, '');
-    if (!isIpv4(dial) && !isIpv6(dial)) { const ip = await resolveHost(dial); if (ip) dial = ip; }
+    // Keep the hostname as-is. Resolving to an IP first made the production edge omit SNI (workerd#6903).
+    const dial = String(hp.hostname || '').replace(/^\[|\]$/g, '');
     raw = sockets.connect({ hostname: dial, port }, { allowHalfOpen: false, secureTransport: 'starttls' });
     await withTimeout(raw.opened, 5000, 'connect-timeout');
-    const up = raw.startTls({ expectedServerHostname: TH });
-    const sock = up && up.writable ? up : raw;
+    const sock = await upgradeTls(raw, TH);
     const w = sock.writable.getWriter();
     await w.write(new TextEncoder().encode('GET /cdn-cgi/trace HTTP/1.1\r\nHost: ' + TH + '\r\nUser-Agent: Mozilla/5.0 (compatible; EdgeProbe/1.0)\r\nConnection: close\r\n\r\n'));
     try { w.releaseLock(); } catch (e) { /* ignore */ }
@@ -3352,6 +3477,24 @@ async function pxTraceProbe(sockets, addr, traceHost) {
     try { if (raw) raw.close(); } catch (e) { /* ignore */ }
   }
 }
+async function pxTraceProve(sockets, addr, deadline) {
+  const hp = splitHostPort(String(addr), 443);
+  const host = String(hp.hostname || '').replace(/^\[|\]$/g, '');
+  const isIp = isIpv4(host) || isIpv6(host);
+  const until = deadline || (Date.now() + 20000);
+  if (isIp) {
+    const meta = await pxMetaProbe(host, hp.port || 443);
+    if (meta.ok) return meta;
+  }
+  let r = await pxTraceProbe(sockets, addr);
+  if (!r.ok && !/connect|refused|reset|timeout/i.test(String(r.error || '')) && Date.now() < until) {
+    r = await pxTraceProbe(sockets, addr, 'www.cloudflare.com');
+  }
+  if (r.ok) return r;
+  if (!isIp || !pxNeedsFallback(r.error) || Date.now() > until) return r;
+  const hello = await pxHelloGeoProbe(sockets, addr, PX_PROBE_HOST);
+  return hello.ok ? hello : r;
+}
 function locShuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const x = a[i]; a[i] = a[j]; a[j] = x; } return a; }
 async function locFetch(env, settings, cc, want, kinds) {
   const sockets = await loadSockets();
@@ -3360,7 +3503,7 @@ async function locFetch(env, settings, cc, want, kinds) {
   const have = new Set(pool.map((p) => p.addr));
   const added = [];
   const other = [];
-  const rep = { testedPx: 0, listedPx: 0, testedSx: 0, listedSx: 0 };
+  const rep = { testedPx: 0, listedPx: 0, testedSx: 0, listedSx: 0, errors: {} };
   if (kinds.px) {
     let cand = await proxyRepoHealthyPool(env, 400);
     if (!cand.length && kvBinding(env)) { await refreshProxyRepos(env).catch(() => null); cand = await proxyRepoHealthyPool(env, 400); }
@@ -3370,7 +3513,6 @@ async function locFetch(env, settings, cc, want, kinds) {
     const tagged = locShuffle(cand.filter((c) => c.cc === cc && fresh(c)));
     const untagged = locShuffle(own.filter(fresh).concat(cand.filter((c) => !c.cc && fresh(c))));
     rep.listedPx = tagged.length;
-    rep.errors = {};
     rep.skippedCf = 0;
     const seen = new Set();
     const list = tagged.slice(0, 24).concat(untagged.slice(0, tagged.length < 8 ? 8 : 4)).filter((c) => {
@@ -3389,9 +3531,7 @@ async function locFetch(env, settings, cc, want, kinds) {
       if (matched >= want || Date.now() > deadline) return;
       const addr = cleanExitEntry(c.ip);
       rep.testedPx++;
-      let r = await pxTraceProbe(sockets, addr);
-      // TCP worked but TLS/HTTP on the probe host did not: one retry on a second Cloudflare host before calling it dead.
-      if (!r.ok && !/connect|refused|reset|timeout/i.test(String(r.error || '')) && Date.now() < deadline) r = await pxTraceProbe(sockets, addr, 'www.cloudflare.com');
+      const r = await pxTraceProve(sockets, addr, deadline);
       if (!r.ok) { bump(r.error); return; }
       const e = { kind: 'px', addr, cc: r.loc, ms: r.ms, ok: true, fails: 0, at: Date.now(), exitIp: r.exitIp, colo: r.colo };
       if (r.loc === cc) { if (matched < want) { matched++; added.push(e); } }
@@ -3401,6 +3541,7 @@ async function locFetch(env, settings, cc, want, kinds) {
   if (kinds.socks) {
     const h = await huntSocks(env, settings, cc, want, sockets, have);
     rep.testedSx = h.tried; rep.listedSx = h.listed;
+    if (h.errors) for (const k of Object.keys(h.errors)) rep.errors[k] = (rep.errors[k] || 0) + h.errors[k];
     for (const f of h.found) added.push({ kind: 'socks', addr: f.url, cc, ms: f.ms, ok: true, fails: 0, at: Date.now(), exitIp: f.exitIp || '' });
   }
   if (!added.length && !other.length) return Object.assign({ ok: true, cc, added, other, pool }, rep);
@@ -3423,7 +3564,7 @@ async function locPing(env, settings, cc) {
       if (r && r.ok && rcc) { p.ok = true; p.fails = 0; p.ms = Date.now() - t0; p.cc = rcc; p.exitIp = r.exitIp || p.exitIp; }
       else { p.ok = false; p.fails = (p.fails || 0) + 1; }
     } else {
-      const r = await pxTraceProbe(sockets, p.addr);
+      const r = await pxTraceProve(sockets, p.addr, Date.now() + 12000);
       if (r.ok) { p.ok = true; p.fails = 0; p.ms = r.ms; p.cc = r.loc; p.exitIp = r.exitIp || p.exitIp; p.colo = r.colo || p.colo; }
       else { p.ok = false; p.fails = (p.fails || 0) + 1; }
     }
@@ -3556,7 +3697,9 @@ async function huntSocks(env, settings, cc, want, sockets, exclude) {
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const x = pool[i]; pool[i] = pool[j]; pool[j] = x; }
   const found = [];
   let tried = 0;
-  await mapBounded(pool.slice(0, 10), 5, async (u) => {
+  const errors = {};
+  const bump = (e) => { const k = String(e || 'failed').replace(/[0-9a-f]{6,}/gi, '').slice(0, 32); errors[k] = (errors[k] || 0) + 1; };
+  await mapBounded(pool.slice(0, 16), 5, async (u) => {
     if (found.length >= want) return;
     const c = parseChain(u);
     if (!c) return;
@@ -3565,9 +3708,11 @@ async function huntSocks(env, settings, cc, want, sockets, exclude) {
     try {
       const r = await withTimeout(chainProbe(sockets, c), 6000, 'timeout');
       if (r && r.ok && normalizeCountry(r.cc) === cc && found.length < want) found.push({ url: u, cc, ms: Date.now() - t0, exitIp: r.exitIp || '' });
-    } catch (e) { /* dead or slow — skipped */ }
+      else if (r && r.ok) bump('exit ' + (normalizeCountry(r.cc) || '?'));
+      else bump((r && r.status) || 'no-echo');
+    } catch (e) { bump((e && e.message) || e); }
   });
-  return { found, tried, listed: pool.length };
+  return { found, tried, listed: pool.length, errors };
 }
 
 /** readable minus the VLESS response prefix ([0][addons length][addons]); writable/close passthrough. */
@@ -10189,7 +10334,7 @@ ${(() => {
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">📍</span><div><h1>${tr2('لوکیشن و خروجی', 'Locations & exits')}</h1><p>${tr2('کشورِ خروجی، رله‌های SOCKS، پراکسی‌های VIP و پل‌های اضطراری — همه در یک صفحه', 'Exit country, SOCKS relays, VIP proxies and emergency bridges in one page')}</p></div></div>
  <div class="card sec" id="locLib">
   <h2><span class="ic">🌍</span><span>${tr2('لوکیشن‌های خروجی — پنل خودش پیدا می‌کند', 'Exit locations — found by the panel itself')}</span><span class="chip" id="locState"></span></h2>
-  <p class="tsub">${tr2('کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن.', 'Pick a country and press «Find». The panel takes that country’s ProxyIP and SOCKS from public feeds, really connects to each from inside the worker and keeps only those whose exit is <b>really</b> in that country — each on its own port. Then tap the country in a user’s form («IPs & location» tab).')}</p>
+  <p class="tsub">${tr2('کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن. برای کانفیگ‌های مستقیم 🌐 (بدون ProxyIP) کارت «تغییر ریجن» همین صفحه را بزن — ورکر کنار همان کشور اجرا می‌شود.', 'Pick a country and press «Find». The panel takes that country’s ProxyIP and SOCKS from public feeds, really connects to each from inside the worker and keeps only those whose exit is <b>really</b> in that country — each on its own port. Then tap the country in a user’s form («IPs & location» tab). For direct 🌐 configs (no ProxyIP) use «Change region» on this same page — the Worker then runs next to that country.')}</p>
   <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><select id="locCc" multiple size="4" style="flex:1;min-width:170px" aria-label="${tr2('کشور', 'Country')}" title="${tr2('کشور', 'Country')}"></select><select id="locKind" style="width:auto" aria-label="${tr2('نوع خروجی', 'Exit type')}" title="${tr2('نوع خروجی', 'Exit type')}"><option value="px">🎯 ProxyIP</option><option value="both">🎯 ProxyIP + 🧦 SOCKS</option><option value="socks">🧦 SOCKS</option></select><button class="btn p" type="button" id="locFetch">🔎 ${tr2('پیدا کن', 'Find')}</button><button class="btn" type="button" id="locPingAll">📡 ${tr2('پینگ همه', 'Ping all')}</button><button class="btn" type="button" id="locDropDead">🧹 ${tr2('حذف خراب‌ها', 'Remove dead')}</button></div>
   <div class="small" id="locMsg" style="margin-top:8px"></div>
   <div class="loclib" id="locGrid"></div>
@@ -11151,7 +11296,7 @@ ${vDoctor}
   <div id="restoreState" class="small" style="margin-top:10px"></div>
  </div>
  <div class="card sec" id="plcCard" style="display:none">
-  <h2><span class="ic">🌍</span><span id="plcTitle">Region</span></h2>
+  <h2><span class="ic">🌍</span><span id="plcTitle">تغییر ریجن</span></h2>
   <div class="small mute" id="plcHint"></div>
   <div class="small" id="plcNow" style="margin-top:8px"></div>
   <div class="row" style="margin-top:10px" id="plcModes"></div>
@@ -12587,7 +12732,7 @@ function plcLoad(){var c=$('#plcCard');if(!c)return;api('/api/placement').then(f
   // Only a Cloudflare Worker has placement: other hosts do not show the card at all.
   if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';return}
   c.style.display='';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.canApply=!!j.canApply;
-  $('#plcTitle').textContent=tx('ریجن پنل (لوکیشن کانفیگ‌های مستقیم 🌐)','Panel region (location of the direct 🌐 configs)');
+  $('#plcTitle').textContent=tx('تغییر ریجن پنل (لوکیشن کانفیگ‌های مستقیم 🌐)','Change panel region (location of the direct 🌐 configs)');
   $('#plcHint').textContent=tx('کلودفلر ورکر را معمولاً نزدیک کاربر اجرا می‌کند. اینجا می‌توانی بگویی کنار کدام دیتاسنتر ابری (Google Cloud / AWS / Azure) اجرا شود؛ کانفیگ‌های مستقیم 🌐 از همان‌جا بیرون می‌روند. کانفیگ‌هایی که ProxyIP یا SOCKS دارند خروجی خودشان را نگه می‌دارند. با «اعمال» همین پنل با این تنظیم دوباره آپلود می‌شود؛ UUID، KV، کاربران و Secretها دست نمی‌خورند.','Cloudflare normally runs the Worker next to the user. Here you choose which cloud region (Google Cloud / AWS / Azure) it should run next to; direct 🌐 configs then leave from there. Configs with a ProxyIP or SOCKS keep their own exit. Apply re-uploads this panel with the setting; UUID, KV, users and secrets stay.');
   var now=[tx('تنظیم فعلی: ','Current setting: ')+plcLabel(PLC.v)];
   if(j.live&&j.live.colo)now.push(tx('الان واقعاً در دیتاسنتر ','Really running now in data centre ')+j.live.colo+tx(' اجرا می‌شود',''));
@@ -13125,7 +13270,7 @@ var PT={},PT_AL={nodes:['scan','list'],spoof:['loc','px']};
 (function(){function C(sel){var el=sel.charAt(0)==='@'?document.getElementById(sel.slice(1)):document.querySelector(sel);return el?(el.closest('.card,.ncard')||null):null}
  var DEF={
   scan:{host:'v-scan',tabs:[['scan','📡 اسکنر','📡 Scanner',['#rsCard']],['list','📋 آی‌پی‌های پنل','📋 Panel IPs',['@ipList','@manualIps','@ipPaste']],['pools','🗂️ استخرها','🗂️ Pools',['#poolCard']],['feeds','🔄 منابع خودکار','🔄 Auto sources',['@rpRows','@v6pOut']],['app','📱 اسکن با اپ و کشور','📱 App scan & country',['@btnLocRefresh']]],rest:{'v-scan':'app','v-nodes':'list'}},
-  loc:{host:'v-loc',tabs:[['lib','🌍 کشورها','🌍 Countries',['#locLib','@ccState']],['px','🎯 ProxyIP و SNI','🎯 ProxyIP & SNI',['#fSpoof','@ppRows']],['socks','🧦 SOCKS و VIP','🧦 SOCKS & VIP',['@skInput','#vipCard']],['test','🧪 تست خروجی','🧪 Exit tests',['@locPathNow','@btnAiTest','@btnCcq']],['adv','🛠️ پیشرفته','🛠️ Advanced',['#fWarp','@extRows','#bridgeCard']]],rest:{'v-spoof':'adv','v-loc':'adv','v-loc-cards':'adv','v-socks':'socks'}},
+  loc:{host:'v-loc',tabs:[['lib','🌍 کشورها','🌍 Countries',['#plcCard','#locLib','@ccState']],['px','🎯 ProxyIP و SNI','🎯 ProxyIP & SNI',['#fSpoof','@ppRows']],['socks','🧦 SOCKS و VIP','🧦 SOCKS & VIP',['@skInput','#vipCard']],['test','🧪 تست خروجی','🧪 Exit tests',['@locPathNow','@btnAiTest','@btnCcq']],['adv','🛠️ پیشرفته','🛠️ Advanced',['#fWarp','@extRows','#bridgeCard']]],rest:{'v-spoof':'adv','v-loc':'adv','v-loc-cards':'adv','v-socks':'socks'}},
   build:{host:'v-build',tabs:[['sub','🔗 ساب سفارشی','🔗 Custom sub',['@bIsp']],['one','🧪 تک کانفیگ','🧪 Single config',['#ccCard']],['ae','🧬 Cat Warp','🧬 Cat Warp',['@aePick']],['frag','✂️ فرگمنت کلاینت','✂️ Client fragment',['@bFrag']]],rest:{'v-build':'sub'}},
   tools:{host:'v-tools',tabs:[['test','🧪 تست‌ها','🧪 Tests',['#tlPing','#tlRoute','#tlPort','#tlDc','#tlDom','#tlMore']],['surv','🛡️ بستهٔ بقا','🛡️ Survival pack',['#survCard']],['dns','📡 DNS و Cat DNS','📡 DNS & Cat DNS',['#wdnsCard']]],rest:{}}
  };
@@ -13392,6 +13537,8 @@ export const _testing = {
   sha224Hex, trojanHash, CF_CIDR_RANGES,
   __setSockets, loadSockets, splitHostPort, proxyIpList, parseChain, dialViaChain, socks5Handshake, httpConnectHandshake, vlessHeader, trojanRequest, wsClientLayer, openChainTransport, chainProbe, cronSelfCheck, cronCountryQuality, CF_V6_POOL, subQuery, DEFAULT_PROXY_IPS, buildXrayConfigs, tgCommand, tgSecret, tgConfig, deployCfg, ghApi, normalizeCountry, splitAddrTag, pinnedPortOf, flagOf, countryLabel, countrySummary, countryGroups, countryOfAddr, dialTarget, pumpTunnel, tunnelAuth, handleTunnelConnection, tunnelPaths, isTunnelPath, dataPlaneEnabled,
   PLACEMENT_REGIONS, normalizePlacement, placementMeta, placementFromCf, parseCfPlacementHeader,
+  pxTraceProbe, pxTraceProve, pxMetaProbe, tlsClientHello, parseCfMeta, upgradeTls, pxHelloGeoProbe, geoIpCountry,
+  __resetPxMeta() { PX_OWN_META_IP = undefined; },
   DEFAULT_REPOS, REPO_TTL_MS, sanitizeRepos, parseRepoFeed, refreshRepos, repoHealthyPool, withRepoPool, maybeRepoRefresh,
   DEFAULT_PROXY_REPOS, PROXY_REPO_TTL_MS, sanitizeProxyRepos, parseProxyFeed, refreshProxyRepos, proxyRepoHealthyPool, withProxyRepoPool, maybeProxyRepoRefresh, echConfigList,
   buildWarpOutbounds, parseExtUris, extSubContent,
