@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta258] — 2026-11-07 (Panel 6.84.0, unchanged)
+
+Owner: re-check free methods; add something that actually works in Iran; do not fake paid VPNs.
+
+### Added
+- **🎁 Free networks:** 🌀 **Psiphon** (one-tap Warp → Psiphon, no account — the free tool Iranians use most), 🌏 **SSTP / VPN Gate**, and 🔑 **Outline / Shadowsocks**. Each has a one-line «اینو بزنی». Psiphon stays on `wireguard` / `masque-h2` / existing Warp modes. No fake Plus / Nord / Privado.
+
+### Tests
+- `Beta254FreeVpnsTest` asserts the hub wires Psiphon / SSTP / Outline and does not mention paid brands.
+
+### Fixed
+- **🧭 Method finder compile:** `plainCoreError` lived on `ShareLinkRemark` by mistake (beta257 CI: unresolved `MethodFinderPlan.plainCoreError`). It is on `MethodFinderPlan` now.
+
 ## [1.10.0-beta257] — 2026-11-07 (Panel 6.84.0, unchanged)
 
 Owner: some things do not work; say where the Amnezia key comes from; simplify the new Cat GP screens.

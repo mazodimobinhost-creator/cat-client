@@ -1,5 +1,6 @@
 # Shared Agent Log
 
+- **2026-11-07 (Iran free methods in 🎁 — `v1.10.0-beta258`):** Hub adds one-tap Warp→Psiphon (no account), SSTP/VPN Gate, Outline/SS. No fake paid VPN. Engines already existed; they were not discoverable in 🎁.
 - **2026-11-07 (Cat GP/Amnezia/finder UX — `v1.10.0-beta257`):** Cat GP dialog in plain language; Amnezia says where the key comes from (no free cloud); broken WG keys dropped so the method finder does not die on `proxy 37: decode peer public key`.
 - **2026-11-07 (Cat GP hop shared-key — `v1.10.0-beta256` / `6.84.0`):** `/gp/<uuid>/<key>` + POST `q.k`; first key stored in KV so a leaked UUID cannot fetch; GAS forwards `k`; gzip max 8 layers; Cat GP in 🎁 free networks. Independent of Aras-GP `panel/`.
 - **2026-10-25 (Skill Setup Phase 1 & 2):** Installed all 19 specialist skills (`01` through `19`) from Google Drive folder `1Ib_oKMGA8a9M2Z5rg8c6-O6HyE8ml5rQ` into `.agents/skills/` and created `.agents/STATUS.md`.

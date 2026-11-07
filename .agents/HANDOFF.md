@@ -10,6 +10,11 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta258 / Panel 6.84.0 — 2026-11-07
+- Owner: re-check free methods; add something that works in Iran; do not fake paid VPNs.
+- 🎁 hub: 🌀 one-tap Warp→Psiphon (no account), 🌏 SSTP/VPN Gate, 🔑 Outline. Psiphon uses `simplifyModeForChain` (wireguard/masque-h2/existing Warp).
+- Not added: Nord/Privado/TunnelBear, fake Proton Plus, Amnezia free cloud.
+
 ## beta257 / Panel 6.84.0 — 2026-11-07
 - Owner screenshots: method finder died on `proxy 37: decode peer public key`; Cat GP was a wall of UUID/Code.gs; Amnezia paste had no «where do I get the key».
 - Cat GP dialog rewritten in plain language; example `/exec` addresses refused in Persian.

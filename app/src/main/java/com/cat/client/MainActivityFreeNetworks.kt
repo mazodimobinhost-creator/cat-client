@@ -24,8 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// beta247 🎁 free networks (UI): 🆓 Cat Free Proxy · 🎫 50 GB free account · 🏮 Cat Fanoos (experimental).
-// Fetching / translating: FreeNetworkEngines.kt (pure parts unit-tested). See docs/CODEMAP.md.
+// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia. Fetching: FreeNetworkEngines.kt.
 
 private fun MainActivity.freeFa(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
 
@@ -89,11 +88,29 @@ internal fun MainActivity.showFreeNetworksHub() {
         box.addView(freeText(detail, 12f), freeLp(3))
     }
     entry(
+        t("🌀 سایفون رایگان (بدون حساب — در ایران بیشتر جواب می‌دهد)", "🌀 Free Psiphon (no account — what usually works in Iran)"),
+        t("اینو بزنی: بدون ساختن حساب وصل می‌شود. پراستفاده‌ترین ابزار رایگان در ایران است. روی Cat Warp سوار می‌شود. از کانفیگ معمولی کندتر است.",
+            "Tap: connects with no account. The free tool Iranians use most. It rides on Cat Warp. Slower than a normal config."),
+        accent = true,
+    ) { showFreePsiphonDialog() }
+    entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
         t("اینو بزنی: برنامه از یک شبکهٔ رایگان عمومی سرور تازه با رمز می‌گیرد و وصل می‌شود. فقط وب و اپ‌ها (TCP)؛ تماس صوتی و بازی‌هایی که UDP می‌خواهند کار نمی‌کنند. رمزها هر ۶ ساعت خودکار نو می‌شوند.",
             "Tap: the app gets fresh servers with passwords from a public free network and connects. Web and apps only (TCP); voice calls / games that need UDP do not work. Passwords renew by themselves every 6 h."),
         accent = true,
     ) { showFreeProxyDialog() }
+    entry(
+        t("🌏 SSTP رایگان (VPN Gate — ژاپن/کره، داخل HTTPS)", "🌏 Free SSTP (VPN Gate — Japan/Korea, inside HTTPS)"),
+        t("اینو بزنی: فهرست سرورهای داوطلب گرفته می‌شود (کاربر vpn / رمز vpn) و وصل می‌شود. سایت خود VPN Gate در ایران فیلتر است؛ فهرست از راه دیگر می‌آید. بعضی خطوط SSTP را می‌بندند.",
+            "Tap: volunteer servers are fetched (user vpn / password vpn) and it connects. The VPN Gate site is filtered in Iran; the list comes another way. Some lines block SSTP."),
+        accent = false,
+    ) { showCatSstpDialog() }
+    entry(
+        t("🔑 Outline رایگان (Shadowsocks، بدون حساب)", "🔑 Free Outline (Shadowsocks, no account)"),
+        t("اینو بزنی: کلیدهای رایگان از چند فهرست گرفته می‌شوند، روی خط شما تست می‌شوند و سالم‌ها وصل می‌شوند. اگر هیچ‌کدام باز نشد، دقیق می‌گوید.",
+            "Tap: free keys are taken from several lists, tested on your line, and the working ones connect. If none open it says so."),
+        accent = false,
+    ) { showOutlineFreeHubDialog() }
     entry(
         t("🎫 حساب رایگان ۵۰ گیگ در ماه", "🎫 Free 50 GB / month account"),
         t("اینو بزنی: سایت یک مؤسسهٔ غیرانتفاعی داخل برنامه باز می‌شود؛ تیک «من ربات نیستم» را خودتان می‌زنید (برنامه این را دور نمی‌زند)، حساب ساخته می‌شود و Cat لینک اشتراک را خودش برمی‌دارد و وصل می‌کند.",
@@ -894,6 +911,104 @@ private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want:
             t("وایرگارد خام روی بعضی اپراتورهای ایران بسته است. اگر وصل نشد، «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کنید. این کانفیگ‌ها مال حساب خودتان است، نه کلید مشترک.",
                 "Plain WireGuard is blocked on some Iranian operators. If it does not connect, try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”. These configs belong to your account, not a shared key."),
         )
+    }
+}
+
+/**
+ * One-tap Warp → Psiphon. Psiphon is the free circumvention tool Iranians actually use
+ * (no account). The chain stays on wireguard / masque-h2 / existing Warp modes.
+ */
+internal fun MainActivity.showFreePsiphonDialog() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val box = freeBox()
+    var dialog: AlertDialog? = null
+    box.addView(
+        freeText(
+            t(
+                "سایفون بدون ساختن حساب کار می‌کند و پراستفاده‌ترین ابزار رایگان در ایران است. روی Cat Warp سوار می‌شود. کشور را خالی بگذارید تا خودش سریع‌ترین را بگیرد. از کانفیگ معمولی کندتر است.",
+                "Psiphon needs no account and is the free tool Iranians use most. It rides on Cat Warp. Leave the country empty to pick the fastest. Slower than a normal config.",
+            ),
+            13f,
+        ),
+        freeLp(8),
+    )
+    box.addView(
+        freeButton(t("🌀 وصل شو — کشور خودکار", "🌀 Connect — automatic country"), true) {
+            dialog?.dismiss()
+            connectFreePsiphon("")
+        },
+        freeLp(10),
+    )
+    box.addView(
+        freeButton(t("کشور خروجی را خودم انتخاب کنم", "Pick the exit country myself"), false) {
+            dialog?.dismiss()
+            pickFreePsiphonCountry()
+        },
+        freeLp(8),
+    )
+    val built = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🌀 سایفون رایگان", "🌀 Free Psiphon"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    dialog = built
+    built.showCatClientDialog()
+}
+
+internal fun MainActivity.pickFreePsiphonCountry() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val regions = listOf("") + PsiphonCarrierConfig.availableRegions(this)
+    val labels = regions.map { code ->
+        PsiphonCarrierConfig.regionDisplayLabel(
+            code,
+            fa,
+            t("⚡ خودکار (سریع‌ترین)", "⚡ Automatic (fastest)"),
+        )
+    }.toTypedArray()
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("کشور خروجی سایفون", "Psiphon exit country"))
+        .setItems(labels) { _, idx -> connectFreePsiphon(regions[idx]) }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+        .showCatClientDialog()
+}
+
+internal fun MainActivity.connectFreePsiphon(region: String) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val cur = aetherPreferenceStore.read()
+    val simple = AetherSelection.simplifyModeForChain(cur.mode, "psiphon")
+    val peer = cur.endpoint?.takeIf { it.isNotBlank() } ?: when {
+        cur.ipScan == "v6" && simple == AetherMode.WireGuard -> "[2606:4700:d0::a29f:c001]:2408"
+        cur.ipScan == "v6" -> "[2606:4700:d0::a29f:c001]:443"
+        simple == AetherMode.WireGuard -> "162.159.192.1:2408"
+        else -> "162.159.198.1:443"
+    }
+    val cleanRegion = region.uppercase(java.util.Locale.US).takeIf { it.matches(Regex("[A-Z]{2}")) }.orEmpty()
+    val tag = cleanRegion.ifBlank { "Auto" }
+    val ready = cur.copy(
+        enabled = true,
+        mode = simple,
+        chainTarget = "psiphon",
+        exitLocation = "foreign",
+        psiphonRegion = cleanRegion,
+        endpoint = peer,
+        endpointScannedAt = cur.endpointScannedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+        profileName = "Cat Warp → Psiphon $tag",
+    )
+    Toast.makeText(this, t("🌀 در حال ساخت سایفون و اتصال…", "🌀 Building Psiphon and connecting…"), Toast.LENGTH_SHORT).show()
+    activityScope.launch {
+        val tomlFile = java.io.File(filesDir, "aether.toml")
+        if (!tomlFile.exists() || tomlFile.length() == 0L) {
+            withContext(Dispatchers.IO) {
+                runCatching { AetherOperations.provision(simple, tomlFile, null, ready.ipScan) }
+            }
+        }
+        saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = true) {
+            connectCatWarpAfterSave()
+        }
     }
 }
 

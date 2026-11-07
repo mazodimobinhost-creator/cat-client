@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1389 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 901 | beta247 🎁 free networks (UI): 🆓 Cat Free Proxy · 🎫 50 GB free account · 🏮 Cat Fanoos (experimental). | 10 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1016 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 896 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -135,7 +135,7 @@
 | `CatWarpListPolicy.kt` | 97 | beta214: small pure helpers behind the Cat Warp list fixes. | Beta214CatWarpListTest · — |
 | `CommunitySourceFetcher.kt` | 52 | Manual/page-visible fetch only. | CommunitySourceFetcherTest · — |
 | `CommunitySourceRegistry.kt` | 53 | — | CommunitySourceFetcherTest, CommunitySourceRegistryTest, FreeConfigsRegistryBridgeTest · — |
-| `ConfigFileImport.kt` | 246 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, WhiteDnsToolkitTest · — |
+| `ConfigFileImport.kt` | 247 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, WhiteDnsToolkitTest · — |
 | `ConnectionDisplay.kt` | 203 | — | — · — |
 | `ConnectionLabelPolicy.kt` | 69 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest · — |
 | `DeltaKroneckerHub.kt` | 109 | 🔺 Delta-Kronecker feeds (github.com/Delta-Kronecker) — public, regularly re-tested lists, consumed BY URL on the user's own phone. | DeltaKroneckerFeedsTest · — |
@@ -321,7 +321,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_263 Kotlin files, 113460 lines._
+_263 Kotlin files, 113576 lines._
 
 ## MainActivity screens — function index
 
@@ -380,9 +380,9 @@ for the dialog/button you want to change.
 
 `buildFirefoxVpnFenixCard`:113, `showFirefoxAccountManagerDialog`:278, `showFirefoxEmailLoginDialog`:802, `showFirefoxVpnFenixHubDialog`:982, `connectFirefoxVpnDirectly`:1124, `showFirefoxCountryPickerDialog`:1270, `showFirefoxTokenImportDialog`:1331
 
-### `MainActivityFreeNetworks.kt` (22 functions)
+### `MainActivityFreeNetworks.kt` (25 functions)
 
-`freeFa`:30, `freeButton`:32, `freeText`:53, `freeBox`:62, `freeLp`:67, `withPhysicalNet`:70, `showFreeNetworksHub`:82, `freeProgress`:137, `saveFreeSubscription`:162, `connectFreeSubscription`:172, `freeResult`:206, `showFreeProxyDialog`:224, `buildFreeProxy`:245, `showFanoosDialog`:285, `fetchFanoos`:332, `fetchFanoosAll`:389, `showFreeAccountDialog`:524, `showProtonDialog`:669, `showProtonPaste`:691, `showProtonWebView`:715, `addProtonConfs`:834, `jsString`:901
+`freeFa`:29, `freeButton`:31, `freeText`:52, `freeBox`:61, `freeLp`:66, `withPhysicalNet`:69, `showFreeNetworksHub`:81, `freeProgress`:154, `saveFreeSubscription`:179, `connectFreeSubscription`:189, `freeResult`:223, `showFreeProxyDialog`:241, `buildFreeProxy`:262, `showFanoosDialog`:302, `fetchFanoos`:349, `fetchFanoosAll`:406, `showFreeAccountDialog`:541, `showProtonDialog`:686, `showProtonPaste`:708, `showProtonWebView`:732, `addProtonConfs`:851, `showFreePsiphonDialog`:921, `pickFreePsiphonCountry`:959, `connectFreePsiphon`:978, `jsString`:1016
 
 ### `MainActivityGuides.kt` (9 functions)
 
