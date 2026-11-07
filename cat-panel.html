@@ -373,6 +373,7 @@ details.acc>summary::-webkit-details-marker{display:none}
 #v-settings .sec{border-inline-start:3px solid rgba(148,163,184,.45)}
 #v-backup .sec{border-inline-start:3px solid rgba(249,115,22,.5)}
 #v-about .sec{border-inline-start:3px solid rgba(99,102,241,.5)}
+#v-region .sec{border-inline-start:3px solid rgba(20,184,166,.55)}
 /* settings topic cards: each group its own hue (rainbow rails) */
 #fSettings>.card.sec:nth-child(1){border-inline-start:3px solid rgba(148,163,184,.45)}
 #fSettings>.card.sec:nth-child(2){border-inline-start:3px solid rgba(124,58,237,.5)}
@@ -653,7 +654,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 <div class="mwrap" id="menu">
  <div class="mbg" data-mclose></div>
  <div class="mpanel">
-  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.85.0</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
+  <div class="mhead"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><div class="mt" id="menuTitle">Cat Panel</div><div class="mv">Cat Panel v6.86.0</div></div><button class="ib" type="button" data-theme-open data-al="al_theme" title="Theme" aria-label="Theme">🎨</button><button class="ib" type="button" data-mclose data-al="al_close" title="Close" aria-label="Close">✕</button></div>
   <div class="mlist">
    <button data-view="dash"><span class="mi" style="background:linear-gradient(135deg,rgba(124,58,237,.20),rgba(124,58,237,.42))">📊</span><span class="mtx"><b data-i="n_dash"></b><small data-i="d_dash"></small></span></button>
    <button data-view="clients"><span class="mi" style="background:linear-gradient(135deg,rgba(16,185,129,.20),rgba(16,185,129,.42))">👥</span><span class="mtx"><b data-i="n_clients"></b><small data-i="d_clients"></small></span></button>
@@ -661,6 +662,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
    <button data-view="scan"><span class="mi" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><span class="mtx"><b data-i="n_scan"></b><small data-i="d_scan"></small></span></button>
    <button data-view="build"><span class="mi" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><span class="mtx"><b data-i="n_build"></b><small data-i="d_build"></small></span></button>
    <button data-view="loc"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">📍</span><span class="mtx"><b>لوکیشن و خروجی</b><small>کشور خروجی، SOCKS و پل‌ها</small></span></button>
+   <button data-view="region"><span class="mi" style="background:linear-gradient(135deg,rgba(20,184,166,.20),rgba(37,99,235,.40))">🌍</span><span class="mtx"><b>تغییر ریجن</b><small>لوکیشن کانفیگ‌های مستقیم 🌐</small></span></button>
    <button data-view="link"><span class="mi" style="background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(168,85,247,.42))">🔗</span><span class="mtx"><b>اتصال پنل‌ها</b><small>کلادفلر ↔ ورسل ↔ ریلوی</small></span></button>
    <button data-view="tools"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">🧰</span><span class="mtx"><b>ابزارها</b><small>پینگ، مسیر، پورت و دامنه</small></span></button>
    <button data-view="settings"><span class="mi" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><span class="mtx"><b data-i="n_settings"></b><small data-i="d_settings"></small></span></button>
@@ -672,12 +674,13 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 </div>
 
 <div class="side" id="sideNav">
- <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.85.0</small></div></div>
+ <div class="sbrand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg3)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><div><span id="sideTitle">Cat Panel</span><small>نسخه 6.86.0</small></div></div>
  <div class="sb-nav">
   <button type="button" data-view="dash"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="lbl" data-i="n_dash"></span></button>
   <button type="button" data-view="clients"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="lbl" data-i="n_clients"></span></button>
   <button type="button" data-view="scan"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg><span class="lbl">آیپی تمیز</span></button>
   <button type="button" data-view="loc"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span class="lbl">لوکیشن و خروجی</span></button>
+  <button type="button" data-view="region"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span class="lbl">تغییر ریجن</span></button>
   <button type="button" data-view="inbounds"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg><span class="lbl" data-i="n_inbounds"></span></button>
   <button type="button" data-view="link"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span class="lbl">اتصال پنل‌ها</span></button>
   <button type="button" data-view="build"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5"/></svg><span class="lbl" data-i="n_build"></span></button>
@@ -695,7 +698,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
 </div>
 <div class="top"><div class="topin">
  <button class="ib sbtog" type="button" id="btnSbToggle" title="جمع/باز کردن منو" aria-label="جمع/باز کردن منو"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg></button>
- <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.85.0</span></div>
+ <div class="brand"><div class="lg"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;width:100%;height:100%"><defs><linearGradient id="cg4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00e1c1"/><stop offset="1" stop-color="#2ef2d6"/></linearGradient></defs><path fill="url(#cg4)" d="M32 13.5C27.5 7 19 3.8 9.5 4.9c1.8 5.7 2.2 11.6 1.2 16.9C7.1 27 5.5 32.3 5.5 37.6 5.5 50.4 17.3 58.5 32 58.5s26.5-8.1 26.5-20.9c0-5.3-1.6-10.6-5.2-15.8-1-5.3-.6-11.2 1.2-16.9C45 3.8 36.5 7 32 13.5Z"/><circle cx="22.8" cy="34.5" r="3.2" fill="#05302a"/><circle cx="41.2" cy="34.5" r="3.2" fill="#05302a"/><path fill="#05302a" d="M28.6 44h6.8L32 49z"/></svg></div><span id="brandTitle">Cat Panel</span><span class="v">v6.86.0</span></div>
  <div class="pgt"><b id="pgTitle">داشبورد</b><small id="pgSub"></small></div>
  <button class="tnew" type="button" id="btnTopNew"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">کاربر جدید</span></button>
  <div class="tools">
@@ -782,7 +785,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
    <div><span data-i="ov_up"></span><span id="ovUp">…</span></div>
    <div><span data-i="ov_seen"></span><span id="ovSeen">…</span></div>
    <div class="small mute" style="margin-top:-6px" data-i="ov_seen_hint"></div>
-   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.85.0</span></div>
+   <div><span data-i="ov_ver"></span><span class="mono" id="ovVer">6.86.0</span></div>
    <div><span>KV</span><span class="chip" id="ovKv">…</span></div>
   </div>
   <div class="row" style="margin-top:10px">
@@ -812,7 +815,7 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">📍</span><div><h1>لوکیشن و خروجی</h1><p>کشورِ خروجی، رله‌های SOCKS، پراکسی‌های VIP و پل‌های اضطراری — همه در یک صفحه</p></div></div>
  <div class="card sec" id="locLib">
   <h2><span class="ic">🌍</span><span>لوکیشن‌های خروجی — پنل خودش پیدا می‌کند</span><span class="chip" id="locState"></span></h2>
-  <p class="tsub">کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن. برای کانفیگ‌های مستقیم 🌐 (بدون ProxyIP) کارت «تغییر ریجن» همین صفحه را بزن — ورکر کنار همان کشور اجرا می‌شود.</p>
+  <p class="tsub">کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن. برای کانفیگ‌های مستقیم 🌐 (بدون ProxyIP) از منو «تغییر ریجن» را باز کن — ورکر کنار همان کشور اجرا می‌شود.</p>
   <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><select id="locCc" multiple size="4" style="flex:1;min-width:170px" aria-label="کشور" title="کشور"></select><select id="locKind" style="width:auto" aria-label="نوع خروجی" title="نوع خروجی"><option value="px">🎯 ProxyIP</option><option value="both">🎯 ProxyIP + 🧦 SOCKS</option><option value="socks">🧦 SOCKS</option></select><button class="btn p" type="button" id="locFetch">🔎 پیدا کن</button><button class="btn" type="button" id="locPingAll">📡 پینگ همه</button><button class="btn" type="button" id="locDropDead">🧹 حذف خراب‌ها</button></div>
   <div class="small" id="locMsg" style="margin-top:8px"></div>
   <div class="loclib" id="locGrid"></div>
@@ -827,6 +830,21 @@ html[data-theme=clean] .ncard{border-radius:16px;box-shadow:var(--sh)}
    <div style="display:flex;gap:8px;align-items:flex-start"><span class="badge">↔️</span><div><b data-i="loc_path_dir_t"></b><div class="nsub" style="margin:0" data-i="loc_path_dir"></div></div></div>
   </div>
   <div class="small" id="locPathNow" style="margin-top:10px"></div>
+ </div>
+</section>
+<section class="view" id="v-region" data-in="region">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(20,184,166,.18),rgba(37,99,235,.30))">🌍</span><div><h1>تغییر ریجن</h1><p>لوکیشن کانفیگ‌های مستقیم 🌐 — ورکر کنار همان کشور اجرا می‌شود. ProxyIP و SOCKS خروجی خودشان را دارند.</p></div></div>
+ <div class="note i small" id="plcOff" style="display:none">تغییر ریجن فقط روی کلادفلر ورکر کار می‌کند (نه Vercel/Node).</div>
+ <div class="card sec" id="plcCard" style="display:none">
+  <h2><span class="ic">🌍</span><span id="plcTitle">تغییر ریجن</span></h2>
+  <div class="small mute" id="plcHint"></div>
+  <div class="small" id="plcNow" style="margin-top:8px"></div>
+  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px" id="plcModes"></div>
+  <div class="row" style="margin-top:8px;display:none;flex-wrap:wrap;gap:8px" id="plcProv"></div>
+  <select id="plcRegion" style="display:none;margin-top:8px;width:100%;min-height:44px;font-size:14px"></select>
+  <div id="plcTableWrap" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table class="plct" id="plcTable"></table></div>
+  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px;width:100%"></button>
+  <div class="small" id="plcMsg" style="margin-top:6px"></div>
  </div>
 </section>
 <section class="view" id="v-loc-cards" data-sec="loc" data-in="loc">
@@ -1773,17 +1791,6 @@ x.com</textarea>
   <label class="btn" style="margin:0">⬆️ <span data-i="backup_up"></span><input type="file" id="restoreFile" accept="application/json" style="display:none"></label></div>
   <div id="restoreState" class="small" style="margin-top:10px"></div>
  </div>
- <div class="card sec" id="plcCard" style="display:none">
-  <h2><span class="ic">🌍</span><span id="plcTitle">تغییر ریجن</span></h2>
-  <div class="small mute" id="plcHint"></div>
-  <div class="small" id="plcNow" style="margin-top:8px"></div>
-  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px" id="plcModes"></div>
-  <div class="row" style="margin-top:8px;display:none;flex-wrap:wrap;gap:8px" id="plcProv"></div>
-  <select id="plcRegion" style="display:none;margin-top:8px;width:100%;min-height:44px;font-size:14px"></select>
-  <div id="plcTableWrap" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table class="plct" id="plcTable"></table></div>
-  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px;width:100%"></button>
-  <div class="small" id="plcMsg" style="margin-top:6px"></div>
- </div>
  <div class="card sec">
   <h2><span class="ic">🧯</span><span data-i="limits"></span></h2>
   <div class="small mute" data-i="limits_text"></div>
@@ -1794,7 +1801,7 @@ x.com</textarea>
 <section class="view" id="v-about" data-sec="set">
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(99,102,241,.20),rgba(99,102,241,.42))">ℹ️</span><div><h1 data-i="n_about"></h1><p data-i="d_about"></p></div></div>
  <div class="card sec">
-  <h2><span class="ic">🐱</span>Cat Panel v6.85.0</h2>
+  <h2><span class="ic">🐱</span>Cat Panel v6.86.0</h2>
   <div class="small mute" data-i="about_text"></div>
   <div class="row" style="margin-top:12px"><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client" target="_blank" rel="noopener">GitHub</a><a class="btn" href="https://github.com/mazodimobinhost-creator/cat-client/releases" target="_blank" rel="noopener">Cat Client APK</a></div>
   <div id="updateBox" class="small" style="margin-top:12px"></div>
@@ -1930,7 +1937,7 @@ x.com</textarea>
    only matters on KV-less panels, where settings cannot persist — the cookie keeps the
    owner's choice instead of resetting to the default skin on every reload. */
 try{var tm=document.cookie.match(/(?:^|;\s*)catTheme=([a-z]+)/);if(tm&&["clean","aurora","nebula","ocean","ember","forest","steel","turquoise","cyberpunk","gold","amoled","nord","daylight"].indexOf(tm[1])>=0){document.documentElement.setAttribute('data-theme',tm[1])}}catch(e){}
-var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.85.0";
+var HOST="your-worker.workers.dev", UUID="MASTER-UUID", VERSION="6.86.0";
 var FIREWALL_PRESETS_UI={"mci-ech":{"address":"188.114.97.6","fingerprint":"chrome","ech":true,"note":"b_fw_mci_ech_n","finalMask":false},"mci-ipv6":{"address":"2a06:98c1:3101::6812:202f","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ipv6_n","finalMask":false},"mci-ipv6-ff":{"address":"2a06:98c1:3121::7","fingerprint":"chrome","ech":false,"note":"b_fw_mci_ff_n","finalMask":true},"irancell-ff":{"address":"188.114.97.6","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true},"irancell-ff-98":{"address":"188.114.98.0","fingerprint":"unsafe","ech":false,"note":"b_fw_irancell_ff_n","finalMask":true}};
 var I18N={
 fa:{n_theme:'پوسته',th_title:'ظاهر پنل',th_sub:'پوستهٔ دلخواهت را انتخاب کن. انتخاب در همین مرورگر ذخیره می‌شود و اگر KV فعال باشد روی خود پنل هم می‌ماند (روی کانفیگ‌ها هیچ اثری ندارد).',th_aurora:'شفق',th_nebula:'سحابی',th_ocean:'اقیانوس',th_ember:'اخگر',th_forest:'جنگل',th_steel:'فولاد',th_turquoise:'فیروزه‌ای',th_cyberpunk:'سایبرپانک',th_gold:'طلایی VIP',th_amoled:'مشکی مطلق',th_nord:'قطبی نورد',th_daylight:'روشن مرواریدی',th_clean:'تمیز روشن',th_close:'بستن',th_saved:'پوسته ذخیره شد ✓',stats:'آمار و وضعیت پنل',st_users:'کل کاربران',st_users_s:'تعریف‌شده در پنل',st_active:'فعال',st_active_s:'بدون انقضا یا غیرفعال',st_exp:'منقضی / غیرفعال',st_exp_s:'نیاز به تمدید',st_ips:'آی‌پی تمیز',st_cfg:'کانفیگ در هر ساب',
@@ -2018,7 +2025,7 @@ function show(v){var ptk='';if(typeof PT_AL!=='undefined'&&PT_AL[v]){ptk=PT_AL[v
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan'){poolsList();if(document.body.getAttribute('data-plat')==='node')nipLoad(false)}else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan'){poolsList();if(document.body.getAttribute('data-plat')==='node')nipLoad(false)}else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='region')plcLoad();else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -3210,17 +3217,17 @@ function plcRender(){var modes=$('#plcModes');if(!modes)return;var v=PLC.sel,kin
   if(tbl)tbl.innerHTML='<thead><tr><th>'+tx('آییدی ریجن','Region id')+'</th><th>'+tx('موقعیت','Location')+'</th><th>'+tx('کشور','Country')+'</th><th>'+tx('شهر','City')+'</th></tr></thead><tbody>'+list.map(function(x){var a=x.split('|'),id=PLC.prov+':'+a[0];return '<tr class="'+(id===v?'on':'')+'" data-plc-id="'+esc(id)+'"><td class="mono" dir="ltr">'+esc(a[0])+'</td><td>'+esc(a[2])+'</td><td>'+flag(a[1])+' '+esc(nm[a[1]]||a[1])+'</td><td>'+esc(a[2])+'</td></tr>'}).join('')+'</tbody>';
   if(!e||e.prov!==PLC.prov)PLC.sel=sel&&sel.value?sel.value:(list[0]?PLC.prov+':'+list[0].split('|')[0]:PLC.sel)}
  var b=$('#plcApply');b.textContent='🚀 '+tx('اعمال تغییرات و دیپلوی','Apply changes & deploy');b.disabled=PLC.sel===PLC.v||!PLC.canApply}
-function plcLoad(){var c=$('#plcCard');if(!c)return;api('/api/placement').then(function(j){
-  // Only a Cloudflare Worker has placement: other hosts do not show the card at all.
-  if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';return}
-  c.style.display='';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.names=j.names||{};PLC.canApply=!!j.canApply;
+function plcLoad(){var c=$('#plcCard'),off=$('#plcOff');if(!c)return;api('/api/placement').then(function(j){
+  // Only a Cloudflare Worker has placement: other hosts get the page with a note, never the Zeus card.
+  if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';if(off)off.style.display='';return}
+  c.style.display='';if(off)off.style.display='none';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.names=j.names||{};PLC.canApply=!!j.canApply;
   $('#plcTitle').textContent=tx('تغییر ریجن پنل','Change panel region');
   $('#plcHint').textContent=tx('می‌توانید لوکیشن کانفیگ‌های مستقیم 🌐 را تغییر دهید','You can change the location of the direct 🌐 configs');
   var now=[tx('تنظیم فعلی: ','Current setting: ')+plcLabel(PLC.v)];
   if(j.live&&j.live.colo)now.push(tx('الان واقعاً در دیتاسنتر ','Really running now in data centre ')+j.live.colo+tx(' اجرا می‌شود',''));
   if(j.header)now.push('cf-placement: '+j.header.kind+'-'+j.header.colo);
   if(!j.canApply)now.push(tx('برای اعمال، یک بار توکن کلودفلر خواسته می‌شود.','Applying asks once for a Cloudflare token.'));
-  $('#plcNow').textContent=now.join(' · ');PLC.canApply=true;plcRender()}).catch(function(){c.style.display='none'})}
+  $('#plcNow').textContent=now.join(' · ');PLC.canApply=true;plcRender()}).catch(function(){c.style.display='none';if(off)off.style.display=''})}
 if($('#plcCard'))$('#plcCard').addEventListener('click',function(ev){var t=ev.target.closest('[data-plc-mode],[data-plc-prov],[data-plc-id]');if(!t)return;
  var m=t.getAttribute('data-plc-mode'),p=t.getAttribute('data-plc-prov'),rid=t.getAttribute('data-plc-id');
  if(m==='off'||m==='smart')PLC.sel=m;else if(m==='region'){if(!plcEntry(PLC.sel)){var l=PLC.regions[PLC.prov]||[];PLC.sel=l.length?PLC.prov+':'+l[0].split('|')[0]:'off'}}
@@ -3753,7 +3760,7 @@ var PT={},PT_AL={nodes:['scan','list'],spoof:['loc','px']};
 (function(){function C(sel){var el=sel.charAt(0)==='@'?document.getElementById(sel.slice(1)):document.querySelector(sel);return el?(el.closest('.card,.ncard')||null):null}
  var DEF={
   scan:{host:'v-scan',tabs:[['scan','📡 اسکنر','📡 Scanner',['#rsCard']],['list','📋 آی‌پی‌های پنل','📋 Panel IPs',['@ipList','@manualIps','@ipPaste']],['pools','🗂️ استخرها','🗂️ Pools',['#poolCard']],['feeds','🔄 منابع خودکار','🔄 Auto sources',['@rpRows','@v6pOut']],['app','📱 اسکن با اپ و کشور','📱 App scan & country',['@btnLocRefresh']]],rest:{'v-scan':'app','v-nodes':'list'}},
-  loc:{host:'v-loc',tabs:[['lib','🌍 کشورها','🌍 Countries',['#plcCard','#locLib','@ccState']],['px','🎯 ProxyIP و SNI','🎯 ProxyIP & SNI',['#fSpoof','@ppRows']],['socks','🧦 SOCKS و VIP','🧦 SOCKS & VIP',['@skInput','#vipCard']],['test','🧪 تست خروجی','🧪 Exit tests',['@locPathNow','@btnAiTest','@btnCcq']],['adv','🛠️ پیشرفته','🛠️ Advanced',['#fWarp','@extRows','#bridgeCard']]],rest:{'v-spoof':'adv','v-loc':'adv','v-loc-cards':'adv','v-socks':'socks'}},
+  loc:{host:'v-loc',tabs:[['lib','🌍 کشورها','🌍 Countries',['#locLib','@ccState']],['px','🎯 ProxyIP و SNI','🎯 ProxyIP & SNI',['#fSpoof','@ppRows']],['socks','🧦 SOCKS و VIP','🧦 SOCKS & VIP',['@skInput','#vipCard']],['test','🧪 تست خروجی','🧪 Exit tests',['@locPathNow','@btnAiTest','@btnCcq']],['adv','🛠️ پیشرفته','🛠️ Advanced',['#fWarp','@extRows','#bridgeCard']]],rest:{'v-spoof':'adv','v-loc':'adv','v-loc-cards':'adv','v-socks':'socks'}},
   build:{host:'v-build',tabs:[['sub','🔗 ساب سفارشی','🔗 Custom sub',['@bIsp']],['one','🧪 تک کانفیگ','🧪 Single config',['#ccCard']],['ae','🧬 Cat Warp','🧬 Cat Warp',['@aePick']],['frag','✂️ فرگمنت کلاینت','✂️ Client fragment',['@bFrag']]],rest:{'v-build':'sub'}},
   tools:{host:'v-tools',tabs:[['test','🧪 تست‌ها','🧪 Tests',['#tlPing','#tlRoute','#tlPort','#tlDc','#tlDom','#tlMore']],['surv','🛡️ بستهٔ بقا','🛡️ Survival pack',['#survCard']],['dns','📡 DNS و Cat DNS','📡 DNS & Cat DNS',['#wdnsCard']]],rest:{}}
  };
@@ -3780,7 +3787,7 @@ function ptReveal(el){var c=el&&el.closest&&el.closest('.card,.ncard');if(!c)ret
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','region','link','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)renderUpdateBox(b,j,true);var ob=$('#ovUpdateBox');if(ob)renderUpdateBox(ob,j,false);toast(t('update_new')+j.latest)}).catch(function(){});
 })();
