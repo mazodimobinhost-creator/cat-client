@@ -10238,19 +10238,7 @@ ${vNote}${nNote}
  </div>
  <div class="note w" id="dpLine" style="display:none" role="alert"><b id="dpTitle"></b><div class="small" id="dpBody" style="margin-top:6px"></div><button class="btn p" type="button" id="dpFix" style="margin-top:8px;min-height:44px;display:none"></button><div class="small" id="dpMsg" style="margin-top:6px"></div></div>
  <div class="note i small" id="cfqLine" style="display:none"></div>
-${(() => {
-  // Server-rendered only when the app's own report disagrees with this panel —
-  // see appSeenMismatch(). It is a note, not an error: both halves work.
-  const miss = appSeenMismatch(settings.appSeen);
-  if (!miss) return '';
-  return `
- <div class="note w" id="verWarn">
-  <b data-i="ver_title"></b>
-  <div style="margin-top:6px" data-i="ver_body"></div>
-  <div class="mono small" style="margin-top:8px">app v${escapeHtml(miss.appPanel)} · panel v${escapeHtml(miss.panel)}${miss.appOlder ? ' · app is older' : ' · panel is older'}</div>
-  <button class="btn sm" type="button" style="margin-top:8px" id="verWarnOk" data-i="ver_dismiss"></button>
- </div>`;
-})()}
+<!--zzcatverwarnzz-->
  <div class="note w pwarn" id="passWarn" style="display:none">
   <b>🔐 <span data-i="pw_title"></span></b>
   <div style="margin-top:6px" data-i="pw_body"></div>
@@ -13324,15 +13312,26 @@ api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.curr
 // (Error 1102). Placeholders are not real names — fill is a split, not a rebuild.
 const PANEL_PH_HOST = 'zzcathostzz.invalid';
 const PANEL_PH_UUID = '00000000-0000-4000-8000-00000000cafe';
+const PANEL_PH_WARN = '<!--zzcatverwarnzz-->';
 const _ppCache = new Map();
 const _lpCache = new Map();
 function _ppKey(env, s) {
   return (s.lang === 'en' ? 'en' : 'fa') + '|' + (PANEL_THEMES.includes(s.uiTheme) ? s.uiTheme : DEFAULT_PANEL_THEME) + '|' + panelTitle(env, s) + '|' + (isVercelPlatform(env) ? 'v' + vercelCfFront(env, s) + vercelCustomDomain(env, s) : isNodePlatform(env) ? 'n' + nodeEdge(env) + nodePort(env) + (env.CAT_HOST || '') : 'c');
 }
-function _ppFill(shell, host, uuid) {
-  return String(shell).split(PANEL_PH_HOST).join(escapeHtml(String(host || ''))).split(PANEL_PH_UUID).join(escapeHtml(String(uuid || '')));
+function _ppWarn(settings) {
+  const miss = appSeenMismatch(settings && settings.appSeen);
+  if (!miss) return '';
+  return '\n <div class="note w" id="verWarn">\n  <b data-i="ver_title"></b>\n  <div style="margin-top:6px" data-i="ver_body"></div>\n  <div class="mono small" style="margin-top:8px">app v' + escapeHtml(miss.appPanel) + ' · panel v' + escapeHtml(miss.panel) + (miss.appOlder ? ' · app is older' : ' · panel is older') + '</div>\n  <button class="btn sm" type="button" style="margin-top:8px" id="verWarnOk" data-i="ver_dismiss"></button>\n </div>';
+}
+function _ppFill(shell, host, uuid, settings) {
+  return String(shell).split(PANEL_PH_HOST).join(escapeHtml(String(host || ''))).split(PANEL_PH_UUID).join(escapeHtml(String(uuid || ''))).split(PANEL_PH_WARN).join(_ppWarn(settings));
 }
 function panelPage(env, settings, host, masterUuid) {
+  // Vercel/Node bake host into SNI plans and notes — a placeholder fill would
+  // drop those. Error 1102 is the Cloudflare isolate; cache the CF shell only.
+  if (isVercelPlatform(env) || isNodePlatform(env)) {
+    return _ppFill(panelPageBuild(env, settings, host, masterUuid), host, masterUuid, settings);
+  }
   const key = _ppKey(env, settings);
   let shell = _ppCache.get(key);
   if (!shell) {
@@ -13340,7 +13339,7 @@ function panelPage(env, settings, host, masterUuid) {
     if (_ppCache.size >= 2) _ppCache.clear();
     _ppCache.set(key, shell);
   }
-  return _ppFill(shell, host, masterUuid);
+  return _ppFill(shell, host, masterUuid, settings);
 }
 function loginPage(env, settings, needsUser, uuid, stale) {
   const key = _ppKey(env, settings) + '|' + (needsUser ? '1' : '0') + '|' + (stale ? '1' : '0') + '|' + (kvBinding(env) ? 'k' : 'n') + '|' + (settings.passwordHash || env.PANEL_PASSWORD ? 'p' : 'o');
@@ -13350,7 +13349,7 @@ function loginPage(env, settings, needsUser, uuid, stale) {
     if (_lpCache.size >= 2) _lpCache.clear();
     _lpCache.set(key, shell);
   }
-  return _ppFill(shell, '', uuid);
+  return _ppFill(shell, '', uuid, settings);
 }
 
 // 6.87.0: the dashboard template is ~294 KB of JS. V8 compiles it lazily on the

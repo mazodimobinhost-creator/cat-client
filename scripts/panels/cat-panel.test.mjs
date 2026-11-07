@@ -801,7 +801,8 @@ let user;
   check('6.87.0 compiles panelPage at isolate startup so a cold GET is not Error 1102',
     readFileSync(workerPath, 'utf8').includes('warmup.workers.dev'));
   check('6.88.0 keeps a compiled panelPage shell and fills only host/uuid',
-    readFileSync(workerPath, 'utf8').includes('zzcathostzz.invalid'));
+    readFileSync(workerPath, 'utf8').includes('zzcathostzz.invalid') &&
+    readFileSync(workerPath, 'utf8').includes('zzcatverwarnzz'));
   {
     const src = T.defaultSettings();
     const a = T.panelPage({}, src, 'alpha.workers.dev', '11111111-2222-4333-8444-555555555555');
