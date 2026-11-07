@@ -54,7 +54,9 @@ const A = await import(pathToFileURL(path.join(lay, 'api', 'index.mjs')).href);
   const ib = cfg.inbounds;
   check('Xray JSON: one VLESS-Reality inbound per profile on 127.0.0.1, vision flow, target = its SNI:443',
     ib.length === A.REALITY_PROFILES.length && ib.every((x, i) => x.listen === '127.0.0.1' && x.port === 30000 + i && x.settings.clients[0].flow === 'xtls-rprx-vision'
-      && x.streamSettings.security === 'reality' && x.streamSettings.realitySettings.target === A.REALITY_PROFILES[i].sni + ':443' && x.streamSettings.realitySettings.privateKey === kp.priv));
+      && x.streamSettings.security === 'reality' && x.streamSettings.realitySettings.target === A.REALITY_PROFILES[i].sni + ':443' && x.streamSettings.realitySettings.privateKey === kp.priv
+      && x.streamSettings.sockopt && x.streamSettings.sockopt.tcpMptcp === false));
+  check('node Reality uses Xray-core v26.10.31 (MPTCP off)', A.XRAY_VERSION === 'v26.10.31');
   check('Xray JSON: the host\'s private ranges are blackholed', cfg.routing.rules[0].outboundTag === 'block' && cfg.routing.rules[0].ip.includes('127.0.0.0/8') && cfg.routing.rules[0].ip.includes('10.0.0.0/8'));
   // beta244 🟣 SS-2022 on the same port
   const U1 = '6b1f0c2e-3d4a-4b5c-8d6e-7f8091a2b3c4'; const U2 = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';

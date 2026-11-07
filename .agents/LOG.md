@@ -147,3 +147,8 @@
 - Amnezia: hub entry to existing import.
 - Local: harness Beta254 + Beta252 + Beta251 + Beta249; syntax; codemap.
 - CI: `c48ea7b` push run 42353622380 ✅ + all PR twins ✅; release v1.10.0-beta254 prerelease 20 assets.
+
+## beta255 (2026-11-07)
+- Audit: Aether 2.4.0 current (1.15.1 is their UI); Psiphon 2.0.42 current; Xray v26.10.31 security (MPTCP); mihomo 1.19.30 kept (patches).
+- Fixes: Psiphon restart (stop previous tunnel; unbind before second start); Xray/node Reality `tcpMptcp: false` on loopback inbounds.
+- Local: harness Beta255 + Beta223; node-reality; syntax; codemap.

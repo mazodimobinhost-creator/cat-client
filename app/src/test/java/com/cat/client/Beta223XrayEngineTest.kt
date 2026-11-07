@@ -102,6 +102,7 @@ class Beta223XrayEngineTest {
             "\"finalmask\":{\"tcp\":[{\"type\":\"fragment\",\"settings\":{\"packets\":\"tlshello\",\"length\":\"100-200\",\"delay\":\"0\"}}]}",
             "\"listen\":\"127.0.0.1\"",
             "\"protocol\":\"socks\"",
+            "\"tcpMptcp\":false",
             "\"inboundTag\":[\"cat-in-0\"],\"outboundTag\":\"cat-out-0\"",
         ).forEach { assertTrue("$it missing in $json", json.contains(it)) }
         assertFalse("Xray rejects allowInsecure", json.contains("allowInsecure"))
@@ -199,7 +200,7 @@ class Beta223XrayEngineTest {
     @Test fun engineIsBuiltFromPinnedSourceAndProtectsItsSockets() {
         val root = listOf(File("."), File("..")).first { File(it, "scripts/build-xray-core.sh").isFile }
         val script = File(root, "scripts/build-xray-core.sh").readText()
-        assertTrue(script.contains("XRAY_COMMIT=\"\${XRAY_COMMIT:-1b1647cd9ddf0abc34b981d4611fc03bcac1ca74}\""))
+        assertTrue(script.contains("XRAY_COMMIT=\"\${XRAY_COMMIT:-a4a3dff5b20c2faae567b742c172c7b95e75c083}\""))
         assertTrue(script.contains("libxray.so"))
         val runner = File(root, "scripts/xray-runner/main.go").readText()
         assertTrue(runner.contains("internet.RegisterDialerController"))

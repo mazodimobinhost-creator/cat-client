@@ -292,7 +292,8 @@ internal object XrayConfigBuilder {
                 "serviceName" to proxy.child("grpc-opts")?.str("grpc-service-name").orEmpty(),
             )
         }
-        stream["sockopt"] = mapOf("domainStrategy" to "UseIP")
+        // v26.10.31: MPTCP is off by default (IPv4 MPTCP kernel bug). Keep it explicit on our SOCKS/outbounds.
+        stream["sockopt"] = mapOf("domainStrategy" to "UseIP", "tcpMptcp" to false)
         XrayFinalMask.build(proxy)?.let { stream["finalmask"] = XrayJson.Raw(it) }
         return stream
     }
@@ -306,6 +307,7 @@ internal object XrayConfigBuilder {
                 "port" to route.port,
                 "protocol" to "socks",
                 "settings" to linkedMapOf("auth" to "noauth", "udp" to route.udp, "ip" to "127.0.0.1"),
+                "streamSettings" to mapOf("sockopt" to mapOf("tcpMptcp" to false)),
             )
         }
         val outbounds = routes.map { XrayJson.Raw(it.outboundJson) } +

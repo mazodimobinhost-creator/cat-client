@@ -566,7 +566,7 @@ server.on('upgrade', (req, socket, head) => reqScope.run({ tunnel: true }, async
 // from its own GitHub release and must match that release's SHA2-256 (.dgst); the X25519 key pair is made here and
 // only the public half leaves the host. After start the panel proves the path: a TLS handshake through the public
 // port with a profile's SNI must reach the real site's certificate (that is what Reality shows a stranger).
-export const XRAY_VERSION = 'v26.10.21';
+export const XRAY_VERSION = 'v26.10.31';
 export const REALITY_PROFILES = [
   { id: 'all', sni: 'www.speedtest.net' }, { id: 'mtn', sni: 'www.microsoft.com' },
   { id: 'rtl', sni: 'www.cloudflare.com' }, { id: 'tci', sni: 'cdn.jsdelivr.net' },
@@ -649,13 +649,14 @@ export function realityXrayJson(state, clients, base) {
   const ss = state.ssKey && state.ssSecret ? [{
     tag: 'ss', listen: '127.0.0.1', port: base + REALITY_PROFILES.length, protocol: 'shadowsocks',
     settings: { method: SS_METHOD, password: state.ssKey, network: 'tcp', clients: clients.map((id) => ({ password: ssUserKey(state.ssSecret, id), email: id + '@cat' })) },
+    streamSettings: { sockopt: { tcpMptcp: false } },
   }] : [];
   return {
     log: { loglevel: 'warning' },
     inbounds: REALITY_PROFILES.map((p, i) => ({
       tag: 'r-' + p.id, listen: '127.0.0.1', port: base + i, protocol: 'vless',
       settings: { clients: clients.map((id) => ({ id, flow: 'xtls-rprx-vision' })), decryption: 'none' },
-      streamSettings: { network: 'tcp', security: 'reality', realitySettings: { target: p.sni + ':443', serverNames: [p.sni], privateKey: state.priv, shortIds: [state.sid] } },
+      streamSettings: { network: 'tcp', security: 'reality', realitySettings: { target: p.sni + ':443', serverNames: [p.sni], privateKey: state.priv, shortIds: [state.sid] }, sockopt: { tcpMptcp: false } },
     })).concat(ss),
     outbounds: [{ protocol: 'freedom', tag: 'direct' }, { protocol: 'blackhole', tag: 'block' }],
     // never a way into the host's own network
@@ -728,7 +729,7 @@ async function ssVerify(bin) {
   const cfg = pathMod.join(realityDir(), 'ss-check.json');
   fs.writeFileSync(cfg, JSON.stringify({
     log: { loglevel: 'warning' },
-    inbounds: [{ listen: '127.0.0.1', port: local, protocol: 'socks', settings: { auth: 'noauth' } }],
+    inbounds: [{ listen: '127.0.0.1', port: local, protocol: 'socks', settings: { auth: 'noauth' }, streamSettings: { sockopt: { tcpMptcp: false } } }],
     outbounds: [{ protocol: 'shadowsocks', settings: { servers: [{ address: '127.0.0.1', port, method: SS_METHOD, password: st.ssKey + ':' + ssUserKey(st.ssSecret, id) }] } }],
   }), { mode: 0o600 });
   const proc = spawn(bin, ['run', '-c', cfg], { stdio: 'ignore', env: Object.assign({}, process.env, { GOMEMLIMIT: '32MiB' }) });

@@ -10,6 +10,11 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta255 / Panel 6.83.0 — 2026-11-07
+- Audit: Aether 2.4.0 (WhiteAestherMobile v1.15.0) is current — v1.15.1 is their Worker/proxy UI, Cat already has those. Psiphon Android lib 2.0.42 is current. Mihomo stays v1.19.30 (FlClash patches; upstream v1.19.33 not rebased).
+- **Xray-core v26.10.31** (`a4a3dff`) security: MPTCP off. App pin + node Reality download. SOCKS/Reality/SS inbounds `tcpMptcp: false`, listen 127.0.0.1.
+- **Psiphon restart:** `startCarrier` stops the previous tunnel; client `start()` unbinds first so a country retry actually runs.
+
 ## beta254 / Panel 6.83.0 — 2026-11-07
 - Owner asked for Fanoos “free Pro for Iran”, Proton like Fox, Amnezia and other free VPNs. **Not done:** fake Pro tokens, identity rotation, Play-Integrity guest login.
 - **Fanoos:** official Radiance `X-Lantern-Config-Client-IP` (public IP looked up off the VPN) + IANA timezone; config-new bound to SIM/Wi-Fi (`FreeNetHttp.openOnPhysical`). Timezone `Asia/Tehran` is stronger evidence of Iran than the connecting IP. If the service still only gives DE+SG after that, it is the free-account cap.

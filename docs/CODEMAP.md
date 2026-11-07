@@ -112,9 +112,9 @@
 | `MlmAndNextGenVpnHub.kt` | 1309 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
 | `PaqetEngine.kt` | 932 | PaqetEngine — Full engine for `paqet` and `paqetNG` (`patth` & `patth ng`, up to paqetNG v1.3.7 + paqet-ngv2). | Beta206EngineTest, WhiteDnsSmartScannerTest · — |
-| `PsiphonCarrierClient.kt` | 116 | Same-UID IPC client; no Psiphon object or Go runtime enters the VPN process. | — · — |
-| `PsiphonCarrierConfig.kt` | 287 | Minimal Psiphon proxy-only configuration for the isolated carrier process. | Beta209WarpEditorTest, PsiphonCarrierConfigTest · — |
-| `PsiphonCarrierService.kt` | 148 | Psiphon's Go runtime is isolated from Cat's other native runtimes in :psiphon. | — · — |
+| `PsiphonCarrierClient.kt` | 117 | Same-UID IPC client; no Psiphon object or Go runtime enters the VPN process. | Beta255EnginesAuditTest · — |
+| `PsiphonCarrierConfig.kt` | 287 | Minimal Psiphon proxy-only configuration for the isolated carrier process. | Beta209WarpEditorTest, Beta255EnginesAuditTest, PsiphonCarrierConfigTest · — |
+| `PsiphonCarrierService.kt` | 149 | Psiphon's Go runtime is isolated from Cat's other native runtimes in :psiphon. | Beta255EnginesAuditTest · — |
 | `PsiphonTunPlan.kt` | 77 | Final local leg: Android TUN → Mihomo → isolated Psiphon or Tor SOCKS. | PsiphonTunPlanTest · — |
 | `SlipNetCliEngine.kt` | 272 | Real DNS-tunnel engine. | Beta218ConnectFreezeTest · — |
 | `SstpClient.kt` | 1078 | One SSTP server: `sstp://user:pass@host:port?ip=1.2.3.4#remark`. | Beta212SstpTest · — |
@@ -125,7 +125,7 @@
 | `WhiteDnsSmartScanner.kt` | 3267 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, WhiteDnsSmartScannerTest · — |
 | `WhiteDnsToolkit.kt` | 853 | Scanner toolkit inspired by the sections of WhiteDNS IP Scanner (independent implementation, no code copied): ASN → CIDR export, CIDR → IP list, op… | Beta238FoxWebChannelTest, WhiteDnsToolkitTest · — |
 | `XrayEngine.kt` | 262 | Runs the official Xray-core (XTLS/Xray-core, MPL-2.0 — built unmodified from source in CI by `scripts/build-xray-core.sh` together with Cat's tiny… | Beta223XrayEngineTest · — |
-| `XrayRouting.kt` | 541 | beta223 — the Xray engine. | Beta223XrayEngineTest · — |
+| `XrayRouting.kt` | 543 | beta223 — the Xray engine. | Beta223XrayEngineTest, Beta255EnginesAuditTest · — |
 
 ### Subscriptions & config formats
 
@@ -321,7 +321,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_263 Kotlin files, 113354 lines._
+_263 Kotlin files, 113358 lines._
 
 ## MainActivity screens — function index
 

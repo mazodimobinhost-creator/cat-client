@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta255] — 2026-11-07 (Panel 6.83.0, unchanged)
+
+Owner: check Aether, Psiphon, the app and the panel; update anything new; look for bugs.
+
+### Changed
+- **Xray-core v26.10.21 → v26.10.31** (security: MPTCP off by default after the IPv4 MPTCP kernel bug). App engine pin, node Reality download, and SOCKS/Reality/SS inbounds set `tcpMptcp: false` explicitly. Inbounds stay on `127.0.0.1`.
+- **Psiphon:** starting a new country now stops the previous tunnel instead of ignoring the request; a second `start()` on the same client unbinds first. Library is already the latest `psiphontunnel:2.0.42`. Chained protocols stay TCP-only (WARP carrier has no UDP).
+- **Aether / Cat Warp:** still Aether 2.4.0 (WhiteAestherMobile v1.15.0). Their v1.15.1 is Worker + imported-proxy UI — Cat already has those on its own; the JNI core is unchanged.
+- **Mihomo:** stays v1.19.30 (custom FlClash patches). Latest upstream is v1.19.33 — not rebased here.
+
 ## [1.10.0-beta254] — 2026-11-07 (Panel 6.83.0, unchanged)
 
 Owner: Fanoos is free-Pro for Iran (tested in the official app); want Proton like Fox (create an account, show locations); Amnezia and other free VPNs.

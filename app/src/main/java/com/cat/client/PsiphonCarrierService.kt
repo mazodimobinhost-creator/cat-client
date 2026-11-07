@@ -65,7 +65,8 @@ class PsiphonCarrierService : Service() {
     private var starting = false
 
     private fun startCarrier(upstreamPort: Int, region: String) {
-        if (tunnel != null || starting) return
+        if (starting) return
+        if (tunnel != null) stopCarrier()
         starting = true
         state = State.Connecting
         failure = null

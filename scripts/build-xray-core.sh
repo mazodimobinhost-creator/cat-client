@@ -7,8 +7,8 @@
 set -euo pipefail
 
 XRAY_REPO="${XRAY_REPO:-https://github.com/XTLS/Xray-core.git}"
-XRAY_TAG="${XRAY_TAG:-v26.10.21}"
-XRAY_COMMIT="${XRAY_COMMIT:-1b1647cd9ddf0abc34b981d4611fc03bcac1ca74}"
+XRAY_TAG="${XRAY_TAG:-v26.10.31}"
+XRAY_COMMIT="${XRAY_COMMIT:-a4a3dff5b20c2faae567b742c172c7b95e75c083}"
 ABIS="${XRAY_ABIS:-arm64-v8a armeabi-v7a x86 x86_64}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -76,6 +76,7 @@ internal class PsiphonCarrierClient(private val context: Context) : Closeable {
     suspend fun start(upstreamPort: Int, region: String, timeoutMs: Long = 330_000): PsiphonCarrierState {
         require(upstreamPort in 1024..65535)
         require(region.isEmpty() || region.matches(Regex("[A-Z]{2}")))
+        if (bound) close()
         pendingUpstreamPort = upstreamPort
         pendingRegion = region
         connected = CompletableDeferred()
