@@ -132,4 +132,4 @@
 - `LanternPlanner.FixedCheck` (stop after 3 ignored), `serverKey` (dedupe by server), `perCountryFor` (1–2 countries → 8 each); store `ln_fixed`/`ln_fixed_at` (24 h); picker offers «🔄 fresh servers» when known; grouped «not given» line.
 - No identity rotation to get more countries (that would dodge the service's paid-tier limit).
 - Local: harness Beta252 6/6 + Beta251 5/5 + Beta250 6/6 + Beta249 5/5 + Beta247 14/14; codemap --check OK; syntax 405/416 (same 11 known).
-
+- CI: `0ac2f5c` push run 42349168737 ✅ + all PR twins ✅; release v1.10.0-beta252 prerelease 20 assets.
