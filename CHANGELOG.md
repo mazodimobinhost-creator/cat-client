@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta272] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Proton free account still needed a guide (downloads page, clipboard, Add files).
+
+### Fixed
+- **Cat Proton after login adds every allowed config by itself.** Sign-in / create-account stays on Proton's page (human check is yours). The session cookie then pulls `/vpn/logicals` + a WireGuard key and Cat saves the rows. No country quiz, no downloads-page button, no clipboard step. Plus is not faked.
+
 ## [1.10.0-beta271] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Chrome «The proxy http://127.0.0.1:10871 requires a username and password».

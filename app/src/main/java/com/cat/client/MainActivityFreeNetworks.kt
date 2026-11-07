@@ -145,8 +145,8 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showFanoosDialog() }
     entry(
         t("🟢 Cat Proton (حساب رایگان، چند کشور)", "🟢 Cat Proton (free account, several countries)"),
-        t("اینو بزنی: صفحهٔ رسمی پروتون داخل برنامه باز می‌شود؛ خودتان حساب رایگان می‌سازید (تیک ربات با شماست، مثل فاکس). Cat فایل WireGuard همان کشورها را برمی‌دارد. پلن رایگان پروتون چند کشور دارد (هلند، ژاپن، آمریکا، …) — پلن پولی جعل نمی‌شود.",
-            "Tap: Proton's official page opens in the app; you create the free account yourself (the human check stays yours, like Fox). Cat picks up that account's WireGuard files. The free plan has several countries (NL, JP, US, …) — Plus is not faked."),
+        t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat خودش همهٔ کانفیگ‌های مجاز را می‌گیرد و اضافه می‌کند — پلن پولی جعل نمی‌شود.",
+            "Tap: sign in or create the free account (the human check stays yours). Cat then fetches every allowed config and adds it — Plus is not faked."),
         accent = true,
     ) { showProtonDialog() }
     entry(
@@ -725,25 +725,7 @@ internal fun MainActivity.showFreeAccountDialog() {
 // ───────────── 🟢 Cat Proton ─────────────
 
 internal fun MainActivity.showProtonDialog() {
-    val fa = freeFa()
-    fun t(f: String, e: String) = if (fa) f else e
-    val countries = ProtonFreePlanner.FREE_COUNTRIES
-    val checked = BooleanArray(countries.size) { true }
-    val labels = countries.map { it.label(fa) }.toTypedArray()
-    MaterialAlertDialogBuilder(this)
-        .setTitle(t("🟢 Cat Proton — کدام کشورها؟", "🟢 Cat Proton — which countries?"))
-        .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
-        .setPositiveButton(t("🌐 ساخت / ورود حساب رایگان", "🌐 Create / sign in free account")) { _, _ ->
-            val want = countries.filterIndexed { i, _ -> checked[i] }.map { it.code }.toSet()
-            showProtonWebView(want)
-        }
-        .setNeutralButton(t("📋 چسباندن فایل .conf", "📋 Paste a .conf file")) { _, _ ->
-            val want = countries.filterIndexed { i, _ -> checked[i] }.map { it.code }.toSet()
-            showProtonPaste(want)
-        }
-        .setNegativeButton(t("بستن", "Close"), null)
-        .create()
-        .showCatClientDialog()
+    showProtonWebView(emptySet())
 }
 
 private fun MainActivity.showProtonPaste(want: Set<String>) {
@@ -775,14 +757,15 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
     fun t(f: String, e: String) = if (fa) f else e
     var dialogRef: AlertDialog? = null
     var poll: Job? = null
-    val collected = ArrayList<Pair<String, String>>() // filename to conf
+    var pulling = false
+    val collected = ArrayList<Pair<String, String>>()
 
     val box = freeBox()
     box.addView(freeText(t(
-        "مثل فاکس: حساب را خودتان در صفحهٔ رسمی می‌سازید (ایمیل + تیک «من ربات نیستم»). Cat فرم را پر نمی‌کند و پلن پولی را جعل نمی‌کند.\\n۱) «ساخت حساب» یا اگر حساب دارید «ورود».\\n۲) بعد از ورود «دانلود کانفیگ» را بزنید، پروتکل WireGuard و کشور را انتخاب کنید و فایل را دانلود کنید — Cat همان فایل را برمی‌دارد.\\n۳) یا فایل را کپی کنید و «از کلیپ‌بورد بخوان» را بزنید.",
-        "Like Fox: you create the account on the official page (email + human check). Cat does not fill the form and does not fake Plus.\\n1) “Create account”, or “Sign in” if you already have one.\\n2) After sign-in tap “Download configs”, pick WireGuard and a country, download the file — Cat picks it up.\\n3) Or copy the file and tap “read the clipboard”.",
+        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat خودش همهٔ کانفیگ‌ها را می‌گیرد و اضافه می‌کند.",
+        "Sign in or create a free account. The human check stays yours. After that Cat fetches every allowed config and adds it.",
     ), 12f))
-    val status = freeText(t("⏳ منتظر فایل WireGuard…", "⏳ Waiting for a WireGuard file…"), 12.5f, TEAL, bold = true)
+    val status = freeText(t("⏳ حساب را بساز یا وارد شو…", "⏳ Sign in or create the account…"), 12.5f, TEAL, bold = true)
 
     val webView = object : android.webkit.WebView(this) {
         override fun onCheckIsTextEditor(): Boolean = true
@@ -804,12 +787,54 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
 
     fun note(msg: String) { status.text = msg }
 
+    fun finishWith(files: List<Pair<String, String>>) {
+        if (files.isEmpty()) {
+            note(t("حساب آمد ولی کانفیگ مجاز نبود.", "Signed in, but no allowed config."))
+            pulling = false
+            return
+        }
+        poll?.cancel()
+        dialogRef?.dismiss()
+        addProtonConfs(files, want)
+    }
+
     fun takeConf(name: String, text: String) {
         if (!ProtonFreePlanner.looksLikeConf(text)) return
         if (collected.any { it.second == text }) return
         collected += name to text
-        val code = ProtonFreePlanner.countryOfConf(text, name).ifBlank { "?" }
-        note(t("✅ ${collected.size} فایل · آخرین: $code", "✅ ${collected.size} file(s) · last: $code"))
+        if (!pulling && collected.isNotEmpty()) finishWith(collected.toList())
+    }
+
+    fun protonCookies(): String = listOf(
+        "https://account.proton.me",
+        "https://account.protonvpn.com",
+        "https://proton.me",
+    ).mapNotNull { runCatching { android.webkit.CookieManager.getInstance().getCookie(it) }.getOrNull() }
+        .filter { it.isNotBlank() }
+        .joinToString("; ")
+
+    fun pullFromSession() {
+        if (pulling) return
+        val session = ProtonFreePlanner.sessionFromCookies(protonCookies()) ?: return
+        pulling = true
+        note(t("✅ وارد شدی؛ دارم همهٔ کانفیگ‌ها را می‌گیرم…", "✅ Signed in; fetching every config…"))
+        activityScope.launch(Dispatchers.IO) {
+            val result = runCatching { ProtonFreePlanner.pullWireGuardFiles(session, want) }
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { finishWith(it) },
+                    onFailure = { error ->
+                        pulling = false
+                        note(
+                            t(
+                                "خودکار نشد (${error.message ?: "error"}). اگر فایل .conf کپی کردی، همان را می‌خوانم.",
+                                "Auto-fetch failed (${error.message ?: "error"}). If you copied a .conf, I will read it.",
+                            ),
+                        )
+                    },
+                )
+            }
+        }
     }
 
     fun downloadUrl(url: String, filename: String) {
@@ -835,7 +860,7 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         val name = Regex("""filename\*?=(?:UTF-8'')?"?([^";]+)""", RegexOption.IGNORE_CASE)
             .find(contentDisposition.orEmpty())?.groupValues?.get(1)?.trim()
             ?: url.substringAfterLast('/').substringBefore('?').ifBlank { "proton.conf" }
-        if (url.startsWith("http", true)) downloadUrl(url, name) else note(t("دانلود از این نشانی پشتیبانی نمی‌شود؛ فایل را کپی کنید.", "This download URL is not supported; copy the file instead."))
+        if (url.startsWith("http", true)) downloadUrl(url, name)
     }
     webView.webViewClient = object : android.webkit.WebViewClient() {
         override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
@@ -843,26 +868,20 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
             if (url.startsWith("http://", true) || url.startsWith("https://", true)) return false
             return true
         }
+
+        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+            val page = url.orEmpty().lowercase(java.util.Locale.US)
+            if ("pricing" in page || "plan" in page) {
+                note(t("پلن رایگان را انتخاب کن (پولی را نزن)؛ بعدش خودکار می‌آید.", "Pick the free plan (not paid); then it continues on its own."))
+            }
+            pullFromSession()
+        }
     }
 
-    box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = true) { webView.loadUrl(ProtonFreePlanner.SIGNUP) }, freeLp(6))
-    box.addView(freeButton(t("🔑 ورود (اگر حساب دارید)", "🔑 Sign in (if you have an account)"), accent = false) { webView.loadUrl(ProtonFreePlanner.LOGIN) }, freeLp(4))
-    box.addView(freeButton(t("⬇️ صفحهٔ دانلود WireGuard", "⬇️ WireGuard downloads page"), accent = false) { webView.loadUrl(ProtonFreePlanner.DOWNLOADS) }, freeLp(4))
+    box.addView(freeButton(t("🔑 ورود", "🔑 Sign in"), accent = true) { webView.loadUrl(ProtonFreePlanner.LOGIN) }, freeLp(6))
+    box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = false) { webView.loadUrl(ProtonFreePlanner.SIGNUP) }, freeLp(4))
     box.addView(webView, LinearLayout.LayoutParams(-1, dp(380)).apply { topMargin = dp(6) })
     box.addView(status, freeLp(6))
-    box.addView(freeButton(t("📋 از کلیپ‌بورد بخوان", "📋 Read the clipboard"), accent = false) {
-        val clip = readClipboardConfigText().orEmpty()
-        if (ProtonFreePlanner.looksLikeConf(clip)) takeConf("clipboard.conf", clip)
-        else Toast.makeText(this, t("در کلیپ‌بورد فایل .conf نبود.", "No .conf in the clipboard."), Toast.LENGTH_LONG).show()
-    }, freeLp(4))
-    box.addView(freeButton(t("➕ افزودن فایل‌های گرفته‌شده به Cat", "➕ Add the collected files to Cat"), accent = true) {
-        if (collected.isEmpty()) {
-            Toast.makeText(this, t("هنوز فایلی نیامده.", "No file yet."), Toast.LENGTH_LONG).show()
-        } else {
-            dialogRef?.dismiss()
-            addProtonConfs(collected.toList(), want)
-        }
-    }, freeLp(8))
 
     val dialog = MaterialAlertDialogBuilder(this)
         .setTitle(t("🟢 حساب رایگان پروتون", "🟢 Free Proton account"))
@@ -875,16 +894,13 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         runCatching { webView.stopLoading(); webView.destroy() }
     }
     dialog.showCatClientDialog()
-    webView.loadUrl(ProtonFreePlanner.SIGNUP)
+    webView.loadUrl(ProtonFreePlanner.LOGIN)
     poll = activityScope.launch {
         while (true) {
-            delay(2_500)
-            runCatching {
-                webView.evaluateJavascript(ProtonFreePlanner.SCAN_JS) { raw ->
-                    val text = jsString(raw)
-                    if (ProtonFreePlanner.looksLikeConf(text)) takeConf("page.conf", text)
-                }
-            }
+            delay(1_200)
+            pullFromSession()
+            val clip = runCatching { readClipboardConfigText().orEmpty() }.getOrDefault("")
+            if (ProtonFreePlanner.looksLikeConf(clip)) takeConf("clipboard.conf", clip)
         }
     }
 }
