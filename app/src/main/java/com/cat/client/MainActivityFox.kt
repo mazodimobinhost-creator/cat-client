@@ -45,6 +45,7 @@ import android.view.ViewOutlineProvider
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
+import android.widget.ArrayAdapter
 import android.widget.BaseAdapter
 import android.widget.FrameLayout
 import android.widget.CheckBox
@@ -162,7 +163,13 @@ internal fun MainActivity.buildFirefoxVpnFenixCard(): View {
                 if (isFarsi) "⚡ سریع‌ترین کشور (انتخاب خودکار با کمترین پینگ)" else "⚡ Fastest Country (Auto-Ping)"
             else -> {
                 val c = countries.firstOrNull { it.code.equals(selCode, ignoreCase = true) } ?: countries.first()
-                "${c.flag} ${if (isFarsi) c.nameFa else c.nameEn}"
+                val ping = FirefoxVpnEngine.lastCountryPings[c.code.uppercase(java.util.Locale.US)]
+                val ms = when {
+                    ping == null -> ""
+                    ping.reachable -> if (isFarsi) " · ${ping.rttMs} ms روی خط شما" else " · ${ping.rttMs} ms on your line"
+                    else -> if (isFarsi) " · روی این خط بسته" else " · closed on this line"
+                }
+                "${c.flag} ${if (isFarsi) c.nameFa else c.nameEn}$ms"
             }
         }
         val cleanIp = FirefoxVpnEngine.readCleanFastlyEdgeIp(this)
@@ -984,7 +991,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
     val options = if (isFarsi) {
         arrayOf(
             "🦊 ۱) اتصال فوری با Cat Fox VPN (روشن کردن تانل کل گوشی همین الان)",
-            "🌍 ۲) انتخاب کشور (همهٔ کشورهای موزیلا — ${FirefoxVpnEngine.getAvailableCountries(this).size} تا)",
+            "🌍 ۲) انتخاب کشور با پینگ زنده روی خط شما (${FirefoxVpnEngine.getAvailableCountries(this).size} کشور موزیلا)",
             "⚡ ۳) تست پینگ زنده همه کشورها و انتخاب خودکار سریع‌ترین کشور روی خط من",
             "👤 ۴) مدیریت حساب‌های ۵۰ گیگابایتی فایرفاکس (افزودن چند اکانت + چرخش خودکار)",
             "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
@@ -994,7 +1001,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
     } else {
         arrayOf(
             "🦊 1) Connect Cat Fox VPN Immediately (Full-Device Tunnel Now)",
-            "🌍 2) Select Exit Country (${FirefoxVpnEngine.getAvailableCountries(this).size} Mozilla Fastly locations)",
+            "🌍 2) Pick country with live ping on your line (${FirefoxVpnEngine.getAvailableCountries(this).size} Mozilla Fastly locations)",
             "⚡ 3) Live Ping All Countries & Auto-Select Fastest on My ISP",
             "👤 4) Manage 50 GB/mo Firefox Accounts (Multi-Account Auto-Failover)",
             "🛰️ 5) Scan Clean Fastly Edge IP for Net Melli & MCI / Irancell Bypass",
@@ -1272,40 +1279,80 @@ internal fun MainActivity.connectFirefoxVpnDirectly(onChanged: () -> Unit = {}) 
 
 internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit = {}) {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-    val countries = FoxCountryRouting.ordered(
+    val pingByCode = java.util.concurrent.ConcurrentHashMap<String, FirefoxVpnEngine.CountryPingResult>()
+    FirefoxVpnEngine.lastCountryPings.forEach { (code, r) -> pingByCode[code.uppercase(java.util.Locale.US)] = r }
+    val display = FoxCountryRouting.ordered(
         FirefoxVpnEngine.getAvailableCountries(this),
         { it.code },
         { false },
-    )
-    val codes = listOf(FirefoxVpnEngine.COUNTRY_FASTEST) + countries.map { it.code }
-    val labels = buildList {
-        add(
-            if (isFarsi) "⚡ سریع‌ترین کشور خودکار (تست پینگ لحظه‌ای هنگام اتصال)"
-            else "⚡ Fastest Country Automatically (Live Ping on Connect)",
-        )
-        countries.forEach { c ->
-            val name = if (isFarsi) c.nameFa else c.nameEn
-            val extra = if (c.extraEndpoints.isEmpty()) "" else if (isFarsi) " · +${c.extraEndpoints.size} سرور" else " · +${c.extraEndpoints.size} servers"
-            add("${c.flag} $name · ${c.exactEndpoint}$extra")
+    ).toMutableList()
+    fun autoLine(): String = if (isFarsi) {
+        "⚡ سریع‌ترین کشور خودکار (پینگ زنده روی همین اینترنت)"
+    } else {
+        "⚡ Fastest country (live ping on this network)"
+    }
+    fun countryLine(c: FirefoxVpnEngine.FirefoxVpnCountry): String {
+        val name = if (isFarsi) c.nameFa else c.nameEn
+        val extra = if (c.extraEndpoints.isEmpty()) {
+            ""
+        } else if (isFarsi) {
+            " · +${c.extraEndpoints.size} سرور"
+        } else {
+            " · +${c.extraEndpoints.size} servers"
         }
-    }.toTypedArray()
-    val currentCode = FirefoxVpnEngine.readSelectedCountryCode(this)
-    val checkedIdx = codes.indexOfFirst { it.equals(currentCode, ignoreCase = true) }.coerceAtLeast(0)
-
-    MaterialAlertDialogBuilder(this)
+        val ping = pingByCode[c.code.uppercase(java.util.Locale.US)]
+        val ms = when {
+            ping == null -> if (isFarsi) LiveNetPing.waitingFa() else LiveNetPing.waitingEn()
+            ping.reachable -> if (isFarsi) LiveNetPing.labelFa(ping.rttMs) else LiveNetPing.labelEn(ping.rttMs)
+            else -> if (isFarsi) LiveNetPing.labelFa(null) else LiveNetPing.labelEn(null)
+        }
+        return "${c.flag} $name · $ms · ${c.exactEndpoint}$extra"
+    }
+    val labels = ArrayList<String>(1 + display.size)
+    fun rebuildLabels() {
+        labels.clear()
+        labels += autoLine()
+        display.forEach { labels += countryLine(it) }
+    }
+    rebuildLabels()
+    val adapter = ArrayAdapter(this, android.R.layout.select_dialog_singlechoice, ArrayList(labels))
+    var dialog: AlertDialog? = null
+    fun checkedIndex(): Int {
+        val current = FirefoxVpnEngine.readSelectedCountryCode(this)
+        if (current.equals(FirefoxVpnEngine.COUNTRY_FASTEST, ignoreCase = true)) return 0
+        val i = display.indexOfFirst { it.code.equals(current, ignoreCase = true) }
+        return if (i >= 0) i + 1 else 0
+    }
+    fun pushLabels() {
+        adapter.clear()
+        adapter.addAll(labels)
+        adapter.notifyDataSetChanged()
+        dialog?.listView?.setItemChecked(checkedIndex(), true)
+    }
+    var pingJob: Job? = null
+    val shown = MaterialAlertDialogBuilder(this)
         .setTitle(
-            if (isFarsi) "🌍 انتخاب کشور Cat Fox VPN — ${countries.size} کشور"
-            else "🌍 Cat Fox VPN country — ${countries.size} locations",
+            if (isFarsi) "🌍 انتخاب کشور Cat Fox VPN — پینگ زنده روی خط شما · ${display.size} کشور"
+            else "🌍 Cat Fox VPN country — live ping on your line · ${display.size} locations",
         )
-        .setSingleChoiceItems(labels, checkedIdx) { dlg, idx ->
+        .setSingleChoiceItems(adapter, checkedIndex()) { dlg, idx ->
             dlg.dismiss()
-            val chosenCode = codes[idx]
+            val chosenCode = if (idx <= 0) FirefoxVpnEngine.COUNTRY_FASTEST else display.getOrNull(idx - 1)?.code
+                ?: FirefoxVpnEngine.COUNTRY_FASTEST
             FirefoxVpnEngine.saveSelectedCountryCode(this, chosenCode)
             onChanged()
+            val ping = pingByCode[chosenCode.uppercase(java.util.Locale.US)]
+            val extra = when {
+                chosenCode == FirefoxVpnEngine.COUNTRY_FASTEST -> ""
+                ping == null -> if (isFarsi) " (پینگ هنوز نیامده)" else " (ping still running)"
+                ping.reachable -> if (isFarsi) " · ${ping.rttMs} ms روی خط شما" else " · ${ping.rttMs} ms on your line"
+                else -> if (isFarsi) " · روی این خط بسته" else " · closed on this line"
+            }
+            val shown = labels.getOrNull(idx)?.substringBefore(" ·") ?: chosenCode
             Toast.makeText(
                 this,
-                if (isFarsi) "✅ کشور Cat Fox VPN روی «${labels[idx].substringBefore(" ·")}» تنظیم شد"
-                else "✅ Cat Fox VPN country set to '${labels[idx].substringBefore(" ·")}'",
+                if (isFarsi) "✅ کشور Cat Fox VPN روی «$shown» تنظیم شد$extra"
+                else "✅ Cat Fox VPN country set to '$shown'$extra",
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -1321,11 +1368,42 @@ internal fun MainActivity.showFirefoxCountryPickerDialog(onChanged: () -> Unit =
                     else "✅ Synced ${synced.size} countries from Mozilla Remote Settings",
                     Toast.LENGTH_SHORT,
                 ).show()
+                showFirefoxCountryPickerDialog(onChanged)
             }
         }
         .setNegativeButton(android.R.string.cancel, null)
         .create()
-        .showCatClientDialog()
+    dialog = shown
+    shown.setOnDismissListener { pingJob?.cancel() }
+    shown.showCatClientDialog()
+    pingJob = activityScope.launch(Dispatchers.IO) {
+        FirefoxVpnEngine.pingCountries(this@showFirefoxCountryPickerDialog, maxCountries = 40, timeoutMs = 850) { r ->
+            val code = r.country.code.uppercase(java.util.Locale.US)
+            if (code == "??") return@pingCountries
+            pingByCode[code] = r
+            runOnUiThread {
+                if (!shown.isShowing) return@runOnUiThread
+                val i = display.indexOfFirst { it.code.equals(code, ignoreCase = true) }
+                if (i >= 0) {
+                    labels[i + 1] = countryLine(display[i])
+                    pushLabels()
+                }
+            }
+        }
+        val sorted = display.sortedWith(
+            compareBy(
+                { pingByCode[it.code.uppercase(java.util.Locale.US)]?.reachable != true },
+                { pingByCode[it.code.uppercase(java.util.Locale.US)]?.rttMs ?: 9_999L },
+            ),
+        )
+        withContext(Dispatchers.Main) {
+            if (!shown.isShowing) return@withContext
+            display.clear()
+            display.addAll(sorted)
+            rebuildLabels()
+            pushLabels()
+        }
+    }
 }
 
 internal fun MainActivity.showFoxTransportDialog(onChanged: () -> Unit = {}) {

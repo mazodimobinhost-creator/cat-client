@@ -94,6 +94,12 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showFreePsiphonDialog() }
     entry(
+        t("🦊 Cat Fox VPN — کشورها با پینگ روی خط شما", "🦊 Cat Fox VPN — countries with ping on your line"),
+        t("اینو بزنی: پینگ واقعی هر کشور موزیلا روی همین اینترنت نشان داده می‌شود، بعد انتخاب می‌کنی. برای اتصال حساب رایگان ۵۰ گیگ لازم است؛ خودِ پینگ حساب نمی‌خواهد.",
+            "Tap: live ping of each Mozilla country on this network, then you pick. Connecting needs the free 50 GB account; the ping itself does not."),
+        accent = true,
+    ) { showFirefoxCountryPickerDialog() }
+    entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
         t("اینو بزنی: برنامه از یک شبکهٔ رایگان عمومی سرور تازه با رمز می‌گیرد و وصل می‌شود. فقط وب و اپ‌ها (TCP)؛ تماس صوتی و بازی‌هایی که UDP می‌خواهند کار نمی‌کنند. رمزها هر ۶ ساعت خودکار نو می‌شوند.",
             "Tap: the app gets fresh servers with passwords from a public free network and connects. Web and apps only (TCP); voice calls / games that need UDP do not work. Passwords renew by themselves every 6 h."),
@@ -148,6 +154,22 @@ internal fun MainActivity.showFreeNetworksHub() {
         .create()
     dialog = built
     built.showCatClientDialog()
+}
+
+/** Times every share link on THIS network. Reachable first by RTT; closed rows stay, never a made-up delay. */
+private suspend fun MainActivity.rankLinksByLivePing(
+    links: List<String>,
+    step: (String) -> Unit,
+    fa: Boolean,
+): Pair<List<String>, List<String>> {
+    if (links.isEmpty()) return links to emptyList()
+    step(if (fa) "پینگ واقعی هر سرور روی همین اینترنت…" else "Live ping of each server on this network…")
+    val ranked = withContext(Dispatchers.IO) { LiveNetPing.rankShares(links) }
+    val lines = ranked.map { hit ->
+        val addr = if (hit.host.isNullOrBlank() || hit.port <= 0) "?" else "${hit.host}:${hit.port}"
+        (if (fa) LiveNetPing.labelFa(hit.rttMs) else LiveNetPing.labelEn(hit.rttMs)) + " · $addr"
+    }
+    return ranked.map { it.link } to lines
 }
 
 /** Progress dialog with a live log; [work] runs on IO and returns the lines of its report. */
@@ -278,19 +300,20 @@ private fun MainActivity.buildFreeProxy(regions: List<String>) {
                 t("سرویس جواب نداد یا از اینجا بسته است. با یک کانفیگ سالم وصل شوید و دوباره بزنید.", "The service did not answer or is blocked here. Connect with a working config and try again."))
             return@freeProgress
         }
+        val (ordered, pingLines) = rankLinksByLivePing(result.links, step, fa)
         step(t("۲) ذخیره به‌عنوان اشتراک «$name»…", "2) Saving as subscription “$name”…"))
         val store = FreeNetworkStore(this@buildFreeProxy)
         val subId = try {
-            saveFreeSubscription(store.freeProxySubId, name, FreeProxyPlanner.subscriptionText(result.links))
+            saveFreeSubscription(store.freeProxySubId, name, FreeProxyPlanner.subscriptionText(ordered))
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), result.report + (e.message ?: e.javaClass.simpleName), null, "")
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), result.report + pingLines + (e.message ?: e.javaClass.simpleName), null, "")
             return@freeProgress
         }
         store.freeProxySubId = subId
         renderSubscriptions()
         freeResult(
-            t("✅ ${result.links.size} سرور رایگان آماده است", "✅ ${result.links.size} free servers ready"), result.report, subId,
+            t("✅ ${ordered.size} سرور رایگان آماده است", "✅ ${ordered.size} free servers ready"), result.report + pingLines, subId,
             t("«⚡ اتصال» را بزنید. فقط TCP است (وب، تلگرام، اینستاگرام…)؛ تماس صوتی/بازی UDP کار نمی‌کند. اگر یکی وصل نشد، از فهرست کانفیگ‌ها بعدی را بزنید. رمزها خودکار نو می‌شوند.",
                 "Tap “⚡ Connect”. TCP only (web, Telegram, Instagram…); UDP voice/games do not work. If one fails, pick the next in the config list. Passwords renew by themselves."),
         )
@@ -369,6 +392,7 @@ private fun MainActivity.fetchFanoos(preferred: LanternPlanner.Location?) {
                     "Fanoos only gave: $skipped — those types only run in its own app, and Cat does not fake them. Try again later."))
             return@freeProgress
         }
+        val (_, pingLines) = rankLinksByLivePing(result.links, step, fa)
         step(t("۲) ذخیره به‌عنوان اشتراک «$name»…", "2) Saving as subscription “$name”…"))
         val store = FreeNetworkStore(this@fetchFanoos)
         val fresh = result.links.mapIndexed { i, l -> l to (tr.linkLocations.getOrNull(i)?.code ?: "") }
@@ -384,6 +408,7 @@ private fun MainActivity.fetchFanoos(preferred: LanternPlanner.Location?) {
         store.lanternLinks = merged
         renderSubscriptions()
         val report = result.report.toMutableList()
+        report += pingLines
         report += t("کشورهای این نوبت: ", "Countries this time: ") + tr.countrySummary(unknown)
         val kept = merged.size - fresh.size
         if (kept > 0) report += t("از قبل نگه داشته شد: $kept سرور از کشورهای دیگر", "Kept from before: $kept servers of other countries")
@@ -511,6 +536,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
             return@freeProgress
         }
         val merged = LanternPlanner.merge(store.lanternLinks, fresh, cap = LanternPlanner.ALL_COUNTRIES_CAP)
+        val (_, pingLines) = rankLinksByLivePing(merged.map { it.first }, step, fa)
+        report += pingLines
         val subId = try {
             saveFreeSubscription(store.lanternSubId, name, merged.joinToString("\n") { it.first })
         } catch (e: Exception) {
@@ -529,8 +556,8 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
             t("✅ ${merged.size} سرور از ${countries.size} کشور در «$name»", "✅ ${merged.size} servers from ${countries.size} countries in “$name”"),
             report,
             subId,
-            t("همه در همین یک اشتراک‌اند (هر ردیف با نام کشورش). «⚡ اتصال» را بزنید؛ بعد از وصل شدن پینگ همهٔ ردیف‌ها گرفته و کنار هر کدام نشان داده می‌شود.",
-                "All are in this one subscription (each row named by its country). Tap “⚡ Connect”; once connected every row is pinged and its ping is shown next to it."),
+            t("همه در همین یک اشتراک‌اند (هر ردیف با نام کشورش). پینگ بالا روی همین اینترنت است. «⚡ اتصال» را بزنید.",
+                "All are in this one subscription (each row named by its country). Pings above are on this network. Tap “⚡ Connect”."),
         )
     }
 }
@@ -890,8 +917,10 @@ private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want:
                     "The file needs PrivateKey, PublicKey and Endpoint. From Proton's downloads page, get WireGuard."))
             return@freeProgress
         }
+        val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
+        report += pingLines
         step(t("ذخیره به‌عنوان «$name»…", "Saving as “$name”…"))
-        val text = ProtonFreePlanner.subscriptionText(links)
+        val text = ProtonFreePlanner.subscriptionText(ordered)
         val store = FreeNetworkStore(this@addProtonConfs)
         val subId = try {
             saveFreeSubscription(store.protonSubId, name, text)

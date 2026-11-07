@@ -237,6 +237,18 @@ internal object FirefoxVpnEngine {
         val reachable: Boolean,
     )
 
+    private val countryPingCache = ConcurrentHashMap<String, CountryPingResult>()
+
+    /** Last TCP ping of each Mozilla country on THIS network. Filled as [pingCountries] returns each row. */
+    val lastCountryPings: Map<String, CountryPingResult>
+        get() = HashMap(countryPingCache)
+
+    private fun rememberCountryPing(r: CountryPingResult) {
+        val code = r.country.code.trim().uppercase(Locale.US)
+        if (code.isEmpty() || code == "??") return
+        countryPingCache[code] = r
+    }
+
     sealed class LoginOutcome {
         data class Success(val account: FirefoxVpnAccount) : LoginOutcome()
         data class NeedsEmailVerification(
@@ -2013,31 +2025,70 @@ internal object FirefoxVpnEngine {
      * Measures each country's REAL Mozilla node (`<node>.m1.fastly-masque.net:2499`): TCP connect time from this
      * network, with a protected socket. Earlier builds pinged generic Fastly IPs and added a made-up per-country
      * delay, so the list looked healthy even when no node was reachable.
+     * [onEach] fires as soon as one country returns so the picker can show live ms — never a made-up delay.
      */
     fun pingCountries(
         context: Context,
         maxCountries: Int = 40,
         timeoutMs: Int = 900,
+        onEach: ((CountryPingResult) -> Unit)? = null,
     ): List<CountryPingResult> {
         val countries = getAvailableCountries(context).take(maxCountries.coerceAtLeast(1))
         val effectiveTimeout = timeoutMs.coerceAtLeast(1_100)
         val pool = java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
             Thread(null, r, "fenix-ping", 128 * 1024L).apply { isDaemon = true }
         }
+        val completion = java.util.concurrent.ExecutorCompletionService<CountryPingResult>(pool)
         return try {
-            val futures = countries.map { country ->
-                pool.submit<CountryPingResult> {
-                    val rtt = probeTcpLatency(country.proxyHost, country.proxyPort, effectiveTimeout)
+            countries.forEach { country ->
+                completion.submit {
+                    val rtt = runCatching { probeCountryLatency(country, effectiveTimeout) }.getOrNull()
                     CountryPingResult(country = country, rttMs = rtt ?: 9_999L, reachable = rtt != null)
                 }
             }
-            futures.mapIndexed { idx, fut ->
-                runCatching { fut.get(effectiveTimeout.toLong() + 2_000L, TimeUnit.MILLISECONDS) }
-                    .getOrElse { CountryPingResult(country = countries[idx], rttMs = 9_999L, reachable = false) }
-            }.sortedWith(compareByDescending<CountryPingResult> { it.reachable }.thenBy { it.rttMs })
+            val got = ArrayList<CountryPingResult>(countries.size)
+            repeat(countries.size) {
+                val r = runCatching {
+                    completion.take().get(effectiveTimeout.toLong() + 8_000L, TimeUnit.MILLISECONDS)
+                }.getOrNull() ?: return@repeat
+                rememberCountryPing(r)
+                got += r
+                runCatching { onEach?.invoke(r) }
+            }
+            val seen = got.map { it.country.code.uppercase(Locale.US) }.toSet()
+            countries.filter { it.code.uppercase(Locale.US) !in seen }.forEach { country ->
+                val r = CountryPingResult(country = country, rttMs = 9_999L, reachable = false)
+                rememberCountryPing(r)
+                got += r
+                runCatching { onEach?.invoke(r) }
+            }
+            got.sortedWith(compareByDescending<CountryPingResult> { it.reachable }.thenBy { it.rttMs })
         } finally {
             pool.shutdownNow()
         }
+    }
+
+    /** Primary Fastly node, then Mozilla extra endpoints of the same country — never an invented host. */
+    private fun probeCountryLatency(country: FirefoxVpnCountry, timeoutMs: Int): Long? {
+        probeTcpLatency(country.proxyHost, country.proxyPort, timeoutMs)?.let { return it }
+        for (ep in country.extraEndpoints) {
+            val host: String
+            val port: Int
+            if (ep.startsWith("[")) {
+                val end = ep.indexOf(']')
+                if (end < 0) continue
+                host = ep.substring(1, end)
+                port = ep.substring(end + 1).removePrefix(":").toIntOrNull() ?: continue
+            } else {
+                val c = ep.lastIndexOf(':')
+                if (c <= 0) continue
+                host = ep.substring(0, c)
+                port = ep.substring(c + 1).toIntOrNull() ?: continue
+            }
+            if (host.isBlank() || port !in 1..65535) continue
+            probeTcpLatency(host, port, timeoutMs)?.let { return it }
+        }
+        return null
     }
 
     /**

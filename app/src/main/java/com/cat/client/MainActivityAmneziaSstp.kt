@@ -511,7 +511,32 @@ internal fun MainActivity.fetchAndSaveCatSstpServers(sort: String, connect: Bool
                     .showCatClientDialog()
                 return@launch
             }
-        saveCatSstpSubscription(SstpServerList.subscriptionText(servers), connect)
+        Toast.makeText(
+            this@fetchAndSaveCatSstpServers,
+            if (isFarsi) "⏳ پینگ واقعی هر سرور SSTP روی خط شما…" else "⏳ Live ping of each SSTP server on your line…",
+            Toast.LENGTH_SHORT,
+        ).show()
+        val ranked = withContext(Dispatchers.IO) {
+            servers.map { s ->
+                val target = s.ip.ifBlank { s.host }
+                s to LiveNetPing.tcpMs(target, s.port)
+            }.sortedWith(compareBy({ it.second == null }, { it.second ?: Long.MAX_VALUE }))
+        }
+        val ordered = ranked.map { it.first }
+        val open = ranked.count { it.second != null }
+        val fastest = ranked.firstOrNull { it.second != null }
+        Toast.makeText(
+            this@fetchAndSaveCatSstpServers,
+            if (isFarsi) {
+                val best = fastest?.let { " · سریع‌ترین ${it.second} ms (${it.first.host}:${it.first.port})" } ?: ""
+                "📡 SSTP روی خط شما: $open از ${ranked.size} باز$best"
+            } else {
+                val best = fastest?.let { " · fastest ${it.second} ms (${it.first.host}:${it.first.port})" } ?: ""
+                "📡 SSTP on your line: $open of ${ranked.size} open$best"
+            },
+            Toast.LENGTH_LONG,
+        ).show()
+        saveCatSstpSubscription(SstpServerList.subscriptionText(ordered), connect)
     }
 }
 
