@@ -1177,6 +1177,10 @@ internal fun MainActivity.renderCloudDeploymentHistory() {
             marginStart = dp(8)
         })
         card.addView(buttons, LinearLayout.LayoutParams(-1, -2))
+        val pair = rowButton(getString(R.string.cloud_pair)).apply {
+            setOnClickListener { showPanelPairDialog(deployment) }
+        }
+        card.addView(pair, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         // «📊 وضعیت کامل»: everything the panel currently serves, fetched live
         val status = rowButton(getString(R.string.panel_status_btn)).apply {
             setOnClickListener { showPanelStatusDialog(deployment.workerUrl) }
@@ -2391,23 +2395,35 @@ internal fun MainActivity.panelStatusLine(
 }
 
 internal fun MainActivity.showCloudUpdateDialog(result: CloudflareWorker.PanelUpdateOutcome.Success) {
-    val status = panelStatusLine(
-        verifiedOnline = result.verifiedOnline,
-        health = result.health,
-        bundledVersion = result.bundledVersion,
-        panelVersion = result.panelVersion,
-    )
-    val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
-    val message = getString(R.string.cloud_update_done, result.toVersion) + "\n" + status + "\n" + kvLine +
-        "\n\n" + result.panelUrl
-    MaterialAlertDialogBuilder(this)
-        .setTitle(R.string.cloud_update_title)
-        .setMessage(message)
-        .setPositiveButton(R.string.cloud_open_panel) { _, _ ->
-            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+    activityScope.launch {
+        val live = withContext(Dispatchers.IO) { PanelUpdate.deployedVersion(result.workerUrl) }
+        val liveOk = !live.isNullOrBlank() && live == result.toVersion
+        val status = panelStatusLine(
+            verifiedOnline = result.verifiedOnline && liveOk,
+            health = result.health,
+            bundledVersion = result.bundledVersion,
+            panelVersion = live ?: result.panelVersion,
+        )
+        val kvLine = if (result.kvBound) getString(R.string.cloud_kv_bound) else getString(R.string.cloud_kv_missing)
+        val liveLine = if (liveOk) {
+            getString(R.string.cloud_update_live_ok, live)
+        } else {
+            getString(R.string.cloud_update_live_mismatch, result.toVersion, live ?: "?")
         }
-        .setNegativeButton(android.R.string.ok, null)
-        .show()
+        val message = if (liveOk) {
+            getString(R.string.cloud_update_done, result.toVersion)
+        } else {
+            getString(R.string.cloud_update_live_mismatch, result.toVersion, live ?: "?")
+        } + "\n" + liveLine + "\n" + status + "\n" + kvLine + "\n\n" + result.panelUrl
+        MaterialAlertDialogBuilder(this@showCloudUpdateDialog)
+            .setTitle(if (liveOk) R.string.cloud_update_title else R.string.cloud_update_not_live)
+            .setMessage(message)
+            .setPositiveButton(R.string.cloud_open_panel) { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.panelUrl))) }
+            }
+            .setNegativeButton(android.R.string.ok, null)
+            .show()
+    }
 }
 
 /**

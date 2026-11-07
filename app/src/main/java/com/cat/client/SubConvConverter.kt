@@ -127,13 +127,36 @@ object SubConvConverter {
         }
     }
 
+    /** Honest reject: Cat does not ship Chromium NaiveProxy and must not rewrite those URIs to HTTP. */
+    const val NAIVE_UNSUPPORTED =
+        "Cat NaiveProxy کرومیوم ندارد / Cat does not ship Chromium NaiveProxy — this link is not rewritten to HTTP."
+
+    fun naiveUnsupportedMessage(persian: Boolean): String =
+        if (persian) {
+            "Cat NaiveProxy کرومیوم ندارد — این لینک را به HTTP تبدیل نمی‌کنیم. از کلاینت Naive جدا استفاده کن."
+        } else {
+            "Cat does not ship Chromium NaiveProxy — this link is not rewritten to HTTP. Use a dedicated Naive client."
+        }
+
+    fun isNaiveShare(raw: String): Boolean {
+        val line = extractShareUriFromLine(raw.trim()) ?: raw.trim()
+        val scheme = line.substringBefore("://", missingDelimiterValue = "").lowercase()
+        return scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic"
+    }
+
     fun convert(input: String): List<JSONObject> {
         val data = CatFusionLink.expandInText(decodeBase64Text(input) ?: input)
         val names = NameRegistry()
+        var naiveHits = 0
         val proxies = data.lineSequence().mapNotNull { raw ->
             val line = extractShareUriFromLine(raw) ?: return@mapNotNull null
+            val scheme = line.substringBefore("://").lowercase()
+            if (scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic") {
+                naiveHits++
+                return@mapNotNull null
+            }
             try {
-                when (line.substringBefore("://").lowercase()) {
+                when (scheme) {
                     "vless" -> parseVless(line, names)
                     "vmess" -> parseVmess(line, names)
                     "trojan" -> parseTrojan(line, names)
@@ -142,7 +165,7 @@ object SubConvConverter {
                     "hysteria" -> parseHysteria(line, names)
                     "tuic", "juicity" -> parseTuic(line, names)
                     "socks", "socks5" -> parseSocks(line, names)
-                    "http", "https", "naive+https", "naive+quic" -> parseHttpProxy(line, names)
+                    "http", "https" -> parseHttpProxy(line, names)
                     "ssh" -> parseSsh(line, names)
                     "ss" -> parseShadowsocks(line, names)
                     "ssr" -> parseShadowsocksR(line, names)
@@ -168,6 +191,7 @@ object SubConvConverter {
                 obj.put("name", names.register(obj.optString("name", "PaqetNG")))
                 return listOf(obj)
             }
+            if (naiveHits > 0) throw IllegalArgumentException(NAIVE_UNSUPPORTED)
         }
         require(proxies.isNotEmpty()) { "No valid proxies found" }
         return proxies.map(::normalizeMihomoTransport)
@@ -564,9 +588,10 @@ object SubConvConverter {
     }
 
     private fun parseHttpProxy(line: String, names: NameRegistry): JSONObject {
+        if (line.startsWith("naive+", ignoreCase = true) || line.startsWith("naive://", ignoreCase = true)) {
+            throw ParseError()
+        }
         val normalizedLine = line
-            .replaceFirst(Regex("^naive\\+https://", RegexOption.IGNORE_CASE), "https://")
-            .replaceFirst(Regex("^naive\\+quic://", RegexOption.IGNORE_CASE), "https://")
         val uri = parseUri(normalizedLine)
         val authority = uri.rawAuthority ?: throw ParseError()
         val at = authority.lastIndexOf('@')
@@ -1019,6 +1044,19 @@ object SubConvConverter {
         for (rawLine in decoded.lineSequence()) {
             val shareUri = extractShareUriFromLine(rawLine) ?: continue
             val scheme = shareUri.substringBefore("://").lowercase()
+            if (scheme == "naive" || scheme == "naive+https" || scheme == "naive+quic") {
+                counts["NaiveProxy (unsupported)"] = (counts["NaiveProxy (unsupported)"] ?: 0) + 1
+                items.add(
+                    UniversalConfigItemSummary(
+                        index = items.size + 1,
+                        detectedFormat = "NaiveProxy (unsupported)",
+                        proxyName = "NaiveProxy",
+                        serverSummary = "not in Cat",
+                        normalizedShareUri = "",
+                    ),
+                )
+                continue
+            }
             val proxyObj = runCatching { convert(shareUri).firstOrNull() }.getOrNull() ?: continue
             val pName = proxyObj.optString("name", scheme.uppercase())
             val srv = proxyObj.optString("server", "127.0.0.1")

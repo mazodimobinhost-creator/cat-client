@@ -38,7 +38,11 @@
 | `MainActivityFreeNetworks.kt` | 1429 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet (TUIC / WG / Cat Warp editors). | 7 JVM · 9 panel (see `affected-tests.py`) |
+| `ProtocolConnect.kt` | — | Dedicated TUIC / WireGuard / Cat Warp share URIs (fields + connect). | Beta267CatConnectKitTest |
+| `CatPanelPair.kt` | — | Panel pairing code claim (`/api/pair/claim`) + store. | Beta267CatConnectKitTest |
+| `MainActivityProtocolConnect.kt` | — | TUIC / WG / Cat Warp editor dialog. | Beta267CatConnectKitTest |
+| `MainActivityPair.kt` | — | Pair-with-panel dialog on Cloud deployments. | Beta267CatConnectKitTest |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivitySubscriptions.kt` | 2321 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 8 JVM · 9 panel (see `affected-tests.py`) |

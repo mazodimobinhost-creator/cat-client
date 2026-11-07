@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.88.0';
+const CAT_PANEL_VERSION = '6.89.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -990,7 +990,7 @@ function newSubToken() {
 /* Writes happen only on owner actions.                                */
 /* ------------------------------------------------------------------ */
 
-const KV_KEYS = { settings: 'cat:v6:settings', users: 'cat:v6:users', uuid: 'cat:v6:uuid', appSeen: 'cat:v6:appseen', cfDeploy: 'cat:v6:cfdeploy' };
+const KV_KEYS = { settings: 'cat:v6:settings', users: 'cat:v6:users', uuid: 'cat:v6:uuid', appSeen: 'cat:v6:appseen', cfDeploy: 'cat:v6:cfdeploy', pair: 'cat:v6:pair', studio: 'cat:v6:studio' };
 const KV_READ_TTL_MS = 60 * 1000;
 const kvCache = new Map(); // key → { value, at }
 
@@ -999,6 +999,103 @@ function kvBinding(env) {
   for (const name of Object.keys(env || {})) {
     const candidate = env[name];
     if (candidate && typeof candidate.get === 'function' && typeof candidate.put === 'function' && typeof candidate.list === 'function') return candidate;
+  }
+  return null;
+}
+
+
+const PAIR_ALPH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const PAIR_TTL_MS = 600000;
+const pairClaimSeen = new Map();
+function pairNewCode() {
+  const b = new Uint8Array(6);
+  crypto.getRandomValues(b);
+  let out = '';
+  for (let i = 0; i < 6; i++) out += PAIR_ALPH[b[i] % PAIR_ALPH.length];
+  return out;
+}
+async function pairRead(env) {
+  const kv = kvBinding(env);
+  if (!kv) return { code: '', exp: 0, devices: [] };
+  try { return Object.assign({ code: '', exp: 0, devices: [] }, JSON.parse((await kv.get(KV_KEYS.pair)) || '{}')); } catch (e) { return { code: '', exp: 0, devices: [] }; }
+}
+async function pairWrite(env, rec) {
+  const kv = kvBinding(env);
+  if (!kv) return false;
+  try { await kv.put(KV_KEYS.pair, JSON.stringify(rec)); return true; } catch (e) { return false; }
+}
+const WARP_PEER_PUB = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
+const STUDIO_WARP_ENDS = ['162.159.193.1:443', 'engage.cloudflareclient.com:2408', '162.159.192.1:2408'];
+const STUDIO_MASQUE_ENDS = ['162.159.198.1:443', '162.159.198.2:443'];
+function studioB64urlToStd(v) {
+  const p = String(v || '').replace(/-/g, '+').replace(/_/g, '/');
+  return p + '==='.slice((p.length + 3) % 4);
+}
+function studioKeyOk(v) { return typeof v === 'string' && v.length >= 43 && v.length <= 44; }
+function studioWarpConf(acc) {
+  const ep = String((acc && acc.endpoint) || STUDIO_WARP_ENDS[0]);
+  const ipv4 = String((acc && acc.ipv4) || '172.16.0.2').split('/')[0];
+  const ipv6 = acc && acc.ipv6 ? (', ' + String(acc.ipv6).split('/')[0] + '/128') : '';
+  return '[Interface]\nPrivateKey = ' + acc.privateKey + '\nAddress = ' + ipv4 + '/32' + ipv6 + '\nDNS = 1.1.1.1\nMTU = 1280\n\n[Peer]\nPublicKey = ' + (acc.peerPublicKey || WARP_PEER_PUB) + '\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = ' + ep + '\nPersistentKeepalive = 25\n';
+}
+function studioAwgConf(acc) {
+  return studioWarpConf(acc) + 'Jc = 4\nJmin = 40\nJmax = 70\nS1 = 0\nS2 = 0\nH1 = 1\nH2 = 2\nH3 = 3\nH4 = 4\n';
+}
+function studioMasqueUri(endpoint, name) {
+  return 'aether://' + endpoint + '?protocol=masque&transport=h2&ip=v4#' + encodeURIComponent(name || 'Cat-MASQUE');
+}
+function studioPublic(rec) {
+  const warp = rec && rec.warp && rec.warp.privateKey ? {
+    endpoint: rec.warp.endpoint,
+    ipv4: rec.warp.ipv4,
+    createdAt: rec.warp.createdAt,
+    conf: studioWarpConf(rec.warp),
+    awg: studioAwgConf(rec.warp),
+  } : null;
+  const masque = rec && rec.masque ? { endpoint: rec.masque.endpoint, uri: rec.masque.uri, createdAt: rec.masque.createdAt } : null;
+  return { warp, masque };
+}
+async function studioRead(env) {
+  const kv = kvBinding(env);
+  if (!kv) return {};
+  try { return JSON.parse((await kv.get(KV_KEYS.studio)) || '{}') || {}; } catch (e) { return {}; }
+}
+async function studioWrite(env, rec) {
+  const kv = kvBinding(env);
+  if (!kv) return false;
+  try { await kv.put(KV_KEYS.studio, JSON.stringify(rec)); return true; } catch (e) { return false; }
+}
+async function studioX25519() {
+  const pair = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']);
+  const priv = await crypto.subtle.exportKey('jwk', pair.privateKey);
+  const pub = await crypto.subtle.exportKey('jwk', pair.publicKey);
+  return { privateKey: studioB64urlToStd(priv.d), publicKey: studioB64urlToStd(pub.x) };
+}
+async function studioWarpRegister() {
+  const keys = await studioX25519();
+  const tos = new Date().toISOString();
+  const body = JSON.stringify({ key: keys.publicKey, install_id: '', fcm_token: '', tos, model: 'PC', serial_number: '', locale: 'en_US' });
+  const urls = ['https://api.cloudflareclient.com/v0a2158/reg', 'https://api.cloudflareclient.com/v0a1922/reg'];
+  for (let i = 0; i < urls.length; i++) {
+    try {
+      const r = await fetch(urls[i], { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      if (!r.ok) continue;
+      const j = await r.json();
+      const root = j.result || j;
+      const cfg = root.config || {};
+      const addrs = (cfg.interface && cfg.interface.addresses) || {};
+      const peer = (cfg.peers && cfg.peers[0]) || {};
+      return {
+        privateKey: keys.privateKey,
+        publicKey: keys.publicKey,
+        peerPublicKey: peer.public_key || WARP_PEER_PUB,
+        ipv4: addrs.v4 || '172.16.0.2',
+        ipv6: addrs.v6 || '',
+        accountId: root.id || '',
+        endpoint: STUDIO_WARP_ENDS[0],
+        createdAt: Date.now(),
+      };
+    } catch (e) { /* next host */ }
   }
   return null;
 }
@@ -7726,9 +7823,85 @@ async function handleApi(request, url, env, ctx) {
     return json({ ok: true, kept: items.length });
   }
 
+
+  if (path === '/api/pair/claim' && method === 'POST') {
+    const ip = String(request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'local').slice(0, 64);
+    const now = Date.now();
+    const body = (await readJsonBody(request)) || {};
+    const code = String(body.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 6) return json({ ok: false, error: 'code' }, 400);
+    const rec = await pairRead(env);
+    if (!rec.code || rec.exp < now || rec.code !== code) return json({ ok: false, error: 'expired' }, 400);
+    if (now - (pairClaimSeen.get(ip) || 0) < 2000) return json({ ok: false, error: 'slow' }, 429);
+    if (pairClaimSeen.size > 400) pairClaimSeen.clear();
+    pairClaimSeen.set(ip, now);
+    rec.code = '';
+    rec.exp = 0;
+    rec.devices = [{ id: (crypto.randomUUID && crypto.randomUUID()) || String(now), at: now, ua: String(request.headers.get('user-agent') || '').slice(0, 80) }].concat(rec.devices || []).slice(0, 20);
+    await pairWrite(env, rec);
+    return json({ ok: true, panel: 'cat-panel', version: CAT_PANEL_VERSION, host, paired: true });
+  }
+
   /* ---- everything below is owner-only ---- */
   if (!(await isOwner(request, env, settings, masterUuid))) return json({ ok: false, error: 'unauthorized' }, 401);
   const origin = url.origin;
+
+  if (path === '/api/pair/start' && method === 'POST') {
+    const rec = await pairRead(env);
+    rec.code = pairNewCode();
+    rec.exp = Date.now() + PAIR_TTL_MS;
+    const persisted = await pairWrite(env, rec);
+    return json({ ok: true, code: rec.code, exp: rec.exp, persisted, version: CAT_PANEL_VERSION });
+  }
+  if (path === '/api/pair/status' && method === 'GET') {
+    const rec = await pairRead(env);
+    const pending = !!(rec.code && rec.exp > Date.now());
+    return json({ ok: true, pending, code: pending ? rec.code : '', exp: rec.exp || 0, devices: (rec.devices || []).length, version: CAT_PANEL_VERSION });
+  }
+  if (path === '/api/studio') {
+    if (method === 'GET') {
+      return json(Object.assign({ ok: true }, studioPublic(await studioRead(env))));
+    }
+    if (method !== 'POST') return json({ ok: false, error: 'method' }, 405);
+    const body = (await readJsonBody(request)) || {};
+    const action = String(body.action || '');
+    const rec = await studioRead(env);
+    if (action === 'warp-save') {
+      if (!studioKeyOk(body.privateKey) || !studioKeyOk(body.publicKey || WARP_PEER_PUB)) return json({ ok: false, error: 'key' }, 400);
+      rec.warp = {
+        privateKey: String(body.privateKey),
+        publicKey: String(body.publicKey || ''),
+        peerPublicKey: String(body.peerPublicKey || WARP_PEER_PUB),
+        ipv4: String(body.ipv4 || '172.16.0.2'),
+        ipv6: String(body.ipv6 || ''),
+        endpoint: String(body.endpoint || STUDIO_WARP_ENDS[0]),
+        createdAt: Date.now(),
+      };
+      const persisted = await studioWrite(env, rec);
+      return json(Object.assign({ ok: true, persisted }, studioPublic(rec)));
+    }
+    if (action === 'warp-register') {
+      const acc = await studioWarpRegister();
+      if (!acc) return json({ ok: false, error: 'warp-register' }, 502);
+      rec.warp = acc;
+      const persisted = await studioWrite(env, rec);
+      return json(Object.assign({ ok: true, persisted }, studioPublic(rec)));
+    }
+    if (action === 'masque-make') {
+      rec.masque = { endpoint: STUDIO_MASQUE_ENDS[0], uri: studioMasqueUri(STUDIO_MASQUE_ENDS[0], 'Cat-MASQUE'), createdAt: Date.now() };
+      const persisted = await studioWrite(env, rec);
+      return json(Object.assign({ ok: true, persisted }, studioPublic(rec)));
+    }
+    if (action === 'clear') {
+      const kind = String(body.kind || '');
+      if (kind === 'warp') rec.warp = null;
+      else if (kind === 'masque') rec.masque = null;
+      else { rec.warp = null; rec.masque = null; }
+      const persisted = await studioWrite(env, rec);
+      return json(Object.assign({ ok: true, persisted }, studioPublic(rec)));
+    }
+    return json({ ok: false, error: 'action' }, 400);
+  }
 
   if (path === '/api/app-reports') {
     if (method === 'GET') {
@@ -9539,7 +9712,8 @@ ${stat('🛡️', L('پروتکل', 'Protocols'), '<span style="font-size:15px">
 <a class="btn p" href="${escapeHtml(catLink)}">🐱 Cat Client</a>
 <a class="btn p" href="https://testflight.apple.com/join/DRkT6zny" target="_blank" rel="noopener">🍎 CoreForge (iOS)</a>
 <a class="btn" href="v2rayng://install-sub?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">v2rayNG</a>
-<a class="btn" href="hiddify://import/${escapeHtml(links.sub)}#${encodeURIComponent(name)}">Hiddify</a>
+<a class="btn" href="hiddify://import/${encodeURIComponent(links.sub)}">Hiddify</a>
+<a class="btn" href="#" id="bAmnInfo">Amnezia</a>
 <a class="btn" href="streisand://import/${escapeHtml(links.sub)}#${encodeURIComponent(name)}">Streisand (iOS)</a>
 <a class="btn" href="v2box://install-sub?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">V2Box (iOS)</a>
 <a class="btn" href="karing://install-config?url=${encodeURIComponent(links.sub)}&name=${encodeURIComponent(name)}">Karing (iOS)</a>
@@ -9559,7 +9733,7 @@ function toast(m){var t=document.getElementById('toast');t.textContent=m;t.class
 function copy(v){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(v).then(function(){toast('✓')},function(){fallback(v)})}else fallback(v)}
 function fallback(v){var i=document.createElement('textarea');i.value=v;document.body.appendChild(i);i.select();try{document.execCommand('copy');toast('✓')}catch(e){}document.body.removeChild(i)}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(b){copy(b.getAttribute('data-copy'));return}var q=e.target.closest('[data-qr]');if(q){document.getElementById('qr').innerHTML='<img alt="QR" src="/qr.svg?text='+encodeURIComponent(q.getAttribute('data-qr'))+'">';document.getElementById('m').classList.add('show')}});
+document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(b){copy(b.getAttribute('data-copy'));return}var a=e.target.closest('#bAmnInfo');if(a){e.preventDefault();copy(${JSON.stringify(links.clash)});toast('Amnezia');return}var q=e.target.closest('[data-qr]');if(q){document.getElementById('qr').innerHTML='<img alt="QR" src="/qr.svg?text='+encodeURIComponent(q.getAttribute('data-qr'))+'">';document.getElementById('m').classList.add('show')}});
 var dk=document.getElementById('dk');function setDk(on){document.documentElement.classList.toggle('dark',on);dk.textContent=on?'☀️':'🌙';try{localStorage.setItem('catStDark',on?'1':'')}catch(e){}}
 try{setDk(localStorage.getItem('catStDark')==='1'||(localStorage.getItem('catStDark')===null&&matchMedia('(prefers-color-scheme: dark)').matches))}catch(e){}
 dk.addEventListener('click',function(){setDk(!document.documentElement.classList.contains('dark'))});
@@ -10634,6 +10808,15 @@ x.com</textarea>
     <button type="button" data-goto="build#bGen">🛠<span>${tr2('کانفیگ‌ساز', 'Config builder')}</span><small>${tr2('ساخت لینک دلخواه', 'Build a custom link')}</small></button>
    </div>
   </div>
+  <div class="card sec" id="tlKit">
+   <h2><span class="ic">🐱</span><span>${tr2('جفت‌شدن و استودیو WARP/MASQUE', 'Pairing and WARP/MASQUE studio')}</span></h2>
+   <p class="tsub">${tr2('کد ۶ حرفی برای اپ Cat؛ کلید WARP جدا از لینک MASQUE روی پورت رسمی ۴۴۳.', 'A 6-character code for Cat Client; WARP key is separate from the MASQUE link on official port 443.')}</p>
+   <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm p" type="button" id="kitPairGo">🔗 ${tr2('ساخت کد جفت‌شدن', 'Make pairing code')}</button><b class="mono" id="kitPairCode" dir="ltr"></b></div>
+   <div class="small mute" id="kitPairOut" style="margin-top:6px"></div>
+   <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm p" type="button" id="kitWarpGo">🔐 ${tr2('ساخت WARP (۴۴۳ اول)', 'Make WARP (443 first)')}</button><button class="btn sm" type="button" id="kitMasqueGo">🚀 ${tr2('ساخت MASQUE جدا', 'Make separate MASQUE')}</button><button class="btn sm" type="button" id="kitAwgGo">AmneziaWG</button></div>
+   <div class="small mute" id="kitStudioOut" style="margin-top:6px"></div>
+   <details class="how"><summary>📖 ${tr2('آموزش', 'How-to')}</summary><div>${tr2('«ساخت کد» را بزنی یک کد ۶ حرفی می‌آید؛ در اپ Cat روی همین دیپلوی «جفت‌شدن با این پنل» را بزن و کد را وارد کن. «ساخت WARP» یک دستگاه کلودفلر ثبت می‌کند و کانفیگ WireGuard را با اندپوینت ۴۴۳ کپی می‌کند. «MASQUE» لینک aether جدا می‌سازد — کلیدش با WARP یکی نیست. AmneziaWG همان کانفیگ WARP با بسته‌های جرقه است.', '«Make code» shows a 6-character code; in Cat Client on this deployment tap «Pair with this panel» and enter it. «Make WARP» registers a Cloudflare device and copies a WireGuard config with a 443 endpoint. «MASQUE» builds a separate aether link — that key is not the WARP key. AmneziaWG is the WARP config with junk packets.')}</div></details>
+  </div>
  </div>
 </section>
 
@@ -10995,7 +11178,7 @@ ${vDoctor}
   <h2><span class="ic">🧹</span><span data-i="ip_list"></span> <span class="chip v" id="ipCount">0</span><button class="btn sm" id="btnRot2" type="button" style="margin-inline-start:auto"></button></h2>
   <div class="small mute" data-i="ip_list_hint"></div>
   <div class="ipl" id="ipList"></div>
-  <div class="row" style="margin-top:10px"><button class="btn r sm" id="btnIpClear" data-i="ip_clear"></button><button class="btn sm" id="btnIpCopy" data-i="copy_all"></button><button class="btn sm" id="btnSvcTest" type="button" style="margin-inline-start:auto">🧪 <span data-i="svc_btn"></span></button><button class="btn p sm" id="btnIpTest" type="button">🩺 <span data-i="ip_test_btn"></span></button></div>
+  <div class="row" style="margin-top:10px"><button class="btn r sm" id="btnIpClear" data-i="ip_clear"></button><button class="btn sm" id="btnIpCopy" data-i="copy_all"></button><button class="btn sm" id="btnSvcTest" type="button" style="margin-inline-start:auto">🧪 <span data-i="svc_btn"></span></button><button class="btn sm" id="btnLineTest" type="button">📶 ${tr2('تست از خط من', 'Test from my line')}</button><button class="btn p sm" id="btnIpTest" type="button">🩺 <span data-i="ip_test_btn"></span></button></div>
   <div class="pbar-wrap" id="ipTestProgWrap"><div class="mono pbar-lbl" id="ipTestProgLbl"></div><div class="pbar-track"><div class="pbar-fill" id="ipTestProgBar"></div></div></div>
   <div class="small mute" id="ipTestOut" style="margin-top:6px"></div>
   <div class="row small mute" data-i="ip_test_hint" style="margin-top:4px"></div>
@@ -12201,6 +12384,7 @@ document.addEventListener('click',async function(e){var b=e.target.closest('[dat
 
 document.addEventListener('click',async function(e){var b;
  if((b=e.target.closest('[data-copy]'))){copy(b.getAttribute('data-copy'));return}
+ if((b=e.target.closest('[data-amn]'))){var u=($('#dLinks')||{}).__u,awg=window.__studio&&window.__studio.warp&&window.__studio.warp.awg;if(awg){copy(awg);toast(tx('AmneziaWG کپی شد','AmneziaWG copied'));return}if(u&&u.links){copy(u.links.clash||u.links.sub);toast(tx('لینک Clash برای Amnezia کپی شد','Clash link copied for Amnezia'));return}return}
  if((b=e.target.closest('[data-qr]'))){showQr(b.getAttribute('data-qr'),b.getAttribute('data-qrl')||'');return}
  if((b=e.target.closest('[data-edit]'))){openDrawer(USERS.filter(function(u){return u.id===b.getAttribute('data-edit')})[0]);return}
  if((b=e.target.closest('[data-ulinks]'))){var lu=USERS.filter(function(u){return u.id===b.getAttribute('data-ulinks')})[0];if(lu){openDrawer(lu);setUTab('links')}return}
@@ -12237,7 +12421,7 @@ function connSummary(){var box=$('#uConnSum');if(!box||!CFG||!CFG.settings)retur
 function linkCard(title,sub,url,qrl){return '<div><div class="hd">'+title+' <small>'+sub+'</small></div><input class="mono" readonly value="'+esc(url)+'"><div class="row"><button class="btn sm p" type="button" data-copy="'+esc(url)+'">📋 '+esc(tx('کپی','Copy'))+'</button><button class="btn sm" type="button" data-qr="'+esc(url)+'" data-qrl="'+esc(qrl)+'">▦ QR</button><a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">↗ '+esc(tx('باز کردن','Open'))+'</a></div></div>'}
 function richLinks(L,name,u){return '<div class="lnk4">'+linkCard('🔗 '+esc(tx('ساب اصلی','Subscription')),'Base64 · v2rayNG / Hiddify / Streisand',L.sub,name)+linkCard('📦 sing-box','Hiddify / sing-box / NekoBox',L.singbox,name)+(L.xray?linkCard('🧩 Xray JSON','v2rayNG (JSON) / Xray',L.xray,name):'')+linkCard('🐱 Clash Meta','Clash Verge / FlClash / Stash',L.clash,name)+'</div>'
  +'<div class="lk" style="margin-top:10px"><span class="small b" style="min-width:110px">📊 '+esc(tx('صفحهٔ وضعیت','Status page'))+'</span><input class="mono" readonly value="'+esc(L.info)+'"><button class="btn sm" type="button" data-copy="'+esc(L.info)+'">📋</button><a class="btn sm" href="'+esc(L.info)+'" target="_blank" rel="noopener">↗</a></div>'
- +'<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><a class="btn sm p" href="catclient://add-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">🐱 Cat Client</a><a class="btn sm" href="v2rayng://install-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">v2rayNG</a><a class="btn sm" href="hiddify://import/'+esc(L.sub)+'">Hiddify</a></div>'
+ +'<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><a class="btn sm p" href="catclient://add-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">🐱 Cat Client</a><a class="btn sm" href="v2rayng://install-sub?url='+encodeURIComponent(L.sub)+'&name='+encodeURIComponent(name)+'">v2rayNG</a><a class="btn sm" href="hiddify://import/'+encodeURIComponent(L.sub)+'">Hiddify</a><button class="btn sm" type="button" data-amn="1">Amnezia</button></div>'
  +(u?'<div class="card" style="padding:12px;margin-top:12px"><div class="row" style="justify-content:space-between"><b class="small">🧾 '+esc(tx('کانفیگ‌های همین ساب','Configs in this subscription'))+'</b><button class="btn sm" type="button" id="cfgCopyAll" disabled>📋 '+esc(tx('کپی همه','Copy all'))+'</button></div><div class="cfgl" id="cfgList"><div class="dim">…</div></div></div>':'')
  +'<div class="note i small" style="margin-top:10px">'+esc(tx('این لینک‌ها ثابت‌اند و با هر بار باز شدن، آی‌پی‌ها و کانفیگ‌های تازه را می‌دهند. اگر لینکی لو رفت، کاربر را حذف یا غیرفعال کن (برای ساب اصلی: «چرخش توکن ساب» در «راهنما و درباره»).','These links are stable and return fresh IPs and configs on every refresh. If a link leaks, delete or disable the user (master subscription: «rotate subscription token» in «Help & about»).'))+'</div>'}
 function b64txt(x){try{var bin=atob(String(x).replace(/[^A-Za-z0-9+/=_-]/g,'').replace(/-/g,'+').replace(/_/g,'/'));try{return decodeURIComponent(escape(bin))}catch(e){return bin}}catch(e){return ''}}
@@ -12285,9 +12469,9 @@ function renderCountries(){var S=CFG.countries||{countries:[],untagged:[]};var s
  if(S.untagged.length)h+='<span class="chip">🌐 '+t('cc_untagged')+' · '+S.untagged.length+'</span>';$('#ccList').innerHTML=h}
 function ipKey(a){var st=String(a);var c=st.lastIndexOf(':');if(c>-1&&/^\\d{1,5}$/.test(st.slice(c+1))&&st.indexOf(':')===c)st=st.slice(0,c);return st.replace(/^\\[/,'').replace(/\\]$/,'').toLowerCase()}
 function renderIps(){var ips=CFG.settings.ips,tags=CFG.settings.ipCountries||{},pins=CFG.settings.pinnedIps||[],SRC=CFG.settings.ipSources||{};$('#ipCount').textContent=ips.length;var TT=window.__ipTest||{};
-$('#ipList').innerHTML=ips.length?ips.map(function(ip){var isPin=pins.some(function(p){return ipKey(p)===ipKey(ip)});var st=TT[ip]||TT[ipKey(ip)];var w=st?(st.ok?'<span style="color:#34d399">worker\u2713'+st.ms+'ms'+(st.cc?' '+flag(st.cc):'')+'</span>':'<span style="color:#f87171">worker\u2717</span>'):'';
+$('#ipList').innerHTML=ips.length?ips.map(function(ip){var isPin=pins.some(function(p){return ipKey(p)===ipKey(ip)});var st=TT[ip]||TT[ipKey(ip)];var LT=window.__lineTest||{},ln=LT[ip]||LT[ipKey(ip)];var w=st?(st.ok?'<span style="color:#34d399">worker\u2713'+st.ms+'ms'+(st.cc?' '+flag(st.cc):'')+'</span>':'<span style="color:#f87171">worker\u2717</span>'):'';var line=ln?(ln.ok?'<span style="color:#38bdf8">line\u2713'+ln.ms+'ms</span>':'<span style="color:#f87171">line\u2717</span>'):'';
 var tagged=tags[ip]?String(ip)+'#'+tags[ip]:'';var so=SRC[ip]||SRC[ipKey(ip)]||(tagged&&SRC[tagged])||SRC[String(ip).split('#')[0]]||SRC[ipKey(String(ip).split('#')[0])];var src=so&&so.src==='neighbor'?'<span style="color:#fbbf24">👑 همسایه</span>':so?'<span style="color:#7dd3fc">\ud83c\udff7 '+(so.src==='scanner'?'\u0627\u0632 \u0627\u0633\u06a9\u0646\u0631':'\u0648\u0631\u0648\u062f \u062f\u0633\u062a\u06cc')+' \u00b7 \ud83d\udcf6 '+so.ms+'ms</span>':'';
-return '<span class="chip mono'+(isPin?' v':'')+'">'+ccSelect(ip,tags[ip]||'')+' '+esc(ip)+(src?' '+src:'')+(w?' '+w:'')+' <b data-ip'+(isPin?'unpin':'pin')+'="'+esc(ip)+'" title="'+t(isPin?'ip_unpin':'ip_pin')+'" style="cursor:pointer">'+(isPin?'\ud83d\udccc':'\ud83d\udccd')+'</b> <b data-ipdel="'+esc(ip)+'" title="remove" style="cursor:pointer">\u2715</b></span>'}).join(''):'<span class="dim small">\u2014</span>';renderCountries();renderRotBtn();renderPxTest();renderSvc();renderLatency();
+return '<span class="chip mono'+(isPin?' v':'')+'">'+ccSelect(ip,tags[ip]||'')+' '+esc(ip)+(src?' '+src:'')+(w?' '+w:'')+(line?' '+line:'')+' <b data-ip'+(isPin?'unpin':'pin')+'="'+esc(ip)+'" title="'+t(isPin?'ip_unpin':'ip_pin')+'" style="cursor:pointer">'+(isPin?'\ud83d\udccc':'\ud83d\udccd')+'</b> <b data-ipdel="'+esc(ip)+'" title="remove" style="cursor:pointer">\u2715</b></span>'}).join(''):'<span class="dim small">\u2014</span>';renderCountries();renderRotBtn();renderPxTest();renderSvc();renderLatency();
  $('#btnScanApp').href='catclient://scan?sni='+encodeURIComponent(CFG.sni||CFG.host)+'&panel='+encodeURIComponent(location.origin)}
 function manualAdd(){var raw=$('#manualIps').value,port=($('#manualPort').value||'').replace(/[^0-9]/g,'')||'443',cc=($('#manualCC').value||'').trim().toUpperCase().slice(0,2);
 var ips=raw.split(/[\\s,;]+/).map(function(s){s=s.trim();if(!s)return '';var v=null;
@@ -12331,6 +12515,13 @@ $('#btnIpTest').addEventListener('click',function(){var ips=CFG.settings.ips.sli
 setIpTestProg(25,lang==='fa'?'🩺 در حال تست سلامت '+tests.length+' اندپوینت (TCP/TLS)…':'🩺 Probing '+tests.length+' endpoints (TCP/TLS)…',true);
 var progTimer=setTimeout(function(){setIpTestProg(65,lang==='fa'?'🩺 در حال بررسی پاسخ لبه و رله‌ها…':'🩺 Verifying edge & relay handshakes…',true)},600);
 api('/api/ip-test',{method:'POST',body:{tests:tests}}).then(function(j){clearTimeout(progTimer);window.__ipTest=j.results||{};renderIps();var cl=tests.filter(function(x){return x.kind!=='proxyip'}),ok=cl.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length,po=tests.filter(function(x){return x.kind==='proxyip'||x.kind==='socks'}),pok=po.filter(function(x){var r=window.__ipTest[x.key||x.addr];return r&&r.ok}).length;var best=null;cl.forEach(function(x){var r=window.__ipTest[x.key||x.addr];if(r&&r.ok&&r.ms!=null&&(best===null||r.ms<best))best=r.ms});var summary='🩺 \ud83d\udca6 '+ok+' / '+cl.length+(po.length?' \u00b7 \ud83c\udfaf '+pok+' / '+po.length:'')+(best!==null?' · کمترین: '+best+'ms':'');out.textContent=summary;setIpTestProg(100,summary,true)}).catch(function(e){clearTimeout(progTimer);out.textContent='\u2717 '+esc(e&&e.message||e);setIpTestProg(100,'✗ '+(e&&e.message||e),true)}).finally(function(){$('#btnIpTest').disabled=false})});
+if($('#btnLineTest'))$('#btnLineTest').addEventListener('click',function(){
+ var ips=(CFG.settings.ips||[]).slice(0,32);if(!ips.length){toast(t('scan_empty'),true);return}
+ var out=$('#ipTestOut');out.textContent='…';$('#btnLineTest').disabled=true;var R={},i=0,n=0,done=0;
+ function fin(){if(done)return;done=1;window.__lineTest=R;renderIps();var ok=0,best=null;Object.keys(R).forEach(function(k){var r=R[k];if(r&&r.ok){ok++;if(best===null||r.ms<best)best=r.ms}});out.textContent='📶 '+ok+' / '+ips.length+(best!==null?' · '+best+'ms':'');$('#btnLineTest').disabled=false}
+ function step(){if(done)return;if(i>=ips.length){if(!n)fin();return}var a=ips[i++];n++;var base=String(a).split('#')[0],m=/^(.+):([0-9]{1,5})$/.exec(base),host=base,port=443;if(m&&base.indexOf(':')===m.index){host=m[1];port=+m[2]}host=String(host).replace(/^\[/,'').replace(/\]$/,'');repoProbe({a:host+(port===443?'':':'+port),k:/[a-z]/i.test(host)&&host.indexOf(':')<0?'dom':'v4'}).then(function(pr){R[a]={ok:!!pr.ok,ms:pr.ms||0,browser:true};n--;step()})}
+ for(var k=0;k<6;k++)step();
+});
 $('#btnBrowserTest').addEventListener('click',function(){var box=$('#scanRes');var raw=CFG.settings.ips.concat(CFG.settings.useDefaults?CFG.defaults.addresses:[]);var targets=[],seen={},i,j;
  for(i=0;i<raw.length;i++){var a=String(raw[i]||'').trim();if(!a||seen[a])continue;seen[a]=1;var base=a.split('#')[0],m=/^(.+):([0-9]{1,5})$/.exec(base),host=base,port=443;
   if(m&&!/^[0-9a-fA-F:]+$/.test(base)){host=m[1];port=+m[2]}
@@ -12473,7 +12664,7 @@ function bUrl(kind){var u=new URL(CFG.links[kind]||CFG.links.sub);var q=new URLS
 function bGen(){var link=bUrl('sub');var xrayLink=bUrl('xray');var hasFw=!!B.fw;$('#bLink').value=link;$('#bXrayLink').value=xrayLink;$('#bXrayWrap').style.display=hasFw?'block':'none';$('#bApps').style.display='flex';$('#bCat').style.display=hasFw?'none':'';$('#bHid').style.display=hasFw?'none':'';$('#bCopyAll').style.display='';$('#bQr').style.display='';
  $('#bCat').href='catclient://add-sub?url='+encodeURIComponent(link)+'&name='+encodeURIComponent((CFG.settings.title||'Cat Panel')+' · '+t('b_title'));
  $('#bV2rn').href='v2rayng://install-sub?url='+encodeURIComponent(link)+'&name=CatPanel';
- $('#bHid').href='hiddify://import/'+link;
+ $('#bHid').href='hiddify://import/'+encodeURIComponent(link);
  $('#bQr').setAttribute('data-qr',link);$('#bQr').setAttribute('data-qrl',t('b_title'));
  api('/api/events',{method:'POST',body:{ev:'builder',d:(link.split('?')[1]||'').slice(0,110)}});
  fetch(link,{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error(httpFailure(r));var status=r.status;return r.text().then(function(tx){return {status:status,text:tx}})}).then(function(res){var raw=String(res.text||''),lines=raw.trim()?raw.trim().split('\\n').map(function(x){return x.trim()}).filter(Boolean):[],uris=lines.filter(function(x){return /^[a-z][a-z0-9+.-]*:\\/\\//i.test(x)});if(!uris.length){bText='';$('#bCount').textContent='0';$('#bPrev').value='';bEmptyNote(0,{key:raw.trim()?'b_bad_reply':'b_empty_reply',detail:'HTTP '+res.status});return}bText=raw;$('#bCount').textContent=uris.length;$('#bPrev').value=uris.slice(0,10).join('\\n');bEmptyNote(uris.length)}).catch(function(e){bText='';$('#bCount').textContent='0';$('#bPrev').value='';bEmptyNote(0,{key:'b_fetch_error',detail:safeDiag(e&&e.message||e)})})}
@@ -13300,6 +13491,14 @@ $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa'
 
 applyI18n();
 var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','region','link','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+
+(function(){var g=$('#kitPairGo');if(!g)return;
+g.addEventListener('click',function(){api('/api/pair/start',{method:'POST',body:{}}).then(function(j){if(!j||!j.ok){toast((j&&j.error)||'auth',true);return}$('#kitPairCode').textContent=j.code;$('#kitPairOut').textContent=tx('کد را در اپ بزن','Enter the code in the app')})});
+function p(j){window.__studio=j||{};var b=$('#kitStudioOut');if(b)b.textContent=((j&&j.warp)?('WARP '+j.warp.endpoint):'—')+' · '+((j&&j.masque)?('MASQUE '+j.masque.endpoint):'—')}
+api('/api/studio').then(p).catch(function(){});
+if($('#kitWarpGo'))$('#kitWarpGo').addEventListener('click',function(){api('/api/studio',{method:'POST',body:{action:'warp-register'}}).then(function(j){if(!j||!j.ok){toast((j&&j.error)||'fail',true);return}p(j);if(j.warp&&j.warp.conf)copy(j.warp.conf)})});
+if($('#kitMasqueGo'))$('#kitMasqueGo').addEventListener('click',function(){api('/api/studio',{method:'POST',body:{action:'masque-make'}}).then(function(j){if(!j||!j.ok){toast((j&&j.error)||'fail',true);return}p(j);if(j.masque&&j.masque.uri)copy(j.masque.uri)})});
+if($('#kitAwgGo'))$('#kitAwgGo').addEventListener('click',function(){var w=window.__studio&&window.__studio.warp;if(!w||!w.awg){toast('WARP',true);return}copy(w.awg)})})();
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)renderUpdateBox(b,j,true);var ob=$('#ovUpdateBox');if(ob)renderUpdateBox(ob,j,false);toast(t('update_new')+j.latest)}).catch(function(){});
 })();
@@ -13603,6 +13802,7 @@ export const _testing = {
   buildWarpOutbounds, parseExtUris, extSubContent,
   effectiveSni, scanSniOf, normalizeProxyList, addressList, buildConfigEntries, vlessLink, trojanLink, linkContext, buildClashYaml, buildSingboxConfig, subscriptionHeaders,
   TLS_PORTS, PLAIN_PORTS, SCAN_RANGES,
+  STUDIO_WARP_ENDS, STUDIO_MASQUE_ENDS, WARP_PEER_PUB,
   handleRequest, handleApi, selfInfo, geoLookup, dnsCacheGet, dnsCachePut, markRelayFailed, relayCool,
   USAGE_KEY, ERROR_RING, DAILY_WRITE_BUDGET, FLUSH_MIN_GAP_MS, FLUSH_BATCH, FLUSH_MIN_REQS,
   usageDay, countRequest, recordError, readUsage, flushUsage, clearErrors, scheduleFlush,

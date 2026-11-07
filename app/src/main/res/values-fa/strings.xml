@@ -900,6 +900,10 @@
 
     <!-- بروزرسانی پنل Cat از داخل اپ -->
     <string name="cloud_update_panel">بروزرسانی پنل</string>
+    <string name="cloud_pair">جفت‌شدن با این پنل</string>
+    <string name="cloud_update_not_live">بروزرسانی پنل هنوز زنده نیست</string>
+    <string name="cloud_update_live_ok">نسخهٔ زندهٔ /api/version برابر v%1$s است</string>
+    <string name="cloud_update_live_mismatch">آپلود گفت v%1$s اما /api/version زنده %2$s است — این ورکر هنوز آن نسخه نیست.</string>
     <string name="cloud_panel_version">پنل v%1$s</string>
     <string name="cloud_panel_version_unknown">نسخه نامشخص</string>
     <string name="cloud_panel_version_checking">در حال بررسی نسخهٔ پنل…</string>
@@ -1022,6 +1026,9 @@
     <string name="servers_add_clipboard">از کلیپ‌بورد</string>
     <string name="servers_add_qr">اسکن QR با دوربین</string>
     <string name="servers_add_manual">دستی (چسباندن لینک یا اشتراک)</string>
+    <string name="servers_add_tuic">TUIC — فیلدها + وصل</string>
+    <string name="servers_add_wg">WireGuard — فیلدها + وصل</string>
+    <string name="servers_add_aether">Cat Warp — فیلدها + وصل</string>
     <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard، آدرس اشتراک، فایل .conf وایرگارد و فایل Clash / sing-box پشتیبانی می‌شود. از هر برنامه‌ای هم می‌توانی لینک یا فایل را «اشتراک‌گذاری» کنی و Cat Client را انتخاب کنی.</string>
     <string name="accent_setting_title">تم رنگی</string>
     <string name="accent_lavender">بنفش روشن</string>

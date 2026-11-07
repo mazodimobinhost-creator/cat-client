@@ -1462,7 +1462,7 @@ internal fun MainActivity.copyFreeConfig(entry: FreeConfigs.FreeEntry) {
 }
 
 /** Adds one share-link as its own Subscription and selects it. */
-internal fun MainActivity.addSingleConfig(link: String, name: String) {
+internal fun MainActivity.addSingleConfig(link: String, name: String, connectNow: Boolean = false) {
     if (link.isBlank()) return
     val subscriptionName = name.take(48).ifBlank { "Cat Single" }
     activityScope.launch {
@@ -1476,6 +1476,10 @@ internal fun MainActivity.addSingleConfig(link: String, name: String) {
         userSubscriptionManager.select(added.id)
         renderSubscriptions()
         onSubscriptionSelected()
+        if (connectNow) {
+            beginConnectFlow(Actions.CONNECT)
+            return@launch
+        }
         MaterialAlertDialogBuilder(this@addSingleConfig)
             .setTitle(R.string.free_quick_add_done)
             .setMessage(subscriptionName)
@@ -1530,6 +1534,15 @@ internal fun MainActivity.showQuickConfigDialog() {
             val link = input.text?.toString()?.trim().orEmpty()
             if (link.isEmpty()) {
                 Toast.makeText(this, R.string.free_quick_empty, Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
+            }
+            if (SubConvConverter.isNaiveShare(link)) {
+                val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+                Toast.makeText(this, SubConvConverter.naiveUnsupportedMessage(fa), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
+            ProtocolConnect.parse(link)?.let { parsed ->
+                showProtocolConnectDialog(parsed)
                 return@setPositiveButton
             }
             AetherSelection.fromAetherUri(link)?.let { parsed ->
@@ -1822,6 +1835,16 @@ internal fun MainActivity.addSubscriptionFromClipboard() {
         ?.toString()
         ?.trim()
         .orEmpty()
+    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val shareLines = rawClip.lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }.toList()
+    if (shareLines.isNotEmpty() && shareLines.all { SubConvConverter.isNaiveShare(it) }) {
+        Toast.makeText(this, SubConvConverter.naiveUnsupportedMessage(fa), Toast.LENGTH_LONG).show()
+        return
+    }
+    ProtocolConnect.parse(rawClip)?.let { parsed ->
+        showProtocolConnectDialog(parsed)
+        return
+    }
     AetherSelection.fromAetherUri(rawClip)?.let { parsed ->
         importAndConnectAetherSelection(parsed)
         return

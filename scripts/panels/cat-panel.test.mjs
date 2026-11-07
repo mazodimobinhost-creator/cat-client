@@ -797,16 +797,20 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.88.0', T.CAT_PANEL_VERSION === '6.88.0');
+  check('panel version is 6.89.0', T.CAT_PANEL_VERSION === '6.89.0');
   check('6.87.0 compiles panelPage at isolate startup so a cold GET is not Error 1102',
     readFileSync(workerPath, 'utf8').includes('warmup.workers.dev'));
-  check('6.88.0 keeps a compiled panelPage shell and fills only host/uuid',
+  check('6.89.0 keeps a compiled panelPage shell and fills only host/uuid',
     readFileSync(workerPath, 'utf8').includes('zzcathostzz.invalid') &&
     readFileSync(workerPath, 'utf8').includes('zzcatverwarnzz'));
   {
     const src = T.defaultSettings();
     const a = T.panelPage({}, src, 'alpha.workers.dev', '11111111-2222-4333-8444-555555555555');
     const b = T.panelPage({}, src, 'beta.workers.dev', '11111111-2222-4333-8444-555555555555');
+    check('line test sits next to worker IP health', html.includes('id="btnLineTest"') && html.includes('id="btnIpTest"'));
+    check('pairing + WARP/MASQUE studio live in tools', html.includes('id="kitPairGo"') && html.includes('id="kitWarpGo"') && html.includes('id="kitMasqueGo"'));
+    check('Hiddify one-tap URL-encodes the subscription', html.includes("hiddify://import/'+encodeURIComponent(L.sub)"));
+    check('user drawer has Amnezia one-tap', html.includes('data-amn="1"'));
     check('cached panelPage names this request host, not the placeholder or the other host',
       a.includes('alpha.workers.dev') && b.includes('beta.workers.dev') &&
       a.includes('11111111-2222-4333-8444-555555555555') &&
@@ -1423,5 +1427,40 @@ check('generated TLS configs put the worker host into the sni param (Cloudflare 
   const iosPacTxt = await iosPacRes.text();
   check('/ios/pac serves iOS LAN PAC script', iosPacRes.status === 200 && iosPacTxt.includes('192.168.43.1:10808'));
 }
+{
+  const r = await req('/api/pair/claim', { method: 'POST', body: { code: 'XXXXXX' } });
+  const j = await r.json();
+  check('pair claim is public and rejects a junk code', r.status === 400 && j.ok === false);
+}
+{
+  let owner = null;
+  for (const password of ['admin', 's3cret']) {
+    const lg = await req('/api/login', { method: 'POST', body: { username: 'admin', password } });
+    if (lg.status === 200) { owner = { cookie: (lg.headers.get('set-cookie') || '').split(';')[0] }; break; }
+  }
+  const denied = await req('/api/pair/start', { method: 'POST', body: {} });
+  check('pair start without session is 401', denied.status === 401);
+  const r = await req('/api/pair/start', { method: 'POST', headers: owner, body: {} });
+  const j = await r.json();
+  check('pair start returns a 6-char Cat code', r.status === 200 && j.ok && /^[A-HJ-NP-Z2-9]{6}$/.test(j.code), 'status=' + r.status + ' code=' + (j && j.code) + ' err=' + (j && j.error));
+  const claim = await req('/api/pair/claim', { method: 'POST', body: { code: j.code } });
+  const cj = await claim.json();
+  check('pair claim reports cat-panel + live version', claim.status === 200 && cj.ok && cj.panel === 'cat-panel' && cj.version === T.CAT_PANEL_VERSION && cj.paired === true, 'status=' + claim.status + ' ' + JSON.stringify(cj));
+  const again = await req('/api/pair/claim', { method: 'POST', body: { code: j.code } });
+  check('pair code is single-use', again.status === 400);
+  const deniedStudio = await req('/api/studio');
+  check('studio GET without session is 401', deniedStudio.status === 401);
+  const empty = await (await req('/api/studio', { headers: owner })).json();
+  check('studio starts with no WARP and no MASQUE', empty.ok && empty.warp == null && empty.masque == null, JSON.stringify(empty));
+  const priv = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+  const saved = await req('/api/studio', { method: 'POST', headers: owner, body: { action: 'warp-save', privateKey: priv, publicKey: T.WARP_PEER_PUB, ipv4: '172.16.0.2', endpoint: '162.159.193.1:443' } });
+  const sj = await saved.json();
+  check('studio WARP uses official 443 first and does not echo the raw key field', saved.status === 200 && sj.ok && sj.warp && sj.warp.endpoint === '162.159.193.1:443' && String(sj.warp.conf).includes('PrivateKey') && String(sj.warp.conf).includes('162.159.193.1:443') && String(sj.warp.awg).includes('Jc') && sj.warp.privateKey === undefined, 'status=' + saved.status + ' ' + JSON.stringify(sj).slice(0, 240));
+  const masque = await req('/api/studio', { method: 'POST', headers: owner, body: { action: 'masque-make' } });
+  const mj = await masque.json();
+  check('studio MASQUE is a separate 443 aether share, not the WARP conf', masque.status === 200 && mj.ok && mj.masque && mj.masque.endpoint === '162.159.198.1:443' && String(mj.masque.uri).startsWith('aether://') && String(mj.masque.uri).includes('protocol=masque') && mj.warp && mj.warp.conf !== mj.masque.uri, 'status=' + masque.status + ' ' + JSON.stringify(mj).slice(0, 240));
+  check('helper keeps 443 first on both studios', T.STUDIO_WARP_ENDS[0].endsWith(':443') && T.STUDIO_MASQUE_ENDS[0].endsWith(':443'));
+}
+
 console.log(failures ? ('\n' + failures + ' FAILED\n- ' + failed.join('\n- ')) : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

@@ -823,9 +823,10 @@ object CloudflareWorker {
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             val head = body.take(200).replace(Regex("\\s+"), " ").trim()
             val version = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
-            // JSON *and* a version: the module evaluated and its handler ran. A
-            // JSON body without a version would be someone else's endpoint.
-            if (code == 200 && body.trimStart().startsWith("{") && version.isNotBlank()) {
+            val panel = Regex("\"panel\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
+            // JSON *and* a Cat Panel version: the module evaluated and its handler ran.
+            // A JSON body without panel=cat-panel is someone else's endpoint.
+            if (code == 200 && body.trimStart().startsWith("{") && version.isNotBlank() && panel == "cat-panel") {
                 PanelVersionProbe(online = true, version = version, status = code, bodyHead = head)
             } else {
                 PanelVersionProbe(online = false, status = code, bodyHead = head)

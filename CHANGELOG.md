@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta267] — 2026-11-07 (Panel 6.89.0)
+
+Owner: add all six Cat-branded gaps (honest Naive reject, TUIC/WG/Aether editor+connect, panel↔app pairing + live `/api/version`, WARP/MASQUE studio in the panel, browser line test next to worker health, Hiddify/Amnezia one-tap). Independent; no GPL copy; Cat look unchanged.
+
+### Added
+- **NaiveProxy:** Cat does not ship Chromium NaiveProxy. `naive+https` / `naive+quic` are no longer rewritten to HTTP; import fails with an honest Persian/English message.
+- **TUIC / WireGuard / Cat Warp editors:** dedicated fields + Save and connect (clipboard of those URIs opens the editor).
+- **Panel pairing:** owner makes a 6-character code in Tools; the app claims `POST /api/pair/claim`. After a panel update the app always re-reads live `/api/version` (`panel=cat-panel`) and does not call it success on a mismatch.
+- **WARP / MASQUE studio in the panel:** separate keys; official 443 first (`162.159.193.1:443` WARP, `162.159.198.1:443` MASQUE).
+- **Test from my line:** browser probe next to worker IP health.
+- **Hiddify + Amnezia one-tap** on the same user drawer (`hiddify://import/` + encoded sub; Amnezia copies Clash or AmneziaWG from the studio).
+
 ## [1.10.0-beta266] — 2026-11-07 (Panel 6.88.0)
 
 Owner: optimize the panel so Error 1102 stops and consumption stays low.

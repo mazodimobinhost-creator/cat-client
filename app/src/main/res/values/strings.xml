@@ -901,6 +901,10 @@
 
     <!-- Cat Panel in-app updates -->
     <string name="cloud_update_panel">Update panel</string>
+    <string name="cloud_pair">Pair with this panel</string>
+    <string name="cloud_update_not_live">Panel update not live</string>
+    <string name="cloud_update_live_ok">Live /api/version is v%1$s</string>
+    <string name="cloud_update_live_mismatch">Upload said v%1$s but live /api/version is %2$s — this Worker is not on that version yet.</string>
     <string name="cloud_panel_version">Panel v%1$s</string>
     <string name="cloud_panel_version_unknown">Version unknown</string>
     <string name="cloud_panel_version_checking">Checking panel version…</string>
@@ -1023,6 +1027,9 @@
     <string name="servers_add_clipboard">Import from clipboard</string>
     <string name="servers_add_qr">Scan QR from camera</string>
     <string name="servers_add_manual">Add manually (paste a link or subscription)</string>
+    <string name="servers_add_tuic">TUIC — fields + Connect</string>
+    <string name="servers_add_wg">WireGuard — fields + Connect</string>
+    <string name="servers_add_aether">Cat Warp — fields + Connect</string>
     <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links, subscription URLs, WireGuard .conf files and Clash / sing-box files. You can also share a link or file to Cat Client from any app.</string>
     <string name="accent_setting_title">Theme preset</string>
     <string name="accent_lavender">Lavender</string>

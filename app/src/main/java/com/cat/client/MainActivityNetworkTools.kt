@@ -712,6 +712,9 @@ internal fun MainActivity.showAddServerSheet() {
             addView(item("▣", R.string.servers_add_qr) { startSubscriptionQrScan() }, LinearLayout.LayoutParams(-1, -2))
         }
         addView(item("✎", R.string.servers_add_manual) { showAddSubscriptionDialog() }, LinearLayout.LayoutParams(-1, -2))
+        addView(item("🎛", R.string.servers_add_tuic) { showProtocolConnectDialog(ProtocolConnect.empty(ProtocolConnect.Kind.Tuic)) }, LinearLayout.LayoutParams(-1, -2))
+        addView(item("🔐", R.string.servers_add_wg) { showProtocolConnectDialog(ProtocolConnect.empty(ProtocolConnect.Kind.WireGuard)) }, LinearLayout.LayoutParams(-1, -2))
+        addView(item("🚀", R.string.servers_add_aether) { showProtocolConnectDialog(ProtocolConnect.empty(ProtocolConnect.Kind.Aether)) }, LinearLayout.LayoutParams(-1, -2))
         addView(item("📂", R.string.servers_add_file) { appTools.openImportFilePicker() }, LinearLayout.LayoutParams(-1, -2))
         addView(item("🧰", R.string.servers_add_tools) { appTools.showToolsHub() }, LinearLayout.LayoutParams(-1, -2))
         addView(item("🐱", R.string.servers_add_vercel_panel) { vercelRelay.showPanel() }, LinearLayout.LayoutParams(-1, -2))
