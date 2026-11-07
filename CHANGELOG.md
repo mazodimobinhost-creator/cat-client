@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta262] — 2026-11-07 (Panel 6.86.0)
+
+Owner: «تغییر ریجن» still could not be found — it was on Countries (and the HTML lived in Backup). Make a separate hamburger page.
+
+### Added
+- **Cat Panel 6.86.0 تغییر ریجن:** own hamburger-drawer + sidebar item + `#v-region` page (Smart / Specific country / Default, GCP·AWS·Azure table). Apply re-deploys the same Worker (UUID, KV, users and secrets kept). Direct 🌐 configs use the Worker colo; ProxyIP and SOCKS keep their own exit. Not on Countries or Backup.
+
 ## [1.10.0-beta261] — 2026-11-07 (Panel 6.85.0)
 
 Owner: Find for ProxyIP/SOCKS returned only `no-trace`; Zeus «تغییر ریجن» was not on the Countries tab.

@@ -117,7 +117,8 @@ check("artifact passes PanelUpdate's module check (contains «export default»)"
 // scanner memory and the one-tap Vercel storage fix — measured 872 076 characters.
 // 6.83.0 (beta251): 880 000 → 895 000 — 🌍 panel region (Cloudflare placement: 77 cloud regions, owner route, card with a
 // bilingual plain-words hint), placement kept on every self-update, clean domains in the library — measured 887 731.
-check('normal minified artifact stays below 895 K characters', artifact.length < 895000, String(artifact.length));
+// 6.86.0 (beta262): 895 000 → 900 000 — dedicated hamburger «تغییر ریجن» page (#v-region) — measured 896 024.
+check('normal minified artifact stays below 900 K characters', artifact.length < 900000, String(artifact.length));
 
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;

@@ -5,7 +5,7 @@
  *   - fetch /meta + resolveOverride proves the country, but a short-circuit that would stamp
  *     every IP with the Worker's own country is rejected;
  *   - TLS 1.2 ClientHello carries the probe SNI; a Cloudflare cert + geo of that IP is kept;
- *   - «تغییر ریجن» sits on the Countries tab.
+ *   - «تغییر ریجن» is its own hamburger page (#v-region), not on Countries.
  * Usage: node scripts/panels/loc-finder-sni.test.mjs
  */
 import path from 'node:path';
@@ -92,7 +92,7 @@ check('hostname ProxyIP is dialed by name, never pre-resolved to an IP', dials.s
 check('…and that hostname is kept as a DE exit', (j.added || []).some((e) => e.addr === 'px.de.example:443' && e.cc === 'DE'), JSON.stringify(j.added));
 
 const html = await (await req('/panel/', { headers: auth })).text();
-check('Countries tab hosts the region card', html.includes("['#plcCard','#locLib'") || html.includes('#plcCard'));
+check('hamburger has a dedicated تغییر ریجن page', html.includes('data-view="region"') && html.includes('id="v-region"') && html.includes('id="plcCard"') && !html.includes("['#plcCard','#locLib'"));
 check('region card is titled تغییر ریجن', html.includes('id="plcTitle">تغییر ریجن') || html.includes('تغییر ریجن'));
 
 if (failures) { console.error(failures + ' failure(s)'); process.exit(1); }

@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.85.0';
+const CAT_PANEL_VERSION = '6.86.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -10079,6 +10079,7 @@ details.acc>summary::-webkit-details-marker{display:none}
 #v-settings .sec{border-inline-start:3px solid rgba(148,163,184,.45)}
 #v-backup .sec{border-inline-start:3px solid rgba(249,115,22,.5)}
 #v-about .sec{border-inline-start:3px solid rgba(99,102,241,.5)}
+#v-region .sec{border-inline-start:3px solid rgba(20,184,166,.55)}
 /* settings topic cards: each group its own hue (rainbow rails) */
 #fSettings>.card.sec:nth-child(1){border-inline-start:3px solid rgba(148,163,184,.45)}
 #fSettings>.card.sec:nth-child(2){border-inline-start:3px solid rgba(124,58,237,.5)}
@@ -10173,6 +10174,7 @@ ${CLEAN_CSS}
    <button data-view="scan"><span class="mi" style="background:linear-gradient(135deg,rgba(6,182,212,.20),rgba(6,182,212,.42))">📡</span><span class="mtx"><b data-i="n_scan"></b><small data-i="d_scan"></small></span></button>
    <button data-view="build"><span class="mi" style="background:linear-gradient(135deg,rgba(132,204,22,.20),rgba(132,204,22,.42))">🛠️</span><span class="mtx"><b data-i="n_build"></b><small data-i="d_build"></small></span></button>
    <button data-view="loc"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">📍</span><span class="mtx"><b>${tr2('لوکیشن و خروجی', 'Locations & exits')}</b><small>${tr2('کشور خروجی، SOCKS و پل‌ها', 'Exit country, SOCKS and bridges')}</small></span></button>
+   <button data-view="region"><span class="mi" style="background:linear-gradient(135deg,rgba(20,184,166,.20),rgba(37,99,235,.40))">🌍</span><span class="mtx"><b>${tr2('تغییر ریجن', 'Change region')}</b><small>${tr2('لوکیشن کانفیگ‌های مستقیم 🌐', 'Location of direct 🌐 configs')}</small></span></button>
    <button data-view="link"><span class="mi" style="background:linear-gradient(135deg,rgba(14,165,233,.20),rgba(168,85,247,.42))">🔗</span><span class="mtx"><b>${tr2('اتصال پنل‌ها', 'Link panels')}</b><small>${tr2('کلادفلر ↔ ورسل ↔ ریلوی', 'Cloudflare ↔ Vercel ↔ Railway')}</small></span></button>
    <button data-view="tools"><span class="mi" style="background:linear-gradient(135deg,rgba(37,99,235,.20),rgba(16,185,129,.40))">🧰</span><span class="mtx"><b>${tr2('ابزارها', 'Tools')}</b><small>${tr2('پینگ، مسیر، پورت و دامنه', 'Ping, route, port and domain')}</small></span></button>
    <button data-view="settings"><span class="mi" style="background:linear-gradient(135deg,rgba(148,163,184,.20),rgba(148,163,184,.42))">⚙️</span><span class="mtx"><b data-i="n_settings"></b><small data-i="d_settings"></small></span></button>
@@ -10190,6 +10192,7 @@ ${CLEAN_CSS}
   <button type="button" data-view="clients">${uiIcon('users')}<span class="lbl" data-i="n_clients"></span></button>
   <button type="button" data-view="scan">${uiIcon('scan')}<span class="lbl">${tr2('آیپی تمیز', 'Clean IP')}</span></button>
   <button type="button" data-view="loc">${uiIcon('loc')}<span class="lbl">${tr2('لوکیشن و خروجی', 'Locations & exits')}</span></button>
+  <button type="button" data-view="region">${uiIcon('globe')}<span class="lbl">${tr2('تغییر ریجن', 'Change region')}</span></button>
   <button type="button" data-view="inbounds">${uiIcon('inbounds')}<span class="lbl" data-i="n_inbounds"></span></button>
   <button type="button" data-view="link">${uiIcon('link')}<span class="lbl">${tr2('اتصال پنل‌ها', 'Link panels')}</span></button>
   <button type="button" data-view="build">${uiIcon('build')}<span class="lbl" data-i="n_build"></span></button>
@@ -10336,7 +10339,7 @@ ${(() => {
  <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(16,185,129,.30))">📍</span><div><h1>${tr2('لوکیشن و خروجی', 'Locations & exits')}</h1><p>${tr2('کشورِ خروجی، رله‌های SOCKS، پراکسی‌های VIP و پل‌های اضطراری — همه در یک صفحه', 'Exit country, SOCKS relays, VIP proxies and emergency bridges in one page')}</p></div></div>
  <div class="card sec" id="locLib">
   <h2><span class="ic">🌍</span><span>${tr2('لوکیشن‌های خروجی — پنل خودش پیدا می‌کند', 'Exit locations — found by the panel itself')}</span><span class="chip" id="locState"></span></h2>
-  <p class="tsub">${tr2('کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن. برای کانفیگ‌های مستقیم 🌐 (بدون ProxyIP) کارت «تغییر ریجن» همین صفحه را بزن — ورکر کنار همان کشور اجرا می‌شود.', 'Pick a country and press «Find». The panel takes that country’s ProxyIP and SOCKS from public feeds, really connects to each from inside the worker and keeps only those whose exit is <b>really</b> in that country — each on its own port. Then tap the country in a user’s form («IPs & location» tab). For direct 🌐 configs (no ProxyIP) use «Change region» on this same page — the Worker then runs next to that country.')}</p>
+  <p class="tsub">${tr2('کشور را انتخاب کن و «پیدا کن» را بزن. پنل از فیدهای عمومی، ProxyIP و SOCKS همان کشور را برمی‌دارد، از داخل ورکر واقعاً به هرکدام وصل می‌شود و فقط آن‌هایی را نگه می‌دارد که خروجی‌شان <b>واقعاً</b> در همان کشور است — هرکدام با پورت خودش. بعد در فرم هر کاربر (تب «آیپی و لوکیشن») کشورش را بزن. برای کانفیگ‌های مستقیم 🌐 (بدون ProxyIP) از منو «تغییر ریجن» را باز کن — ورکر کنار همان کشور اجرا می‌شود.', 'Pick a country and press «Find». The panel takes that country’s ProxyIP and SOCKS from public feeds, really connects to each from inside the worker and keeps only those whose exit is <b>really</b> in that country — each on its own port. Then tap the country in a user’s form («IPs & location» tab). For direct 🌐 configs (no ProxyIP) open «Change region» in the menu — the Worker then runs next to that country.')}</p>
   <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><select id="locCc" multiple size="4" style="flex:1;min-width:170px" aria-label="${tr2('کشور', 'Country')}" title="${tr2('کشور', 'Country')}"></select><select id="locKind" style="width:auto" aria-label="${tr2('نوع خروجی', 'Exit type')}" title="${tr2('نوع خروجی', 'Exit type')}"><option value="px">🎯 ProxyIP</option><option value="both">🎯 ProxyIP + 🧦 SOCKS</option><option value="socks">🧦 SOCKS</option></select><button class="btn p" type="button" id="locFetch">🔎 ${tr2('پیدا کن', 'Find')}</button><button class="btn" type="button" id="locPingAll">📡 ${tr2('پینگ همه', 'Ping all')}</button><button class="btn" type="button" id="locDropDead">🧹 ${tr2('حذف خراب‌ها', 'Remove dead')}</button></div>
   <div class="small" id="locMsg" style="margin-top:8px"></div>
   <div class="loclib" id="locGrid"></div>
@@ -10351,6 +10354,21 @@ ${(() => {
    <div style="display:flex;gap:8px;align-items:flex-start"><span class="badge">↔️</span><div><b data-i="loc_path_dir_t"></b><div class="nsub" style="margin:0" data-i="loc_path_dir"></div></div></div>
   </div>
   <div class="small" id="locPathNow" style="margin-top:10px"></div>
+ </div>
+</section>
+<section class="view" id="v-region" data-in="region">
+ <div class="vhead"><span class="vicon" style="background:linear-gradient(135deg,rgba(20,184,166,.18),rgba(37,99,235,.30))">🌍</span><div><h1>${tr2('تغییر ریجن', 'Change region')}</h1><p>${tr2('لوکیشن کانفیگ‌های مستقیم 🌐 — ورکر کنار همان کشور اجرا می‌شود. ProxyIP و SOCKS خروجی خودشان را دارند.', 'Location of the direct 🌐 configs — the Worker then runs next to that country. ProxyIP and SOCKS keep their own exit.')}</p></div></div>
+ <div class="note i small" id="plcOff" style="display:none">${tr2('تغییر ریجن فقط روی کلادفلر ورکر کار می‌کند (نه Vercel/Node).', 'Changing region only works on a Cloudflare Worker (not Vercel/Node).')}</div>
+ <div class="card sec" id="plcCard" style="display:none">
+  <h2><span class="ic">🌍</span><span id="plcTitle">تغییر ریجن</span></h2>
+  <div class="small mute" id="plcHint"></div>
+  <div class="small" id="plcNow" style="margin-top:8px"></div>
+  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px" id="plcModes"></div>
+  <div class="row" style="margin-top:8px;display:none;flex-wrap:wrap;gap:8px" id="plcProv"></div>
+  <select id="plcRegion" style="display:none;margin-top:8px;width:100%;min-height:44px;font-size:14px"></select>
+  <div id="plcTableWrap" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table class="plct" id="plcTable"></table></div>
+  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px;width:100%"></button>
+  <div class="small" id="plcMsg" style="margin-top:6px"></div>
  </div>
 </section>
 <section class="view" id="v-loc-cards" data-sec="loc" data-in="loc">
@@ -11297,17 +11315,6 @@ ${vDoctor}
   <label class="btn" style="margin:0">⬆️ <span data-i="backup_up"></span><input type="file" id="restoreFile" accept="application/json" style="display:none"></label></div>
   <div id="restoreState" class="small" style="margin-top:10px"></div>
  </div>
- <div class="card sec" id="plcCard" style="display:none">
-  <h2><span class="ic">🌍</span><span id="plcTitle">تغییر ریجن</span></h2>
-  <div class="small mute" id="plcHint"></div>
-  <div class="small" id="plcNow" style="margin-top:8px"></div>
-  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px" id="plcModes"></div>
-  <div class="row" style="margin-top:8px;display:none;flex-wrap:wrap;gap:8px" id="plcProv"></div>
-  <select id="plcRegion" style="display:none;margin-top:8px;width:100%;min-height:44px;font-size:14px"></select>
-  <div id="plcTableWrap" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table class="plct" id="plcTable"></table></div>
-  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px;width:100%"></button>
-  <div class="small" id="plcMsg" style="margin-top:6px"></div>
- </div>
  <div class="card sec">
   <h2><span class="ic">🧯</span><span data-i="limits"></span></h2>
   <div class="small mute" data-i="limits_text"></div>
@@ -11542,7 +11549,7 @@ function show(v){var ptk='';if(typeof PT_AL!=='undefined'&&PT_AL[v]){ptk=PT_AL[v
  $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v||s.getAttribute('data-in')===v)});$$('[data-view]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-view')===v)});
  setPage();
  if(v==='about'&&CFG)renderDiag();
- if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan'){poolsList();if(document.body.getAttribute('data-plat')==='node')nipLoad(false)}else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
+ if(CFG){try{if(v==='dash'){renderHome();loadErrors();renderDash()}else if(v==='scan'){poolsList();if(document.body.getAttribute('data-plat')==='node')nipLoad(false)}else if(v==='loc'){locLoad();renderLocPath();renderSocks()}else if(v==='region')plcLoad();else if(v==='clients')renderSubLinks();else if(v==='inbounds')renderInbounds();else if(v==='link')lkLoad()}catch(e){}}
  location.hash=v;window.scrollTo(0,0)}
 $$('[data-view]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-view'));menuSet(false)})});
 
@@ -12734,17 +12741,17 @@ function plcRender(){var modes=$('#plcModes');if(!modes)return;var v=PLC.sel,kin
   if(tbl)tbl.innerHTML='<thead><tr><th>'+tx('آییدی ریجن','Region id')+'</th><th>'+tx('موقعیت','Location')+'</th><th>'+tx('کشور','Country')+'</th><th>'+tx('شهر','City')+'</th></tr></thead><tbody>'+list.map(function(x){var a=x.split('|'),id=PLC.prov+':'+a[0];return '<tr class="'+(id===v?'on':'')+'" data-plc-id="'+esc(id)+'"><td class="mono" dir="ltr">'+esc(a[0])+'</td><td>'+esc(a[2])+'</td><td>'+flag(a[1])+' '+esc(nm[a[1]]||a[1])+'</td><td>'+esc(a[2])+'</td></tr>'}).join('')+'</tbody>';
   if(!e||e.prov!==PLC.prov)PLC.sel=sel&&sel.value?sel.value:(list[0]?PLC.prov+':'+list[0].split('|')[0]:PLC.sel)}
  var b=$('#plcApply');b.textContent='🚀 '+tx('اعمال تغییرات و دیپلوی','Apply changes & deploy');b.disabled=PLC.sel===PLC.v||!PLC.canApply}
-function plcLoad(){var c=$('#plcCard');if(!c)return;api('/api/placement').then(function(j){
-  // Only a Cloudflare Worker has placement: other hosts do not show the card at all.
-  if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';return}
-  c.style.display='';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.names=j.names||{};PLC.canApply=!!j.canApply;
+function plcLoad(){var c=$('#plcCard'),off=$('#plcOff');if(!c)return;api('/api/placement').then(function(j){
+  // Only a Cloudflare Worker has placement: other hosts get the page with a note, never the Zeus card.
+  if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';if(off)off.style.display='';return}
+  c.style.display='';if(off)off.style.display='none';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.names=j.names||{};PLC.canApply=!!j.canApply;
   $('#plcTitle').textContent=tx('تغییر ریجن پنل','Change panel region');
   $('#plcHint').textContent=tx('می‌توانید لوکیشن کانفیگ‌های مستقیم 🌐 را تغییر دهید','You can change the location of the direct 🌐 configs');
   var now=[tx('تنظیم فعلی: ','Current setting: ')+plcLabel(PLC.v)];
   if(j.live&&j.live.colo)now.push(tx('الان واقعاً در دیتاسنتر ','Really running now in data centre ')+j.live.colo+tx(' اجرا می‌شود',''));
   if(j.header)now.push('cf-placement: '+j.header.kind+'-'+j.header.colo);
   if(!j.canApply)now.push(tx('برای اعمال، یک بار توکن کلودفلر خواسته می‌شود.','Applying asks once for a Cloudflare token.'));
-  $('#plcNow').textContent=now.join(' · ');PLC.canApply=true;plcRender()}).catch(function(){c.style.display='none'})}
+  $('#plcNow').textContent=now.join(' · ');PLC.canApply=true;plcRender()}).catch(function(){c.style.display='none';if(off)off.style.display=''})}
 if($('#plcCard'))$('#plcCard').addEventListener('click',function(ev){var t=ev.target.closest('[data-plc-mode],[data-plc-prov],[data-plc-id]');if(!t)return;
  var m=t.getAttribute('data-plc-mode'),p=t.getAttribute('data-plc-prov'),rid=t.getAttribute('data-plc-id');
  if(m==='off'||m==='smart')PLC.sel=m;else if(m==='region'){if(!plcEntry(PLC.sel)){var l=PLC.regions[PLC.prov]||[];PLC.sel=l.length?PLC.prov+':'+l[0].split('|')[0]:'off'}}
@@ -13277,7 +13284,7 @@ var PT={},PT_AL={nodes:['scan','list'],spoof:['loc','px']};
 (function(){function C(sel){var el=sel.charAt(0)==='@'?document.getElementById(sel.slice(1)):document.querySelector(sel);return el?(el.closest('.card,.ncard')||null):null}
  var DEF={
   scan:{host:'v-scan',tabs:[['scan','📡 اسکنر','📡 Scanner',['#rsCard']],['list','📋 آی‌پی‌های پنل','📋 Panel IPs',['@ipList','@manualIps','@ipPaste']],['pools','🗂️ استخرها','🗂️ Pools',['#poolCard']],['feeds','🔄 منابع خودکار','🔄 Auto sources',['@rpRows','@v6pOut']],['app','📱 اسکن با اپ و کشور','📱 App scan & country',['@btnLocRefresh']]],rest:{'v-scan':'app','v-nodes':'list'}},
-  loc:{host:'v-loc',tabs:[['lib','🌍 کشورها','🌍 Countries',['#plcCard','#locLib','@ccState']],['px','🎯 ProxyIP و SNI','🎯 ProxyIP & SNI',['#fSpoof','@ppRows']],['socks','🧦 SOCKS و VIP','🧦 SOCKS & VIP',['@skInput','#vipCard']],['test','🧪 تست خروجی','🧪 Exit tests',['@locPathNow','@btnAiTest','@btnCcq']],['adv','🛠️ پیشرفته','🛠️ Advanced',['#fWarp','@extRows','#bridgeCard']]],rest:{'v-spoof':'adv','v-loc':'adv','v-loc-cards':'adv','v-socks':'socks'}},
+  loc:{host:'v-loc',tabs:[['lib','🌍 کشورها','🌍 Countries',['#locLib','@ccState']],['px','🎯 ProxyIP و SNI','🎯 ProxyIP & SNI',['#fSpoof','@ppRows']],['socks','🧦 SOCKS و VIP','🧦 SOCKS & VIP',['@skInput','#vipCard']],['test','🧪 تست خروجی','🧪 Exit tests',['@locPathNow','@btnAiTest','@btnCcq']],['adv','🛠️ پیشرفته','🛠️ Advanced',['#fWarp','@extRows','#bridgeCard']]],rest:{'v-spoof':'adv','v-loc':'adv','v-loc-cards':'adv','v-socks':'socks'}},
   build:{host:'v-build',tabs:[['sub','🔗 ساب سفارشی','🔗 Custom sub',['@bIsp']],['one','🧪 تک کانفیگ','🧪 Single config',['#ccCard']],['ae','🧬 Cat Warp','🧬 Cat Warp',['@aePick']],['frag','✂️ فرگمنت کلاینت','✂️ Client fragment',['@bFrag']]],rest:{'v-build':'sub'}},
   tools:{host:'v-tools',tabs:[['test','🧪 تست‌ها','🧪 Tests',['#tlPing','#tlRoute','#tlPort','#tlDc','#tlDom','#tlMore']],['surv','🛡️ بستهٔ بقا','🛡️ Survival pack',['#survCard']],['dns','📡 DNS و Cat DNS','📡 DNS & Cat DNS',['#wdnsCard']]],rest:{}}
  };
@@ -13304,7 +13311,7 @@ function ptReveal(el){var c=el&&el.closest&&el.closest('.card,.ncard');if(!c)ret
 $('#btnLang').addEventListener('click',function(){var next=lang==='fa'?'en':'fa';api('/api/settings',{method:'PUT',body:{lang:next}}).then(function(){location.reload()})});
 
 applyI18n();
-var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
+var h=(location.hash||'#dash').slice(1);if(['dash','clients','inbounds','scan','build','nodes','loc','region','link','tools','spoof','settings','backup','about'].indexOf(h)<0)h='dash';show(h);
 load().catch(function(){toast('load error',true)});
 api('/api/update-check').then(function(j){if(!j.ok||!j.latest||j.latest===j.current)return;var b=$('#updateBox');if(b)renderUpdateBox(b,j,true);var ob=$('#ovUpdateBox');if(ob)renderUpdateBox(ob,j,false);toast(t('update_new')+j.latest)}).catch(function(){});
 })();

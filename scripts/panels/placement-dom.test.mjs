@@ -71,6 +71,8 @@ async function openPanel(HOST, env) {
   check('page script runs without errors', errs.length === 0, errs.join(' | '));
   const card = $('#plcCard');
   check('🌍 region card is shown on a Cloudflare Worker', card && card.style.display !== 'none');
+  check('hamburger + sidebar have data-view=region', w.document.querySelectorAll('[data-view="region"]').length >= 2);
+  check('the card lives on its own #v-region page, not Countries or Backup', $('#v-region') && $('#v-region').contains(card) && !($('#v-loc') && $('#v-loc').contains(card)) && !($('#v-backup') && $('#v-backup').contains(card)));
   check('the card is titled تغییر ریجن', /تغییر ریجن/.test(($('#plcTitle') && $('#plcTitle').textContent) || ''), $('#plcTitle') && $('#plcTitle').textContent);
   check('it shows the current setting and the live data centre', /پیش‌فرض|Default/.test($('#plcNow').textContent) && $('#plcNow').textContent.includes('AMS'), $('#plcNow').textContent);
   check('nothing to apply until something else is picked', $('#plcApply').disabled === true);

@@ -191,7 +191,11 @@ check('1101 guidance points to runtime logs without calling it a ban or suggesti
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
 check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
-check('menu has 11 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab; 6.76.0: + 🔗 link panels)', document.querySelectorAll('#menu .mlist > button').length === 11 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('menu has 12 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab; 6.76.0: + 🔗 link panels; 6.86.0: + تغییر ریجن)', document.querySelectorAll('#menu .mlist > button').length === 12 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('hamburger has تغییر ریجن', /تغییر ریجن/.test((document.querySelector('#menu [data-view="region"]') || {}).textContent || ''));
+document.querySelector('#menu [data-view="region"]').click(); await sleep(80);
+check('تغییر ریجن opens #v-region (card on that page) and closes the drawer', document.querySelector('#v-region') && document.querySelector('#v-region').classList.contains('on') && document.querySelector('#v-region').contains(document.querySelector('#plcCard')) && !document.querySelector('#menu').classList.contains('show'));
+document.querySelector('#btnBurger').click(); await sleep(80);
 document.querySelector('#menu [data-view="dash"]').click(); await sleep(80);
 check('menu item switches view + closes', document.querySelector('#v-dash').classList.contains('on') && !document.querySelector('#menu').classList.contains('show'));
 check('no bottom nav in DOM', !document.querySelector('.nav'));
