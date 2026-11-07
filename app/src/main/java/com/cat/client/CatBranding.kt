@@ -15,6 +15,7 @@ object CatBranding {
         "Firefox Browser VPN" to "Cat Fox VPN",
         "Firefox VPN" to "Cat Fox VPN",
         "فایرفاکس VPN" to "Cat Fox VPN",
+        "Windscribe" to "Cat Wind",
     )
     private val words = listOf(
         "MLM VPN" to "Cat",

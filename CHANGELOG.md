@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta263] — 2026-11-07 (Panel 6.86.0, unchanged)
+
+Owner: add Windscribe like Firefox — with live pings, and it should connect.
+
+### Added
+- **🌬️ Cat Wind:** own free-networks item + finder entry. Public city list, **real TCP ping on this network** (listed `:443`, never rewritten). Connecting uses the user's own free 10 GB account (they create it; Cat does not fill the human check and does not fake a paid plan). Rows are ordinary `https://user:pass@host:443` CONNECT/TLS so the existing core can connect. Premium cities stay locked.
+
 ## [1.10.0-beta262] — 2026-11-07 (Panel 6.86.0)
 
 Owner: «تغییر ریجن» still could not be found — it was on Countries (and the HTML lived in Backup). Make a separate hamburger page.

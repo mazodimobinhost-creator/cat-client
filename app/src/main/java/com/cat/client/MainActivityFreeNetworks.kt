@@ -6,7 +6,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.ColorStateList
 import android.os.SystemClock
+import android.text.InputType
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -24,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia. Fetching: FreeNetworkEngines.kt.
+// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt.
 
 private fun MainActivity.freeFa(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
 
@@ -99,6 +101,12 @@ internal fun MainActivity.showFreeNetworksHub() {
             "Tap: live ping of each Mozilla country on this network, then you pick. Connecting needs the free 50 GB account; the ping itself does not."),
         accent = true,
     ) { showFirefoxCountryPickerDialog() }
+    entry(
+        t("🌬️ Cat Wind — کشورها با پینگ روی خط شما", "🌬️ Cat Wind — countries with ping on your line"),
+        t("اینو بزنی: پینگ واقعی هر شهر روی همین اینترنت نشان داده می‌شود. برای اتصال حساب رایگان ۱۰ گیگ در ماه لازم است (خودت می‌سازی، مثل فاکس)؛ خودِ پینگ حساب نمی‌خواهد. وصل شدن TCP روی ۴۴۳ است.",
+            "Tap: live ping of each city on this network. Connecting needs the free 10 GB/month account (you create it, like Fox); the ping itself does not. Connect is TCP on 443."),
+        accent = true,
+    ) { showCatWindDialog() }
     entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
         t("اینو بزنی: برنامه از یک شبکهٔ رایگان عمومی سرور تازه با رمز می‌گیرد و وصل می‌شود. فقط وب و اپ‌ها (TCP)؛ تماس صوتی و بازی‌هایی که UDP می‌خواهند کار نمی‌کنند. رمزها هر ۶ ساعت خودکار نو می‌شوند.",
@@ -1038,6 +1046,221 @@ internal fun MainActivity.connectFreePsiphon(region: String) {
         saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = true) {
             connectCatWarpAfterSave()
         }
+    }
+}
+
+// ───────────── 🌬️ Cat Wind ─────────────
+
+internal fun MainActivity.showCatWindDialog() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val store = FreeNetworkStore(this)
+    val pingBy = java.util.concurrent.ConcurrentHashMap<String, CatWindPlanner.Ping>()
+    val display = ArrayList<CatWindPlanner.Location>()
+    fun autoLine(): String = t("⚡ همهٔ شهرهای باز (پینگ زنده روی همین اینترنت)", "⚡ Every open city (live ping on this network)")
+    fun cityLine(loc: CatWindPlanner.Location): String {
+        val ping = pingBy[loc.hostname]
+        val ms = when {
+            ping == null -> if (fa) LiveNetPing.waitingFa() else LiveNetPing.waitingEn()
+            ping.reachable -> if (fa) LiveNetPing.labelFa(ping.rttMs) else LiveNetPing.labelEn(ping.rttMs)
+            else -> if (fa) LiveNetPing.labelFa(null) else LiveNetPing.labelEn(null)
+        }
+        return "${loc.label(fa)} · $ms · ${loc.hostname}:${CatWindPlanner.PORT}"
+    }
+    val labels = ArrayList<String>(1)
+    fun rebuild() {
+        labels.clear()
+        labels += autoLine()
+        display.forEach { labels += cityLine(it) }
+    }
+    rebuild()
+    val adapter = ArrayAdapter(this, android.R.layout.select_dialog_item, ArrayList(labels))
+    fun push() {
+        adapter.clear()
+        adapter.addAll(labels)
+        adapter.notifyDataSetChanged()
+    }
+    var pingJob: Job? = null
+    val shown = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🌬️ Cat Wind — پینگ زنده روی خط شما", "🌬️ Cat Wind — live ping on your line"))
+        .setAdapter(adapter) { dlg, idx ->
+            dlg.dismiss()
+            val codes = if (idx <= 0) emptySet() else setOf(display.getOrNull(idx - 1)?.country.orEmpty())
+            connectCatWind(codes.filter { it.length == 2 && it != "XX" }.toSet())
+        }
+        .setNeutralButton(t("🔑 ورود / ساخت حساب", "🔑 Sign in / create account")) { _, _ ->
+            showCatWindLogin { showCatWindDialog() }
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    shown.setOnDismissListener { pingJob?.cancel() }
+    shown.showCatClientDialog()
+    pingJob = activityScope.launch(Dispatchers.IO) {
+        val client = CatWindClient(store)
+        val locs = runCatching { this@showCatWindDialog.withPhysicalNet { client.locations(store.windPremium) } }
+            .getOrDefault(CatWindPlanner.FALLBACK)
+        withContext(Dispatchers.Main) {
+            if (!shown.isShowing) return@withContext
+            display.clear()
+            display.addAll(locs)
+            rebuild()
+            push()
+        }
+        locs.forEach { loc ->
+            val p = client.ping(loc)
+            pingBy[loc.hostname] = p
+            withContext(Dispatchers.Main) {
+                if (!shown.isShowing) return@withContext
+                val i = display.indexOfFirst { it.hostname == loc.hostname }
+                if (i >= 0) {
+                    labels[i + 1] = cityLine(display[i])
+                    push()
+                }
+            }
+        }
+        val sorted = display.sortedWith(
+            compareBy(
+                { pingBy[it.hostname]?.reachable != true },
+                { pingBy[it.hostname]?.rttMs ?: 9_999L },
+            ),
+        )
+        withContext(Dispatchers.Main) {
+            if (!shown.isShowing) return@withContext
+            display.clear()
+            display.addAll(sorted)
+            rebuild()
+            push()
+        }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+private fun MainActivity.showCatWindLogin(after: () -> Unit) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val box = freeBox()
+    box.addView(freeText(t(
+        "حساب رایگان را خودتان می‌سازید (ایمیل + تیک «من ربات نیستم»). Cat فرم را پر نمی‌کند و پلن پولی را جعل نمی‌کند. بعد نام کاربری و رمز را اینجا بگذار.",
+        "You create the free account yourself (email + human check). Cat does not fill the form and does not fake a paid plan. Then put the username and password here.",
+    ), 12f))
+    fun field(hint: String, password: Boolean = false) = EditText(this).apply {
+        this.hint = hint
+        textSize = 14f
+        minHeight = dp(44)
+        inputType = if (password) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    val user = field(t("نام کاربری", "Username"))
+    val pass = field(t("رمز", "Password"), password = true)
+    val otp = field(t("کد دوعاملی (اگر روشن است)", "2FA code (if on)"))
+    box.addView(user, freeLp(8))
+    box.addView(pass, freeLp(6))
+    box.addView(otp, freeLp(6))
+    val webView = android.webkit.WebView(this).apply {
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        layoutParams = LinearLayout.LayoutParams(-1, dp(280)).apply { topMargin = dp(8) }
+    }
+    box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = true) {
+        webView.loadUrl(CatWindPlanner.SIGNUP)
+    }, freeLp(8))
+    box.addView(freeButton(t("🔑 صفحهٔ ورود", "🔑 Sign-in page"), accent = false) {
+        webView.loadUrl(CatWindPlanner.LOGIN_PAGE)
+    }, freeLp(4))
+    box.addView(webView)
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🌬️ ورود Cat Wind", "🌬️ Cat Wind sign-in"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setPositiveButton(t("ورود", "Sign in")) { _, _ ->
+            val u = user.text?.toString().orEmpty().trim()
+            val p = pass.text?.toString().orEmpty()
+            if (u.isBlank() || p.isBlank()) {
+                Toast.makeText(this, t("نام کاربری و رمز لازم است.", "Username and password are required."), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
+            freeProgress(t("⏳ ورود…", "⏳ Signing in…")) { step ->
+                step(t("در حال ورود با حساب خودت…", "Signing in with your account…"))
+                try {
+                    withContext(Dispatchers.IO) {
+                        withPhysicalNet { CatWindClient(FreeNetworkStore(this@showCatWindLogin)).login(u, p, otp.text?.toString().orEmpty()) }
+                    }
+                    step(t("✅ وارد شد.", "✅ Signed in."))
+                    runOnUiThread { after() }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    freeResult(t("❌ ورود نشد", "❌ Sign-in failed"), listOf(e.message ?: e.javaClass.simpleName), null,
+                        t("رمز را چک کن. اگر حساب نداری، «ساخت حساب رایگان» را بزن.", "Check the password. If you have no account, tap “Create a free account”."))
+                }
+            }
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    dialog.setOnDismissListener { runCatching { webView.stopLoading(); webView.destroy() } }
+    dialog.showCatClientDialog()
+}
+
+private fun MainActivity.connectCatWind(codes: Set<String>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val store = FreeNetworkStore(this)
+    val client = CatWindClient(store)
+    if (client.cachedSession() == null) {
+        showCatWindLogin { connectCatWind(codes) }
+        return
+    }
+    val name = CatWindPlanner.NAME
+    freeProgress(t("⏳ ساخت کانفیگ‌های Cat Wind…", "⏳ Building Cat Wind configs…")) { step ->
+        step(t("۱) فهرست شهرها…", "1) City list…"))
+        val session = client.cachedSession() ?: throw CancellationException()
+        val locs = try {
+            withContext(Dispatchers.IO) { withPhysicalNet { client.locations(session.premium) } }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ فهرست نیامد", "❌ List failed"), listOf(e.message ?: e.javaClass.simpleName), null,
+                t("اگر این سایت از اینجا بسته است، با یک کانفیگ سالم وصل شو و دوباره بزن.", "If this site is blocked here, connect with a working config and try again."))
+            return@freeProgress
+        }
+        val chosen = CatWindPlanner.pick(locs, codes, session.premium)
+        if (chosen.isEmpty()) {
+            freeResult(t("⚠️ شهری در پلن رایگان نبود", "⚠️ No city on the free plan"), client.log, null,
+                t("پلن رایگان فقط چند شهر دارد؛ پلن پولی جعل نمی‌شود.", "The free plan only has a handful of cities; a paid plan is not faked."))
+            return@freeProgress
+        }
+        step(t("۲) گرفتن رمز اتصال…", "2) Fetching connect credentials…"))
+        val creds = try {
+            withContext(Dispatchers.IO) { withPhysicalNet { client.credentials(session) } }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            client.forget()
+            freeResult(t("❌ ورود منقضی شد", "❌ Sign-in expired"), listOf(e.message ?: e.javaClass.simpleName), null,
+                t("دوباره وارد شو.", "Sign in again."))
+            return@freeProgress
+        }
+        val links = chosen.map { CatWindPlanner.httpsLink(creds.first, creds.second, it, fa) }
+        val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
+        step(t("۳) ذخیره به‌عنوان «$name»…", "3) Saving as “$name”…"))
+        val subId = try {
+            saveFreeSubscription(store.windSubId, name, CatWindPlanner.subscriptionText(ordered))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), client.log + pingLines + (e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.windSubId = subId
+        renderSubscriptions()
+        val report = ArrayList<String>()
+        report += client.log
+        report += t("شهرها: ${chosen.size}", "Cities: ${chosen.size}")
+        report += pingLines
+        freeResult(
+            t("✅ ${ordered.size} سرور Cat Wind آماده است", "✅ ${ordered.size} Cat Wind servers ready"),
+            report,
+            subId,
+            t("«⚡ اتصال» را بزن. TCP روی پورت ۴۴۳ است (وب، تلگرام…). تماس صوتی/بازی UDP کار نمی‌کند. اگر یکی وصل نشد بعدی را از فهرست بزن.",
+                "Tap “⚡ Connect”. TCP on port 443 (web, Telegram…). UDP voice/games do not work. If one fails, pick the next in the list."),
+        )
     }
 }
 

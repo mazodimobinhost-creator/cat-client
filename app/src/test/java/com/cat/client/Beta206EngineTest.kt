@@ -72,6 +72,7 @@ class Beta206EngineTest {
     @Test fun savedSubscriptionNamesAreRebranded() {
         assertEquals("⚡ Cat Warp Configs", CatBranding.rebrandName("⚡ Aether / PattNG Configs"))
         assertEquals("🦊 Cat Fox VPN (🇩🇪 DE)", CatBranding.rebrandName("🦊 فایرفاکس VPN (🇩🇪 DE)"))
+        assertEquals("🌬️ Cat Wind", CatBranding.rebrandName("🌬️ Windscribe"))
         assertEquals("⚡ Cat FLUX (V4)", CatBranding.rebrandName("⚡ MLM FLUX (V4)"))
         assertEquals("Cat-MIM-H2-DE", CatBranding.rebrandName("PattNG-MIM-H2-DE"))
         assertEquals("My VLESS", CatBranding.rebrandName("My VLESS"))

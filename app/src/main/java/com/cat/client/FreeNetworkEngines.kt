@@ -836,6 +836,25 @@ internal class FreeNetworkStore(context: Context) {
     var freeAccountSite: String
         get() = prefs.getString("fa_site", FreeAccountLinks.SITE).orEmpty().ifBlank { FreeAccountLinks.SITE }
         set(v) { prefs.edit().putString("fa_site", v).apply() }
+
+    var windAuth: String
+        get() = prefs.getString("wd_auth", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_auth", v).apply() }
+    var windUser: String
+        get() = prefs.getString("wd_user", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_user", v).apply() }
+    var windPremium: Boolean
+        get() = prefs.getBoolean("wd_pro", false)
+        set(v) { prefs.edit().putBoolean("wd_pro", v).apply() }
+    var windProxyUser: String
+        get() = prefs.getString("wd_pxu", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_pxu", v).apply() }
+    var windProxyPass: String
+        get() = prefs.getString("wd_pxp", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_pxp", v).apply() }
+    var windSubId: String
+        get() = prefs.getString("wd_sub", "").orEmpty()
+        set(v) { prefs.edit().putString("wd_sub", v).apply() }
 }
 
 /** Fetch + build for the free proxy network and Lantern; blocking, off the main thread. */
