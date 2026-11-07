@@ -100,6 +100,10 @@ class Beta249CatGpTest {
             CatGpScripts.hopCandidates(listOf("https://p.example.workers.dev" to uuid.uppercase(), "https://x.vercel.app" to uuid)))
         assertEquals(listOf("https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1"),
             CatGpScripts.hopCandidates(listOf("https://p.example.workers.dev" to uuid.uppercase(), "https://x.vercel.app" to uuid), "toktoktoktoktok1"))
+        assertEquals("empty", CatGpScripts.addressProblem(""))
+        assertEquals("example", CatGpScripts.addressProblem("https://script.google.com/macros/s/AKfycb…/exec"))
+        assertEquals("not-exec", CatGpScripts.addressProblem("https://example.com/"))
+        assertEquals(null, CatGpScripts.addressProblem("https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxxxxxx/exec"))
     }
 
     @Test fun gunzipCapsStackedLayers() {

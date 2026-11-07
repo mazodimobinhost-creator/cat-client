@@ -393,6 +393,7 @@ internal object MlmAndNextGenVpnHub {
         }
         val privateKey = props["privatekey"] ?: return null
         val publicKey = props["publickey"] ?: return null
+        if (!WireGuardConfText.isKey32(privateKey) || !WireGuardConfText.isKey32(publicKey)) return null
         val endpoint = props["endpoint"] ?: return null
         val address = props["address"] ?: "10.2.0.2/32"
         val mtu = props["mtu"] ?: "1280"

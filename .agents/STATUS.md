@@ -1,6 +1,6 @@
 # Project Status (`STATUS.md`)
 
-- **Overall State:** 🔄 in progress — `v1.10.0-beta256` / Panel `6.84.0` (Cat GP hop shared-key auth). Previous green: `v1.10.0-beta255` at `29eb7bf` / Panel `6.83.0`.
+- **Overall State:** 🔄 in progress — `v1.10.0-beta257` / Panel `6.84.0` (Cat GP simplified, Amnezia where-to-get-key, finder skips broken WG keys). Previous: `v1.10.0-beta256` at `537e6b1`.
 - **Active Branch:** `arena/c5b36768-cat-client` (`pr_open` — PR #9 must not be merged per user constraint).
 - **Latest Release:** `v1.10.0-beta255` (`versionCode = 322`, Panel `6.83.0`) — push run 42358017472 ✅, PR twins ✅, prerelease 20 assets. Next: `v1.10.0-beta256` (`versionCode = 323`, Panel `6.84.0`).
 - **Fox needs a phone test:** the sandbox cannot reach Mozilla/Fastly hosts, so the 406 fix is verified by unit tests + the reference client's behaviour only. On the phone: sign in, connect, and if it fails read the Persian error — it now names the failing step (e.g. «cookie not accepted on this line» = exit IP changed).

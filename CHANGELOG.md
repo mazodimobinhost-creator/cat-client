@@ -4,6 +4,18 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta257] — 2026-11-07 (Panel 6.84.0, unchanged)
+
+Owner: some things do not work; say where the Amnezia key comes from; simplify the new Cat GP screens.
+
+### Changed
+- **🌐 Cat GP** is plain language: title «وقتی فقط گوگل باز است», short steps, no UUID / Code.gs / 6.84.0 in the user's face. Pasting the example address is caught in Persian («این آدرس نمونه است»).
+- **🔐 Amnezia:** the hub now says Amnezia gives no free cloud key, and where to get one (your Amnezia server → Share, Proton WireGuard `.conf`, or a seller's `vpn://`). The `.conf` paste box is no longer a fake template. 🎁 Free networks opens the Amnezia section, not the converter.
+- **🧭 Method finder:** a broken WireGuard public key is dropped instead of aborting the whole run with `proxy 37: decode peer public key`. Remaining methods still get a turn.
+
+### Tests
+- `Beta249CatGpTest` address examples, `Beta246MethodFinderTest.brokenWireGuardKeysAreDroppedNotFedToTheCore`.
+
 ## [1.10.0-beta256] — 2026-11-07 (Panel 6.84.0)
 
 Owner: Aras-GP 2.3.1 (GAS↔Worker shared-secret) was not in the app.

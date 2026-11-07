@@ -10,6 +10,12 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta257 / Panel 6.84.0 — 2026-11-07
+- Owner screenshots: method finder died on `proxy 37: decode peer public key`; Cat GP was a wall of UUID/Code.gs; Amnezia paste had no «where do I get the key».
+- Cat GP dialog rewritten in plain language; example `/exec` addresses refused in Persian.
+- Amnezia section + `.conf` paste say: no free Amnezia cloud; get vpn:// from Amnezia Share, Proton WireGuard `.conf`, or a seller. Free-networks Amnezia opens the section, not the converter.
+- Invalid 32-byte WG keys dropped in `SubConvConverter` / `convertWgConfToAwgUri`; finder error translated.
+
 ## beta256 / Panel 6.84.0 — 2026-11-07
 - Owner pasted Aras-GP v2.3.1 (GAS↔Worker shared-secret). Cat GP already existed (beta249) but the hop was UUID-only.
 - **Hop auth (independent, no `panel/` copy):** `/gp/<uuid>/<key>` + POST `q.k` must match (len ≥ 16). First accepted key stored in KV `cat:v6:gp-key` so a leaked UUID cannot fetch. GET without key looks empty. GAS `Code.gs` always sends `k`. Gzip cap 8 layers. Cat GP in 🎁 free networks.

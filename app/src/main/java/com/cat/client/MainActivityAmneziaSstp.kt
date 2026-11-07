@@ -118,8 +118,18 @@ internal fun MainActivity.showAmneziaSectionDialog() {
     box.addView(
         TextView(this).apply {
             text = t(
-                "کلید Amnezia همان متنی است که با vpn:// شروع می‌شود (یا فایل ‎.conf / ‎.vpn). اینجا بدهیدش؛ برنامه خودش می‌خواند، نشان می‌دهد چه چیزی داخلش است و با یک دکمه وصل می‌شود. نصب برنامهٔ Amnezia لازم نیست.",
-                "An Amnezia key is the text starting with vpn:// (or a .conf / .vpn file). Give it here: the app reads it, shows what is inside and connects with one tap. The Amnezia app is not needed.",
+                "آمنزیا سرور ابری رایگان نمی‌دهد — کلید را خودتان می‌آورید.\n\n" +
+                    "از کجا؟\n" +
+                    "• سرور خودتان: برنامهٔ Amnezia → اشتراک‌گذاری → «فرمت AmneziaVPN» (متن vpn://) یا «فرمت AmneziaWG» (فایل .conf).\n" +
+                    "• پروتون: account.protonvpn.com → ورود → WireGuard → دانلود .conf → اینجا بچسبانید.\n" +
+                    "• فروشنده یا ربات: همان متن vpn:// یا فایل .conf را می‌دهد.\n\n" +
+                    "بعد «کلید را کپی کرده‌ام» را بزنید. نصب برنامهٔ Amnezia برای وصل شدن لازم نیست.",
+                "Amnezia does not give a free cloud server — you bring the key.\n\n" +
+                    "Where from?\n" +
+                    "• Your server: Amnezia app → Share → “AmneziaVPN format” (vpn://) or “AmneziaWG format” (.conf).\n" +
+                    "• Proton: account.protonvpn.com → sign in → WireGuard → download .conf → paste it here.\n" +
+                    "• A seller or bot: they give the same vpn:// text or a .conf file.\n\n" +
+                    "Then tap “I copied the key”. The Amnezia app is not needed to connect.",
             )
             textSize = 13.5f
             setTextColor(TEXT_SECONDARY)

@@ -798,6 +798,15 @@ internal class CatGpProxy(
 internal object CatGpScripts {
     fun scriptPaths(text: String): List<String> = text.split('\n', ' ', ',', ';', '\t').mapNotNull { CatGpFronter.scriptPath(it) }.distinct()
 
+    /** Why a pasted Google address cannot be used: empty / example (ellipsis) / not an /exec URL. */
+    fun addressProblem(text: String): String? {
+        if (scriptPaths(text).isNotEmpty()) return null
+        val s = text.trim()
+        if (s.isEmpty()) return "empty"
+        if (s.contains('…') || s.contains("...")) return "example"
+        return "not-exec"
+    }
+
     /** Does the core config about to start use the Cat GP proxy on [port]? */
     fun referencedIn(yaml: String, port: Int): Boolean =
         Regex("""server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*$port\b""").containsMatchIn(yaml) ||

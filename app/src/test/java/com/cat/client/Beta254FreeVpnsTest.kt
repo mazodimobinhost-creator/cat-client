@@ -81,7 +81,7 @@ class Beta254FreeVpnsTest {
         assertTrue(src.contains("FreeNetHttp.openOnPhysical"))
         assertTrue(src.contains("looksLikeIranTimeZone"))
         assertTrue(src.contains("showProtonDialog()"))
-        assertTrue(src.contains("showAmneziaAndProtonWgHubDialog()"))
+        assertTrue(src.contains("showAmneziaSectionDialog()"))
         assertTrue(src.contains("ProtonFreePlanner.SIGNUP"))
         assertTrue(src.contains("WireGuardConfText.toUris"))
         assertFalse("Plus is not faked", src.contains("MaxTier\":2") || src.contains("fakePlus") || src.contains("pro_token\", \"plus"))

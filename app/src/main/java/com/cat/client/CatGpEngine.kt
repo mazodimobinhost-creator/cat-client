@@ -169,7 +169,7 @@ internal object CatGpEngine {
     /** One real request through Google → the script → www.gstatic.com/generate_204 (and through each front IP until one works). */
     fun test(c: Context, deploymentsText: String): TestResult {
         val paths = scriptPaths(deploymentsText)
-        if (paths.isEmpty()) return TestResult(false, listOf("✗ address: paste the Web app address ending in /exec"))
+        if (paths.isEmpty()) return TestResult(false, listOf(CatGpScripts.addressProblem(deploymentsText) ?: "not-exec"))
         val lines = mutableListOf<String>()
         for (ip in frontIps(c).take(5)) {
             val f = CatGpFronter(paths.take(1), listOf(ip), protect = { protectOutboundSocket(it) })

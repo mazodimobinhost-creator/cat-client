@@ -56,7 +56,7 @@ private fun MainActivity.gpText(value: String, size: Float = 12.5f, color: Int =
 
 private fun MainActivity.gpLp(top: Int = 8) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
 
-/** 🌐 Cat GP: copy Code.gs → paste the …/exec address → 🧪 real test → 🔐 certificate → 🚀 save & connect. */
+/** 🌐 Cat GP: copy the script → paste the …/exec address → test → certificate → connect. */
 internal fun MainActivity.showCatGpDialog() {
     val fa = gpFa()
     fun t(f: String, e: String) = if (fa) f else e
@@ -65,40 +65,33 @@ internal fun MainActivity.showCatGpDialog() {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(18), dp(8), dp(18), dp(6))
     }
-    val (used, limit) = VpnRuntimeStateStore.readGasDailyUsage(this)
     box.addView(gpText(t(
-        "اینو بزنی: ترافیک مرورگر از راه «اسکریپت شخصی خودتان در گوگل» رد می‌شود؛ اپراتور فقط اتصال به گوگل را می‌بیند. برای وقتی که همه‌چیز جز گوگل بسته است. رایگان است و سرور نمی‌خواهد، فقط یک حساب گوگل. ورکر پنل فقط با کلید مشترک جواب می‌دهد؛ بدون کلید حتی با دانستن UUID چیزی واکشی نمی‌شود — بعد از این نسخه Code.gs را دوباره کپی کنید.",
-        "Tap: browser traffic goes through YOUR OWN script on Google; the operator only sees a connection to Google. For when everything except Google is blocked. Free, no server — just a Google account. The panel hop only answers with the shared key; a leaked UUID alone cannot fetch — recopy Code.gs after this version.",
-    ), 12.5f, TEXT_PRIMARY))
+        "اینو بزنی این میشه: وقتی همه‌چیز بسته است و فقط گوگل باز است، مرورگر از یک اسکریپت مال خودتان روی گوگل رد می‌شود. رایگان است؛ سرور نمی‌خواهد. فقط مرورگر (کروم). تلگرام و اینستاگرام از این راه باز نمی‌شوند.",
+        "Tap: when everything is blocked except Google, the browser goes through YOUR script on Google. Free, no server. Browsers only (Chrome). Telegram and Instagram will not open this way.",
+    ), 13f, TEXT_PRIMARY))
     val status = gpText("", 12f)
     fun refreshStatus(extra: String = "") {
         val saved = CatGpEngine.scriptPaths(CatGpEngine.deployments(ctx)).size
         val ca = CatGpEngine.caInstalled(ctx)
         status.text = listOf(
-            t("سهمیهٔ امروز: $used از $limit درخواست", "Today's quota: $used of $limit requests"),
-            if (saved > 0) t("✅ آدرس اسکریپت: $saved عدد ذخیره است", "✅ Script address: $saved saved") else t("⬜ آدرس اسکریپت هنوز ذخیره نشده", "⬜ No script address saved yet"),
-            if (ca) t("✅ گواهی Cat GP روی گوشی نصب است", "✅ Cat GP certificate is installed") else t("⬜ گواهی نصب نشده (سایت‌های https بدون آن باز نمی‌شوند)", "⬜ Certificate not installed (https sites need it)"),
+            if (saved > 0) t("✅ آدرس گوگل ذخیره است", "✅ Google address saved") else t("⬜ هنوز آدرس گوگل را نچسبانده‌اید", "⬜ No Google address pasted yet"),
+            if (ca) t("✅ گواهی نصب است — سایت‌های قفل‌دار باز می‌شوند", "✅ Certificate installed — https sites can open") else t("⬜ گواهی هنوز نصب نیست", "⬜ Certificate not installed yet"),
             extra,
         ).filter { it.isNotBlank() }.joinToString("\n")
     }
     refreshStatus()
     box.addView(status, gpLp(8))
 
-    // Step 1 — the script
-    box.addView(gpText(t("۱) اسکریپت", "1) The script"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۱) کد را در گوگل بگذارید", "1) Put the code on Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     val panels = runCatching { VercelRoutePlanner.panelsFromSubscriptions(userSubscriptionManager.list().map { it.input }) }.getOrDefault(emptyList())
     val hops = CatGpEngine.hopCandidates(this, panels)
     val hopBox = CheckBox(this).apply {
-        text = t("خروج از Cloudflare با پنل Cat خودتان (اختیاری)", "Exit through your own Cat panel on Cloudflare (optional)")
+        text = t("سایت‌ها آی‌پی کلادفلر ببینند (اختیاری، کپچای کمتر)", "Sites see a Cloudflare IP (optional, fewer captchas)")
         setTextColor(TEXT_PRIMARY)
         visibility = if (hops.isEmpty()) View.GONE else View.VISIBLE
     }
     box.addView(hopBox, gpLp(4))
-    if (hops.isNotEmpty()) box.addView(gpText(t(
-        "اگر تیک بزنید سایت‌ها آی‌پی Cloudflare را می‌بینند نه گوگل (کپچای کمتر). پنل باید نسخهٔ 6.84.0 یا جدیدتر باشد (کلید مشترک روی /gp)؛ برنامه قبل از کپی بررسی می‌کند.",
-        "Ticked: sites see a Cloudflare IP instead of Google's (fewer captchas). The panel must be 6.84.0+ (shared key on /gp); the app checks before copying.",
-    ), 11.5f), gpLp(2))
-    box.addView(gpButton(t("📋 کپی کد اسکریپت (Code.gs)", "📋 Copy the script (Code.gs)"), accent = false) {
+    box.addView(gpButton(t("📋 کپی کردن کد", "📋 Copy the code"), accent = true) {
         activityScope.launch {
             var hop = ""
             if (hopBox.isChecked && hops.isNotEmpty()) {
@@ -108,27 +101,26 @@ internal fun MainActivity.showCatGpDialog() {
                     }.orEmpty()
                 }
                 if (hop.isBlank()) {
-                    Toast.makeText(ctx, t("پنل شما /gp با کلید ندارد (قدیمی است). پنل را به 6.84.0 به‌روز کنید؛ فعلاً کد بدون Cloudflare کپی شد.",
-                        "Your panel has no keyed /gp (old version). Update it to 6.84.0; the script was copied without Cloudflare for now."), Toast.LENGTH_LONG).show()
+                    Toast.makeText(ctx, t("پنل این خروج را ندارد. از ابر پنل را به‌روز کنید؛ کد بدون آن کپی شد.",
+                        "Your panel cannot do this exit yet. Update the panel from Cloud; the code was copied without it."), Toast.LENGTH_LONG).show()
                 }
             }
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("Cat GP Code.gs", CatGpEngine.codeGs(ctx, hop)))
-            refreshStatus(t("📋 کد کپی شد" + (if (hop.isNotBlank()) " (با خروج Cloudflare)" else ""), "📋 Script copied" + (if (hop.isNotBlank()) " (with Cloudflare exit)" else "")))
+            refreshStatus(t("📋 کد کپی شد — حالا «باز کردن گوگل» را بزنید", "📋 Code copied — tap Open Google next"))
         }
     }, gpLp(6))
-    box.addView(gpButton(t("🌍 باز کردن script.google.com", "🌍 Open script.google.com"), accent = false) {
+    box.addView(gpButton(t("🌍 باز کردن گوگل", "🌍 Open Google"), accent = false) {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://script.google.com/home/projects/create"))) }
     }, gpLp(6))
     box.addView(gpText(t(
-        "در گوگل: پروژهٔ تازه → همه را پاک کنید و کد را بچسبانید → ذخیره → Deploy ← New deployment ← نوع Web app ← Execute as: Me ← Who has access: Anyone ← Deploy ← اجازه بدهید. آدرس Web app (که به ‎/exec‎ ختم می‌شود) را کپی کنید.",
-        "On Google: new project → delete everything, paste → Save → Deploy → New deployment → type Web app → Execute as: Me → Who has access: Anyone → Deploy → allow. Copy the Web app address (ends in /exec).",
-    ), 11.5f), gpLp(4))
+        "در گوگل: پروژهٔ تازه → همه را پاک کنید → کد را بچسبانید → ذخیره.\nبعد Deploy → New deployment → Web app → Execute as: Me → Who has access: Anyone → Deploy.\nآدرسی که به /exec ختم می‌شود را کپی کنید و پایین بچسبانید. نمونهٔ داخل کادر را پاک کنید.",
+        "On Google: new project → delete everything → paste → Save.\nThen Deploy → New deployment → Web app → Execute as: Me → Who has access: Anyone → Deploy.\nCopy the address that ends in /exec and paste it below. The box is empty on purpose — do not use an example.",
+    ), 12f), gpLp(4))
 
-    // Step 2 — the address
-    box.addView(gpText(t("۲) آدرس اسکریپت", "2) Script address"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۲) آدرس را از گوگل بچسبانید", "2) Paste the address from Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     val input = EditText(this).apply {
-        hint = "https://script.google.com/macros/s/AKfycb…/exec"
+        hint = t("آدرس واقعی را اینجا بچسبانید (…/exec)", "Paste the real address here (…/exec)")
         setText(CatGpEngine.deployments(ctx))
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         minLines = 1
@@ -138,51 +130,62 @@ internal fun MainActivity.showCatGpDialog() {
         textDirection = View.TEXT_DIRECTION_LTR
     }
     box.addView(input, gpLp(4))
-    box.addView(gpText(t("چند آدرس (هر کدام در یک خط، از چند حساب گوگل) = سهمیهٔ روزانهٔ بیشتر.", "Several addresses (one per line, from several Google accounts) = more daily quota."), 11.5f), gpLp(2))
-    box.addView(gpButton(t("🧪 آزمایش واقعی", "🧪 Real test"), accent = false) {
+    fun addressMessage(raw: String): String? {
+        val problem = CatGpScripts.addressProblem(raw)
+        return when (problem) {
+            null -> null
+            "empty" -> t("❌ اول آدرس را از گوگل بچسبانید (باید به /exec ختم شود).", "❌ Paste the address from Google first (it must end in /exec).")
+            "example" -> t("❌ این آدرس نمونه است. از صفحهٔ Deploy گوگل آدرس واقعی را کپی کنید.", "❌ That is an example. Copy the real address from Google’s Deploy page.")
+            else -> t("❌ این آدرس اسکریپت گوگل نیست. باید به /exec ختم شود.", "❌ That is not a Google script address. It must end in /exec.")
+        }
+    }
+    box.addView(gpButton(t("🧪 آزمایش", "🧪 Test"), accent = false) {
         val text = input.text?.toString().orEmpty()
-        refreshStatus(t("⏳ در حال آزمایش از راه گوگل…", "⏳ Testing through Google…"))
+        addressMessage(text)?.let { refreshStatus(it); return@gpButton }
+        refreshStatus(t("⏳ در حال آزمایش…", "⏳ Testing…"))
         activityScope.launch {
             val r = withContext(Dispatchers.IO) { CatGpEngine.test(ctx, text) }
             if (r.ok) CatGpEngine.saveDeployments(ctx, text)
-            refreshStatus((if (r.ok) t("✅ کار می‌کند — اسکریپت جواب داد", "✅ Works — the script answered") else t("❌ کار نکرد", "❌ Did not work")) + "\n" + r.lines.joinToString("\n"))
+            val detail = r.lines.joinToString("\n").let { lines ->
+                when {
+                    r.ok -> t("✅ کار می‌کند — اسکریپت جواب داد", "✅ It works — the script answered")
+                    lines.contains("unauthorized", true) -> t("❌ کلید جور نیست. کد را دوباره کپی کنید و در گوگل نسخهٔ جدید Deploy کنید.", "❌ Key mismatch. Copy the code again and Deploy a new version on Google.")
+                    lines.contains("Anyone", true) || lines.contains("login", true) -> t("❌ دسترسی گوگل روی Anyone نیست. Deploy را با Who has access: Anyone دوباره بزنید.", "❌ Google access is not Anyone. Deploy again with Who has access: Anyone.")
+                    else -> t("❌ کار نکرد", "❌ Did not work") + (if (lines.isBlank()) "" else "\n$lines")
+                }
+            }
+            refreshStatus(detail)
         }
     }, gpLp(6))
 
-    // Step 3 — the certificate
-    box.addView(gpText(t("۳) گواهی (برای سایت‌های https)", "3) Certificate (for https sites)"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۳) گواهی (یک‌بار، برای سایت‌های قفل‌دار)", "3) Certificate (once, for https sites)"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     box.addView(gpText(t(
-        "Cat GP صفحه‌های https را خودش روی گوشی باز می‌کند و دوباره قفل می‌کند؛ برای همین مرورگر باید گواهی «Cat GP Local CA» را بشناسد. این گواهی فقط روی همین گوشی ساخته شده و کلیدش از برنامه بیرون نمی‌رود.",
-        "Cat GP opens https pages on the phone itself and re-locks them, so the browser must trust the “Cat GP Local CA” certificate. It was made on this phone only and its key never leaves the app.",
-    ), 11.5f), gpLp(2))
+        "بدون این گواهی، کروم سایت‌های https را باز نمی‌کند. فقط روی همین گوشی ساخته می‌شود.",
+        "Without this certificate Chrome will not open https sites. It is made on this phone only.",
+    ), 12f), gpLp(2))
     box.addView(gpButton(t("🔐 نصب گواهی", "🔐 Install certificate"), accent = false) {
         val direct = CatGpEngine.directInstallIntent(ctx)
         if (direct != null && runCatching { startActivity(direct) }.isSuccess) return@gpButton
         val where = CatGpEngine.exportCa(ctx)
         MaterialAlertDialogBuilder(ctx)
-            .setTitle(t("🔐 نصب گواهی Cat GP", "🔐 Install the Cat GP certificate"))
+            .setTitle(t("🔐 نصب گواهی", "🔐 Install the certificate"))
             .setMessage(t(
-                "فایل «${where ?: "CatGP-CA.crt"}» ذخیره شد.\n\nتنظیمات ← امنیت (یا امنیت و حریم خصوصی) ← تنظیمات بیشتر ← رمزگذاری و اعتبارنامه‌ها ← نصب گواهی ← «گواهی CA» ← «نصب در هر صورت» ← فایل CatGP-CA.crt را از Download انتخاب کنید.\n\nاگر گوشی قفل صفحه نداشته باشد، اندروید اول قفل صفحه می‌خواهد.",
-                "Saved “${where ?: "CatGP-CA.crt"}”.\n\nSettings → Security (or Security & privacy) → More settings → Encryption & credentials → Install a certificate → “CA certificate” → “Install anyway” → pick CatGP-CA.crt from Download.\n\nWithout a screen lock Android asks you to set one first.",
+                "فایل «${where ?: "CatGP-CA.crt"}» ذخیره شد.\n\nتنظیمات ← امنیت ← رمزگذاری و اعتبارنامه‌ها ← نصب گواهی ← گواهی CA ← نصب در هر صورت ← همان فایل.",
+                "Saved “${where ?: "CatGP-CA.crt"}”.\n\nSettings → Security → Encryption & credentials → Install a certificate → CA certificate → Install anyway → pick that file.",
             ))
             .setPositiveButton(t("⚙️ باز کردن تنظیمات", "⚙️ Open Settings")) { _, _ -> runCatching { startActivity(CatGpEngine.securitySettingsIntent()) } }
             .setNegativeButton(t("بستن", "Close"), null)
             .create().showCatClientDialog()
     }, gpLp(6))
 
-    box.addView(gpText(t(
-        "محدودیت‌ها (صادقانه): فقط مرورگرها (Chrome و…) با گواهی کاربر کار می‌کنند؛ تلگرام، اینستاگرام و اپ‌هایی که گواهی خودشان را دارند از این راه باز نمی‌شوند. تماس صوتی، بازی و WebSocket کار نمی‌کند. هر حساب گوگل حدود ۲۰٬۰۰۰ درخواست در روز دارد و هر صفحه ده‌ها درخواست است. سرعت از کانفیگ معمولی کمتر است.",
-        "Limits (honestly): only browsers (Chrome etc.) that accept user certificates work; Telegram, Instagram and apps with their own trust store will not open this way. Voice calls, games and WebSockets do not work. Each Google account has ~20,000 requests a day and one page is dozens of requests. Slower than a normal config.",
-    ), 11.5f, TEXT_SECONDARY), gpLp(14))
-
     MaterialAlertDialogBuilder(this)
-        .setTitle(t("🌐 Cat GP — رلهٔ شخصی گوگل (کلید مشترک)", "🌐 Cat GP — personal Google relay (shared key)"))
+        .setTitle(t("🌐 Cat GP — وقتی فقط گوگل باز است", "🌐 Cat GP — when only Google is open"))
         .setView(ScrollView(this).apply { addView(box) })
         .setNegativeButton(t("بستن", "Close"), null)
         .setPositiveButton(t("🚀 ذخیره و اتصال", "🚀 Save & connect")) { _, _ ->
             val text = input.text?.toString().orEmpty()
-            if (CatGpEngine.scriptPaths(text).isEmpty()) {
-                Toast.makeText(ctx, t("اول آدرس اسکریپت (…/exec) را بچسبانید.", "Paste the script address (…/exec) first."), Toast.LENGTH_LONG).show()
+            addressMessage(text)?.let {
+                Toast.makeText(ctx, it, Toast.LENGTH_LONG).show()
                 return@setPositiveButton
             }
             CatGpEngine.saveDeployments(ctx, text)
@@ -195,7 +198,7 @@ internal fun MainActivity.showCatGpDialog() {
                 }
                 renderSubscriptions()
                 if (!CatGpEngine.caInstalled(ctx)) {
-                    Toast.makeText(ctx, t("گواهی هنوز نصب نیست: سایت‌های https تا نصب آن خطا می‌دهند.", "Certificate not installed yet: https sites will show an error until it is."), Toast.LENGTH_LONG).show()
+                    Toast.makeText(ctx, t("گواهی هنوز نصب نیست: اول «نصب گواهی» را بزنید تا سایت‌ها باز شوند.", "Certificate not installed yet: tap Install certificate first so sites can open."), Toast.LENGTH_LONG).show()
                 }
                 connectFreeSubscription(subId)
             }

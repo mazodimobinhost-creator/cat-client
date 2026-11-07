@@ -186,4 +186,16 @@ class Beta246MethodFinderTest {
         val sources = src("MethodFinderSources.kt")
         assertFalse("lists over HTTPS only", sources.contains("\"http://"))
     }
+
+    @Test
+    fun brokenWireGuardKeysAreDroppedNotFedToTheCore() {
+        val badPub = "wireguard://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=@1.2.3.4:51820?publickey=.....#x"
+        assertTrue(SubConvConverter.convert(badPub).isEmpty())
+        assertTrue(SubConvConverter.convert("wireguard://not-a-key@1.2.3.4:51820?publickey=bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=#x").isEmpty())
+        assertTrue(SubConvConverter.convert(realWg).isNotEmpty())
+        assertNull(MlmAndNextGenVpnHub.convertWgConfToAwgUri("[Interface]\nPrivateKey = ...\n[Peer]\nPublicKey = ...\nEndpoint = 1.2.3.4:51820\n"))
+        val fa = MethodFinderPlan.plainCoreError("proxy 37: decode peer public key: illegal base64: data at input byte 5", fa = true)
+        assertTrue(fa.contains("وایرگارد"))
+        assertFalse(fa.contains("proxy 37"))
+    }
 }

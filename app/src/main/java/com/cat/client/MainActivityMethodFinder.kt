@@ -428,7 +428,8 @@ internal fun MainActivity.showMethodFinderDialog(families: Set<FinderFamily>, fr
                     t("❌ بررسی تمام شد؛ هیچ روشی روی این اینترنت کار نکرد. شبکه را عوض کنید (وای‌فای/سیم دیگر) و دوباره امتحان کنید.", "❌ Done; no method worked on this internet. Try another network (Wi-Fi / other SIM) and check again.")
                 }
                 Actions.DELAY_TEST_CANCELED -> t("⏹ متوقف شد · نتیجه‌های تا اینجا نگه داشته شد ($n روش کار کرد).", "⏹ Stopped · results so far are kept ($n method(s) work).")
-                else -> t("⚠️ آزمون کامل نشد: ", "⚠️ The test did not finish: ") + endError.ifBlank { t("نامشخص", "unknown") }
+                else -> t("⚠️ آزمون کامل نشد: ", "⚠️ The test did not finish: ") +
+                    MethodFinderPlan.plainCoreError(endError.ifBlank { t("نامشخص", "unknown") }, fa)
             },
         )
     }

@@ -15,6 +15,16 @@ import java.util.Locale
  * dedicated AmneziaWG dialog understood it).
  */
 object WireGuardConfText {
+    /** WireGuard private/public keys are 32 raw bytes in standard or URL-safe base64. */
+    fun isKey32(raw: String): Boolean {
+        val s = raw.trim()
+        if (s.equals("auto", ignoreCase = true)) return true
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(s) }.getOrNull()
+            ?: runCatching { java.util.Base64.getUrlDecoder().decode(s) }.getOrNull()
+            ?: return false
+        return bytes.size == 32
+    }
+
     private val AMNEZIA_KEYS = listOf(
         "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4",
         "i1", "i2", "i3", "i4", "i5", "j1", "j2", "j3", "itime",
@@ -67,6 +77,7 @@ object WireGuardConfText {
         }
         val privateKey = iface["privatekey"] ?: return null
         val publicKey = peer["publickey"] ?: return null
+        if (!isKey32(privateKey) || !isKey32(publicKey)) return null
         val endpoint = peer["endpoint"] ?: return null
         val isAmnezia = AMNEZIA_KEYS.any { it in iface }
         val scheme = if (isAmnezia) "awg" else "wireguard"

@@ -288,4 +288,15 @@ internal object ShareLinkRemark {
         }
         return "vmess://" + Base64.getEncoder().encodeToString(out.toByteArray(Charsets.UTF_8))
     }
+
+    /** Core start errors like «proxy 37: decode peer public key» → one plain line. */
+    fun plainCoreError(raw: String, fa: Boolean): String {
+        val s = raw.lowercase()
+        return when {
+            "decode peer public key" in s || "illegal base64" in s ->
+                if (fa) "یک کانفیگ وایرگارد کلید خراب دارد و آزمون را خواباند. آن ردیف را حذف کنید و دوباره «بررسی» را بزنید."
+                else "A WireGuard config has a broken key and stopped the test. Remove that row and tap Check again."
+            else -> raw.take(160)
+        }
+    }
 }

@@ -2116,33 +2116,46 @@ internal fun MainActivity.showAmneziaAndProtonWgHubDialog() {
                 0 -> showMethodFinderDialog(FinderFamily.FREE_SERVERS, freeOnly = true)
                 1 -> {
                     val confInput = EditText(this).apply {
-                        hint = "[Interface]\nPrivateKey = ...\nAddress = 10.2.0.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = ..."
+                        hint = if (isFarsi) "محتوای فایل .conf را اینجا بچسبانید" else "Paste the .conf file here"
                         textSize = 12f
                         minLines = 6
                     }
                     val box = LinearLayout(this).apply {
                         orientation = LinearLayout.VERTICAL
                         setPadding(dp(20), dp(12), dp(20), dp(4))
-                        addView(confInput)
+                        addView(TextView(this@showAmneziaAndProtonWgHubDialog).apply {
+                            text = if (isFarsi) {
+                                "آمنزیا خودش فایل رایگان نمی‌دهد.\n\nاین فایل را از کجا بیاورید:\n• پروتون: account.protonvpn.com → ورود (حساب رایگان) → WireGuard → دانلود .conf\n• وایرگارد معمولی: همان فایلی که سرور به شما داده\n• سرور Amnezia: برنامهٔ Amnezia → اشتراک‌گذاری → فایل .conf\n\nنمونه را ننویسید؛ کل فایل واقعی را بچسبانید."
+                            } else {
+                                "Amnezia does not give a free file.\n\nWhere to get this file:\n• Proton: account.protonvpn.com → sign in (free account) → WireGuard → download .conf\n• Plain WireGuard: the .conf your server gave you\n• Amnezia server: Amnezia app → Share → .conf file\n\nDo not type the example; paste the real file."
+                            }
+                            textSize = 13f
+                            setTextColor(TEXT_SECONDARY)
+                            setLineSpacing(0f, 1.12f)
+                        })
+                        addView(confInput, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
                     }
                     MaterialAlertDialogBuilder(this)
                         .setTitle(
-                            if (isFarsi) "📄 چسباندن محتوای فایل `.conf` پروتون یا وایرگارد"
-                            else "📄 Paste Proton VPN / WireGuard `.conf` Content",
+                            if (isFarsi) "📄 چسباندن فایل پروتون یا وایرگارد"
+                            else "📄 Paste a Proton or WireGuard file",
                         )
                         .setView(box)
+                        .setNeutralButton(if (isFarsi) "❓ کلید از کجا؟" else "❓ Where is the key?") { _, _ ->
+                            showAmneziaHelpDialog()
+                        }
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(
-                            if (isFarsi) "🛡️ تبدیل به AmneziaWG ضد فیلتر و اتصال"
-                            else "🛡️ Convert to Anti-DPI AmneziaWG & Connect",
+                            if (isFarsi) "🛡️ تبدیل و اتصال"
+                            else "🛡️ Convert & connect",
                         ) { _, _ ->
                             val text = confInput.text?.toString().orEmpty()
                             val awgUri = MlmAndNextGenVpnHub.convertWgConfToAwgUri(text, "Proton-AWG")
                             if (awgUri == null) {
                                 Toast.makeText(
                                     this,
-                                    if (isFarsi) "فایل `.conf` ناقص است (PrivateKey، PublicKey و Endpoint لازم است)"
-                                    else "Incomplete `.conf` (PrivateKey, PublicKey & Endpoint required)",
+                                    if (isFarsi) "این فایل کامل نیست یا کلیدش خراب است. PrivateKey و PublicKey و Endpoint لازم است — نمونه را ننویسید، فایل واقعی را بچسبانید."
+                                    else "This file is incomplete or its key is broken. PrivateKey, PublicKey and Endpoint are required — paste the real file, not the example.",
                                     Toast.LENGTH_LONG,
                                 ).show()
                                 return@setPositiveButton
