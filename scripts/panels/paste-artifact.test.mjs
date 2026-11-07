@@ -93,7 +93,9 @@ const source = readFileSync(sourcePath, 'utf8');
   // optional KataBump Reality card + API — measured 907 451 B (release guard moves 900 000 → 940 000).
   // Raised 930 000 → 950 000 for 6.81.4 (beta245): several exit countries per user, ➕ library → panel list, 📶
   // per-operator scanner memory and the one-tap Vercel storage fix — measured 928 803 B (release guard 940 000 → 960 000).
-  ok('raw size is in the paste range (300–950 KB)', asset.length >= 300_000 && asset.length <= 950_000, asset.length);
+  // Raised 950 000 → 970 000 for 6.85.0: Find that actually proves ProxyIP country (workerd#6903 SNI) + Zeus-style
+  // region table on Countries — measured ~951 KB before the table, still under the 1 MB Worker paste editor.
+  ok('raw size is in the paste range (300–970 KB)', asset.length >= 300_000 && asset.length <= 970_000, asset.length);
   const gz = gzipSync(asset, { level: 9 }).length;
   // The warning line is a budget, not a Cloudflare limit: the platform's cap for a Worker
   // module is 3 MB (gzipped ~1 MB), so even a doubled file deploys. What this line protects is

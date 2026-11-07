@@ -74,13 +74,17 @@ async function openPanel(HOST, env) {
   check('the card is titled تغییر ریجن', /تغییر ریجن/.test(($('#plcTitle') && $('#plcTitle').textContent) || ''), $('#plcTitle') && $('#plcTitle').textContent);
   check('it shows the current setting and the live data centre', /پیش‌فرض|Default/.test($('#plcNow').textContent) && $('#plcNow').textContent.includes('AMS'), $('#plcNow').textContent);
   check('nothing to apply until something else is picked', $('#plcApply').disabled === true);
+  check('Smart / Specific cards are there like Zeus', /Smart/.test($('#plcModes').textContent) && /Specific/.test($('#plcModes').textContent), $('#plcModes').textContent);
   $('#plcModes [data-plc-mode="region"]').click();
   const opts = () => [].map.call($('#plcRegion').options, (o) => o.value);
+  const rows = () => [].map.call(($('#plcTable') && $('#plcTable').querySelectorAll('tbody tr')) || [], (tr) => tr.getAttribute('data-plc-id'));
   check('«Pick a country» shows the Google Cloud regions with flags', $('#plcRegion').style.display !== 'none' && opts().length >= 20 && opts().every((v) => v.startsWith('gcp:')) && /🇩🇪|🇳🇱|🇺🇸/.test($('#plcRegion').textContent), opts().slice(0, 3).join(','));
+  check('the table lists Frankfurt / Germany / europe-west3', rows().includes('gcp:europe-west3') && /Frankfurt/.test($('#plcTable').textContent) && /Germany/.test($('#plcTable').textContent), ($('#plcTable') && $('#plcTable').textContent || '').slice(0, 180));
   $('#plcProv [data-plc-prov="aws"]').click();
   check('switching to AWS refills the list', opts().length >= 15 && opts().every((v) => v.startsWith('aws:')));
   $('#plcProv [data-plc-prov="gcp"]').click();
-  const sel = $('#plcRegion'); sel.value = 'gcp:europe-west3'; sel.dispatchEvent(new w.Event('change'));
+  const row = $('#plcTable [data-plc-id="gcp:europe-west3"]');
+  if (row) row.click(); else { const sel = $('#plcRegion'); sel.value = 'gcp:europe-west3'; sel.dispatchEvent(new w.Event('change')); }
   check('a region is picked → Apply is enabled', $('#plcApply').disabled === false);
   // cancel the confirm → nothing uploaded
   $('#plcApply').click();

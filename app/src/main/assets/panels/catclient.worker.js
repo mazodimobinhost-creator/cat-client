@@ -3313,14 +3313,9 @@ function withUserExits(settings, user) {
   }
   return Object.assign({}, settings, { [PXIPS_KEY]: user.exits.slice(), proxyCountries: tags, proxyRepoAuto: false, proxyVip: '', country: '', userExits: true });
 }
-/** ProxyIP check that PROVES the exit country.
- * 6.85.0: the production edge ignores startTls({expectedServerHostname}) when connect() was given an IP
- * (workerd#6903 — ClientHello has no SNI). Every feed IP then came back «no-trace». We still try the
- * sockets + /cdn-cgi/trace path (works for hostnames, and in tests), but for IPs we also:
- *   1. fetch https://speed.cloudflare.com[:port]/meta with cf.resolveOverride = that IP (fetch sends SNI)
- *      and REJECT a short-circuit that would stamp every IP with the Worker's own country;
- *   2. if that cannot be trusted, a TLS 1.2 ClientHello WITH SNI on a raw socket + the IP's geo
- *      (only when the server presents a Cloudflare cert for that SNI). */
+/** 6.85.0 ProxyIP country: sockets+/cdn-cgi/trace (hostnames), then /meta+resolveOverride
+ * (reject Worker short-circuit), then TLS1.2 ClientHello with SNI + geo if the cert is CF.
+ * connect() to an IP on the edge sends no SNI (workerd#6903) — that was every «no-trace». */
 async function upgradeTls(raw, hostname) {
   if (!raw || typeof raw.startTls !== 'function') return raw;
   const up = await Promise.resolve(raw.startTls({ expectedServerHostname: hostname, servername: hostname }));
@@ -8895,7 +8890,7 @@ async function handleApi(request, url, env, ctx) {
       const saved = normalizePlacement((await kvGetJson(env, PLACEMENT_KV, null) || {}).value) || 'off';
       const live = plat === 'cf' ? await placementLiveColo() : null;
       return json({
-        ok: true, platform: plat, value: saved, regions: PLACEMENT_REGIONS,
+        ok: true, platform: plat, value: saved, regions: PLACEMENT_REGIONS, names: COUNTRY_NAMES,
         canApply: plat === 'cf' && (await hasDirectUpdateCreds(env)),
         header: parseCfPlacementHeader(request.headers.get('cf-placement')),
         ingress: String((request.cf && request.cf.colo) || ''),
@@ -9965,6 +9960,13 @@ details.acc>summary::-webkit-details-marker{display:none}
 [dir=rtl] .tbl td:last-child,[dir=ltr] .tbl td:first-child{border-inline-start:1px solid var(--line);border-start-start-radius:14px;border-end-start-radius:14px}
 .tbl tbody tr:hover td { border-color:var(--line2) }
 .tbl tbody tr:hover td:first-child { box-shadow:inset 3px 0 0 0 var(--violet) }
+.plcPick{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:56px;text-align:start;padding:10px 12px}
+.plcPick b{font-size:14px}.plcPick small{opacity:.72;font-weight:500}
+.plct{width:100%;border-collapse:collapse;font-size:13px}
+.plct th,.plct td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:start;white-space:nowrap}
+.plct tbody tr{cursor:pointer}.plct tr.on td{background:rgba(45,212,191,.14)}
+.plct .mono{direction:ltr;font-variant-numeric:tabular-nums}
+#plcRegion{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
 .act{display:flex;gap:6px;flex-wrap:wrap}
 .act .ib{width:44px;height:44px}
 .ucard{display:none}
@@ -11299,10 +11301,11 @@ ${vDoctor}
   <h2><span class="ic">🌍</span><span id="plcTitle">تغییر ریجن</span></h2>
   <div class="small mute" id="plcHint"></div>
   <div class="small" id="plcNow" style="margin-top:8px"></div>
-  <div class="row" style="margin-top:10px" id="plcModes"></div>
-  <div class="row" style="margin-top:8px;display:none" id="plcProv"></div>
+  <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px" id="plcModes"></div>
+  <div class="row" style="margin-top:8px;display:none;flex-wrap:wrap;gap:8px" id="plcProv"></div>
   <select id="plcRegion" style="display:none;margin-top:8px;width:100%;min-height:44px;font-size:14px"></select>
-  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px"></button>
+  <div id="plcTableWrap" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px"><table class="plct" id="plcTable"></table></div>
+  <button class="btn p" type="button" id="plcApply" style="margin-top:10px;min-height:44px;width:100%"></button>
   <div class="small" id="plcMsg" style="margin-top:6px"></div>
  </div>
  <div class="card sec">
@@ -12721,28 +12724,32 @@ function plcEntry(v){var p=String(v||'').split(':');if(p.length!==2)return null;
 function plcLabel(v){if(v==='smart')return '⚡ '+tx('خودکار (Smart) — کلودفلر خودش بهترین جا را انتخاب می‌کند','Automatic (Smart) — Cloudflare picks the best place');
  var e=plcEntry(v);if(e)return flag(e.cc)+' '+e.city+' · '+e.prov.toUpperCase()+' '+e.id;return '📍 '+tx('پیش‌فرض — نزدیک‌ترین دیتاسنتر به کاربر','Default — the data centre nearest the user')}
 function plcRender(){var modes=$('#plcModes');if(!modes)return;var v=PLC.sel,kind=v==='smart'?'smart':(v==='off'?'off':'region');
- modes.innerHTML=[['off','📍 '+tx('پیش‌فرض','Default')],['smart','⚡ Smart'],['region','🌐 '+tx('انتخاب دستی کشور','Pick a country')]].map(function(m){return '<button class="btn sm'+(kind===m[0]?' p':'')+'" type="button" data-plc-mode="'+m[0]+'">'+esc(m[1])+'</button>'}).join('');
- var prov=$('#plcProv'),sel=$('#plcRegion');prov.style.display=kind==='region'?'':'none';sel.style.display=kind==='region'?'':'none';
+ modes.innerHTML=[['smart','⚡',tx('انتخاب خودکار (Smart)','Automatic (Smart)'),tx('انتخاب خودکار توسط کلودفلر','Cloudflare picks the place')],['region','🌐',tx('انتخاب دستی (Specific)','Pick a region (Specific)'),tx('انتخاب ریجن و کشور','Pick a region and country')],['off','📍',tx('پیش‌فرض','Default'),tx('نزدیک‌ترین دیتاسنتر به کاربر','Nearest data centre to the user')]].map(function(m){return '<button class="btn plcPick'+(kind===m[0]?' p':'')+'" type="button" data-plc-mode="'+m[0]+'"><span>'+m[1]+'</span><b>'+esc(m[2])+'</b><small>'+esc(m[3])+'</small></button>'}).join('');
+ var prov=$('#plcProv'),sel=$('#plcRegion'),wrap=$('#plcTableWrap'),tbl=$('#plcTable');
+ if(prov)prov.style.display=kind==='region'?'':'none';if(sel)sel.style.display=kind==='region'?'':'none';if(wrap)wrap.style.display=kind==='region'?'':'none';
  if(kind==='region'){var e=plcEntry(v);if(e)PLC.prov=e.prov;
-  prov.innerHTML=[['gcp','Google Cloud'],['aws','AWS'],['azure','Azure']].map(function(k){return '<button class="btn sm'+(k[0]===PLC.prov?' p':'')+'" type="button" data-plc-prov="'+k[0]+'">'+k[1]+'</button>'}).join('');
-  sel.innerHTML=(PLC.regions[PLC.prov]||[]).map(function(x){var a=x.split('|'),id=PLC.prov+':'+a[0];return '<option value="'+esc(id)+'"'+(id===v?' selected':'')+'>'+esc(flag(a[1])+' '+a[2]+' ('+a[1]+') · '+a[0])+'</option>'}).join('');
-  if(!e||e.prov!==PLC.prov)PLC.sel=sel.value}
- var b=$('#plcApply');b.textContent='🚀 '+tx('اعمال و دیپلوی','Apply & deploy');b.disabled=PLC.sel===PLC.v||!PLC.canApply}
+  if(prov)prov.innerHTML=[['gcp','GCP'],['aws','AWS'],['azure','Azure']].map(function(k){return '<button class="btn sm'+(k[0]===PLC.prov?' p':'')+'" type="button" data-plc-prov="'+k[0]+'">'+k[1]+'</button>'}).join('');
+  var list=PLC.regions[PLC.prov]||[],nm=PLC.names||{};
+  if(sel)sel.innerHTML=list.map(function(x){var a=x.split('|'),id=PLC.prov+':'+a[0];return '<option value="'+esc(id)+'"'+(id===v?' selected':'')+'>'+esc(flag(a[1])+' '+a[2]+' ('+a[1]+') · '+a[0])+'</option>'}).join('');
+  if(tbl)tbl.innerHTML='<thead><tr><th>'+tx('آییدی ریجن','Region id')+'</th><th>'+tx('موقعیت','Location')+'</th><th>'+tx('کشور','Country')+'</th><th>'+tx('شهر','City')+'</th></tr></thead><tbody>'+list.map(function(x){var a=x.split('|'),id=PLC.prov+':'+a[0];return '<tr class="'+(id===v?'on':'')+'" data-plc-id="'+esc(id)+'"><td class="mono" dir="ltr">'+esc(a[0])+'</td><td>'+esc(a[2])+'</td><td>'+flag(a[1])+' '+esc(nm[a[1]]||a[1])+'</td><td>'+esc(a[2])+'</td></tr>'}).join('')+'</tbody>';
+  if(!e||e.prov!==PLC.prov)PLC.sel=sel&&sel.value?sel.value:(list[0]?PLC.prov+':'+list[0].split('|')[0]:PLC.sel)}
+ var b=$('#plcApply');b.textContent='🚀 '+tx('اعمال تغییرات و دیپلوی','Apply changes & deploy');b.disabled=PLC.sel===PLC.v||!PLC.canApply}
 function plcLoad(){var c=$('#plcCard');if(!c)return;api('/api/placement').then(function(j){
   // Only a Cloudflare Worker has placement: other hosts do not show the card at all.
   if(!j||!j.ok||j.platform!=='cf'){c.style.display='none';return}
-  c.style.display='';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.canApply=!!j.canApply;
-  $('#plcTitle').textContent=tx('تغییر ریجن پنل (لوکیشن کانفیگ‌های مستقیم 🌐)','Change panel region (location of the direct 🌐 configs)');
-  $('#plcHint').textContent=tx('کلودفلر ورکر را معمولاً نزدیک کاربر اجرا می‌کند. اینجا می‌توانی بگویی کنار کدام دیتاسنتر ابری (Google Cloud / AWS / Azure) اجرا شود؛ کانفیگ‌های مستقیم 🌐 از همان‌جا بیرون می‌روند. کانفیگ‌هایی که ProxyIP یا SOCKS دارند خروجی خودشان را نگه می‌دارند. با «اعمال» همین پنل با این تنظیم دوباره آپلود می‌شود؛ UUID، KV، کاربران و Secretها دست نمی‌خورند.','Cloudflare normally runs the Worker next to the user. Here you choose which cloud region (Google Cloud / AWS / Azure) it should run next to; direct 🌐 configs then leave from there. Configs with a ProxyIP or SOCKS keep their own exit. Apply re-uploads this panel with the setting; UUID, KV, users and secrets stay.');
+  c.style.display='';PLC.v=PLC.sel=j.value||'off';PLC.regions=j.regions||{};PLC.names=j.names||{};PLC.canApply=!!j.canApply;
+  $('#plcTitle').textContent=tx('تغییر ریجن پنل','Change panel region');
+  $('#plcHint').textContent=tx('می‌توانید لوکیشن کانفیگ‌های مستقیم 🌐 را تغییر دهید','You can change the location of the direct 🌐 configs');
   var now=[tx('تنظیم فعلی: ','Current setting: ')+plcLabel(PLC.v)];
   if(j.live&&j.live.colo)now.push(tx('الان واقعاً در دیتاسنتر ','Really running now in data centre ')+j.live.colo+tx(' اجرا می‌شود',''));
   if(j.header)now.push('cf-placement: '+j.header.kind+'-'+j.header.colo);
   if(!j.canApply)now.push(tx('برای اعمال، یک بار توکن کلودفلر خواسته می‌شود.','Applying asks once for a Cloudflare token.'));
   $('#plcNow').textContent=now.join(' · ');PLC.canApply=true;plcRender()}).catch(function(){c.style.display='none'})}
-if($('#plcCard'))$('#plcCard').addEventListener('click',function(ev){var t=ev.target.closest('[data-plc-mode],[data-plc-prov]');if(!t)return;
- var m=t.getAttribute('data-plc-mode'),p=t.getAttribute('data-plc-prov');
+if($('#plcCard'))$('#plcCard').addEventListener('click',function(ev){var t=ev.target.closest('[data-plc-mode],[data-plc-prov],[data-plc-id]');if(!t)return;
+ var m=t.getAttribute('data-plc-mode'),p=t.getAttribute('data-plc-prov'),rid=t.getAttribute('data-plc-id');
  if(m==='off'||m==='smart')PLC.sel=m;else if(m==='region'){if(!plcEntry(PLC.sel)){var l=PLC.regions[PLC.prov]||[];PLC.sel=l.length?PLC.prov+':'+l[0].split('|')[0]:'off'}}
  else if(p){PLC.prov=p;var l2=PLC.regions[p]||[];PLC.sel=l2.length?p+':'+l2[0].split('|')[0]:PLC.sel}
+ else if(rid)PLC.sel=rid;
  plcRender()});
 if($('#plcRegion'))$('#plcRegion').addEventListener('change',function(){PLC.sel=this.value;plcRender()});
 if($('#plcApply'))$('#plcApply').addEventListener('click',async function(){var b=this,m=$('#plcMsg'),want=PLC.sel;
