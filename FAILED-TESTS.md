@@ -1,126 +1,137 @@
-# Android failure report (f4d08dd)
+### npm test failure excerpt
+```
+#   diff: 'simple'
+# }
+# Node.js v22.23.4
+# Subtest: scripts/panels/quicklink-version.test.mjs
+not ok 60 - scripts/panels/quicklink-version.test.mjs
+  ---
+  duration_ms: 403.865765
+  type: 'test'
+  location: '/home/runner/work/cat-client/cat-client/scripts/panels/quicklink-version.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Relay reference — fail closed, never fall back to a direct connection
+#   ✓ a 🧦 entry exists to test with
+#   ✓ its path carries a relay reference, not the credentials
+#   ✓ the id is parseable
+# (node:3256) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js?rfc=build is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+--
+# ✓ en: my-internet check also opens the front
+# ✓ en: no script errors
+# 6 failure(s)
+# Subtest: scripts/panels/vercel-doctor-ui.test.mjs
+not ok 78 - scripts/panels/vercel-doctor-ui.test.mjs
+  ---
+  duration_ms: 3238.256228
+  type: 'test'
+  location: '/home/runner/work/cat-client/cat-client/scripts/panels/vercel-doctor-ui.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# ✓ vercel sub answers 200 with links
+# ✓ every vercel line is :443
+# ✓ every vercel line is TLS
+# ✓ every vercel address is a Vercel edge address or the project host
+# ✓ Host == project domain on every vercel line
+# ✓ every vercel SNI is a *.vercel.app name
+```
+PASS cat-panel
+PASS ccq
+PASS ech
+PASS panel-dom
+PASS wizard
+PASS multipart-upload
+PASS chain-protocols
+PASS android-guard
+PASS link-shape
+PASS panel-integrity
+PASS kv-persistence
+PASS panel-update-contract
+PASS panel-selfupdate
+PASS sni-host
+PASS proxyip-sub
+PASS proxyip-dataplane
+PASS addr-port-query
+PASS proxyip-feeds
+PASS browser-probe
+PASS ws-probe
+PASS survival
+PASS hostile-env
+PASS content-type
+PASS paste-artifact
+PASS secrets-tokens
+FAIL quicklink-version
+```
+(node:4001) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
 
+Quick links (?p=) and the app/panel version handshake
 
-## files with compile errors
-## log tail
-### step18.log
-✓ SNI rotation: remarks carry the SNI suffix
-✓ SNI rotation: links carry matching sni= param
-✓ ?sni= pins a single SNI
-✓ sniRotate=false → single shared SNI (skk.moe default)
-✓ custom SNI pool: panel host + skk.moe + invalid filtered, deduped
-✓ 🎯 configs dial the domMap IP of the worker host
-✓ panel: health&test button renamed + px chips + hint
-✓ health: clean probe ok on any HTTP answer (routing works)
-✓ health: clean probe dials TLS + config Host + vless path
-✓ health: plain probe skips TLS, keeps Host template
-✓ health: proxyip probe uses relay template (trace via CF host)
-✓ health: proxyip 403 → relay NOT healthy (http 403)
-✓ health: silent endpoint → no-http-response
-✓ health: px probed on its OWN port (8443)
-✓ health: addr with :port suffix split defensively (port honored)
-✓ health: hint explains entry-port vs relay-port
-✓ socksRelayList parses socks5://user:pass@ip:port, skips CF relays
-✓ dial plan: CF target → CF relays then socks
-✓ dial plan: non-CF target → socks FIRST then direct then CF relays
-✓ sub: 🧦 config emitted with an encoded relay reference (never the credentials)
-✓ sub: the 🧦 path exposes no username or password
-✓ health: socks probe ok (no auth)
-✓ health: socks probe with user:pass auth
-✓ health: socks method rejected → relay✗ with reason
-✓ panel: socks placeholder mentions socks5:// form
-✓ panel: IPCheck.ing exit-test link + hint
-✓ panel inline script parses (no syntax errors)
-✓ svc: gemini through 🧦 socks-first chain → open
-✓ svc: gemini dialled the SOCKS relay (not direct/CF)
-✓ svc: CF egress refused by Google → ⚠ 403 verdict
-✓ panel: 🧪 service-test button + gemini hint + chips row
-✓ svc: default host list covers Gemini/ChatGPT/X/YouTube
-✓ fm/cs: TLS links carry cs= and fm= (two-stage fragment profile)
-✓ fm/cs: fm payload is valid JSON with two fragment stages
-✓ fm/cs: :80 plain links stay clean (no fm)
-✓ fm/cs: toggle off → legacy links
-✓ fm/cs: CIPHER_SUITES_DEFAULT is a colon-separated TLS list
-✓ Irancell F&F preset pins 188.114.97.6 and Xray TLS options
-✓ Irancell F&F uses BlueKnight finalMask + exact cipher suites
-✓ Irancell F&F also emits a Trojan URI with the same exact TLS profile
-✓ Xray JSON carries preset fingerprint, ALPN, cipher suites and finalmask
-✓ F&F finalmask replaces (does not stack with) survival Fragment outbound
-✓ MCI ECH preset emits its documented address, ECH resolver and no F&F
-✓ MCI IPv6 + F&F preset pins IPv6 and omits the Irancell-only cipher list
-✓ MCI IPv6 preset uses 2a06:98c1:3101::6812:202f + chrome and clears ECH/FM/CS
-✓ Irancell F&F 188.114.98.0 + XHTTP sets h2,http/1.1 ALPN and F&F mask/ciphers
-✓ Clash rejects an Xray-only firewall preset instead of silently dropping finalmask
-✓ sing-box rejects an Xray-only firewall preset instead of silently dropping finalmask
-✓ firewall presets are per-link and do not persist into panel settings
-✓ v6: 2606:4700 endpoints are recognized CF IPs
-✓ v6: defaults include IPv6 endpoints
-✓ v6: sub emits bracketed IPv6 endpoint link
-✓ svc: hosts cover ChatGPT, Claude, Gemini web + API and AI Studio
-✓ svc: 404 on an API root counts as reachable (open)
-✓ panel: v6 accepted hint + svc exit chip handler
-✓ src: mixed (default) keeps the owner IPs and the host anchor
-✓ src: qos drops non-Cloudflare IPs and bare domains
-✓ src: qos never empties the sub (list left intact when nothing is a CF IP)
-✓ src: host serves only the worker hostname
-✓ src: custom serves only ?addr=
-✓ panel: entry-source picker, note box and src= link param
-✓ latency: per-country P50/P95 sorted, dead IPs excluded
-✓ panel: latency card container + title + neighbor badge + svc note
-✓ panel: best-ms summary wired
-✓ panel: inline script still parses
-✓ neighbor: import ok with neighborIps
-✓ neighbor: flagged IP gets src=neighbor
-✓ neighbor: regular scanner IP keeps src=scanner
-✓ neighbor: crown badge wired in UI
-✓ stealth: one-time latch defaults panelPath=panel
-✓ stealth: explicit path respected
-✓ stealth: opting out stays off
-✓ panel: manual-add card wired
-✓ panel: inline script still parses (manual add)
-✓ panel path: settings PUT ok
-✓ panel path: / redirects transparently
-✓ panel path: /panel serves the real login
-✓ panel path: unknown path is ordinary 404
-✓ stealth: robots.txt quiet
-✓ stealth: reset to legacy open
-✓ manual: import ok
-✓ manual: src=manual stored
-✓ beta58: stealth on for routing tests
-✓ beta58: /?ips= hops to the real panel path
-✓ beta58: /?p= quick-login hops to /panel
-✓ beta58: plain / redirects transparently
-✓ beta58: panel entry nudges the repo pools
-✓ beta58: sub hit nudges the repo pools
-✓ beta58: stealth reset
-✓ beta58: ?ips= never auto-imports
-✓ beta59: free preset button wired
-✓ beta59: ECH field note on the toggle
-✓ beta59: inline script still parses
-✓ dns cache: roundtrip
-✓ dns cache: miss returns null
-✓ cooldown: attempts listed before
-✓ cooldown: relayAttempts still returns all (filtering happens at dial)
-✓ cooldown: relayCool flags the failed one
-✓ cooldown: direct dial never cools
-✓ cooldown: socks relays cool too
-✓ t.me socks: plain link parses
-✓ t.me socks: auth link parses
-✓ sub query tolerates &amp; links (Telegram copy)
-✓ ext sub fetch sanitizes &amp;
-✓ generated TLS configs put the worker host into the sni param (Cloudflare answers 403 on a mismatch)
-✓ 30 addresses still yield plain-port entries (entry limit is shared between waves)
-✓ wave rotation keeps address diversity (>= 12 distinct addresses)
-✓ entry limit still respected with many addresses
-✓ owner IPs lead a sub that also carries free library IPs
-✓ free library IPs still appear, on :443, behind the owner
-✓ ?norepo=1 still drops the library IPs
-✓ edge-telemetry returns privacy-safe request.cf diagnostics
-✓ sub response emits ETag header
-✓ sub response returns 304 Not Modified on matching If-None-Match
-✓ ?portal=1 renders browser subscription portal with ISP presets and iOS CoreForge
-✓ /ios/dns.mobileconfig serves Apple DNS profile
-✓ /ios/pac serves iOS LAN PAC script
+  ✓ a root link hops to the panel path without the secret
+  ✓ a FAILED ?p= still redirects (302)
+  ✓ …to a URL with no secret in it
+  ✓ …carrying the stale flag instead
+  ✓ …and no session cookie is set
+  ✓ a correct ?p= sets the session cookie
+  ✓ …and redirects to a clean URL too
+  ✓ …keeping the params that are not secrets
+  ✓ the login page answers the stale flag
+  ✓ …without echoing the UUID into the page
+  ✓ on a fresh install admin bootstrap quick link still signs the owner in
+  ✓ …and the UUID does not stay in the URL
+  ✓ with no app report there is no version banner
+  ✓ a matching report shows no banner
+  ✓ …but it is remembered (av/pv in KV)
+  ✗ a skew renders the banner
+  ✓ …naming both versions
+  ✗ …and saying which side is older
+  ✓ …with dismiss text that is translated in both languages
+  ✗ …and the warning survives an open with no params at all (read back from KV)
+  ✓ a stranger never sees the banner
+  ✗ a newer app is reported as «panel is older»
+  ✗ junk version params are neutralised  → 200
+  ✓ …and cannot overwrite the last real report
+  ✓ …while still staying short
+  ✓ diag exposes the handshake
+  ✓ …and names the app version it saw
+  ✓ …with an explicit mismatch verdict
+  ✓ the UUID can be rotated while a password exists
+  ✓ the pre-rotation quick link is refused (and stripped)
 
-1 FAILED
-- 6.88.0 keeps a compiled panelPage shell and fills only host/uuid
+quick links & version handshake: 25 passed, 5 FAILED
+
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: 5 check(s) failed
+
+5 !== 0
+
+    at file:///home/runner/work/cat-client/cat-client/scripts/panels/quicklink-version.test.mjs:190:8 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 5,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.23.4
+```
+PASS chain-tunnel
+PASS sni-lab
+PASS builder-link-repro
+PASS devcop-parity
+PASS bestping-custom
