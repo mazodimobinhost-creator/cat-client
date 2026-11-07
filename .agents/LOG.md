@@ -146,3 +146,4 @@
 - Proton: official page WebView + `.conf` intercept/paste → `wireguard://` by country (vanilla WG, not AWG junk).
 - Amnezia: hub entry to existing import.
 - Local: harness Beta254 + Beta252 + Beta251 + Beta249; syntax; codemap.
+- CI: `c48ea7b` push run 42353622380 ✅ + all PR twins ✅; release v1.10.0-beta254 prerelease 20 assets.
