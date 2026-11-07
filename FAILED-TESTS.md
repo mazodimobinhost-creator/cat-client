@@ -1,4 +1,4 @@
-# Android failure report (8b6bed8)
+# Android failure report (f273edf)
 
     - java.lang.AssertionError" type="java.lang.AssertionError">java.lang.AssertionError
 
@@ -30,43 +30,43 @@
 # Subtest: the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)
 ok 6 - the free clean-IP library / ProxyIP feeds never reach a node sub (CI with network: 32 lines)
   ---
-  duration_ms: 1.966685
+  duration_ms: 1.589809
   type: 'test'
   ...
 # Subtest: a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node
 ok 7 - a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node
   ---
-  duration_ms: 1.373371
+  duration_ms: 1.336506
   type: 'test'
   ...
 # Subtest: no exits typed → no built-in default ProxyIP lines on a node
 ok 8 - no exits typed → no built-in default ProxyIP lines on a node
   ---
-  duration_ms: 0.52423
+  duration_ms: 0.532854
   type: 'test'
   ...
 # Subtest: data plane on a node: a pinned 🎯 ProxyIP carries the Cloudflare-hosted names, other sites go direct
 ok 9 - data plane on a node: a pinned 🎯 ProxyIP carries the Cloudflare-hosted names, other sites go direct
   ---
-  duration_ms: 1.873003
+  duration_ms: 1.886966
   type: 'test'
   ...
 # Subtest: panel page on a node: «server IPs» view present, body marked node (Clean IP no longer blank)
 ok 10 - panel page on a node: «server IPs» view present, body marked node (Clean IP no longer blank)
   ---
-  duration_ms: 6.596555
+  duration_ms: 5.599909
   type: 'test'
   ...
 # Subtest: rendered page: node CSS shows the server-IP view and Locations (Vercel still hides Locations)
 ok 11 - rendered page: node CSS shows the server-IP view and Locations (Vercel still hides Locations)
   ---
-  duration_ms: 10.875917
+  duration_ms: 9.565995
   type: 'test'
   ...
 # Subtest: /api/node/ips: each typed IP comes back ✅/❌ with its test result; the page has the per-host capability list + save & test
 ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; the page has the per-host capability list + save & test
   ---
-  duration_ms: 48.731987
+  duration_ms: 45.719715
   type: 'test'
   ...
 1..12
@@ -77,7 +77,7 @@ ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; th
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 6206.029622
+# duration_ms 6195.229501
 ✓ ClientHello SNI parser: a real hello → its SNI
 ✓ ClientHello SNI parser: half a hello → «wait for more» (null), HTTP → null
 ✓ X25519 pair in Xray text form (43 base64url chars each) + 8-hex shortId
@@ -105,7 +105,7 @@ ok 12 - /api/node/ips: each typed IP comes back ✅/❌ with its test result; th
 ✓ Reality off → status off and the lines (Reality + SS-2022) leave the sub
 
 ALL PASSED
-(node:3791) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3764) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -118,7 +118,7 @@ tunnel grain tests passed
 
 SNI Lab — live SNI testing (panel 6.67.4)
 
-(node:3798) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
+(node:3771) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/cat-client/cat-client/app/src/main/assets/panels/catclient.worker.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/cat-client/cat-client/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -252,35 +252,9 @@ w: file:///home/runner/work/cat-client/cat-client/app/src/main/java/com/cat/clie
 > Task :app:bundleDebugClassesToCompileJar
 > Task :app:compileDebugUnitTestKotlin
 
-BUILD SUCCESSFUL in 2m 48s
+BUILD SUCCESSFUL in 2m 29s
 19 actionable tasks: 19 executed
 ### build-log.txt
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
-C/C++:       |                                              ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: 12 warnings generated.
-C/C++: In file included from /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/desync.c:30:
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
-C/C++:       |                                              ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
-C/C++:       |                                            ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
-C/C++:       |                                              ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
-C/C++:       |                                            ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
-C/C++:       |                                              ^
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
-C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
@@ -293,6 +267,32 @@ C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
 C/C++:       |                                              ^
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
 C/C++: 17 warnings generated.
+C/C++: In file included from /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/extend.c:20:
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/extend.c:512:54: warning: format specifies type 'ssize_t' (aka 'long') but the argument has type 'int' [-Wformat]
+C/C++:   512 |             LOG(LOG_E, "invalid record size: %zd\n", val->tls_rec_size);
+C/C++:       |                                              ~~~     ^~~~~~~~~~~~~~~~~
+C/C++:       |                                              %d
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:48: note: expanded from macro 'LOG'
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                         ~~~    ^~~~~~~~~~~
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                            ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:44: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++:    65 |         __android_log_print(s, "proxy", str, ##__VA_ARGS__)
+C/C++:       |                                              ^
+C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/error.h:65:46: warning: token pasting of ',' and __VA_ARGS__ is a GNU extension [-Wgnu-zero-variadic-macro-arguments]
+C/C++: 12 warnings generated.
 C/C++: /home/runner/work/cat-client/cat-client/app/src/main/cpp/byedpi/packets.c:48:35: warning: unknown attribute 'nonstring' ignored [-Wunknown-attributes]
 C/C++:    48 | char http_data[43] __attribute__((nonstring)) = {
 C/C++:       |                                   ^~~~~~~~~
@@ -373,7 +373,7 @@ C/C++: 23 warnings generated.
 > Task :app:createDebugApkListingFileRedirect
 > Task :app:assembleDebug
 
-BUILD SUCCESSFUL in 1m
+BUILD SUCCESSFUL in 56s
 46 actionable tasks: 29 executed, 17 up-to-date
 ### unit-test.log
 > Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
@@ -408,7 +408,7 @@ BUILD SUCCESSFUL in 1m
 > Task :app:testDebugUnitTest
 
 Beta267CatConnectKitTest > pairingCodeShapeAndHttpsOrigin FAILED
-    java.lang.AssertionError at Beta267CatConnectKitTest.kt:97
+    java.lang.AssertionError at Beta267CatConnectKitTest.kt:109
 
 823 tests completed, 1 failed
 
@@ -423,5 +423,5 @@ Execution failed for task ':app:testDebugUnitTest'.
 * Try:
 > Run with --scan to get full insights.
 
-BUILD FAILED in 12s
+BUILD FAILED in 10s
 24 actionable tasks: 4 executed, 20 up-to-date
