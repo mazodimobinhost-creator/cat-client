@@ -201,5 +201,6 @@ internal object CatGpEngine {
         return CatGpScripts.fill(template, key(c), workerUrl)
     }
 
-    fun hopCandidates(panels: List<Pair<String, String>>): List<String> = CatGpScripts.hopCandidates(panels)
+    fun hopCandidates(c: Context, panels: List<Pair<String, String>>): List<String> =
+        CatGpScripts.hopCandidates(panels, key(c))
 }

@@ -797,7 +797,8 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.83.0', T.CAT_PANEL_VERSION === '6.83.0');
+  check('panel version is 6.84.0', T.CAT_PANEL_VERSION === '6.84.0');
+  // 6.84.0 🌐 Cat GP hop: /gp/<uuid>/<key> + POST q.k (UUID leak cannot fetch)
   // 6.83.0 🌍 panel region (Cloudflare placement) + clean domains in the library feed
   check('placement: smart / off / provider:region normalised, unknown refused', T.normalizePlacement('Smart') === 'smart' && T.normalizePlacement('off') === 'off' && T.normalizePlacement('AWS:eu-central-1') === 'aws:eu-central-1' && T.normalizePlacement('gcp:mars-1') === '' && T.normalizePlacement('x:y') === '' && T.normalizePlacement('') === '');
   check('placement metadata: {mode:smart} / {region} / none for default', JSON.stringify(T.placementMeta('smart')) === '{"mode":"smart"}' && JSON.stringify(T.placementMeta('azure:westeurope')) === '{"region":"azure:westeurope"}' && T.placementMeta('off') === null && T.placementMeta('junk') === null);

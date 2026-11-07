@@ -92,10 +92,33 @@ class Beta249CatGpTest {
         val uuid = "41111111-2222-4333-8444-555555555555"
         assertEquals("const CAT_KEY = \"a\\\"b\";\nconst CAT_WORKER = \"https://p.example.workers.dev/gp/$uuid\";",
             CatGpScripts.fill(tpl, "a\"b", "https://p.example.workers.dev/gp/$uuid"))
-        // Anything that is not a /gp/<uuid> address is never written into the script.
+        assertEquals("const CAT_KEY = \"toktoktoktoktok1\";\nconst CAT_WORKER = \"https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1\";",
+            CatGpScripts.fill(tpl, "toktoktoktoktok1", "https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1"))
+        // Anything that is not a /gp/<uuid>[/<key>] address is never written into the script.
         assertTrue(CatGpScripts.fill(tpl, "k", "javascript:alert(1)").endsWith("CAT_WORKER = \"\";"))
         assertEquals(listOf("https://p.example.workers.dev/gp/$uuid"),
             CatGpScripts.hopCandidates(listOf("https://p.example.workers.dev" to uuid.uppercase(), "https://x.vercel.app" to uuid)))
+        assertEquals(listOf("https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1"),
+            CatGpScripts.hopCandidates(listOf("https://p.example.workers.dev" to uuid.uppercase(), "https://x.vercel.app" to uuid), "toktoktoktoktok1"))
+    }
+
+    @Test fun gunzipCapsStackedLayers() {
+        fun gz(data: ByteArray): ByteArray {
+            val o = ByteArrayOutputStream()
+            GZIPOutputStream(o).use { it.write(data) }
+            return o.toByteArray()
+        }
+        var x = "hello".toByteArray()
+        repeat(3) { x = gz(x) }
+        assertEquals("hello", String(CatGpCodec.gunzip(x)))
+        var bomb = "x".toByteArray()
+        repeat(CatGpCodec.MAX_GZIP_LAYERS + 1) { bomb = gz(bomb) }
+        try {
+            CatGpCodec.gunzip(bomb)
+            fail()
+        } catch (e: IOException) {
+            assertTrue(e.message!!, e.message!!.contains("gzip"))
+        }
     }
 
     @Test fun caAndLeafAreRealCertificatesThatValidate() {

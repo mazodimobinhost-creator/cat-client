@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4016 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1389 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 895 | beta247 🎁 free networks (UI): 🆓 Cat Free Proxy · 🎫 50 GB free account · 🏮 Cat Fanoos (experimental). | 10 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 901 | beta247 🎁 free networks (UI): 🆓 Cat Free Proxy · 🎫 50 GB free account · 🏮 Cat Fanoos (experimental). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 896 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 519 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -299,8 +299,8 @@
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
 | `CatBranding.kt` | 42 | beta207: only Cat's own names on screen. | Beta206EngineTest · — |
 | `CatClientApplication.kt` | 87 | — | — · — |
-| `CatGpEngine.kt` | 205 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | — · — |
-| `CatGpRelay.kt` | 791 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest · — |
+| `CatGpEngine.kt` | 206 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | — · — |
+| `CatGpRelay.kt` | 826 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
@@ -321,7 +321,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_263 Kotlin files, 113358 lines._
+_263 Kotlin files, 113400 lines._
 
 ## MainActivity screens — function index
 
@@ -382,7 +382,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (22 functions)
 
-`freeFa`:30, `freeButton`:32, `freeText`:53, `freeBox`:62, `freeLp`:67, `withPhysicalNet`:70, `showFreeNetworksHub`:82, `freeProgress`:131, `saveFreeSubscription`:156, `connectFreeSubscription`:166, `freeResult`:200, `showFreeProxyDialog`:218, `buildFreeProxy`:239, `showFanoosDialog`:279, `fetchFanoos`:326, `fetchFanoosAll`:383, `showFreeAccountDialog`:518, `showProtonDialog`:663, `showProtonPaste`:685, `showProtonWebView`:709, `addProtonConfs`:828, `jsString`:895
+`freeFa`:30, `freeButton`:32, `freeText`:53, `freeBox`:62, `freeLp`:67, `withPhysicalNet`:70, `showFreeNetworksHub`:82, `freeProgress`:137, `saveFreeSubscription`:162, `connectFreeSubscription`:172, `freeResult`:206, `showFreeProxyDialog`:224, `buildFreeProxy`:245, `showFanoosDialog`:285, `fetchFanoos`:332, `fetchFanoosAll`:389, `showFreeAccountDialog`:524, `showProtonDialog`:669, `showProtonPaste`:691, `showProtonWebView`:715, `addProtonConfs`:834, `jsString`:901
 
 ### `MainActivityGuides.kt` (9 functions)
 

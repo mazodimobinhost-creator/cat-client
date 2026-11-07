@@ -67,8 +67,8 @@ internal fun MainActivity.showCatGpDialog() {
     }
     val (used, limit) = VpnRuntimeStateStore.readGasDailyUsage(this)
     box.addView(gpText(t(
-        "اینو بزنی: ترافیک مرورگر از راه «اسکریپت شخصی خودتان در گوگل» رد می‌شود؛ اپراتور فقط اتصال به گوگل را می‌بیند. برای وقتی که همه‌چیز جز گوگل بسته است. رایگان است و سرور نمی‌خواهد، فقط یک حساب گوگل.",
-        "Tap: browser traffic goes through YOUR OWN script on Google; the operator only sees a connection to Google. For when everything except Google is blocked. Free, no server — just a Google account.",
+        "اینو بزنی: ترافیک مرورگر از راه «اسکریپت شخصی خودتان در گوگل» رد می‌شود؛ اپراتور فقط اتصال به گوگل را می‌بیند. برای وقتی که همه‌چیز جز گوگل بسته است. رایگان است و سرور نمی‌خواهد، فقط یک حساب گوگل. ورکر پنل فقط با کلید مشترک جواب می‌دهد؛ بدون کلید حتی با دانستن UUID چیزی واکشی نمی‌شود — بعد از این نسخه Code.gs را دوباره کپی کنید.",
+        "Tap: browser traffic goes through YOUR OWN script on Google; the operator only sees a connection to Google. For when everything except Google is blocked. Free, no server — just a Google account. The panel hop only answers with the shared key; a leaked UUID alone cannot fetch — recopy Code.gs after this version.",
     ), 12.5f, TEXT_PRIMARY))
     val status = gpText("", 12f)
     fun refreshStatus(extra: String = "") {
@@ -87,7 +87,7 @@ internal fun MainActivity.showCatGpDialog() {
     // Step 1 — the script
     box.addView(gpText(t("۱) اسکریپت", "1) The script"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     val panels = runCatching { VercelRoutePlanner.panelsFromSubscriptions(userSubscriptionManager.list().map { it.input }) }.getOrDefault(emptyList())
-    val hops = CatGpEngine.hopCandidates(panels)
+    val hops = CatGpEngine.hopCandidates(this, panels)
     val hopBox = CheckBox(this).apply {
         text = t("خروج از Cloudflare با پنل Cat خودتان (اختیاری)", "Exit through your own Cat panel on Cloudflare (optional)")
         setTextColor(TEXT_PRIMARY)
@@ -95,8 +95,8 @@ internal fun MainActivity.showCatGpDialog() {
     }
     box.addView(hopBox, gpLp(4))
     if (hops.isNotEmpty()) box.addView(gpText(t(
-        "اگر تیک بزنید سایت‌ها آی‌پی Cloudflare را می‌بینند نه گوگل (کپچای کمتر). پنل باید نسخهٔ 6.82.2 یا جدیدتر باشد؛ برنامه قبل از کپی بررسی می‌کند.",
-        "Ticked: sites see a Cloudflare IP instead of Google's (fewer captchas). The panel must be 6.82.2+; the app checks before copying.",
+        "اگر تیک بزنید سایت‌ها آی‌پی Cloudflare را می‌بینند نه گوگل (کپچای کمتر). پنل باید نسخهٔ 6.84.0 یا جدیدتر باشد (کلید مشترک روی /gp)؛ برنامه قبل از کپی بررسی می‌کند.",
+        "Ticked: sites see a Cloudflare IP instead of Google's (fewer captchas). The panel must be 6.84.0+ (shared key on /gp); the app checks before copying.",
     ), 11.5f), gpLp(2))
     box.addView(gpButton(t("📋 کپی کد اسکریپت (Code.gs)", "📋 Copy the script (Code.gs)"), accent = false) {
         activityScope.launch {
@@ -108,8 +108,8 @@ internal fun MainActivity.showCatGpDialog() {
                     }.orEmpty()
                 }
                 if (hop.isBlank()) {
-                    Toast.makeText(ctx, t("پنل شما /gp ندارد (قدیمی است). پنل را به 6.82.2 به‌روز کنید؛ فعلاً کد بدون Cloudflare کپی شد.",
-                        "Your panel has no /gp (old version). Update it to 6.82.2; the script was copied without Cloudflare for now."), Toast.LENGTH_LONG).show()
+                    Toast.makeText(ctx, t("پنل شما /gp با کلید ندارد (قدیمی است). پنل را به 6.84.0 به‌روز کنید؛ فعلاً کد بدون Cloudflare کپی شد.",
+                        "Your panel has no keyed /gp (old version). Update it to 6.84.0; the script was copied without Cloudflare for now."), Toast.LENGTH_LONG).show()
                 }
             }
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -176,7 +176,7 @@ internal fun MainActivity.showCatGpDialog() {
     ), 11.5f, TEXT_SECONDARY), gpLp(14))
 
     MaterialAlertDialogBuilder(this)
-        .setTitle(t("🌐 Cat GP — رلهٔ شخصی گوگل", "🌐 Cat GP — personal Google relay"))
+        .setTitle(t("🌐 Cat GP — رلهٔ شخصی گوگل (کلید مشترک)", "🌐 Cat GP — personal Google relay (shared key)"))
         .setView(ScrollView(this).apply { addView(box) })
         .setNegativeButton(t("بستن", "Close"), null)
         .setPositiveButton(t("🚀 ذخیره و اتصال", "🚀 Save & connect")) { _, _ ->

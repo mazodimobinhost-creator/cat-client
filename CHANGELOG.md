@@ -4,6 +4,19 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta256] — 2026-11-07 (Panel 6.84.0)
+
+Owner: Aras-GP 2.3.1 (GAS↔Worker shared-secret) was not in the app.
+
+### Added
+- **🌐 Cat GP hop auth (panel 6.84.0).** `/gp/<uuid>/<key>` + POST `q.k` must match the path key (length ≥ 16). The first accepted key is stored in KV so a leaked UUID cannot fetch; inventing a different path key does not open a parallel hop. GET without a key looks empty. GAS `Code.gs` always forwards `k`. Stacked gzip is capped at 8 layers. Cat GP is in 🎁 free networks as well as the emergency tab.
+
+### Changed
+- Recopy Code.gs after this version if the Cloudflare hop is ticked. Independent Cat branding — nothing from another project's `panel/` is used.
+
+### Tests
+- `cat-gp-hop.test.mjs`, `cat-gp-codegs.test.mjs`, `Beta249CatGpTest` (keyed hop + gzip cap).
+
 ## [1.10.0-beta255] — 2026-11-07 (Panel 6.83.0, unchanged)
 
 Owner: check Aether, Psiphon, the app and the panel; update anything new; look for bugs.

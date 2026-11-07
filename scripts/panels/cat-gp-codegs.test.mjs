@@ -4,7 +4,7 @@
  *   - request → UrlFetchApp with the right method, headers (proxy / host dropped), body bytes, no auto-redirects;
  *   - answer → {s, h, b(base64)} exactly as the Cat app's codec reads it;
  *   - HEAD-less methods refused clearly; a refused header is retried with the plain ones;
- *   - with CAT_WORKER set, the request goes to the panel's /gp hop (real worker) and its answer is passed back.
+ *   - with CAT_WORKER set, the request goes to the panel's /gp hop with k and its answer is passed back.
  * Usage: node scripts/panels/cat-gp-codegs.test.mjs
  */
 import fs from 'node:fs';
@@ -17,6 +17,8 @@ let failures = 0;
 function check(name, cond, extra) { if (cond) console.log('✓ ' + name); else { failures++; console.error('✗ ' + name + (extra ? ' — ' + extra : '')); } }
 
 check('template has exactly the two placeholders', (tpl.match(/__CAT_KEY__/g) || []).length === 1 && (tpl.match(/__CAT_WORKER__/g) || []).length === 1);
+check('script forwards k to the worker hop', /k:\s*CAT_KEY/.test(tpl) && /CAT_WORKER/.test(tpl));
+check('script does not echo the worker body on a bad hop answer', /worker HTTP/.test(tpl) && !/t\.slice/.test(tpl));
 
 function load(key, worker, fetchImpl) {
   const fetches = [];
@@ -41,6 +43,7 @@ const resp = (code, headers, bytes) => ({ getResponseCode: () => code, getAllHea
   check('wrong key refused', post({ k: 'nope', u: 'https://x.example/', m: 'GET' }).e === 'unauthorized' && fetches.length === 0);
   check('missing key refused', post({ u: 'https://x.example/' }).e === 'unauthorized' && fetches.length === 0);
   check('non-http URL refused', post({ k: 'sekret', u: 'file:///x' }).e === 'bad url' && fetches.length === 0);
+  check('non-string URL refused', post({ k: 'sekret', u: { href: 'https://x.example/' } }).e === 'bad url' && fetches.length === 0);
   check('method UrlFetchApp lacks → clear error', /not supported/.test(post({ k: 'sekret', u: 'https://x.example/', m: 'OPTIONS' }).e) && fetches.length === 0);
   const r = post({ k: 'sekret', u: 'https://x.example/p?q=1', m: 'POST', h: { Host: 'evil', 'Proxy-Authorization': 'x', 'Proxy-Foo': 'y', Accept: 'a/b', Cookie: 'c=1' }, b: Buffer.from([0, 200, 65]).toString('base64'), ct: 'application/octet-stream', r: false });
   const f = fetches[0];
@@ -58,9 +61,10 @@ const resp = (code, headers, bytes) => ({ getResponseCode: () => code, getAllHea
   check('other fetch errors become {e}', /Address unavailable/.test(post2({ k: 'k', u: 'https://x.example/' }).e));
 }
 {
-  // Worker hop: the script hands the request to the REAL worker's /gp/<uuid> and returns its answer unchanged.
+  // Worker hop: the script hands the request to the REAL worker's /gp/<uuid>/<key> (with k) and returns its answer unchanged.
   const UUID = '41111111-2222-4333-8444-555555555555';
-  const HOP = 'https://cat-gp.example.workers.dev/gp/' + UUID;
+  const KEY = 'codegsHopSecretToken12';
+  const HOP = 'https://cat-gp.example.workers.dev/gp/' + UUID + '/' + KEY;
   globalThis.fetch = async (u, init = {}) => new Response('site:' + (init.method || 'GET'), { status: 200, headers: { 'content-type': 'text/plain' } });
   const workerPath = process.env.CAT_PANEL_WORKER || path.join(here, '../../app/src/main/assets/panels/catclient.worker.js');
   const worker = (await import(workerPath)).default;
@@ -68,16 +72,16 @@ const resp = (code, headers, bytes) => ({ getResponseCode: () => code, getAllHea
   const env = { CAT_KV: new FakeKV(), UUID };
   // UrlFetchApp is synchronous; run the worker first and replay its answer.
   let hopBody = null;
-  const { fetches, post } = load('k', HOP, (url, opt) => { hopBody = opt.payload; return { getResponseCode: () => 200, getContentText: () => pending } });
+  const { fetches, post } = load(KEY, HOP, (url, opt) => { hopBody = opt.payload; return { getResponseCode: () => 200, getContentText: () => pending } });
   let pending = '';
   // First pass captures the payload the script sends to the hop.
-  post({ k: 'k', u: 'https://site.example/a', m: 'GET', h: { Accept: 'x/y' } });
+  post({ k: KEY, u: 'https://site.example/a', m: 'GET', h: { Accept: 'x/y' } });
   check('script posts to the hop address', fetches.length === 1 && fetches[0].url === HOP && fetches[0].opt.method === 'post');
   const sent = JSON.parse(hopBody);
-  check('hop payload carries u / m / h but not the script key', sent.u === 'https://site.example/a' && sent.m === 'GET' && sent.h.Accept === 'x/y' && !('k' in sent));
+  check('hop payload carries u / m / h and the script key', sent.u === 'https://site.example/a' && sent.m === 'GET' && sent.h.Accept === 'x/y' && sent.k === KEY, JSON.stringify(sent));
   const wr = await worker.fetch(new Request(HOP, { method: 'POST', body: hopBody, headers: { 'content-type': 'application/json' } }), env, { waitUntil() {} });
   pending = await wr.text();
-  const r = post({ k: 'k', u: 'https://site.example/a', m: 'GET', h: { Accept: 'x/y' } });
+  const r = post({ k: KEY, u: 'https://site.example/a', m: 'GET', h: { Accept: 'x/y' } });
   check('worker answer passes back as {s,h,b}', r.s === 200 && Buffer.from(r.b, 'base64').toString() === 'site:GET', JSON.stringify(r).slice(0, 160));
 }
 if (failures) { console.error(failures + ' failure(s)'); process.exit(1); }

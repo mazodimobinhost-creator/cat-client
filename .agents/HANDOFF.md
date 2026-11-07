@@ -10,6 +10,11 @@ Read `docs/COLLABORATION.md` first. Add the newest entry at the top. One entry p
 - Open / next owner: …
 ```
 
+## beta256 / Panel 6.84.0 — 2026-11-07
+- Owner pasted Aras-GP v2.3.1 (GAS↔Worker shared-secret). Cat GP already existed (beta249) but the hop was UUID-only.
+- **Hop auth (independent, no `panel/` copy):** `/gp/<uuid>/<key>` + POST `q.k` must match (len ≥ 16). First accepted key stored in KV `cat:v6:gp-key` so a leaked UUID cannot fetch. GET without key looks empty. GAS `Code.gs` always sends `k`. Gzip cap 8 layers. Cat GP in 🎁 free networks.
+- Recopy Code.gs after this version if the Cloudflare hop is ticked.
+
 ## beta255 / Panel 6.83.0 — 2026-11-07
 - Audit: Aether 2.4.0 (WhiteAestherMobile v1.15.0) is current — v1.15.1 is their Worker/proxy UI, Cat already has those. Psiphon Android lib 2.0.42 is current. Mihomo stays v1.19.30 (FlClash patches; upstream v1.19.33 not rebased).
 - **Xray-core v26.10.31** (`a4a3dff`) security: MPTCP off. App pin + node Reality download. SOCKS/Reality/SS inbounds `tcpMptcp: false`, listen 127.0.0.1.

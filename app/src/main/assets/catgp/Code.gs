@@ -5,15 +5,18 @@
  * 2) Deploy → New deployment → ⚙ Web app → Execute as: Me → Who has access: Anyone → Deploy → allow access.
  * 3) Copy the "Web app" address (…/exec) back into Cat Client.
  * Keep CAT_KEY secret: whoever has it can use your daily Google quota (~20 000 requests).
+ * If CAT_WORKER is set, the same key is sent with every hop so a leaked panel UUID cannot fetch.
  * After editing this file: Deploy → Manage deployments → ✏ → Version: New version (the address stays the same).
  */
 const CAT_KEY = __CAT_KEY__;
-// Optional: your Cat panel's /gp/<uuid> address → sites see a Cloudflare exit instead of Google.
+// Optional: your Cat panel's /gp/<uuid>/<key> address → sites see a Cloudflare exit instead of Google.
 const CAT_WORKER = __CAT_WORKER__;
 
 const SKIP = { host: 1, connection: 1, "content-length": 1, "transfer-encoding": 1, "proxy-connection": 1,
-  "proxy-authorization": 1, "accept-encoding": 1, te: 1, upgrade: 1, "keep-alive": 1 };
+  "proxy-authorization": 1, "accept-encoding": 1, te: 1, upgrade: 1, "keep-alive": 1, trailer: 1,
+  "cf-connecting-ip": 1, "cf-ipcountry": 1, "x-forwarded-for": 1, "x-forwarded-proto": 1, "x-real-ip": 1, forwarded: 1 };
 const METHODS = { GET: "get", POST: "post", PUT: "put", DELETE: "delete", PATCH: "patch" };
+const MAX_B64 = 8 * 1024 * 1024;
 
 function doPost(e) {
   var q;
@@ -23,18 +26,20 @@ function doPost(e) {
 }
 
 function relayOne(q) {
-  var url = String(q.u || "");
-  if (!/^https?:\/\//i.test(url)) return { e: "bad url" };
+  if (typeof q.u !== "string") return { e: "bad url" };
+  var url = q.u;
+  if (!/^https?:\/\//i.test(url) || url.length > 4096) return { e: "bad url" };
   var method = METHODS[String(q.m || "GET").toUpperCase()];
   if (!method) return { e: "method not supported by Apps Script: " + q.m };
+  if (typeof q.b === "string" && q.b.length > MAX_B64) return { e: "too large" };
   var headers = {};
   var h = q.h || {};
-  for (var k in h) if (!SKIP[k.toLowerCase()] && k.toLowerCase().indexOf("proxy-") !== 0) headers[k] = String(h[k]);
+  for (var k in h) if (!SKIP[k.toLowerCase()] && k.toLowerCase().indexOf("proxy-") !== 0 && k.toLowerCase().indexOf("cf-") !== 0) headers[k] = String(h[k]);
   if (CAT_WORKER) {
     var w = UrlFetchApp.fetch(CAT_WORKER, { method: "post", contentType: "application/json", muteHttpExceptions: true,
-      payload: JSON.stringify({ u: url, m: method.toUpperCase(), h: headers, b: q.b || "", ct: q.ct || "", r: q.r === true }) });
+      payload: JSON.stringify({ k: CAT_KEY, u: url, m: method.toUpperCase(), h: headers, b: q.b || "", ct: q.ct || "", r: q.r === true }) });
     var t = w.getContentText();
-    try { return JSON.parse(t); } catch (err) { return { e: "worker HTTP " + w.getResponseCode() + ": " + t.slice(0, 120) }; }
+    try { return JSON.parse(t); } catch (err) { return { e: "worker HTTP " + w.getResponseCode() }; }
   }
   var opt = { method: method, headers: headers, muteHttpExceptions: true, followRedirects: q.r === true, validateHttpsCertificates: true };
   if (q.b) { opt.payload = Utilities.base64Decode(q.b); if (q.ct) opt.contentType = q.ct; }

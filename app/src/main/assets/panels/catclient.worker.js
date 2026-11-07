@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.83.0';
+const CAT_PANEL_VERSION = '6.84.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -779,26 +779,50 @@ async function vercelApiRelay(request, url, masterUuid, env) {
 }
 
 /**
- * 6.82.2 🌐 Cat GP second hop. The user's own Google Apps Script (the app's Code.gs) can send each request here
+ * 6.84.0 🌐 Cat GP second hop. The user's own Google Apps Script (the app's Code.gs) can send each request here
  * instead of fetching it itself, so sites see a Cloudflare exit instead of a Google one. Same wire format as the
- * script: POST {u, m, h, b(base64), ct} → {s, h, b(base64)} | {e}. Only the panel owner or an enabled user may use
- * it (UUID in the path); no bare IPs (Workers cannot fetch them), never this panel itself, no relay loops, 25 MB cap.
+ * script: POST {k, u, m, h, b(base64), ct} → {s, h, b(base64)} | {e}.
+ * Auth: path is /gp/<uuid>/<key>. UUID must be the owner or an enabled user. POST q.k must equal the path key
+ * (length ≥ 16). The first accepted key is stored in KV (`cat:v6:gp-key`); later POSTs must match it, so a leaked
+ * UUID without the key cannot fetch — inventing a different path key does not open a parallel hop. env CAT_GP_KEY
+ * (if set) is the only accepted key. GET without a key looks empty. No bare IPs, never this panel itself, no
+ * relay loops, 8 MB request / 25 MB response cap.
  */
 async function catGpHop(request, url, masterUuid, env) {
   const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-cat-gp': '1' } });
-  const key = url.pathname.slice(4).replace(/\/+$/, '').toLowerCase();
-  if (!key || !masterUuid || !isUuid(key)) return text('not found', 404);
-  if (key !== String(masterUuid).toLowerCase()) {
+  const rest = url.pathname.replace(/^\/gp\/?/, '').replace(/\/+$/, '');
+  const slash = rest.indexOf('/');
+  const id = (slash < 0 ? rest : rest.slice(0, slash)).toLowerCase();
+  const hopKey = slash < 0 ? '' : rest.slice(slash + 1);
+  if (!id || !masterUuid || !isUuid(id) || hopKey.includes('/')) return text('not found', 404);
+  if (id !== String(masterUuid).toLowerCase()) {
     const users = env ? await readUsers(env).catch(() => []) : [];
-    if (!users.some((u) => u.id === key && u.enabled !== false)) return text('not found', 404);
+    if (!users.some((u) => u.id === id && u.enabled !== false)) return text('not found', 404);
   }
-  if (request.method === 'GET') return json({ ok: true, relay: 'cat-gp-hop' });
+  const kv = env ? kvBinding(env) : null;
+  const envKey = String((env && (env.CAT_GP_KEY || env.CATGP_KEY)) || '').trim();
+  let stored = envKey;
+  if (!stored && kv) stored = String(await kv.get('cat:v6:gp-key') || '').trim();
+  if (request.method === 'GET') {
+    if (!hopKey) return new Response('', { status: 200, headers: { 'cache-control': 'no-store' } });
+    if (stored && hopKey !== stored) return new Response('', { status: 200, headers: { 'cache-control': 'no-store' } });
+    return json({ ok: true, relay: 'cat-gp-hop' });
+  }
   if (request.method !== 'POST') return text('method not allowed', 405);
   if (request.headers.get('x-cat-gp-hop')) return json({ e: 'relay loop' });
+  const cl = Number(request.headers.get('content-length') || 0);
+  if (cl > 8 * 1024 * 1024) return json({ e: 'too large' }, 413);
   let q;
   try { q = await request.json(); } catch (e) { return json({ e: 'bad request' }); }
+  if (typeof (q && q.u) !== 'string') return json({ e: 'bad url' });
+  if (!hopKey || typeof (q && q.k) !== 'string' || q.k !== hopKey || hopKey.length < 16) return json({ e: 'unauthorized' }, 403);
+  if (stored) {
+    if (q.k !== stored) return json({ e: 'unauthorized' }, 403);
+  } else if (kv) {
+    await kv.put('cat:v6:gp-key', hopKey);
+  }
   let target;
-  try { target = new URL(String((q && q.u) || '')); } catch (e) { return json({ e: 'bad url' }); }
+  try { target = new URL(q.u); } catch (e) { return json({ e: 'bad url' }); }
   if (!/^https?:$/.test(target.protocol)) return json({ e: 'bad url' });
   const host = target.hostname.toLowerCase();
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':') || host.startsWith('[')) return json({ e: 'bare IP addresses cannot be fetched from Cloudflare' });
@@ -806,12 +830,13 @@ async function catGpHop(request, url, masterUuid, env) {
   const m = String((q && q.m) || 'GET').toUpperCase();
   if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'].includes(m)) return json({ e: 'method not supported' });
   const h = new Headers();
-  const skip = /^(host|connection|content-length|transfer-encoding|keep-alive|te|trailer|upgrade|accept-encoding|proxy-.*|cf-.*|x-forwarded-.*|x-real-ip|forwarded)$/i;
+  const skip = /^(host|connection|content-length|transfer-encoding|keep-alive|te|trailer|upgrade|accept-encoding|proxy-.*|cf-.*|x-forwarded-.*|x-real-ip|forwarded|via)$/i;
   for (const [k, v] of Object.entries((q && q.h) || {})) if (!skip.test(k)) { try { h.set(k, String(v)); } catch (e) { /* invalid header */ } }
   h.set('x-cat-gp-hop', '1');
   let body;
   if (q.b && m !== 'GET' && m !== 'HEAD') {
     try { body = Uint8Array.from(atob(String(q.b)), (c) => c.charCodeAt(0)); } catch (e) { return json({ e: 'bad body' }); }
+    if (body.length > 8 * 1024 * 1024) return json({ e: 'too large' }, 413);
     if (q.ct) h.set('content-type', String(q.ct));
   }
   let r;
@@ -8865,7 +8890,7 @@ async function handleRequest(request, env, ctx) {
   if (path === '/app-icon.svg') return new Response(catLogo('a'), { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
   // 6.82.0 🔺 Vercel API relay (master or an enabled user's UUID in the path) for the app's «پنل روی Vercel» build when api.vercel.com is blocked on the phone's line.
   if (path.startsWith('/vrelay/')) return vercelApiRelay(request, url, await resolveUuid(url.hostname, env), env);
-  // 6.82.2 🌐 Cat GP: second hop for the user's own Apps Script relay (owner / enabled user UUID only).
+  // 6.82.2 🌐 Cat GP hop; 6.84.0: /gp/<uuid>/<key> + POST q.k (UUID leak cannot fetch).
   if (path.startsWith('/gp/')) return catGpHop(request, url, await resolveUuid(url.hostname, env), env);
   if (path.startsWith('/tg/') && request.method === 'POST') { const settings = await readSettings(env); return handleTelegramWebhook(request, url, env, settings, await resolveUuid(url.hostname, env)); }
   if (path === '/health' || path.startsWith('/api/')) {

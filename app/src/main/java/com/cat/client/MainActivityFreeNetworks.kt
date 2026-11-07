@@ -113,6 +113,12 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showProtonDialog() }
     entry(
+        t("🌐 Cat GP — رلهٔ شخصی گوگل", "🌐 Cat GP — personal Google relay"),
+        t("اینو بزنی: ترافیک مرورگر از اسکریپت خودتان روی گوگل رد می‌شود؛ اپراتور فقط گوگل را می‌بیند. ورکر پنل با کلید مشترک قفل است. رایگان، فقط حساب گوگل. محدودیت: مرورگر با گواهی کاربر؛ تلگرام/اینستاگرام نه.",
+            "Tap: browser traffic goes through YOUR script on Google; the operator only sees Google. The panel hop is locked with a shared key. Free, just a Google account. Limit: browsers that trust a user CA; not Telegram/Instagram."),
+        accent = false,
+    ) { showCatGpDialog() }
+    entry(
         t("🔐 Cat Amnezia (کلید خودت)", "🔐 Cat Amnezia (your own key)"),
         t("آمنزیا سرور ابری رایگان نمی‌دهد — سرور مال خودت است. اینو بزنی: کلید vpn:// یا فایل .conf را می‌چسبانی و Cat وصل می‌کند.",
             "Amnezia does not give a free cloud account — the server is yours. Tap: paste a vpn:// key or a .conf file and Cat connects."),

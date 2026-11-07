@@ -222,6 +222,37 @@ internal object CatGpCodec {
         return Reply(status, headers, body)
     }
 
+    const val MAX_GZIP_LAYERS = 8
+    const val MAX_DECODED_BYTES = 8 * 1024 * 1024
+
+    fun looksGzip(data: ByteArray): Boolean = data.size >= 2 && data[0] == 0x1f.toByte() && data[1] == 0x8b.toByte()
+
+    /** Peel gzip (and stacked gzip) up to [MAX_GZIP_LAYERS]; refuse a bomb. */
+    fun gunzip(data: ByteArray, encoding: String? = null): ByteArray {
+        var out = data
+        var layers = 0
+        val named = encoding?.split(',')?.count { it.trim().equals("gzip", ignoreCase = true) } ?: 0
+        if (named > MAX_GZIP_LAYERS) throw IOException("too many gzip layers")
+        while (layers < MAX_GZIP_LAYERS && looksGzip(out)) {
+            out = GZIPInputStream(out.inputStream()).use { ins ->
+                val buf = ByteArrayOutputStream()
+                val tmp = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val n = ins.read(tmp)
+                    if (n < 0) break
+                    total += n
+                    if (total > MAX_DECODED_BYTES) throw IOException("decompressed body larger than cap")
+                    buf.write(tmp, 0, n)
+                }
+                buf.toByteArray()
+            }
+            layers++
+        }
+        if (looksGzip(out)) throw IOException("too many gzip layers")
+        return out
+    }
+
     private val REASONS = mapOf(
         200 to "OK", 201 to "Created", 204 to "No Content", 206 to "Partial Content", 301 to "Moved Permanently", 302 to "Found",
         303 to "See Other", 304 to "Not Modified", 307 to "Temporary Redirect", 308 to "Permanent Redirect", 400 to "Bad Request",
@@ -570,7 +601,8 @@ internal class CatGpFronter(
         val status = head.firstLine.split(' ').getOrNull(1)?.toIntOrNull() ?: throw IOException("bad status line: ${head.firstLine.take(60)}")
         val keep = !head.header("connection").orEmpty().contains("close", ignoreCase = true)
         var data = CatGpCodec.readBody(c.input, head, untilClose = !keep && head.header("content-length") == null)
-        if (head.header("content-encoding")?.contains("gzip", ignoreCase = true) == true) data = GZIPInputStream(data.inputStream()).use { it.readBytes() }
+        val enc = head.header("content-encoding")
+        if (enc?.contains("gzip", ignoreCase = true) == true || CatGpCodec.looksGzip(data)) data = CatGpCodec.gunzip(data, enc)
         return Answer(status, head, data, keep)
     }
 
@@ -771,13 +803,16 @@ internal object CatGpScripts {
         Regex("""server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*$port\b""").containsMatchIn(yaml) ||
             Regex("""127\.0\.0\.1:$port\b""").containsMatchIn(yaml)
 
-    /** Cat panels (Cloudflare / own domain, not *.vercel.app) found in saved subscriptions → their /gp/<uuid> hop address. */
-    fun hopCandidates(panels: List<Pair<String, String>>): List<String> =
-        panels.filter { !it.first.contains(".vercel.app") }.map { (base, uuid) -> base.trimEnd('/') + "/gp/" + uuid.lowercase(Locale.US) }.distinct()
+    /** Cat panels (Cloudflare / own domain, not *.vercel.app) → /gp/<uuid>/<key> hop (key optional for tests). */
+    fun hopCandidates(panels: List<Pair<String, String>>, key: String = ""): List<String> =
+        panels.filter { !it.first.contains(".vercel.app") }.map { (base, uuid) ->
+            val u = base.trimEnd('/') + "/gp/" + uuid.lowercase(Locale.US)
+            if (key.isNotBlank()) "$u/$key" else u
+        }.distinct()
 
     /** Fills assets/catgp/Code.gs: the key and the optional worker hop become JS string literals. */
     fun fill(template: String, key: String, workerUrl: String): String {
-        val hop = workerUrl.trim().takeIf { it.matches(Regex("""https://[A-Za-z0-9.-]+/gp/[0-9a-f-]{36}""")) }.orEmpty()
+        val hop = workerUrl.trim().takeIf { it.matches(Regex("""https://[A-Za-z0-9.-]+/gp/[0-9a-f-]{36}(?:/[A-Za-z0-9_-]{8,64})?""")) }.orEmpty()
         return template.replace("__CAT_KEY__", CatGpJson.quote(key)).replace("__CAT_WORKER__", CatGpJson.quote(hop))
     }
 }
