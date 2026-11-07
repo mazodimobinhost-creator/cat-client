@@ -890,7 +890,8 @@ jobs:
           # Guards against shipping the ~1.9 MB obfuscated build here; kept in step with the paste budget in
           # scripts/panels/paste-artifact.test.mjs (6.75.0: 823 182 B — beta201 failed only on the old 800 000 line).
           # 6.80.0: 907 451 B → 940 000. 6.81.4 (beta245): 928 803 B → 960 000.
-          test "$(wc -c < catclient.worker.js)" -lt 960000
+          # 6.89.0 (beta267): 965 610 B — pairing + studio + line test; char budget is 910 k.
+          test "$(wc -c < catclient.worker.js)" -lt 980000
           cp deploy-bot/worker.js cat-deploy-bot.worker.js
           # 6.69.45 Cat Panel on any Node host: the launcher zip (index.js + package.json + README) fetches
           # catclient.worker.js + cat-panel-adapter.mjs from this release and checks them against
