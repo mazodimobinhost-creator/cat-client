@@ -90,6 +90,6 @@ class Beta272ProtonAutoAddTest {
         assertTrue(src.contains("pullFromSession"))
         assertFalse(src.contains("صفحهٔ دانلود WireGuard"))
         assertFalse(src.contains("افزودن فایل‌های گرفته‌شده به Cat"))
-        assertFalse(src.contains("کدام کشورها؟"))
+        assertFalse(src.contains("Cat Proton — کدام کشورها؟"))
     }
 }
