@@ -152,3 +152,4 @@
 - Audit: Aether 2.4.0 current (1.15.1 is their UI); Psiphon 2.0.42 current; Xray v26.10.31 security (MPTCP); mihomo 1.19.30 kept (patches).
 - Fixes: Psiphon restart (stop previous tunnel; unbind before second start); Xray/node Reality `tcpMptcp: false` on loopback inbounds.
 - Local: harness Beta255 + Beta223; node-reality; syntax; codemap.
+- CI: `29eb7bf` push run 42358017472 ✅ + all PR twins ✅; release v1.10.0-beta255 prerelease 20 assets.
