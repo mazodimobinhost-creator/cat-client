@@ -94,8 +94,8 @@ class Beta267CatConnectKitTest {
 
     @Test
     fun pairingCodeShapeAndHttpsOrigin() {
-        assertTrue(CatPanelPair.looksLikeCode("AB12CD"))
-        assertTrue(CatPanelPair.looksLikeCode("ab12cd"))
+        assertTrue(CatPanelPair.looksLikeCode("AB23CD"))
+        assertTrue(CatPanelPair.looksLikeCode("ab23cd"))
         assertFalse(CatPanelPair.looksLikeCode("IIIIII"))
         assertFalse(CatPanelPair.looksLikeCode("ABC"))
         assertEquals("https://panel.example.workers.dev", CatPanelPair.httpsOrigin("panel.example.workers.dev"))

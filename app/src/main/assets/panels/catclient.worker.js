@@ -11089,7 +11089,7 @@ ${vDoctor}
    <button type="button" data-v="masque" data-i="aether_masque_h2"></button>
   </div>
   <div class="two" style="margin-top:10px">
-   <div><label data-i="aether_name"></label><input id="aeName" value="Omni"></div>
+   <div><label data-i="aether_name"></label><input id="aeName" value="Cat"></div>
    <div><label data-i="aether_family"></label><div class="pick" id="aeFam"><button type="button" data-v="both" class="on" data-i="b_both"></button><button type="button" data-v="v4">IPv4</button><button type="button" data-v="v6">IPv6</button></div></div>
   </div>
   <label data-i="ae_loc_lbl" style="margin-top:8px"></label>
@@ -13145,7 +13145,7 @@ document.addEventListener('click',function(e){var d=e.target.closest('[data-extd
 /* aether builder */
 var AE={mode:'gool-classic',fam:'both',chain:'none',loc:'foreign'};
 function aeSyncUi(){$$('#aePick button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===AE.mode)});$$('#aeFam button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===AE.fam)});$$('#aeChain button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===AE.chain)});$$('#aeLoc button').forEach(function(x){x.classList.toggle('on',x.getAttribute('data-v')===AE.loc)})}
-function aeBuild(){var name=($('#aeName')&&$('#aeName').value.trim())||'Omni';var ip=AE.fam==='both'?'&ip=both':('&ip='+AE.fam);var scan='&scan=balanced';var h2='&transport=h2&fingerprint=semi-python&fragment=1&fragment_size=8-16&fragment_delay=5-10';var ch=AE.chain==='psiphon'?'&cfil=psiphon&chain=psiphon':(AE.chain==='tor'?'&cfil=tor&chain=tor':'');var loc='&exit_loc='+(AE.loc==='iran'?'IR':'!IR');var chTag=AE.chain==='psiphon'?' -> Psiphon':(AE.chain==='tor'?' -> Tor':'');var locTag=AE.loc==='iran'?' [IR]':' [Foreign]';var u='';
+function aeBuild(){var name=($('#aeName')&&$('#aeName').value.trim())||'Cat';var ip=AE.fam==='both'?'&ip=both':('&ip='+AE.fam);var scan='&scan=balanced';var h2='&transport=h2&fingerprint=semi-python&fragment=1&fragment_size=8-16&fragment_delay=5-10';var ch=AE.chain==='psiphon'?'&cfil=psiphon&chain=psiphon':(AE.chain==='tor'?'&cfil=tor&chain=tor':'');var loc='&exit_loc='+(AE.loc==='iran'?'IR':'!IR');var chTag=AE.chain==='psiphon'?' -> Psiphon':(AE.chain==='tor'?' -> Tor':'');var locTag=AE.loc==='iran'?' [IR]':' [Foreign]';var u='';
  if(AE.mode==='warp')u='aether://?protocol=wg'+ip+scan+ch+loc+'#'+encodeURIComponent(name+' WARP'+chTag+locTag);
  else if(AE.mode==='gool-classic')u='aether://?protocol=gool'+ip+scan+ch+loc+'#'+encodeURIComponent(name+' WARP-in-WARP (classic)'+chTag+locTag);
  else if(AE.mode==='wg-over-masque')u='aether://?protocol=wg-over-masque'+h2+ip+scan+ch+loc+'#'+encodeURIComponent(name+' WireGuard-over-MASQUE (Gool H2)'+chTag+locTag);
