@@ -35,8 +35,8 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1045 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 896 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1268 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 900 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 724 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -297,10 +297,11 @@
 | `AppUpdate.kt` | 411 | — | — · app-prerelease-update |
 | `AppUpdateManager.kt` | 324 | — | — · — |
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
-| `CatBranding.kt` | 42 | beta207: only Cat's own names on screen. | Beta206EngineTest · — |
+| `CatBranding.kt` | 43 | beta207: only Cat's own names on screen. | Beta206EngineTest, Beta263CatWindTest · — |
 | `CatClientApplication.kt` | 87 | — | — · — |
 | `CatGpEngine.kt` | 206 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | — · — |
 | `CatGpRelay.kt` | 835 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest · — |
+| `CatWindEngine.kt` | 325 | beta263 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox account: t… | Beta263CatWindTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
@@ -313,10 +314,10 @@
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
 | `FoxTransport.kt` | 161 | Cat Fox VPN tunnel protocol (independent of other clients). | Beta211FenixHttp2Test, Beta259FoxTransportTest · — |
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
-| `FreeNetworkEngines.kt` | 958 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest · — |
+| `FreeNetworkEngines.kt` | 977 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
-| `LiveNetPing.kt` | 89 | TCP connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest · — |
+| `LiveNetPing.kt` | 89 | TCP connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest · — |
 | `MethodFinderPlan.kt` | 302 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest · — |
 | `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
@@ -324,7 +325,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_266 Kotlin files, 114247 lines._
+_267 Kotlin files, 114819 lines._
 
 ## MainActivity screens — function index
 
@@ -383,13 +384,13 @@ for the dialog/button you want to change.
 
 `buildFirefoxVpnFenixCard`:114, `showFirefoxAccountManagerDialog`:285, `showFirefoxEmailLoginDialog`:809, `showFirefoxVpnFenixHubDialog`:989, `connectFirefoxVpnDirectly`:1134, `showFirefoxCountryPickerDialog`:1280, `showFoxTransportDialog`:1409, `showFirefoxTokenImportDialog`:1434
 
-### `MainActivityFreeNetworks.kt` (26 functions)
+### `MainActivityFreeNetworks.kt` (29 functions)
 
-`freeFa`:29, `freeButton`:31, `freeText`:52, `freeBox`:61, `freeLp`:66, `withPhysicalNet`:69, `showFreeNetworksHub`:81, `rankLinksByLivePing`:160, `freeProgress`:176, `saveFreeSubscription`:201, `connectFreeSubscription`:211, `freeResult`:245, `showFreeProxyDialog`:263, `buildFreeProxy`:284, `showFanoosDialog`:325, `fetchFanoos`:372, `fetchFanoosAll`:431, `showFreeAccountDialog`:568, `showProtonDialog`:713, `showProtonPaste`:735, `showProtonWebView`:759, `addProtonConfs`:878, `showFreePsiphonDialog`:950, `pickFreePsiphonCountry`:988, `connectFreePsiphon`:1007, `jsString`:1045
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:168, `freeProgress`:184, `saveFreeSubscription`:209, `connectFreeSubscription`:219, `freeResult`:253, `showFreeProxyDialog`:271, `buildFreeProxy`:292, `showFanoosDialog`:333, `fetchFanoos`:380, `fetchFanoosAll`:439, `showFreeAccountDialog`:576, `showProtonDialog`:721, `showProtonPaste`:743, `showProtonWebView`:767, `addProtonConfs`:886, `showFreePsiphonDialog`:958, `pickFreePsiphonCountry`:996, `connectFreePsiphon`:1015, `showCatWindDialog`:1054, `showCatWindLogin`:1137, `connectCatWind`:1204, `jsString`:1268
 
 ### `MainActivityGuides.kt` (9 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:491, `normalizeFinderText`:726, `featureFinderBar`:730, `showFirewallConnectionGuideDialog`:761, `showPrivacyPolicyIfNeeded`:815, `showPrivacyPolicyDialog`:821
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:495, `normalizeFinderText`:730, `featureFinderBar`:734, `showFirewallConnectionGuideDialog`:765, `showPrivacyPolicyIfNeeded`:819, `showPrivacyPolicyDialog`:825
 
 ### `MainActivityMethodFinder.kt` (7 functions)
 
@@ -520,6 +521,8 @@ for the dialog/button you want to change.
 | `CatGpProxy` | `CatGpRelay.kt` |
 | `CatGpScripts` | `CatGpRelay.kt` |
 | `CatWarpListPolicy` | `CatWarpListPolicy.kt` |
+| `CatWindClient` | `CatWindEngine.kt` |
+| `CatWindPlanner` | `CatWindEngine.kt` |
 | `CleanIpCache` | `CleanIpCache.kt` |
 | `CleanIpCacheCodec` | `CleanIp.kt` |
 | `CleanIpCacheKeys` | `CleanIpCache.kt` |
