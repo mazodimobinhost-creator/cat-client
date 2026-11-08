@@ -955,7 +955,7 @@ internal object CatGpScripts {
 
     /**
      * Dedicated Cat GP Cloudflare Worker (workers.dev, no path) — not the Cat panel `/gp/<uuid>`.
-     * `https://name.workers.dev` or `name.workers.dev`.
+     * `https://name.workers.dev`, `name.subdomain.workers.dev` (account subdomain), or without https.
      */
     fun dedicatedWorkerUrl(text: String): String? {
         val raw = text.trim()

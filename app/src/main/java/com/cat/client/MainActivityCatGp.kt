@@ -69,41 +69,11 @@ internal fun MainActivity.showCatGpDialog() {
         "اینو بزنی این میشه: وقتی همه‌چیز بسته است و فقط گوگل باز است، مرورگر از یک اسکریپت مال خودتان روی گوگل رد می‌شود. رایگان است؛ سرور نمی‌خواهد. فقط مرورگر (کروم). تلگرام و اینستاگرام از این راه باز نمی‌شوند.",
         "Tap: when everything is blocked except Google, the browser goes through YOUR script on Google. Free, no server. Browsers only (Chrome). Telegram and Instagram will not open this way.",
     ), 13f, TEXT_PRIMARY))
-    val status = gpText("", 12f)
-    val linkedLine = gpText("", 13.5f, TEAL, bold = true)
-    fun refreshStatus(extra: String = "") {
-        val saved = CatGpEngine.scriptPaths(CatGpEngine.deployments(ctx)).size
-        val ca = CatGpEngine.caInstalled(ctx)
-        val hop = CatGpScripts.normalizeHop(CatGpEngine.hopUrl(ctx), CatGpEngine.key(ctx))
-        val linked = CatGpEngine.hopWanted(ctx) && CatGpScripts.pairLinked(CatGpEngine.deployments(ctx), hop.ifBlank { CatGpEngine.hopUrl(ctx) })
-        linkedLine.text = if (linked) {
-            t("✅ گوگل اسکریپت و کلادفلر به هم متصل شدند", "✅ Google Script and Cloudflare are connected")
-        } else {
-            t("⬜ گوگل اسکریپت و کلادفلر هنوز به هم متصل نیستند", "⬜ Google Script and Cloudflare are not connected yet")
-        }
-        linkedLine.setTextColor(if (linked) TEAL else TEXT_SECONDARY)
-        status.text = listOf(
-            if (saved > 0) t("✅ آدرس گوگل ذخیره است", "✅ Google address saved") else t("⬜ هنوز آدرس گوگل را نچسبانده‌اید", "⬜ No Google address pasted yet"),
-            if (CatGpScripts.dedicatedWorkerUrl(CatGpEngine.hopUrl(ctx)) != null)
-                t("✅ ورکر کلادفلر (فقط اسکریپت گوگل) ذخیره است", "✅ Cloudflare Worker (Google Script only) saved")
-            else t("⬜ ورکر کلادفلر را نچسبانده‌اید — پنل کَت نیست", "⬜ No Cat GP Cloudflare Worker yet — not the Cat panel"),
-            if (ca) t("✅ گواهی نصب است — سایت‌های قفل‌دار باز می‌شوند", "✅ Certificate installed — https sites can open") else t("⬜ گواهی هنوز نصب نیست", "⬜ Certificate not installed yet"),
-            extra,
-        ).filter { it.isNotBlank() }.joinToString("\n")
-    }
-    refreshStatus()
-    box.addView(status, gpLp(8))
-    box.addView(linkedLine, gpLp(8))
-
-    box.addView(gpText(t("کلید مشترک (همان CAT_KEY در اسکریپت و ورکر)", "Shared key (CAT_KEY in the script and the Worker)"), 12f), gpLp(10))
-    box.addView(gpText(CatGpEngine.key(ctx), 14f, TEAL, bold = true), gpLp(2))
-
     val hopBox = CheckBox(this).apply {
         text = t("خروج کلادفلر — ورکر جدا فقط برای اسکریپت گوگل (نه پنل کَت)", "Cloudflare exit — a separate Worker only for Google Script (not the Cat panel)")
         setTextColor(TEXT_PRIMARY)
         isChecked = CatGpEngine.hopWanted(ctx)
     }
-    box.addView(hopBox, gpLp(8))
     val hopField = EditText(this).apply {
         hint = t("آدرس ورکر Cat GP (…workers.dev)", "Cat GP Worker address (…workers.dev)")
         setText(CatGpEngine.hopUrl(ctx))
@@ -112,6 +82,58 @@ internal fun MainActivity.showCatGpDialog() {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         textDirection = View.TEXT_DIRECTION_LTR
     }
+    val input = EditText(this).apply {
+        hint = t("آدرس واقعی را اینجا بچسبانید (…/exec)", "Paste the real address here (…/exec)")
+        setText(CatGpEngine.deployments(ctx))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        minLines = 1
+        maxLines = 4
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    val status = gpText("", 12f)
+    val linkedLine = gpText("", 13.5f, TEAL, bold = true)
+    fun typedGoogle() = input.text?.toString().orEmpty().ifBlank { CatGpEngine.deployments(ctx) }
+    fun typedHop() = hopField.text?.toString().orEmpty().ifBlank { CatGpEngine.hopUrl(ctx) }
+    fun refreshStatus(extra: String = "") {
+        val google = typedGoogle()
+        val worker = typedHop()
+        val saved = CatGpEngine.scriptPaths(google).size
+        val ca = CatGpEngine.caInstalled(ctx)
+        val hop = CatGpScripts.normalizeHop(worker, CatGpEngine.key(ctx))
+        val linked = hopBox.isChecked && CatGpScripts.pairLinked(google, hop.ifBlank { worker })
+        linkedLine.text = if (linked) {
+            t("✅ گوگل اسکریپت و کلادفلر به هم متصل شدند", "✅ Google Script and Cloudflare are connected")
+        } else {
+            t("⬜ گوگل اسکریپت و کلادفلر هنوز به هم متصل نیستند", "⬜ Google Script and Cloudflare are not connected yet")
+        }
+        linkedLine.setTextColor(if (linked) TEAL else TEXT_SECONDARY)
+        status.text = listOf(
+            if (saved > 0) t("✅ آدرس گوگل ذخیره است", "✅ Google address saved") else t("⬜ هنوز آدرس گوگل را نچسبانده‌اید", "⬜ No Google address pasted yet"),
+            if (CatGpScripts.dedicatedWorkerUrl(worker) != null)
+                t("✅ ورکر کلادفلر (فقط اسکریپت گوگل) ذخیره است", "✅ Cloudflare Worker (Google Script only) saved")
+            else t("⬜ ورکر کلادفلر را نچسبانده‌اید — پنل کَت نیست", "⬜ No Cat GP Cloudflare Worker yet — not the Cat panel"),
+            if (ca) t("✅ گواهی نصب است — سایت‌های قفل‌دار باز می‌شوند", "✅ Certificate installed — https sites can open") else t("⬜ گواهی هنوز نصب نیست", "⬜ Certificate not installed yet"),
+            extra,
+        ).filter { it.isNotBlank() }.joinToString("\n")
+    }
+    val onTyped = object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) { refreshStatus() }
+    }
+    hopField.addTextChangedListener(onTyped)
+    input.addTextChangedListener(onTyped)
+    hopBox.setOnCheckedChangeListener { _, _ -> refreshStatus() }
+    refreshStatus()
+    box.addView(status, gpLp(8))
+    box.addView(linkedLine, gpLp(8))
+
+    box.addView(gpText(t("کلید مشترک (همان CAT_KEY در اسکریپت و ورکر)", "Shared key (CAT_KEY in the script and the Worker)"), 12f), gpLp(10))
+    box.addView(gpText(CatGpEngine.key(ctx), 14f, TEAL, bold = true), gpLp(2))
+
+    box.addView(hopBox, gpLp(8))
     box.addView(hopField, gpLp(4))
     fun resolvedHopOrEmpty(): String {
         if (!hopBox.isChecked) return ""
@@ -164,21 +186,11 @@ internal fun MainActivity.showCatGpDialog() {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/"))) }
     }, gpLp(6))
     box.addView(gpText(t(
-        "در کلادفلر: Workers & Pages → Create → همان فایل را بچسبانید → Deploy.\\nآدرس …workers.dev را بالا بچسبانید. بعد کد گوگل را دوباره کپی کنید تا CAT_WORKER داخلش باشد.",
-        "On Cloudflare: Workers & Pages → Create → paste that file → Deploy.\\nPaste the …workers.dev address above. Then copy the Google code again so CAT_WORKER is inside it.",
+        "در کلادفلر: Workers & Pages → Create → همان فایل را بچسبانید → Deploy.\nآدرس …workers.dev را بالا بچسبانید. بعد کد گوگل را دوباره کپی کنید تا CAT_WORKER داخلش باشد.",
+        "On Cloudflare: Workers & Pages → Create → paste that file → Deploy.\nPaste the …workers.dev address above. Then copy the Google code again so CAT_WORKER is inside it.",
     ), 12f), gpLp(4))
 
     box.addView(gpText(t("۳) آدرس را از گوگل بچسبانید", "3) Paste the address from Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
-    val input = EditText(this).apply {
-        hint = t("آدرس واقعی را اینجا بچسبانید (…/exec)", "Paste the real address here (…/exec)")
-        setText(CatGpEngine.deployments(ctx))
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        minLines = 1
-        maxLines = 4
-        textSize = 12.5f
-        layoutDirection = View.LAYOUT_DIRECTION_LTR
-        textDirection = View.TEXT_DIRECTION_LTR
-    }
     box.addView(input, gpLp(4))
     fun addressMessage(raw: String): String? {
         val problem = CatGpScripts.addressProblem(raw)
@@ -195,7 +207,11 @@ internal fun MainActivity.showCatGpDialog() {
         refreshStatus(t("⏳ در حال آزمایش…", "⏳ Testing…"))
         activityScope.launch {
             val r = withContext(Dispatchers.IO) { CatGpEngine.test(ctx, text) }
-            if (r.ok) CatGpEngine.saveDeployments(ctx, text)
+            if (r.ok) {
+                CatGpEngine.saveDeployments(ctx, text)
+                CatGpEngine.saveHopWanted(ctx, hopBox.isChecked)
+                CatGpEngine.saveHopUrl(ctx, hopField.text?.toString().orEmpty())
+            }
             val detail = r.lines.joinToString("\n").let { lines ->
                 when {
                     r.ok -> t("✅ کار می‌کند — اسکریپت جواب داد", "✅ It works — the script answered")

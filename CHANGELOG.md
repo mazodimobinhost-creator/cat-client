@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta283] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat GP Worker is live (`raspy-sky-8be5.giciza3742.workers.dev`) but the connected tick stays empty.
+
+### Fixed
+- **Cat GP ticks now follow the workers.dev box**, not only a previously saved pref. Pasting `name.account.workers.dev` and testing the Google script marks Worker saved and Script+Cloudflare connected without tapping Save first.
+
 ## [1.10.0-beta282] — 2026-11-08 (Panel 6.89.0)
 
 Owner: still cannot download the update (in-app or the ghproxy.net link).

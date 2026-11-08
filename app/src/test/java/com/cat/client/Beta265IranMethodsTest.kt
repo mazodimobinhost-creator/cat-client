@@ -102,8 +102,8 @@ class Beta265IranMethodsTest {
         assertTrue(finder.contains("showCatWindDialog()"))
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 349"))
-        assertTrue(gradle.contains("1.10.0-beta282"))
+        assertTrue(gradle.contains("versionCode = 350"))
+        assertTrue(gradle.contains("1.10.0-beta283"))
     }
 
     companion object {
