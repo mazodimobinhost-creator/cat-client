@@ -197,7 +197,10 @@ object IncomingConfigIntents {
         if (first.startsWith("http", ignoreCase = true)) {
             return runCatching { Uri.parse(first).host }.getOrNull()?.take(60) ?: "Subscription"
         }
-        if (WireGuardConfText.looksLikeConf(text)) return "WireGuard"
+        if (WireGuardConfText.looksLikeConf(text)) {
+            val awg = WireGuardConfText.toUris(text).any { it.startsWith("awg://", ignoreCase = true) }
+            return if (awg) "🔐 Amnezia" else "WireGuard"
+        }
         return first.substringBefore("://", "").takeIf { it.isNotBlank() && it.length < 20 }?.uppercase(Locale.US) ?: "Imported"
     }
 

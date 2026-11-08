@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta290] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Telegram AmneziaWG `.conf` must open in Cat; WARP rows need real hosts.
+
+### Fixed
+- **Telegram `.conf`:** Open with / Share from Telegram lands in the Amnezia import (no other VPN app). VIEW accepts `application/octet-stream`.
+- **WARP Amnezia hosts:** built-in rows use `188.114.98.193:500` and extra ports, not the network address `.0`.
+
 ## [1.10.0-beta289] — 2026-11-08 (Panel 6.89.0)
 
 Owner: tapping Amnezia must put configs in the list.

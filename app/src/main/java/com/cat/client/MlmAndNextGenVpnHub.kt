@@ -369,10 +369,13 @@ internal object MlmAndNextGenVpnHub {
     // by a really registered WARP account (WarpRegistration). WARP runs vanilla WireGuard, so only
     // junk packets (jc/jmin/jmax) are safe — s1/s2 handshake padding would break the handshake.
     val BUILTIN_AWG_AND_HY2_URIS: List<String> = listOf(
-        "awg://auto@162.159.192.1:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20Anycast%202408",
-        "awg://auto@188.114.98.0:500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=6&jmin=64&jmax=960&wnoisecount=6&wpayloadsize=48-128#🛡️%20WARP-AWG%20Irancell%20500",
-        "awg://auto@[2606:4700:d0::a29f:c001]:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=4&wpayloadsize=40-100#🛡️%20WARP-AWG%20IPv6%20(MCI)",
-        "awg://auto@162.159.195.1:1701?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20Port%201701",
+        "awg://auto@162.159.192.1:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%202408",
+        "awg://auto@188.114.98.193:500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=7&jmin=121&jmax=784&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20500",
+        "awg://auto@188.114.97.6:500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=7&jmin=121&jmax=784&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20500b",
+        "awg://auto@162.159.193.1:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%20193",
+        "awg://auto@162.159.192.1:1701?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%201701",
+        "awg://auto@162.159.192.1:4500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%204500",
+        "awg://auto@[2606:4700:d0::a29f:c001]:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=4&wpayloadsize=40-100#🛡️%20WARP-AWG%20IPv6",
     )
 
     /**

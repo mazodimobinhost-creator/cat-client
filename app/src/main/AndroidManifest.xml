@@ -169,7 +169,7 @@
                 <data android:scheme="hiddify" />
                 <data android:scheme="v2rayng" />
             </intent-filter>
-            <!-- "Share → Cat Client" for links and config files -->
+            <!-- "Share → Cat Client" for links and config files (Telegram .conf is often octet-stream) -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -181,6 +181,8 @@
                 <data android:mimeType="text/x-yaml" />
                 <data android:mimeType="application/toml" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/x-wireguard-profile" />
+                <data android:mimeType="text/x-wireguard-profile" />
             </intent-filter>
             <!-- "Open with → Cat Client" for .yaml / .json / .conf / .txt / .toml files -->
             <intent-filter>
@@ -196,6 +198,9 @@
                 <data android:mimeType="text/yaml" />
                 <data android:mimeType="text/x-yaml" />
                 <data android:mimeType="application/toml" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/x-wireguard-profile" />
+                <data android:mimeType="text/x-wireguard-profile" />
             </intent-filter>
         </activity>
 

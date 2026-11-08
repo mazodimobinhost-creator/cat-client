@@ -119,9 +119,9 @@ internal fun MainActivity.showAmneziaSectionDialog() {
         TextView(this).apply {
             text = t(
                 "Cat کانفیگ AmneziaWG را می‌سازد و در فهرست می‌آورد — اپ Amnezia لازم نیست.\n\n" +
-                    "اگر کلید vpn:// یا فایل .conf خودت را داری، پایین بچسبان.",
+                    "فایل .conf از تلگرام را با Cat باز کن یا به اشتراک بگذار. کلید vpn:// را هم می‌شود چسباند.",
                 "Cat builds AmneziaWG and puts it in the list — the Amnezia app is not needed.\n\n" +
-                    "If you already have a vpn:// key or a .conf, paste it below.",
+                    "Open or share a Telegram .conf with Cat. A vpn:// key can be pasted too.",
             )
             textSize = 13.5f
             setTextColor(TEXT_SECONDARY)

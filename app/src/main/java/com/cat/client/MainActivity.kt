@@ -609,10 +609,30 @@ class MainActivity : Activity() {
         if (schemeLower != "catclient" && schemeLower != "aether") {
             IncomingConfigIntents.extract(this, intent)?.let { incoming ->
                 mainHandler.post {
-                    openScreen(SCREEN_SERVERS)
-                    showAddSubscriptionDialog(incoming.content, incoming.name)
+                    val body = incoming.content
+                    if (WireGuardConfText.looksLikeConf(body) || AmneziaVpnKey.looksLikeKey(body)) {
+                        previewAndImportAmneziaText(body)
+                    } else {
+                        openScreen(SCREEN_SERVERS)
+                        showAddSubscriptionDialog(body, incoming.name)
+                    }
                 }
                 return
+            }
+            val action = intent?.action
+            val dataScheme = intent?.data?.scheme?.lowercase(java.util.Locale.US)
+            if (action == Intent.ACTION_SEND ||
+                (action == Intent.ACTION_VIEW && (dataScheme == "content" || dataScheme == "file"))
+            ) {
+                val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+                mainHandler.post {
+                    Toast.makeText(
+                        this,
+                        if (fa) "این فایل خوانده نشد. از تلگرام «باز کردن با» یا اشتراک‌گذاری را بزن و Cat را انتخاب کن."
+                        else "Could not read that file. In Telegram tap Open with / Share and pick Cat.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
         }
         val data = intent?.data ?: return
