@@ -60,7 +60,7 @@ class Beta260LivePingTest {
         assertTrue(hub.contains("LiveNetPing.rankShares"))
         assertTrue(hub.contains("showFirefoxCountryPickerDialog()"))
         assertTrue(hub.contains("showCatWindDialog()"))
-        assertTrue(hub.contains("client.ping(loc)"))
+        assertTrue(hub.contains("client.ping("))
         assertFalse("no fake paid VPN", hub.contains("Privado") || hub.contains("TunnelBear") || hub.contains("NordVPN"))
         val proxy = src("MainActivityFreeNetworks.kt")
         assertTrue(proxy.contains("rankLinksByLivePing(result.links"))
@@ -73,8 +73,8 @@ class Beta260LivePingTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 339"))
-        assertTrue(gradle.contains("1.10.0-beta272"))
+        assertTrue(gradle.contains("versionCode = 340"))
+        assertTrue(gradle.contains("1.10.0-beta273"))
     }
 
     private fun src(name: String): String = listOf(

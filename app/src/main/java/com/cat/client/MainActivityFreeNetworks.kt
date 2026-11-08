@@ -103,8 +103,8 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showFirefoxCountryPickerDialog() }
     entry(
         t("🌬️ Cat Wind — کشورها با پینگ روی خط شما", "🌬️ Cat Wind — countries with ping on your line"),
-        t("اینو بزنی: پینگ واقعی هر شهر روی همین اینترنت. پروتکل را خودت انتخاب می‌کنی: Stealth (TCP ۴۴۳) یا WireGuard (UDP ۴۴۳). حساب رایگان ۱۰ گیگ (خودت می‌سازی، مثل فاکس)؛ خودِ پینگ حساب نمی‌خواهد.",
-            "Tap: live ping of each city on this network. You pick the protocol: Stealth (TCP 443) or WireGuard (UDP 443). Connecting needs the free 10 GB account (you create it, like Fox); the ping itself does not."),
+        t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat خودش همهٔ کانفیگ‌های مجاز را می‌گیرد، پینگ می‌کند و اضافه می‌کند.",
+            "Tap: sign in or create the free account (the human check stays yours). Cat then fetches every allowed config, pings it, and adds it."),
         accent = true,
     ) { showCatWindDialog() }
     entry(
@@ -1170,182 +1170,167 @@ internal fun MainActivity.connectCatWarpFree(proto: CatWarpFreePlanner.Proto) {
 // ───────────── 🌬️ Cat Wind ─────────────
 
 internal fun MainActivity.showCatWindDialog() {
-    val fa = freeFa()
-    fun t(f: String, e: String) = if (fa) f else e
     val store = FreeNetworkStore(this)
-    val pingBy = java.util.concurrent.ConcurrentHashMap<String, CatWindPlanner.Ping>()
-    val display = ArrayList<CatWindPlanner.Location>()
-    fun autoLine(): String = t("⚡ همهٔ شهرهای باز (پینگ زنده روی همین اینترنت)", "⚡ Every open city (live ping on this network)")
-    fun cityLine(loc: CatWindPlanner.Location): String {
-        val ping = pingBy[loc.hostname]
-        val ms = when {
-            ping == null -> if (fa) LiveNetPing.waitingFa() else LiveNetPing.waitingEn()
-            ping.reachable -> if (fa) LiveNetPing.labelFa(ping.rttMs) else LiveNetPing.labelEn(ping.rttMs)
-            else -> if (fa) LiveNetPing.labelFa(null) else LiveNetPing.labelEn(null)
-        }
-        return "${loc.label(fa)} · $ms · ${loc.hostname}:${CatWindPlanner.PORT}"
+    if (CatWindClient(store).cachedSession() != null) {
+        connectCatWind()
+        return
     }
-    val labels = ArrayList<String>(1)
-    fun rebuild() {
-        labels.clear()
-        labels += autoLine()
-        display.forEach { labels += cityLine(it) }
-    }
-    rebuild()
-    val adapter = ArrayAdapter(this, android.R.layout.select_dialog_item, ArrayList(labels))
-    fun push() {
-        adapter.clear()
-        adapter.addAll(labels)
-        adapter.notifyDataSetChanged()
-    }
-    var pingJob: Job? = null
-    val shown = MaterialAlertDialogBuilder(this)
-        .setTitle(t("🌬️ Cat Wind — پینگ زنده روی خط شما", "🌬️ Cat Wind — live ping on your line"))
-        .setAdapter(adapter) { dlg, idx ->
-            dlg.dismiss()
-            val codes = if (idx <= 0) emptySet() else setOf(display.getOrNull(idx - 1)?.country.orEmpty())
-            pickWindProtocol { proto ->
-                connectCatWind(codes.filter { it.length == 2 && it != "XX" }.toSet(), proto)
-            }
-        }
-        .setNeutralButton(t("🔑 ورود / ساخت حساب", "🔑 Sign in / create account")) { _, _ ->
-            showCatWindLogin { showCatWindDialog() }
-        }
-        .setNegativeButton(t("بستن", "Close"), null)
-        .create()
-    shown.setOnDismissListener { pingJob?.cancel() }
-    shown.showCatClientDialog()
-    pingJob = activityScope.launch(Dispatchers.IO) {
-        val client = CatWindClient(store)
-        val locs = runCatching { this@showCatWindDialog.withPhysicalNet { client.locations(store.windPremium) } }
-            .getOrDefault(CatWindPlanner.FALLBACK)
-        withContext(Dispatchers.Main) {
-            if (!shown.isShowing) return@withContext
-            display.clear()
-            display.addAll(locs)
-            rebuild()
-            push()
-        }
-        locs.forEach { loc ->
-            val p = client.ping(loc)
-            pingBy[loc.hostname] = p
-            withContext(Dispatchers.Main) {
-                if (!shown.isShowing) return@withContext
-                val i = display.indexOfFirst { it.hostname == loc.hostname }
-                if (i >= 0) {
-                    labels[i + 1] = cityLine(display[i])
-                    push()
-                }
-            }
-        }
-        val sorted = display.sortedWith(
-            compareBy(
-                { pingBy[it.hostname]?.reachable != true },
-                { pingBy[it.hostname]?.rttMs ?: 9_999L },
-            ),
-        )
-        withContext(Dispatchers.Main) {
-            if (!shown.isShowing) return@withContext
-            display.clear()
-            display.addAll(sorted)
-            rebuild()
-            push()
-        }
-    }
+    showCatWindLogin { connectCatWind() }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 private fun MainActivity.showCatWindLogin(after: () -> Unit) {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
+    var dialogRef: AlertDialog? = null
+    var poll: Job? = null
+    var pulling = false
+
     val box = freeBox()
     box.addView(freeText(t(
-        "حساب رایگان را خودتان می‌سازید (ایمیل + تیک «من ربات نیستم»). Cat فرم را پر نمی‌کند و پلن پولی را جعل نمی‌کند. بعد نام کاربری و رمز را اینجا بگذار.",
-        "You create the free account yourself (email + human check). Cat does not fill the form and does not fake a paid plan. Then put the username and password here.",
+        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat خودش همهٔ کانفیگ‌ها را می‌گیرد و اضافه می‌کند.",
+        "Sign in or create a free account. The human check stays yours. After that Cat fetches every allowed config and adds it.",
     ), 12f))
-    fun field(hint: String, password: Boolean = false) = EditText(this).apply {
-        this.hint = hint
-        textSize = 14f
-        minHeight = dp(44)
-        inputType = if (password) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-        layoutDirection = View.LAYOUT_DIRECTION_LTR
-        textDirection = View.TEXT_DIRECTION_LTR
-    }
-    val user = field(t("نام کاربری", "Username"))
-    val pass = field(t("رمز", "Password"), password = true)
-    val otp = field(t("کد دوعاملی (اگر روشن است)", "2FA code (if on)"))
-    box.addView(user, freeLp(8))
-    box.addView(pass, freeLp(6))
-    box.addView(otp, freeLp(6))
-    val webView = android.webkit.WebView(this).apply {
+    val status = freeText(t("⏳ حساب را بساز یا وارد شو…", "⏳ Sign in or create the account…"), 12.5f, TEAL, bold = true)
+
+    val webView = object : android.webkit.WebView(this) {
+        override fun onCheckIsTextEditor(): Boolean = true
+    }.apply {
+        isFocusable = true
+        isFocusableInTouchMode = true
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
-        layoutParams = LinearLayout.LayoutParams(-1, dp(280)).apply { topMargin = dp(8) }
-    }
-    box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = true) {
-        webView.loadUrl(CatWindPlanner.SIGNUP)
-    }, freeLp(8))
-    box.addView(freeButton(t("🔑 صفحهٔ ورود", "🔑 Sign-in page"), accent = false) {
-        webView.loadUrl(CatWindPlanner.LOGIN_PAGE)
-    }, freeLp(4))
-    box.addView(webView)
-    val dialog = MaterialAlertDialogBuilder(this)
-        .setTitle(t("🌬️ ورود Cat Wind", "🌬️ Cat Wind sign-in"))
-        .setView(ScrollView(this).apply { addView(box) })
-        .setPositiveButton(t("ورود", "Sign in")) { _, _ ->
-            val u = user.text?.toString().orEmpty().trim()
-            val p = pass.text?.toString().orEmpty()
-            if (u.isBlank() || p.isBlank()) {
-                Toast.makeText(this, t("نام کاربری و رمز لازم است.", "Username and password are required."), Toast.LENGTH_LONG).show()
-                return@setPositiveButton
+        settings.loadsImagesAutomatically = true
+        setOnTouchListener { v, event ->
+            if (event.action == android.view.MotionEvent.ACTION_DOWN || event.action == android.view.MotionEvent.ACTION_UP) {
+                dialogRef?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                if (!v.hasFocus()) v.requestFocus()
             }
-            freeProgress(t("⏳ ورود…", "⏳ Signing in…")) { step ->
-                step(t("در حال ورود با حساب خودت…", "Signing in with your account…"))
-                try {
-                    withContext(Dispatchers.IO) {
-                        withPhysicalNet { CatWindClient(FreeNetworkStore(this@showCatWindLogin)).login(u, p, otp.text?.toString().orEmpty()) }
-                    }
-                    step(t("✅ وارد شد.", "✅ Signed in."))
-                    runOnUiThread { after() }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    freeResult(t("❌ ورود نشد", "❌ Sign-in failed"), listOf(e.message ?: e.javaClass.simpleName), null,
-                        t("رمز را چک کن. اگر حساب نداری، «ساخت حساب رایگان» را بزن.", "Check the password. If you have no account, tap “Create a free account”."))
+            false
+        }
+    }
+    runCatching { android.webkit.CookieManager.getInstance().setAcceptCookie(true) }
+    if (android.os.Build.VERSION.SDK_INT >= 21) {
+        runCatching { android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true) }
+    }
+
+    fun note(msg: String) { status.text = msg }
+    var lastUrl = CatWindPlanner.LOGIN_PAGE
+
+    fun windCookies(): String {
+        runCatching { android.webkit.CookieManager.getInstance().flush() }
+        return listOf(
+            "https://windscribe.com",
+            "https://www.windscribe.com",
+            "https://api.windscribe.com",
+            "https://res.windscribe.com",
+        ).mapNotNull { runCatching { android.webkit.CookieManager.getInstance().getCookie(it) }.getOrNull() }
+            .filter { it.isNotBlank() }
+            .joinToString("; ")
+    }
+
+    fun pullFromSession(hash: String?, pageUrl: String? = lastUrl) {
+        val cookies = windCookies()
+        val auth = CatWindPlanner.sessionHashFromText(hash)
+            ?: CatWindPlanner.sessionHashFromCookies(cookies)
+            ?: CatWindPlanner.sessionHashFromUrl(pageUrl)
+        if (auth == null && !CatWindPlanner.looksLoggedIn(pageUrl)) return
+        if (pulling) return
+        pulling = true
+        note(t("✅ وارد شدی؛ دارم همهٔ کانفیگ‌ها را می‌گیرم…", "✅ Signed in; fetching every config…"))
+        activityScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                withPhysicalNet {
+                    val client = CatWindClient(FreeNetworkStore(this@showCatWindLogin))
+                    if (auth != null) client.adoptAuth(auth) else client.adoptFromWeb(cookies)
+                }
+            }
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = {
+                        poll?.cancel()
+                        dialogRef?.dismiss()
+                        after()
+                    },
+                    onFailure = { error ->
+                        pulling = false
+                        note(
+                            t(
+                                "خودکار نشد (${error.message ?: "error"}). دوباره وارد شو.",
+                                "Auto-fetch failed (${error.message ?: "error"}). Sign in again.",
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    webView.webViewClient = object : android.webkit.WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+            val url = request?.url?.toString().orEmpty()
+            if (url.startsWith("http://", true) || url.startsWith("https://", true)) return false
+            return true
+        }
+
+        override fun shouldInterceptRequest(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
+            val url = request?.url?.toString().orEmpty()
+            val q = request?.url?.getQueryParameter("session_auth_hash")
+                ?: request?.url?.getQueryParameter("auth_hash")
+            if (!q.isNullOrBlank() || CatWindPlanner.looksLoggedIn(url)) {
+                view?.post { pullFromSession(q, url) }
+            }
+            return null
+        }
+
+        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+            lastUrl = url.orEmpty().ifBlank { lastUrl }
+            pullFromSession(null, lastUrl)
+            runCatching {
+                webView.evaluateJavascript(CatWindPlanner.SESSION_SCAN_JS) { raw ->
+                    pullFromSession(jsString(raw), lastUrl)
                 }
             }
         }
+    }
+
+    box.addView(freeButton(t("🔑 ورود", "🔑 Sign in"), accent = true) { webView.loadUrl(CatWindPlanner.LOGIN_PAGE) }, freeLp(6))
+    box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = false) { webView.loadUrl(CatWindPlanner.SIGNUP) }, freeLp(4))
+    box.addView(webView, LinearLayout.LayoutParams(-1, dp(380)).apply { topMargin = dp(6) })
+    box.addView(status, freeLp(6))
+
+    val dialog = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🌬️ ورود Cat Wind", "🌬️ Cat Wind sign-in"))
+        .setView(ScrollView(this).apply { addView(box) })
         .setNegativeButton(t("بستن", "Close"), null)
         .create()
-    dialog.setOnDismissListener { runCatching { webView.stopLoading(); webView.destroy() } }
+    dialogRef = dialog
+    dialog.setOnDismissListener {
+        poll?.cancel()
+        runCatching { webView.stopLoading(); webView.destroy() }
+    }
     dialog.showCatClientDialog()
-}
-
-private fun MainActivity.pickWindProtocol(onPick: (CatWindPlanner.Proto) -> Unit) {
-    val fa = freeFa()
-    fun t(f: String, e: String) = if (fa) f else e
-    MaterialAlertDialogBuilder(this)
-        .setTitle(t("پروتکل Cat Wind", "Cat Wind protocol"))
-        .setItems(
-            arrayOf(
-                t("🛡️ Stealth — TCP روی ۴۴۳ (وب، تلگرام)", "🛡️ Stealth — TCP on 443 (web, Telegram)"),
-                t("🔐 WireGuard — UDP روی ۴۴۳ (ایران؛ تماس/بازی)", "🔐 WireGuard — UDP on 443 (Iran; voice/games)"),
-            ),
-        ) { _, i ->
-            onPick(if (i == 0) CatWindPlanner.Proto.Stealth else CatWindPlanner.Proto.WireGuard)
+    webView.loadUrl(CatWindPlanner.LOGIN_PAGE)
+    poll = activityScope.launch {
+        while (true) {
+            delay(1_200)
+            pullFromSession(null, lastUrl)
+            runCatching {
+                webView.evaluateJavascript(CatWindPlanner.SESSION_SCAN_JS) { raw ->
+                    pullFromSession(jsString(raw), lastUrl)
+                }
+            }
         }
-        .setNegativeButton(t("بستن", "Close"), null)
-        .create()
-        .showCatClientDialog()
+    }
 }
 
-private fun MainActivity.connectCatWind(codes: Set<String>, proto: CatWindPlanner.Proto = CatWindPlanner.Proto.Stealth) {
+private fun MainActivity.connectCatWind(codes: Set<String> = emptySet()) {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
     val store = FreeNetworkStore(this)
     val client = CatWindClient(store)
     if (client.cachedSession() == null) {
-        showCatWindLogin { connectCatWind(codes, proto) }
+        showCatWindLogin { connectCatWind(codes) }
         return
     }
     val name = CatWindPlanner.NAME
@@ -1366,49 +1351,42 @@ private fun MainActivity.connectCatWind(codes: Set<String>, proto: CatWindPlanne
                 t("پلن رایگان فقط چند شهر دارد؛ پلن پولی جعل نمی‌شود.", "The free plan only has a handful of cities; a paid plan is not faked."))
             return@freeProgress
         }
-        val links: List<String>
-        if (proto == CatWindPlanner.Proto.WireGuard) {
-            step(t("۲) ساخت WireGuard روی ۴۴۳…", "2) Building WireGuard on 443…"))
-            val wgPool = chosen.filter { it.canWireGuard() }.ifEmpty { chosen }
+        step(t("۲) گرفتن همهٔ کانفیگ‌ها…", "2) Fetching every config…"))
+        val links = ArrayList<String>()
+        val errors = ArrayList<String>()
+        try {
+            val creds = withContext(Dispatchers.IO) { withPhysicalNet { client.credentials(session) } }
+            links += chosen.map { CatWindPlanner.httpsLink(creds.first, creds.second, it, fa) }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            errors += e.message ?: e.javaClass.simpleName
+        }
+        val wgPool = chosen.filter { it.canWireGuard() }
+        if (wgPool.isNotEmpty()) {
             val ranked = withContext(Dispatchers.IO) {
                 wgPool.map { it to client.ping(it, proto = CatWindPlanner.Proto.WireGuard) }
                     .sortedWith(compareBy({ !it.second.reachable }, { it.second.rttMs ?: 9_999L }))
                     .map { it.first }
                     .take(CatWindPlanner.WG_MAX)
             }
-            val built = ArrayList<String>()
-            val errors = ArrayList<String>()
             for (loc in ranked) {
                 try {
-                    built += withContext(Dispatchers.IO) { withPhysicalNet { client.wgLink(session, loc, fa) } }
+                    links += withContext(Dispatchers.IO) { withPhysicalNet { client.wgLink(session, loc, fa) } }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     errors += "${loc.hostname}: ${e.message ?: e.javaClass.simpleName}"
                 }
             }
-            if (built.isEmpty()) {
-                if (errors.any { it.contains("expired", true) || it.contains("session", true) }) client.forget()
-                freeResult(
-                    t("❌ WireGuard ساخته نشد", "❌ WireGuard was not built"),
-                    client.log + errors,
-                    null,
-                    t("Stealth را بزن، یا دوباره وارد شو. پلن پولی جعل نمی‌شود.", "Tap Stealth, or sign in again. A paid plan is not faked."),
-                )
-                return@freeProgress
-            }
-            links = built
-        } else {
-            step(t("۲) گرفتن رمز اتصال…", "2) Fetching connect credentials…"))
-            val creds = try {
-                withContext(Dispatchers.IO) { withPhysicalNet { client.credentials(session) } }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                client.forget()
-                freeResult(t("❌ ورود منقضی شد", "❌ Sign-in expired"), listOf(e.message ?: e.javaClass.simpleName), null,
-                    t("دوباره وارد شو.", "Sign in again."))
-                return@freeProgress
-            }
-            links = chosen.map { CatWindPlanner.httpsLink(creds.first, creds.second, it, fa) }
+        }
+        if (links.isEmpty()) {
+            if (errors.any { it.contains("expired", true) || it.contains("session", true) }) client.forget()
+            freeResult(
+                t("❌ کانفیگ ساخته نشد", "❌ No config was built"),
+                client.log + errors,
+                null,
+                t("دوباره وارد شو. پلن پولی جعل نمی‌شود.", "Sign in again. A paid plan is not faked."),
+            )
+            return@freeProgress
         }
         val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
         step(t("۳) ذخیره به‌عنوان «$name»…", "3) Saving as “$name”…"))
@@ -1416,7 +1394,7 @@ private fun MainActivity.connectCatWind(codes: Set<String>, proto: CatWindPlanne
             saveFreeSubscription(store.windSubId, name, CatWindPlanner.subscriptionText(ordered))
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), client.log + pingLines + (e.message ?: e.javaClass.simpleName), null, "")
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), client.log + pingLines + errors + (e.message ?: e.javaClass.simpleName), null, "")
             return@freeProgress
         }
         store.windSubId = subId
@@ -1425,18 +1403,13 @@ private fun MainActivity.connectCatWind(codes: Set<String>, proto: CatWindPlanne
         report += client.log
         report += t("شهرها: ${chosen.size}", "Cities: ${chosen.size}")
         report += pingLines
-        val tip = if (proto == CatWindPlanner.Proto.WireGuard) {
-            t("«⚡ اتصال» را بزن. WireGuard روی UDP پورت ۴۴۳ است (وب، تلگرام، تماس/بازی). اگر یکی وصل نشد بعدی را از فهرست بزن.",
-                "Tap “⚡ Connect”. WireGuard on UDP port 443 (web, Telegram, voice/games). If one fails, pick the next in the list.")
-        } else {
-            t("«⚡ اتصال» را بزن. TCP روی پورت ۴۴۳ است (وب، تلگرام…). تماس صوتی/بازی UDP کار نمی‌کند. اگر یکی وصل نشد بعدی را از فهرست بزن.",
-                "Tap “⚡ Connect”. TCP on port 443 (web, Telegram…). UDP voice/games do not work. If one fails, pick the next in the list.")
-        }
+        report += errors
         freeResult(
             t("✅ ${ordered.size} سرور Cat Wind آماده است", "✅ ${ordered.size} Cat Wind servers ready"),
             report,
             subId,
-            tip,
+            t("«⚡ اتصال» را بزن. Stealth روی TCP ۴۴۳ و WireGuard روی UDP ۴۴۳ است. اگر یکی وصل نشد بعدی را از فهرست بزن.",
+                "Tap “⚡ Connect”. Stealth is TCP 443 and WireGuard is UDP 443. If one fails, pick the next in the list."),
         )
     }
 }

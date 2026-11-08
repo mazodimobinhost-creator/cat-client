@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta273] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat Wind after login did nothing (WebView sign-in never became a session).
+
+### Fixed
+- **Cat Wind after login adds every allowed config by itself.** Sign-in / create-account stays on the official page (human check is yours). The session cookie then pulls the free city list + Stealth and WireGuard rows and Cat saves them. No country quiz, no protocol quiz, no password paste. Premium cities are not unlocked.
+
 ## [1.10.0-beta272] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Proton free account still needed a guide (downloads page, clipboard, Add files).

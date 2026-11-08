@@ -9,9 +9,10 @@ import java.util.Locale
 
 /**
  * beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities),
- * used the same way Cat Fox uses a free Firefox account: the user creates / signs in with their
- * own account (Cat never fills the human check), Cat takes the public city list, times each host
- * on THIS network, then the user picks a protocol:
+ * used the same way Cat Fox uses a free Firefox account: the user creates / signs in on the
+ * official page (Cat never fills the human check). After the session cookie appears, Cat takes
+ * the public city list, times each host on THIS network, and adds every allowed Stealth +
+ * WireGuard row. The user does not pick a protocol or paste a password.
  *  • Stealth = ordinary `https://user:pass@host:443` CONNECT/TLS (TCP).
  *  • WireGuard = `wireguard://` on the listed UDP **:443** (never rewritten) via public
  *    `WgConfigs/init` + `WgConfigs/connect`. Private key stays on device.
@@ -100,6 +101,52 @@ internal object CatWindPlanner {
     fun form(fields: Map<String, String>): String = fields.entries.joinToString("&") { (k, v) ->
         URLEncoder.encode(k, "UTF-8") + "=" + URLEncoder.encode(v, "UTF-8")
     }
+
+    /** WebView cookie jar after the human check: `session_auth_hash=…`. */
+    fun sessionHashFromCookies(vararg cookies: String?): String? {
+        val joined = cookies.mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }.joinToString("; ")
+        if (joined.isBlank()) return null
+        val patterns = listOf(
+            """(?:^|;\s*)session_auth_hash=([^;]+)""",
+            """(?:^|;\s*)ws_session_auth_hash=([^;]+)""",
+            """(?:^|;\s*)auth_hash=([^;]+)""",
+        )
+        for (pattern in patterns) {
+            Regex(pattern, RegexOption.IGNORE_CASE).find(joined)?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.length >= 8 }?.let { return it }
+        }
+        return null
+    }
+
+    fun sessionHashFromText(raw: String?): String? {
+        val text = raw?.trim()?.trim('"').orEmpty()
+        if (text.isBlank() || text == "null") return null
+        sessionHashFromCookies(text)?.let { return it }
+        sessionHashFromHtml(text)?.let { return it }
+        if (';' in text || '=' in text || ' ' in text) return null
+        return text.takeIf { it.length in 16..128 && it.matches(Regex("[A-Za-z0-9_-]+")) }
+    }
+
+    fun sessionHashFromHtml(html: String?): String? {
+        val m = Regex("""session_auth_hash["'\s:=]+([A-Za-z0-9_-]{16,128})""", RegexOption.IGNORE_CASE)
+            .find(html.orEmpty()) ?: return null
+        return m.groupValues[1]
+    }
+
+    fun sessionHashFromUrl(url: String?): String? {
+        val u = url.orEmpty()
+        if (u.isBlank()) return null
+        return sessionHashFromCookies(u.replace('&', ';').replace('?', ';'))
+    }
+
+    fun looksLoggedIn(url: String?): Boolean {
+        val u = url.orEmpty().lowercase(Locale.US)
+        if ("windscribe.com" !in u) return false
+        return listOf("/myaccount", "/staticips", "/getconfig", "/upgrade", "/mydevices", "/dashboard").any { it in u }
+    }
+
+    val SESSION_SCAN_JS =
+        "(function(){try{var keys=['session_auth_hash','ws_session_auth_hash','auth_hash','sessionAuthHash'];function pick(v){return (v&&typeof v==='string'&&v.length>=16&&v.length<=128)?v:null;}for(var i=0;i<keys.length;i++){try{var a=pick(localStorage.getItem(keys[i]));if(a)return a;}catch(e){}try{var b=pick(sessionStorage.getItem(keys[i]));if(b)return b;}catch(e){}}try{if(window.session_auth_hash){var c=pick(String(window.session_auth_hash));if(c)return c;}}catch(e){}try{var html=document.documentElement.innerHTML;var m=html.match(/session_auth_hash[\"'= :]+([A-Za-z0-9_-]{16,128})/);if(m)return m[1];}catch(e){}return document.cookie||'';}catch(e){return '';}})()"
 
     fun headers(auth: String? = null): Map<String, String> = buildMap {
         put("Accept", "application/json")
@@ -378,6 +425,82 @@ internal class CatWindClient(private val store: FreeNetworkStore) {
         store.windWgPub = ""
         store.windWgPsk = ""
         store.windWgAllowed = ""
+    }
+
+    fun adoptAuth(auth: String): CatWindPlanner.Session {
+        val hash = auth.trim()
+        if (hash.length < 8) throw IOException("Cat Wind session is empty")
+        val encoded = URLEncoder.encode(hash, "UTF-8")
+        val get = FreeNetHttp.request(
+            "${CatWindPlanner.SESSION}?session_auth_hash=$encoded",
+            headers = CatWindPlanner.headers(hash),
+            timeoutMs = 15_000,
+        )
+        val session = CatWindPlanner.session(get.body) ?: run {
+            val post = FreeNetHttp.request(
+                CatWindPlanner.SESSION,
+                "POST",
+                CatWindPlanner.headers() + mapOf("Content-Type" to "application/x-www-form-urlencoded"),
+                CatWindPlanner.form(
+                    mapOf(
+                        "session_auth_hash" to hash,
+                        "session_type_id" to "2",
+                        "platform" to "android",
+                    ),
+                ),
+                timeoutMs = 15_000,
+            )
+            CatWindPlanner.session(post.body)
+                ?: throw IOException(
+                    CatWindPlanner.sessionError(post.body).ifBlank {
+                        CatWindPlanner.sessionError(get.body).ifBlank { "HTTP ${post.code}" }
+                    },
+                )
+        }
+        if (!session.usable) throw IOException(
+            CatWindPlanner.sessionError(get.body).ifBlank { "account status ${session.status}" },
+        )
+        remember(session)
+        log += "session ✓ ${session.username.ifBlank { "web" }}"
+        return session
+    }
+
+    fun adoptFromWeb(cookieHeader: String, pageHtml: String = ""): CatWindPlanner.Session {
+        val hash = CatWindPlanner.sessionHashFromCookies(cookieHeader)
+            ?: CatWindPlanner.sessionHashFromHtml(pageHtml)
+        if (hash != null) return adoptAuth(hash)
+        if (cookieHeader.isBlank()) throw IOException("Cat Wind session is empty")
+        val get = FreeNetHttp.request(
+            CatWindPlanner.SESSION,
+            headers = CatWindPlanner.headers() + mapOf(
+                "Cookie" to cookieHeader,
+                "Referer" to "https://windscribe.com/",
+                "Origin" to "https://windscribe.com",
+            ),
+            timeoutMs = 15_000,
+        )
+        CatWindPlanner.session(get.body)?.let { session ->
+            if (!session.usable) throw IOException(
+                CatWindPlanner.sessionError(get.body).ifBlank { "account status ${session.status}" },
+            )
+            remember(session)
+            log += "session ✓ ${session.username.ifBlank { "web" }}"
+            return session
+        }
+        val account = FreeNetHttp.request(
+            "https://windscribe.com/myaccount",
+            headers = mapOf(
+                "Cookie" to cookieHeader,
+                "User-Agent" to CatWindPlanner.UA,
+                "Accept" to "text/html",
+            ),
+            timeoutMs = 15_000,
+        )
+        val fromPage = CatWindPlanner.sessionHashFromHtml(account.body)
+            ?: throw IOException(
+                CatWindPlanner.sessionError(get.body).ifBlank { "HTTP ${get.code}" },
+            )
+        return adoptAuth(fromPage)
     }
 
     fun login(username: String, password: String, otp: String = ""): CatWindPlanner.Session {

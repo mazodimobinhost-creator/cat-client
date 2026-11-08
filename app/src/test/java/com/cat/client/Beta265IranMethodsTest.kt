@@ -82,10 +82,10 @@ class Beta265IranMethodsTest {
         assertTrue(hub.contains("Cat Warp — تونل کلودفلر با پینگ زنده"))
         assertTrue(hub.contains("connectCatWarpFree"))
         assertTrue(hub.contains("LiveNetPing.tcpMs(p.host, p.port)"))
-        assertTrue(hub.contains("pickWindProtocol"))
+        assertTrue(hub.contains("adoptAuth"))
         assertTrue(hub.contains("CatWindPlanner.Proto.WireGuard"))
         assertTrue(hub.contains("client.wgLink"))
-        assertTrue(hub.contains("CatWindPlanner.WG_PORT") || hub.contains("UDP روی ۴۴۳"))
+        assertTrue(hub.contains("CatWindPlanner.WG_PORT") || hub.contains("UDP ۴۴۳") || hub.contains("UDP 443"))
         assertFalse(hub.contains("HKEY_"))
         assertFalse(hub.contains("reg delete"))
         assertFalse(hub.contains("atomic.mail"))
@@ -102,8 +102,8 @@ class Beta265IranMethodsTest {
         assertTrue(finder.contains("showCatWindDialog()"))
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 339"))
-        assertTrue(gradle.contains("1.10.0-beta272"))
+        assertTrue(gradle.contains("versionCode = 340"))
+        assertTrue(gradle.contains("1.10.0-beta273"))
     }
 
     companion object {

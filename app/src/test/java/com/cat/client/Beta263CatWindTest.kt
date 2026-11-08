@@ -82,11 +82,13 @@ class Beta263CatWindTest {
         assertTrue(hub.contains("Cat Wind — کشورها با پینگ روی خط شما"))
         assertTrue(hub.contains("LiveNetPing.waitingFa"))
         assertTrue(hub.contains("LiveNetPing.labelFa"))
-        assertTrue(hub.contains("client.ping(loc)"))
-        assertTrue(hub.contains("CatWindPlanner.PORT"))
+        assertTrue(hub.contains("client.ping("))
         assertTrue(hub.contains("rankLinksByLivePing"))
         assertTrue(hub.contains("connectCatWind"))
         assertTrue(hub.contains("CatWindPlanner.SIGNUP"))
+        assertTrue(hub.contains("pullFromSession"))
+        assertTrue(hub.contains("adoptAuth"))
+        assertFalse(hub.contains("pickWindProtocol"))
         assertFalse("no fake paid VPN", hub.contains("Privado") || hub.contains("TunnelBear") || hub.contains("NordVPN"))
         assertFalse("Plus is not faked", hub.contains("fakePlus") || hub.contains("is_premium\\\":1, \\\"unlock"))
         val engine = src("CatWindEngine.kt")
@@ -107,8 +109,8 @@ class Beta263CatWindTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 339"))
-        assertTrue(gradle.contains("1.10.0-beta272"))
+        assertTrue(gradle.contains("versionCode = 340"))
+        assertTrue(gradle.contains("1.10.0-beta273"))
     }
 
     private fun src(name: String): String = listOf(
