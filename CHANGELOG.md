@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta287] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Voidly / Proton WireGuard — does Cat run `.conf` without the official WireGuard app?
+
+### Added
+- **Cat Voidly:** paste or open a Voidly `.conf`; Cat connects WireGuard itself. UDP-only warning. Proton OpenVPN is still not run.
+
 ## [1.10.0-beta286] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat GP still does not show from/to IP and country.

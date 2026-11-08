@@ -121,15 +121,17 @@ internal fun MainActivity.showAmneziaSectionDialog() {
                 "آمنزیا سرور ابری رایگان نمی‌دهد — کلید را خودتان می‌آورید.\n\n" +
                     "از کجا؟\n" +
                     "• سرور خودتان: برنامهٔ Amnezia → اشتراک‌گذاری → «فرمت AmneziaVPN» (متن vpn://) یا «فرمت AmneziaWG» (فایل .conf).\n" +
-                    "• پروتون: account.protonvpn.com → ورود → WireGuard → دانلود .conf → اینجا بچسبانید.\n" +
+                    "• پروتون: account.protonvpn.com → ورود → WireGuard → دانلود .conf → اینجا بچسبانید (اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود).\n" +
+                    "• Voidly: voidly.ai/vpn → ساخت .conf → اینجا بچسبانید (فقط UDP).\n" +
                     "• فروشنده یا ربات: همان متن vpn:// یا فایل .conf را می‌دهد.\n\n" +
-                    "بعد «کلید را کپی کرده‌ام» را بزنید. نصب برنامهٔ Amnezia برای وصل شدن لازم نیست.",
+                    "بعد «کلید را کپی کرده‌ام» را بزنید. نصب برنامهٔ Amnezia یا اپ رسمی WireGuard لازم نیست — Cat فایل .conf را خودش وصل می‌کند.",
                 "Amnezia does not give a free cloud server — you bring the key.\n\n" +
                     "Where from?\n" +
                     "• Your server: Amnezia app → Share → “AmneziaVPN format” (vpn://) or “AmneziaWG format” (.conf).\n" +
-                    "• Proton: account.protonvpn.com → sign in → WireGuard → download .conf → paste it here.\n" +
+                    "• Proton: account.protonvpn.com → sign in → WireGuard → download .conf → paste it here (Proton OpenVPN is not run).\n" +
+                    "• Voidly: voidly.ai/vpn → make a .conf → paste it here (UDP only).\n" +
                     "• A seller or bot: they give the same vpn:// text or a .conf file.\n\n" +
-                    "Then tap “I copied the key”. The Amnezia app is not needed to connect.",
+                    "Then tap “I copied the key”. The Amnezia app and the official WireGuard app are not needed — Cat connects the .conf itself.",
             )
             textSize = 13.5f
             setTextColor(TEXT_SECONDARY)
@@ -622,12 +624,13 @@ internal fun MainActivity.saveCatSstpSubscription(text: String, connect: Boolean
             📥 از کجا بیاورم؟
             • اگر سرور Amnezia دارید: در برنامهٔ Amnezia → «اشتراک‌گذاری» → سرور و پروتکل را انتخاب کنید → «فرمت AmneziaVPN» (vpn://) یا «فرمت AmneziaWG» (فایل ‎.conf) → کپی یا ذخیره.
             • فروشنده‌ها و ربات‌هایی که «کانفیگ Amnezia» می‌فروشند همین vpn:// یا فایل ‎.conf را می‌دهند.
+            • Voidly (voidly.ai/vpn) فایل WireGuard .conf می‌دهد — اپ رسمی WireGuard لازم نیست.
 
             ✅ چه چیزهایی اینجا کار می‌کند؟
             AmneziaWG (نسخهٔ ۱، ۱.۵ و ۲)، WireGuard، XRay (VLESS / Reality) و Shadowsocks.
 
             ⛔ چه چیزهایی کار نمی‌کند؟
-            • OpenVPN، Cloak و IKEv2 داخل کلید (برنامه آن‌ها را نشان می‌دهد ولی اجرا نمی‌کند).
+            • OpenVPN، Cloak و IKEv2 داخل کلید (برنامه آن‌ها را نشان می‌دهد ولی اجرا نمی‌کند). اپن‌وی‌پی‌ان پروتون هم اجرا نمی‌شود.
             • کلیدهای «Amnezia Premium» و «Amnezia Free»: فقط توکن حساب دارند و سرورشان را خودِ برنامهٔ Amnezia می‌گیرد.
             • کلید «دسترسی کامل مدیر» (SSH): کانفیگ کاربر نیست؛ در برنامهٔ Amnezia یک کاربر بسازید و آن را بفرستید.
 
@@ -641,12 +644,13 @@ internal fun MainActivity.saveCatSstpSubscription(text: String, connect: Boolean
             📥 Where do I get one?
             • Your own Amnezia server: Amnezia app → Share → pick server and protocol → “AmneziaVPN format” (vpn://) or “AmneziaWG format” (.conf) → copy or save.
             • Sellers and bots that sell “Amnezia configs” give exactly this vpn:// text or a .conf file.
+            • Voidly (voidly.ai/vpn) gives a WireGuard .conf — the official WireGuard app is not needed.
 
             ✅ What works here?
             AmneziaWG (v1, 1.5 and 2), WireGuard, XRay (VLESS / Reality) and Shadowsocks.
 
             ⛔ What does not?
-            • OpenVPN, Cloak and IKEv2 inside a key (shown, but not run).
+            • OpenVPN, Cloak and IKEv2 inside a key (shown, but not run). Proton OpenVPN is not run either.
             • “Amnezia Premium” / “Amnezia Free” keys: they only hold an account token; only the Amnezia app can get their servers.
             • Full-access admin keys (SSH): not a user config; create a user in the Amnezia app and share that.
 

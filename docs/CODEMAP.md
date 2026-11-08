@@ -24,7 +24,7 @@
 |---|---:|---|---|
 | `MainActivity.kt` | 3766 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAmneziaSstp.kt` | 662 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 11 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAmneziaSstp.kt` | 666 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1742 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1509 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 20 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1642 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 21 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 9 JVM · 9 panel (see `affected-tests.py`) |
@@ -138,7 +138,7 @@
 | `CatWarpListPolicy.kt` | 97 | beta214: small pure helpers behind the Cat Warp list fixes. | Beta214CatWarpListTest · — |
 | `CommunitySourceFetcher.kt` | 52 | Manual/page-visible fetch only. | CommunitySourceFetcherTest · — |
 | `CommunitySourceRegistry.kt` | 53 | — | CommunitySourceFetcherTest, CommunitySourceRegistryTest, FreeConfigsRegistryBridgeTest · — |
-| `ConfigFileImport.kt` | 247 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, WhiteDnsToolkitTest · — |
+| `ConfigFileImport.kt` | 247 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, Beta287VoidlyWireGuardTest, WhiteDnsToolkitTest · — |
 | `ConnectionDisplay.kt` | 203 | — | — · — |
 | `ConnectionLabelPolicy.kt` | 69 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest · — |
 | `DeltaKroneckerHub.kt` | 109 | 🔺 Delta-Kronecker feeds (github.com/Delta-Kronecker) — public, regularly re-tested lists, consumed BY URL on the user's own phone. | DeltaKroneckerFeedsTest · — |
@@ -321,7 +321,7 @@
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
 | `FoxTransport.kt` | 161 | Cat Fox VPN tunnel protocol (independent of other clients). | Beta211FenixHttp2Test, Beta259FoxTransportTest · — |
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
-| `FreeNetworkEngines.kt` | 989 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest, Beta278CatGpCloudflareHopTest · — |
+| `FreeNetworkEngines.kt` | 993 | beta247 — three free networks the user asked for, all ending as ordinary Cat configs (no new core): • 🆓 Cat Free Proxy — the free network of a brow… | Beta247FreeNetworksImportTest, Beta247FreeNetworksTest, Beta248FixesTest, Beta249FanoosCountriesTest, Beta250FoxOneSubscriptionTest, Beta251FanoosCatalogTest, Beta252FanoosFixedSetTest, Beta254FreeVpnsTest, Beta278CatGpCloudflareHopTest · — |
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `Globe3d.kt` | 39 | Orthographic 3D globe math for the home connection sphere. | Beta268Globe3dTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
@@ -333,8 +333,9 @@
 | `ProtonFreeEngine.kt` | 386 | beta254 — 🟢 Cat Proton: the service's own **free** plan (unlimited data, a handful of countries), used the same way Cat Fox uses a free Firefox acc… | Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, Beta277ProtonCredentialsPageTest · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
+| `VoidlyFree.kt` | 29 | 🛡️ Cat Voidly — free WireGuard `.conf` from voidly.ai/vpn. | Beta287VoidlyWireGuardTest · — |
 
-_276 Kotlin files, 117572 lines._
+_277 Kotlin files, 117742 lines._
 
 ## MainActivity screens — function index
 
@@ -351,7 +352,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityAmneziaSstp.kt` (10 functions)
 
-`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:198, `previewAndImportAmneziaText`:225, `saveAmneziaSubscription`:283, `selectSubscriptionAndConnect`:312, `showMyAmneziaConfigsDialog`:324, `showCatSstpDialog`:425, `fetchAndSaveCatSstpServers`:489, `showManualCatSstpDialog`:543, `saveCatSstpSubscription`:587
+`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:200, `previewAndImportAmneziaText`:227, `saveAmneziaSubscription`:285, `selectSubscriptionAndConnect`:314, `showMyAmneziaConfigsDialog`:326, `showCatSstpDialog`:427, `fetchAndSaveCatSstpServers`:491, `showManualCatSstpDialog`:545, `saveCatSstpSubscription`:589
 
 ### `MainActivityAntiFilterTools.kt` (35 functions)
 
@@ -393,9 +394,9 @@ for the dialog/button you want to change.
 
 `buildFirefoxVpnFenixCard`:114, `showFirefoxAccountManagerDialog`:285, `showFirefoxEmailLoginDialog`:809, `showFirefoxVpnFenixHubDialog`:989, `connectFirefoxVpnDirectly`:1134, `showFirefoxCountryPickerDialog`:1280, `showFoxTransportDialog`:1409, `showFirefoxTokenImportDialog`:1434
 
-### `MainActivityFreeNetworks.kt` (31 functions)
+### `MainActivityFreeNetworks.kt` (34 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:192, `freeProgress`:208, `saveFreeSubscription`:233, `connectFreeSubscription`:243, `freeResult`:277, `showFreeProxyDialog`:295, `buildFreeProxy`:316, `showFanoosDialog`:357, `fetchFanoos`:404, `fetchFanoosAll`:463, `showFreeAccountDialog`:600, `showProtonDialog`:745, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:999, `showFreePsiphonDialog`:1071, `pickFreePsiphonCountry`:1109, `connectFreePsiphon`:1128, `showCatWarpFreeDialog`:1167, `connectCatWarpFree`:1228, `showCatWindDialog`:1263, `showCatWindLogin`:1273, `connectCatWind`:1418, `jsString`:1509
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:198, `freeProgress`:214, `saveFreeSubscription`:239, `connectFreeSubscription`:249, `freeResult`:283, `showFreeProxyDialog`:301, `buildFreeProxy`:322, `showFanoosDialog`:363, `fetchFanoos`:410, `fetchFanoosAll`:469, `showFreeAccountDialog`:606, `showProtonDialog`:751, `showProtonPaste`:755, `showProtonWebView`:779, `addProtonConfs`:1005, `showVoidlyDialog`:1075, `showVoidlyPaste`:1114, `addVoidlyConfs`:1138, `showFreePsiphonDialog`:1204, `pickFreePsiphonCountry`:1242, `connectFreePsiphon`:1261, `showCatWarpFreeDialog`:1300, `connectCatWarpFree`:1361, `showCatWindDialog`:1396, `showCatWindLogin`:1406, `connectCatWind`:1551, `jsString`:1642
 
 ### `MainActivityGuides.kt` (9 functions)
 
@@ -1071,6 +1072,7 @@ for the dialog/button you want to change.
 | `VerifiedSubscriptionProjector` | `VerifiedSubscriptionProjection.kt` |
 | `VerifiedTunnelChain` | `VerifiedTunnelChain.kt` |
 | `VerifiedTunnelChainParser` | `VerifiedTunnelChain.kt` |
+| `VoidlyPlanner` | `VoidlyFree.kt` |
 | `VpnAnalyticsEventPolicy` | `AnalyticsEvents.kt` |
 | `VpnNotificationActionPolicy` | `VpnNotificationActionPolicy.kt` |
 | `VpnRuntimeStateStore` | `VpnRuntimeStateStore.kt` |

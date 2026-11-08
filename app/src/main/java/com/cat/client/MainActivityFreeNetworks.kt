@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind · 🚀 Cat Warp. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt / CatWarpFree.kt.
+// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind · 🚀 Cat Warp. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt / CatWarpFree.kt / VoidlyFree.kt.
 
 private fun MainActivity.freeFa(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
 
@@ -162,10 +162,16 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showFanoosDialog() }
     entry(
         t("🟢 Cat Proton (حساب رایگان، چند کشور)", "🟢 Cat Proton (free account, several countries)"),
-        t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat خودش همهٔ کانفیگ‌های مجاز را می‌گیرد و اضافه می‌کند — پلن پولی جعل نمی‌شود.",
-            "Tap: sign in or create the free account (the human check stays yours). Cat then fetches every allowed config and adds it — Plus is not faked."),
+        t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat خودش همهٔ کانفیگ‌های وایرگارد مجاز را می‌گیرد و اضافه می‌کند — پلن پولی جعل نمی‌شود. اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود.",
+            "Tap: sign in or create the free account (the human check stays yours). Cat then fetches every allowed WireGuard config and adds it — Plus is not faked. Proton OpenVPN is not run."),
         accent = true,
     ) { showProtonDialog() }
+    entry(
+        t("🛡️ Cat Voidly (وایرگارد رایگان، بدون حساب)", "🛡️ Cat Voidly (free WireGuard, no account)"),
+        t("اینو بزنی: روی سایت لوکیشن را بساز، فایل .conf را بیاور. Cat خودش وصل می‌کند — اپ رسمی WireGuard لازم نیست. فقط UDP است؛ اگر اپراتور UDP را بسته باشد وصل نمی‌شود.",
+            "Tap: make a location on the site, bring the .conf. Cat connects it — the official WireGuard app is not needed. UDP only; if your operator blocks UDP it will not connect."),
+        accent = false,
+    ) { showVoidlyDialog() }
     entry(
         t("🌐 Cat GP — وقتی فقط گوگل باز است", "🌐 Cat GP — when only Google is open"),
         t("اینو بزنی: مرورگر از اسکریپت خودتان روی گوگل رد می‌شود. مداد یا نگه‌داشتن = IP و SNI لبه. فقط مرورگر؛ تلگرام نه.",
@@ -780,8 +786,8 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
 
     val box = freeBox()
     box.addView(freeText(t(
-        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat خودش همهٔ کانفیگ‌ها را می‌گیرد و اضافه می‌کند.",
-        "Sign in or create a free account. The human check stays yours. After that Cat fetches every allowed config and adds it.",
+        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat وایرگارد رایگان را می‌گیرد و اضافه می‌کند. اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود.",
+        "Sign in or create a free account. The human check stays yours. After that Cat fetches free WireGuard and adds it. Proton OpenVPN is not run.",
     ), 12f))
     val status = freeText(t("⏳ حساب را بساز یا وارد شو…", "⏳ Sign in or create the account…"), 12.5f, TEAL, bold = true)
 
@@ -1060,6 +1066,133 @@ private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want:
             subId,
             t("وایرگارد خام روی بعضی اپراتورهای ایران بسته است. اگر وصل نشد، «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کنید. این کانفیگ‌ها مال حساب خودتان است، نه کلید مشترک.",
                 "Plain WireGuard is blocked on some Iranian operators. If it does not connect, try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”. These configs belong to your account, not a shared key."),
+        )
+    }
+}
+
+// ───────────── 🛡️ Cat Voidly ─────────────
+
+internal fun MainActivity.showVoidlyDialog() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val box = freeBox()
+    var dialog: AlertDialog? = null
+    box.addView(freeText(t(
+        "وایرگارد را Cat خودش وصل می‌کند — اپ رسمی WireGuard لازم نیست.\n\n" +
+            "۱) روی سایت لوکیشن را بساز و فایل .conf را دانلود کن.\n" +
+            "۲) اینجا بچسبان یا از حافظه باز کن.\n\n" +
+            "⚠️ فقط UDP است. اگر اپراتورت UDP را بسته، وصل نمی‌شود (حالت استلث ندارد). کانفیگ حدود ۷ روز اعتبار دارد. اگر سایت فیلتر بود، یک بار با روش دیگری وصل شو و دوباره بیا.",
+        "Cat connects WireGuard itself — the official WireGuard app is not needed.\n\n" +
+            "1) Make a location on the site and download the .conf.\n" +
+            "2) Paste it here or open it from storage.\n\n" +
+            "UDP only. If your operator blocks UDP it will not connect (no stealth mode). Configs last about 7 days. If the site is filtered, connect another way once and come back.",
+    ), 12.5f))
+    box.addView(freeButton(t("🌐 باز کردن سایت Voidly", "🌐 Open Voidly site"), accent = true) {
+        runCatching {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(VoidlyPlanner.PAGE)))
+        }.onFailure {
+            Toast.makeText(this, t("سایت باز نشد", "Could not open the site"), Toast.LENGTH_LONG).show()
+        }
+    }, freeLp(10))
+    box.addView(freeButton(t("📋 چسباندن فایل .conf", "📋 Paste the .conf"), accent = false) {
+        dialog?.dismiss()
+        showVoidlyPaste()
+    }, freeLp(6))
+    box.addView(freeButton(t("📂 باز کردن فایل .conf", "📂 Open a .conf file"), accent = false) {
+        dialog?.dismiss()
+        appTools.openImportFilePicker()
+    }, freeLp(6))
+    val built = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🛡️ وایرگارد رایگان Voidly", "🛡️ Free Voidly WireGuard"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    dialog = built
+    built.showCatClientDialog()
+}
+
+private fun MainActivity.showVoidlyPaste() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val clip = runCatching { readClipboardConfigText().orEmpty() }.getOrDefault("")
+    val input = EditText(this).apply {
+        hint = "[Interface]\nPrivateKey = …\n\n[Peer]\nPublicKey = …\nEndpoint = …"
+        minLines = 8
+        gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        if (VoidlyPlanner.looksLikeConf(clip)) setText(clip)
+    }
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("📋 فایل WireGuard Voidly", "📋 Voidly WireGuard file"))
+        .setView(ScrollView(this).apply { addView(input, LinearLayout.LayoutParams(-1, dp(280))) })
+        .setPositiveButton(t("➕ افزودن", "➕ Add")) { _, _ ->
+            addVoidlyConfs(listOf("voidly.conf" to input.text?.toString().orEmpty()))
+        }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+        .showCatClientDialog()
+}
+
+private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val name = VoidlyPlanner.NAME
+    freeProgress(t("⏳ ساخت کانفیگ Voidly…", "⏳ Building Voidly configs…")) { step ->
+        val links = ArrayList<String>()
+        val report = ArrayList<String>()
+        for ((filename, text) in files) {
+            if (!VoidlyPlanner.looksLikeConf(text)) {
+                report += "⚠️ $filename: " + t("فایل WireGuard کامل نیست", "not a complete WireGuard file")
+                continue
+            }
+            val label = VoidlyPlanner.rowLabel(text)
+            val rows = WireGuardConfText.toUris(text).map { link ->
+                val base = link.substringBefore('#')
+                val tag = java.net.URLEncoder.encode("$name · $label", "UTF-8").replace("+", "%20")
+                "$base#$tag"
+            }
+            if (rows.isEmpty()) {
+                report += "⚠️ $filename: " + t("لینک ساخته نشد", "no link built")
+                continue
+            }
+            if (rows.any { it.startsWith("awg://") }) {
+                report += "⚠️ $filename: " + t("این فایل Amnezia است؛ از بخش آمنزیا اضافه کنید", "this file is Amnezia; add it in the Amnezia section")
+                continue
+            }
+            links += rows
+            report += "✅ $filename → $label ×${rows.size}"
+        }
+        if (links.isEmpty()) {
+            freeResult(
+                t("⚠️ کانفیگی ساخته نشد", "⚠️ No config built"),
+                report,
+                null,
+                t("فایل باید PrivateKey و PublicKey و Endpoint داشته باشد. از voidly.ai/vpn فایل .conf را بگیر.",
+                    "The file needs PrivateKey, PublicKey and Endpoint. Get the .conf from voidly.ai/vpn."),
+            )
+            return@freeProgress
+        }
+        val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
+        report += pingLines
+        step(t("ذخیره به‌عنوان «$name»…", "Saving as “$name”…"))
+        val store = FreeNetworkStore(this@addVoidlyConfs)
+        val subId = try {
+            saveFreeSubscription(store.voidlySubId, name, VoidlyPlanner.subscriptionText(ordered))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), report + (e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.voidlySubId = subId
+        renderSubscriptions()
+        freeResult(
+            t("✅ ${links.size} سرور Voidly", "✅ ${links.size} Voidly servers"),
+            report,
+            subId,
+            t("فقط UDP است. اگر وصل نشد، اپراتور UDP را بسته؛ «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کن.",
+                "UDP only. If it does not connect, the operator is blocking UDP; try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”."),
         )
     }
 }
