@@ -118,20 +118,10 @@ internal fun MainActivity.showAmneziaSectionDialog() {
     box.addView(
         TextView(this).apply {
             text = t(
-                "آمنزیا سرور ابری رایگان نمی‌دهد — کلید را خودتان می‌آورید.\n\n" +
-                    "از کجا؟\n" +
-                    "• سرور خودتان: برنامهٔ Amnezia → اشتراک‌گذاری → «فرمت AmneziaVPN» (متن vpn://) یا «فرمت AmneziaWG» (فایل .conf).\n" +
-                    "• پروتون: account.protonvpn.com → ورود → WireGuard → دانلود .conf → اینجا بچسبانید (اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود).\n" +
-                    "• Voidly: voidly.ai/vpn → ساخت .conf → اینجا بچسبانید (فقط UDP).\n" +
-                    "• فروشنده یا ربات: همان متن vpn:// یا فایل .conf را می‌دهد.\n\n" +
-                    "بعد «کلید را کپی کرده‌ام» را بزنید. نصب برنامهٔ Amnezia یا اپ رسمی WireGuard لازم نیست — Cat فایل .conf را خودش وصل می‌کند.",
-                "Amnezia does not give a free cloud server — you bring the key.\n\n" +
-                    "Where from?\n" +
-                    "• Your server: Amnezia app → Share → “AmneziaVPN format” (vpn://) or “AmneziaWG format” (.conf).\n" +
-                    "• Proton: account.protonvpn.com → sign in → WireGuard → download .conf → paste it here (Proton OpenVPN is not run).\n" +
-                    "• Voidly: voidly.ai/vpn → make a .conf → paste it here (UDP only).\n" +
-                    "• A seller or bot: they give the same vpn:// text or a .conf file.\n\n" +
-                    "Then tap “I copied the key”. The Amnezia app and the official WireGuard app are not needed — Cat connects the .conf itself.",
+                "Cat کانفیگ AmneziaWG را می‌سازد و در فهرست می‌آورد — اپ Amnezia لازم نیست.\n\n" +
+                    "اگر کلید vpn:// یا فایل .conf خودت را داری، پایین بچسبان.",
+                "Cat builds AmneziaWG and puts it in the list — the Amnezia app is not needed.\n\n" +
+                    "If you already have a vpn:// key or a .conf, paste it below.",
             )
             textSize = 13.5f
             setTextColor(TEXT_SECONDARY)
@@ -169,7 +159,10 @@ internal fun MainActivity.showAmneziaSectionDialog() {
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
     }
-    action(t("📋 کلید را کپی کرده‌ام → بخوان و وصل شو", "📋 I copied the key → read it and connect"), accent = true) {
+    action(t("🚀 بساز و بیاور داخل اپ", "🚀 Build and bring it into the app"), accent = true) {
+        addWarpAmneziaAuto()
+    }
+    action(t("📋 کلید vpn:// دارم → بخوان و وصل شو", "📋 I have a vpn:// key → read it and connect")) {
         val clip = readClipboardConfigText().orEmpty()
         if (clip.isBlank()) {
             Toast.makeText(this, t("کلیپ‌بورد خالی است؛ اول کلید vpn:// را کپی کنید.", "Clipboard is empty; copy the vpn:// key first."), Toast.LENGTH_LONG).show()
@@ -323,23 +316,28 @@ internal fun MainActivity.selectSubscriptionAndConnect(subscriptionId: String) {
     if (!wasStarted && buttonModel.state != VpnState.Starting) beginConnectFlow(Actions.CONNECT)
 }
 
+internal fun isAmneziaListed(name: String, input: String): Boolean {
+    val n = name.lowercase()
+    val body = input
+    if (n.contains("amnezia") || "آمنزیا" in name || "امنزیا" in name || "امیزا" in name) return true
+    if (body.contains("awg://", ignoreCase = true) || body.contains("amneziawg://", ignoreCase = true)) return true
+    if (AmneziaVpnKey.looksLikeKey(body)) return true
+    return false
+}
+
 internal fun MainActivity.showMyAmneziaConfigsDialog() {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
     fun t(fa: String, en: String) = if (isFarsi) fa else en
     activityScope.launch {
         val items = withContext(Dispatchers.IO) {
-            userSubscriptionManager.list().filter { sub ->
-                sub.name.startsWith(amneziaSubscriptionPrefix) ||
-                    AmneziaVpnKey.looksLikeKey(sub.input) ||
-                    sub.input.trimStart().startsWith("awg://", ignoreCase = true) ||
-                    sub.input.trimStart().startsWith("amneziawg://", ignoreCase = true)
-            }
+            userSubscriptionManager.list().filter { sub -> isAmneziaListed(sub.name, sub.input) }
         }
         if (items.isEmpty()) {
             MaterialAlertDialogBuilder(this@showMyAmneziaConfigsDialog)
                 .setTitle(t("📋 کانفیگ Amnezia ندارید", "📋 No Amnezia configs yet"))
-                .setMessage(t("هنوز کلید Amnezia اضافه نکرده‌اید. کلید vpn:// را کپی کنید و «📋 کلید را کپی کرده‌ام» را بزنید.", "No Amnezia key added yet. Copy a vpn:// key and tap “📋 I copied the key”."))
-                .setPositiveButton(t("باشه", "OK"), null)
+                .setMessage(t("هنوز چیزی در فهرست نیست. «بساز و بیاور» را بزن تا Cat کانفیگ را بسازد و اینجا نشان بدهد.", "Nothing in the list yet. Tap “Build and bring it in” so Cat makes the config and shows it here."))
+                .setPositiveButton(t("🚀 بساز و بیاور", "🚀 Build and bring it in")) { _, _ -> addWarpAmneziaAuto() }
+                .setNegativeButton(t("بستن", "Close"), null)
                 .create().showCatClientDialog()
             return@launch
         }

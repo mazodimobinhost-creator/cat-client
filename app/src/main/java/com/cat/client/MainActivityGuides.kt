@@ -375,7 +375,7 @@ internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
     FinderEntry("🔐 کلید Amnezia (vpn://) یا AmneziaWG", "🔐 Amnezia key (vpn://) or AmneziaWG",
         "کلیدی که با vpn:// شروع می‌شود یا فایل ‎.conf را می‌خواند و وصل می‌شود.",
         "Reads a vpn:// key or a .conf file and connects.",
-        "امنزیا آمنزیا امنیزیا amnezia awg wireguard وایرگارد conf vpn://") { showAmneziaSectionDialog() },
+        "امنزیا آمنزیا امنیزیا امیزا امینا amnezia amneziawg awg wireguard وایرگارد conf vpn://") { showAmneziaSectionDialog() },
     FinderEntry("🌏 Cat SSTP (سرورهای رایگان vpn/vpn)", "🌏 Cat SSTP (free vpn/vpn servers)",
         "سرورهای رایگان SSTP ژاپن و کره؛ بدون حساب. فهرست تازه را می‌گیرد و کل گوشی را وصل می‌کند.",
         "Free SSTP servers in Japan/Korea, no account. Gets a fresh list and connects the whole phone.",

@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta289] — 2026-11-08 (Panel 6.89.0)
+
+Owner: tapping Amnezia must put configs in the list.
+
+### Fixed
+- **Amnezia lands:** Cat Warp Amnezia is saved at once (`awg://auto@`); the WARP key is made at connect, not as a gate. The Amnezia list matches those rows. Search «امیزا» opens the section. First action is «بساز و بیاور داخل اپ».
+
 ## [1.10.0-beta288] — 2026-11-08 (Panel 6.89.0)
 
 Owner: pick a location in Cat and have the config built and brought in.

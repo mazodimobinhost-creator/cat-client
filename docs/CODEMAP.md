@@ -24,7 +24,7 @@
 |---|---:|---|---|
 | `MainActivity.kt` | 3766 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAmneziaSstp.kt` | 666 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAmneziaSstp.kt` | 664 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1742 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -35,8 +35,8 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1787 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 22 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1770 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 23 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 9 JVM · 9 panel (see `affected-tests.py`) |
@@ -112,7 +112,7 @@
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
 | `FirefoxVpnEngine.kt` | 3319 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, Beta259FoxTransportTest, Beta260LivePingTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3424 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
-| `MlmAndNextGenVpnHub.kt` | 1310 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, WhiteDnsSmartScannerTest · — |
+| `MlmAndNextGenVpnHub.kt` | 1310 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, Beta289AmneziaLandsTest, WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
 | `PaqetEngine.kt` | 932 | PaqetEngine — Full engine for `paqet` and `paqetNG` (`patth` & `patth ng`, up to paqetNG v1.3.7 + paqet-ngv2). | Beta206EngineTest, WhiteDnsSmartScannerTest · — |
 | `PsiphonCarrierClient.kt` | 117 | Same-UID IPC client; no Psiphon object or Go runtime enters the VPN process. | Beta255EnginesAuditTest · — |
@@ -335,7 +335,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_277 Kotlin files, 117950 lines._
+_277 Kotlin files, 117931 lines._
 
 ## MainActivity screens — function index
 
@@ -350,9 +350,9 @@ for the dialog/button you want to change.
 
 `buildInterfaceDesignBlock`:114, `buildAdvancedScreen`:262, `buildConnectionChainSettings`:2379, `advancedToggleRow`:2663, `showSplitTunnelSettings`:2745, `showResetSettingsDialog`:3199, `scrollFieldIntoView`:3214, `advancedSectionLabel`:3233, `connectionChainFixedLabel`:3248, `connectionChainSlotLabelRes`:3267, `editConnectionChainHopIp`:3277, `refreshChainExitCountries`:3339, `renderFragmentCarrierLine`:3362, `carrierLabelRes`:3379, `presetLabelRes`:3387, `updateConnectionChainSettings`:3397, `openConnectionChainSettingsFromHome`:3419, `cachedConnectionChainPickerOptions`:3424, `cachedConnectionChainSources`:3429, `connectionChainPickerOptions`:3449, `connectionChainFixedOptions`:3462, `advancedSectionDetail`:3478, `advancedSettingsPanel`:3492, `showThemeSelector`:3503, `showAccentSelector`:3525, `showLanguageSelector`:3596, `showDnsPrivacySelector`:3618, `showRoutingModeSelector`:3634, `renderOrbotRow`:3660, `probeOrbotEngine`:3698, `displayDnsPrivacyEndpoint`:3722, `setDnsPrivacyEndpointInputText`:3733, `showDnsPrivacyError`:3744, `showSplitTunnelSelector`:3750, `saveTlsIntegrityEnabled`:3785, `saveAdBlockEnabled`:3794, `refreshPanelTuneIfNeeded`:3802, `refreshPanelTune`:3811, `saveTlsFragmentEnabled`:3828, `saveLanSharingEnabled`:3841, `saveConnectionMode`:3849, `saveLanSharingPasswordRequired`:3864, `regenerateLanSharingPassword`:3873, `copyLanSharingSettings`:3881, `lanSharingDetails`:3889, `saveAmneziaNoiseEnabled`:3910, `applyAmneziaNoiseSettings`:3933, `readAmneziaNoiseInputs`:3953, `optionalAmneziaInt`:3978, `optionalAmneziaText`:3984, `optionalAmneziaBoolean`:3987, `showAmneziaNoiseError`:3996, `reconnectForConnectionOptionChange`:4001, `saveFrontingIps`:4008, `addFrontingIpTokens`:4026, `removeFrontingIp`:4040, `setFrontingIpInputText`:4047, `frontingIpInputHint`:4057, `showFrontingIpError`:4065
 
-### `MainActivityAmneziaSstp.kt` (10 functions)
+### `MainActivityAmneziaSstp.kt` (11 functions)
 
-`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:200, `previewAndImportAmneziaText`:227, `saveAmneziaSubscription`:285, `selectSubscriptionAndConnect`:314, `showMyAmneziaConfigsDialog`:326, `showCatSstpDialog`:427, `fetchAndSaveCatSstpServers`:491, `showManualCatSstpDialog`:545, `saveCatSstpSubscription`:589
+`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:193, `previewAndImportAmneziaText`:220, `saveAmneziaSubscription`:278, `selectSubscriptionAndConnect`:307, `isAmneziaListed`:319, `showMyAmneziaConfigsDialog`:328, `showCatSstpDialog`:425, `fetchAndSaveCatSstpServers`:489, `showManualCatSstpDialog`:543, `saveCatSstpSubscription`:587
 
 ### `MainActivityAntiFilterTools.kt` (35 functions)
 
@@ -396,7 +396,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (36 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:204, `freeProgress`:220, `saveFreeSubscription`:245, `connectFreeSubscription`:255, `freeResult`:289, `showFreeProxyDialog`:307, `buildFreeProxy`:328, `showFanoosDialog`:369, `fetchFanoos`:416, `fetchFanoosAll`:475, `showFreeAccountDialog`:612, `showProtonDialog`:757, `showProtonPaste`:761, `showProtonWebView`:785, `addProtonConfs`:1011, `showVoidlyDialog`:1081, `showVoidlyGenerate`:1135, `showVoidlyPaste`:1207, `addVoidlyConfs`:1231, `addWarpAmneziaAuto`:1293, `showFreePsiphonDialog`:1349, `pickFreePsiphonCountry`:1387, `connectFreePsiphon`:1406, `showCatWarpFreeDialog`:1445, `connectCatWarpFree`:1506, `showCatWindDialog`:1541, `showCatWindLogin`:1551, `connectCatWind`:1696, `jsString`:1787
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:204, `freeProgress`:220, `saveFreeSubscription`:245, `connectFreeSubscription`:255, `freeResult`:289, `showFreeProxyDialog`:307, `buildFreeProxy`:328, `showFanoosDialog`:369, `fetchFanoos`:416, `fetchFanoosAll`:475, `showFreeAccountDialog`:612, `showProtonDialog`:757, `showProtonPaste`:761, `showProtonWebView`:785, `addProtonConfs`:1011, `showVoidlyDialog`:1081, `showVoidlyGenerate`:1135, `showVoidlyPaste`:1207, `addVoidlyConfs`:1231, `addWarpAmneziaAuto`:1293, `showFreePsiphonDialog`:1332, `pickFreePsiphonCountry`:1370, `connectFreePsiphon`:1389, `showCatWarpFreeDialog`:1428, `connectCatWarpFree`:1489, `showCatWindDialog`:1524, `showCatWindLogin`:1534, `connectCatWind`:1679, `jsString`:1770
 
 ### `MainActivityGuides.kt` (9 functions)
 

@@ -131,10 +131,10 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showCatWarpFreeDialog() }
     entry(
-        t("🛡️ Cat Warp Amnezia (خودکار — کلید ساخته می‌شود)", "🛡️ Cat Warp Amnezia (auto — key is made)"),
-        t("اینو بزنی: کلید WARP ساخته می‌شود، چند endpoint AmneziaWG روی همین نت پینگ می‌شود و سالم‌ها اضافه می‌شوند. خروجی آی‌پی کلودفلر است نه کشور. اپ دیگری لازم نیست.",
-            "Tap: a WARP key is made, AmneziaWG endpoints are pinged on this network, and working ones are added. Exit is a Cloudflare IP, not a country. No other app is needed."),
-        accent = false,
+        t("🛡️ Cat Warp Amnezia (بساز و بیاور داخل اپ)", "🛡️ Cat Warp Amnezia (build and bring in)"),
+        t("اینو بزنی: کانفیگ AmneziaWG همین حالا ساخته و در فهرست می‌آید، بعد وصل می‌شود. کلید WARP سر وصل ساخته می‌شود. خروجی آی‌پی کلودفلر است نه کشور.",
+            "Tap: AmneziaWG configs are built and appear in the list now, then it connects. The WARP key is made at connect. Exit is a Cloudflare IP, not a country."),
+        accent = true,
     ) { addWarpAmneziaAuto() }
     entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
@@ -186,9 +186,9 @@ internal fun MainActivity.showFreeNetworksHub() {
         pencil = { showCatGpEdgeDialog() },
     ) { showCatGpDialog() }
     entry(
-        t("🔐 Cat Amnezia (کلید خودت)", "🔐 Cat Amnezia (your own key)"),
-        t("آمنزیا سرور رایگان نمی‌دهد. اینو بزنی: می‌گوید کلید را از کجا بیاوری (سرور خودت، پروتون، یا فروشنده) و وصل می‌کند.",
-            "Amnezia does not give free servers. Tap: it tells you where to get a key (your server, Proton, or a seller) and connects."),
+        t("🔐 Cat Amnezia (ساخت خودکار یا کلید خودت)", "🔐 Cat Amnezia (auto-build or your own key)"),
+        t("اینو بزنی: «بساز و بیاور» کانفیگ را در فهرست می‌گذارد. اگر کلید vpn:// یا .conf داری همانجا بچسبان.",
+            "Tap: “Build and bring it in” puts the config in the list. If you have a vpn:// key or .conf, paste it there."),
         accent = false,
     ) { showAmneziaSectionDialog() }
     val built = MaterialAlertDialogBuilder(this)
@@ -1290,51 +1290,34 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>, regio
     }
 }
 
-private fun MainActivity.addWarpAmneziaAuto() {
+internal fun MainActivity.addWarpAmneziaAuto() {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
-    val name = "🛡️ Cat Warp Amnezia"
-    freeProgress(t("⏳ ساخت کلید WARP و پینگ AmneziaWG…", "⏳ Making the WARP key and pinging AmneziaWG…")) { step ->
-        step(t("ثبت کلید WARP…", "Registering the WARP key…"))
-        val outcome = withContext(Dispatchers.IO) {
-            runCatching { WarpRegistration.ensureAccountDetailed(this@addWarpAmneziaAuto) }.getOrNull()
-        }
-        if (outcome?.account == null) {
-            freeResult(
-                t("⚠️ کلید WARP ساخته نشد", "⚠️ WARP key was not made"),
-                listOf(outcome?.log?.joinToString("\n").orEmpty().ifBlank { "no account" }),
-                null,
-                t("اینترنت باید به api.cloudflareclient.com برسد. یک بار با روش دیگری وصل شو و دوباره بزن.",
-                    "The phone needs to reach api.cloudflareclient.com. Connect another way once and tap again."),
-            )
-            return@freeProgress
-        }
+    val name = "$amneziaSubscriptionPrefix · Cat Warp"
+    freeProgress(t("⏳ ساخت Amnezia و آوردن داخل اپ…", "⏳ Building Amnezia and bringing it in…")) { step ->
         val links = MlmAndNextGenVpnHub.BUILTIN_AWG_AND_HY2_URIS
-        val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
-        val report = ArrayList<String>()
-        report += t("کلید WARP آماده شد", "WARP key ready")
-        report += pingLines
-        if (ordered.isEmpty()) {
-            freeResult(t("⚠️ هیچ endpoint باز نشد", "⚠️ No endpoint opened"), report, null,
-                t("UDP ممکن است بسته باشد. MASQUE را از Cat Warp امتحان کن.",
-                    "UDP may be blocked. Try MASQUE from Cat Warp."))
+        if (links.isEmpty()) {
+            freeResult(t("⚠️ کانفیگ Amnezia داخل برنامه نیست", "⚠️ No Amnezia config in the app"), emptyList(), null, "")
             return@freeProgress
         }
-        step(t("ذخیره به‌عنوان «$name»…", "Saving as “$name”…"))
+        step(t("ذخیره در فهرست…", "Saving to the list…"))
         val store = FreeNetworkStore(this@addWarpAmneziaAuto)
-        val text = "# $name\n" + ordered.joinToString("\n")
+        val text = links.joinToString("\n")
         val subId = try {
             saveFreeSubscription(store.warpAwgSubId, name, text)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), report + (e.message ?: e.javaClass.simpleName), null, "")
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), listOf(e.message ?: e.javaClass.simpleName), null, "")
             return@freeProgress
         }
         store.warpAwgSubId = subId
-        renderSubscriptions()
+        withContext(Dispatchers.Main) { renderSubscriptions() }
         freeResult(
-            t("✅ ${ordered.size} سرور Cat Warp Amnezia", "✅ ${ordered.size} Cat Warp Amnezia servers"),
-            report,
+            t("✅ Amnezia آمد — ${links.size} سرور", "✅ Amnezia is in — ${links.size} servers"),
+            listOf(
+                t("✅ ${links.size} کانفیگ در فهرست آمد", "✅ ${links.size} configs are in the list"),
+                t("کلید WARP سر وصل ساخته می‌شود", "The WARP key is made at connect"),
+            ),
             subId,
             t("خروجی آی‌پی کلودفلر است نه کشور. اگر وصل نشد، MASQUE را از Cat Warp بزن.",
                 "Exit is a Cloudflare IP, not a country. If it does not connect, use MASQUE from Cat Warp."),
