@@ -830,6 +830,10 @@ internal class FreeNetworkStore(context: Context) {
         get() = prefs.getString("vl_sub", "").orEmpty()
         set(v) { prefs.edit().putString("vl_sub", v).apply() }
 
+    var warpAwgSubId: String
+        get() = prefs.getString("wa_sub", "").orEmpty()
+        set(v) { prefs.edit().putString("wa_sub", v).apply() }
+
     var freeAccountSubId: String
         get() = prefs.getString("fa_sub", "").orEmpty()
         set(v) { prefs.edit().putString("fa_sub", v).apply() }

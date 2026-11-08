@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta288] — 2026-11-08 (Panel 6.89.0)
+
+Owner: pick a location in Cat and have the config built and brought in.
+
+### Added
+- **Voidly location list:** live regions from their public availability API; tap one, Cat opens the generator and brings the `.conf` in.
+- **Cat Warp Amnezia auto:** registers a WARP key, live-pings AmneziaWG endpoints, adds working rows. Not another app.
+
 ## [1.10.0-beta287] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Voidly / Proton WireGuard — does Cat run `.conf` without the official WireGuard app?

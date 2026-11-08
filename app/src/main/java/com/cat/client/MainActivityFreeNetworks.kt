@@ -131,6 +131,12 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showCatWarpFreeDialog() }
     entry(
+        t("🛡️ Cat Warp Amnezia (خودکار — کلید ساخته می‌شود)", "🛡️ Cat Warp Amnezia (auto — key is made)"),
+        t("اینو بزنی: کلید WARP ساخته می‌شود، چند endpoint AmneziaWG روی همین نت پینگ می‌شود و سالم‌ها اضافه می‌شوند. خروجی آی‌پی کلودفلر است نه کشور. اپ دیگری لازم نیست.",
+            "Tap: a WARP key is made, AmneziaWG endpoints are pinged on this network, and working ones are added. Exit is a Cloudflare IP, not a country. No other app is needed."),
+        accent = false,
+    ) { addWarpAmneziaAuto() }
+    entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
         t("اینو بزنی: برنامه از یک شبکهٔ رایگان عمومی سرور تازه با رمز می‌گیرد و وصل می‌شود. فقط وب و اپ‌ها (TCP)؛ تماس صوتی و بازی‌هایی که UDP می‌خواهند کار نمی‌کنند. رمزها هر ۶ ساعت خودکار نو می‌شوند.",
             "Tap: the app gets fresh servers with passwords from a public free network and connects. Web and apps only (TCP); voice calls / games that need UDP do not work. Passwords renew by themselves every 6 h."),
@@ -167,9 +173,9 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showProtonDialog() }
     entry(
-        t("🛡️ Cat Voidly (وایرگارد رایگان، بدون حساب)", "🛡️ Cat Voidly (free WireGuard, no account)"),
-        t("اینو بزنی: روی سایت لوکیشن را بساز، فایل .conf را بیاور. Cat خودش وصل می‌کند — اپ رسمی WireGuard لازم نیست. فقط UDP است؛ اگر اپراتور UDP را بسته باشد وصل نمی‌شود.",
-            "Tap: make a location on the site, bring the .conf. Cat connects it — the official WireGuard app is not needed. UDP only; if your operator blocks UDP it will not connect."),
+        t("🛡️ Cat Voidly (لوکیشن بزن، کانفیگ بیاید داخل اپ)", "🛡️ Cat Voidly (pick a location, config comes in)"),
+        t("اینو بزنی: فهرست زندهٔ لوکیشن می‌آید. یکی را انتخاب کن؛ Cat صفحهٔ ساخت را باز می‌کند و فایل .conf را می‌آورد داخل اپ. اپ رسمی WireGuard لازم نیست. فقط UDP است.",
+            "Tap: live locations load. Pick one; Cat opens the generator and brings the .conf into the app. Official WireGuard app is not needed. UDP only."),
         accent = false,
     ) { showVoidlyDialog() }
     entry(
@@ -1078,37 +1084,124 @@ internal fun MainActivity.showVoidlyDialog() {
     val box = freeBox()
     var dialog: AlertDialog? = null
     box.addView(freeText(t(
-        "وایرگارد را Cat خودش وصل می‌کند — اپ رسمی WireGuard لازم نیست.\n\n" +
-            "۱) روی سایت لوکیشن را بساز و فایل .conf را دانلود کن.\n" +
-            "۲) اینجا بچسبان یا از حافظه باز کن.\n\n" +
-            "⚠️ فقط UDP است. اگر اپراتورت UDP را بسته، وصل نمی‌شود (حالت استلث ندارد). کانفیگ حدود ۷ روز اعتبار دارد. اگر سایت فیلتر بود، یک بار با روش دیگری وصل شو و دوباره بیا.",
-        "Cat connects WireGuard itself — the official WireGuard app is not needed.\n\n" +
-            "1) Make a location on the site and download the .conf.\n" +
-            "2) Paste it here or open it from storage.\n\n" +
-            "UDP only. If your operator blocks UDP it will not connect (no stealth mode). Configs last about 7 days. If the site is filtered, connect another way once and come back.",
+        "لوکیشن را اینجا انتخاب کن. Cat صفحهٔ ساخت را باز می‌کند و فایل را می‌آورد داخل اپ — اپ رسمی WireGuard لازم نیست.\n\n⚠️ فقط UDP است. اگر اپراتور UDP را بسته وصل نمی‌شود. کانفیگ حدود ۷ روز است. اگر فهرست نیامد، یک بار با روش دیگری وصل شو.",
+        "Pick a location here. Cat opens the generator and brings the file into the app — the official WireGuard app is not needed.\n\nUDP only. If the operator blocks UDP it will not connect. Configs last about 7 days. If the list does not load, connect another way once.",
     ), 12.5f))
-    box.addView(freeButton(t("🌐 باز کردن سایت Voidly", "🌐 Open Voidly site"), accent = true) {
-        runCatching {
-            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(VoidlyPlanner.PAGE)))
-        }.onFailure {
-            Toast.makeText(this, t("سایت باز نشد", "Could not open the site"), Toast.LENGTH_LONG).show()
-        }
-    }, freeLp(10))
+    val status = freeText(t("⏳ خواندن لوکیشن‌ها…", "⏳ Reading locations…"), 12.5f, TEAL, bold = true)
+    box.addView(status, freeLp(8))
+    val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    box.addView(list, freeLp(4))
     box.addView(freeButton(t("📋 چسباندن فایل .conf", "📋 Paste the .conf"), accent = false) {
         dialog?.dismiss()
         showVoidlyPaste()
-    }, freeLp(6))
+    }, freeLp(10))
     box.addView(freeButton(t("📂 باز کردن فایل .conf", "📂 Open a .conf file"), accent = false) {
         dialog?.dismiss()
         appTools.openImportFilePicker()
     }, freeLp(6))
     val built = MaterialAlertDialogBuilder(this)
-        .setTitle(t("🛡️ وایرگارد رایگان Voidly", "🛡️ Free Voidly WireGuard"))
+        .setTitle(t("🛡️ لوکیشن Voidly", "🛡️ Voidly location"))
         .setView(ScrollView(this).apply { addView(box) })
         .setNegativeButton(t("بستن", "Close"), null)
         .create()
     dialog = built
     built.showCatClientDialog()
+    activityScope.launch {
+        val regions = withContext(Dispatchers.IO) {
+            runCatching { withPhysicalNet { VoidlyPlanner.fetchRegions() } }.getOrNull().orEmpty()
+        }
+        if (!built.isShowing) return@launch
+        list.removeAllViews()
+        val ready = regions.filter { it.ok }
+        if (ready.isEmpty()) {
+            status.text = t("فهرست لوکیشن باز نشد. سایت را باز کن یا فایل را بچسبان.", "Location list did not open. Open the site or paste a file.")
+            list.addView(freeButton(t("🌐 باز کردن سایت", "🌐 Open the site"), accent = true) {
+                runCatching {
+                    startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(VoidlyPlanner.PAGE)))
+                }
+            }, freeLp(4))
+            return@launch
+        }
+        status.text = t("${ready.size} لوکیشن آماده — یکی را بزن تا ساخته شود و بیاید داخل اپ", "${ready.size} locations ready — tap one to build and bring it in")
+        ready.forEach { region ->
+            list.addView(freeButton(region.label(fa), accent = true) {
+                dialog?.dismiss()
+                showVoidlyGenerate(region)
+            }, freeLp(6))
+        }
+    }
+}
+
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+private fun MainActivity.showVoidlyGenerate(region: VoidlyPlanner.Region) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    var dialogRef: AlertDialog? = null
+    var poll: Job? = null
+    var taken = false
+    val box = freeBox()
+    box.addView(freeText(t(
+        "لوکیشن «${region.label(true)}» را در صفحه بزن و بساز. تیک ربات اگر آمد با توست. Cat فایل را می‌گیرد و می‌آورد داخل اپ. فرمی پر نمی‌شود.",
+        "Tap “${region.label(false)}” on the page and generate. The human check stays yours. Cat grabs the file and brings it in. Forms are not filled.",
+    ), 12f))
+    val status = freeText(t("⏳ صفحهٔ ساخت…", "⏳ Generator page…"), 12.5f, TEAL, bold = true)
+    box.addView(status, freeLp(6))
+    val webView = android.webkit.WebView(this).apply {
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.loadsImagesAutomatically = true
+    }
+    fun take(text: String) {
+        if (taken || !VoidlyPlanner.looksLikeConf(text)) return
+        taken = true
+        poll?.cancel()
+        dialogRef?.dismiss()
+        addVoidlyConfs(listOf("${region.id}.conf" to text), region)
+    }
+    webView.webViewClient = object : android.webkit.WebViewClient() {
+        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+            view?.evaluateJavascript(VoidlyPlanner.SCAN_JS) { raw ->
+                val text = jsString(raw)
+                if (VoidlyPlanner.looksLikeConf(text)) take(text)
+            }
+        }
+    }
+    webView.setDownloadListener { url, _, _, _, _ ->
+        if (url.startsWith("data:", ignoreCase = true) && url.contains("base64,")) {
+            val b64 = url.substringAfter("base64,")
+            val body = runCatching { String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT), Charsets.UTF_8) }.getOrDefault("")
+            take(body)
+        } else {
+            webView.evaluateJavascript(VoidlyPlanner.SCAN_JS) { raw -> take(jsString(raw)) }
+        }
+    }
+    box.addView(webView, LinearLayout.LayoutParams(-1, dp(360)).apply { topMargin = dp(8) })
+    val built = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🛡️ ساخت ${region.city}", "🛡️ Build ${region.city}"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    dialogRef = built
+    built.setOnDismissListener { poll?.cancel() }
+    built.showCatClientDialog()
+    webView.loadUrl(VoidlyPlanner.PAGE)
+    poll = activityScope.launch {
+        repeat(40) {
+            delay(1500)
+            if (taken) return@launch
+            withContext(Dispatchers.Main) {
+                webView.evaluateJavascript(VoidlyPlanner.SCAN_JS) { raw -> take(jsString(raw)) }
+            }
+            val clip = runCatching { readClipboardConfigText().orEmpty() }.getOrDefault("")
+            if (VoidlyPlanner.looksLikeConf(clip)) {
+                withContext(Dispatchers.Main) { take(clip) }
+                return@launch
+            }
+        }
+        if (!taken) withContext(Dispatchers.Main) {
+            status.text = t("فایل نیامد. لوکیشن را در صفحه بزن یا فایل را بچسبان.", "No file yet. Tap the location on the page or paste the file.")
+        }
+    }
 }
 
 private fun MainActivity.showVoidlyPaste() {
@@ -1128,18 +1221,18 @@ private fun MainActivity.showVoidlyPaste() {
         .setTitle(t("📋 فایل WireGuard Voidly", "📋 Voidly WireGuard file"))
         .setView(ScrollView(this).apply { addView(input, LinearLayout.LayoutParams(-1, dp(280))) })
         .setPositiveButton(t("➕ افزودن", "➕ Add")) { _, _ ->
-            addVoidlyConfs(listOf("voidly.conf" to input.text?.toString().orEmpty()))
+            addVoidlyConfs(listOf("voidly.conf" to input.text?.toString().orEmpty()), null)
         }
         .setNegativeButton(t("بستن", "Close"), null)
         .create()
         .showCatClientDialog()
 }
 
-private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>) {
+private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>, region: VoidlyPlanner.Region?) {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
     val name = VoidlyPlanner.NAME
-    freeProgress(t("⏳ ساخت کانفیگ Voidly…", "⏳ Building Voidly configs…")) { step ->
+    freeProgress(t("⏳ آوردن کانفیگ داخل اپ…", "⏳ Bringing the config into the app…")) { step ->
         val links = ArrayList<String>()
         val report = ArrayList<String>()
         for ((filename, text) in files) {
@@ -1147,7 +1240,7 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>) {
                 report += "⚠️ $filename: " + t("فایل WireGuard کامل نیست", "not a complete WireGuard file")
                 continue
             }
-            val label = VoidlyPlanner.rowLabel(text)
+            val label = VoidlyPlanner.rowLabel(text, region)
             val rows = WireGuardConfText.toUris(text).map { link ->
                 val base = link.substringBefore('#')
                 val tag = java.net.URLEncoder.encode("$name · $label", "UTF-8").replace("+", "%20")
@@ -1169,8 +1262,8 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>) {
                 t("⚠️ کانفیگی ساخته نشد", "⚠️ No config built"),
                 report,
                 null,
-                t("فایل باید PrivateKey و PublicKey و Endpoint داشته باشد. از voidly.ai/vpn فایل .conf را بگیر.",
-                    "The file needs PrivateKey, PublicKey and Endpoint. Get the .conf from voidly.ai/vpn."),
+                t("فایل باید PrivateKey و PublicKey و Endpoint داشته باشد.",
+                    "The file needs PrivateKey, PublicKey and Endpoint."),
             )
             return@freeProgress
         }
@@ -1193,6 +1286,58 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>) {
             subId,
             t("فقط UDP است. اگر وصل نشد، اپراتور UDP را بسته؛ «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کن.",
                 "UDP only. If it does not connect, the operator is blocking UDP; try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”."),
+        )
+    }
+}
+
+private fun MainActivity.addWarpAmneziaAuto() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val name = "🛡️ Cat Warp Amnezia"
+    freeProgress(t("⏳ ساخت کلید WARP و پینگ AmneziaWG…", "⏳ Making the WARP key and pinging AmneziaWG…")) { step ->
+        step(t("ثبت کلید WARP…", "Registering the WARP key…"))
+        val outcome = withContext(Dispatchers.IO) {
+            runCatching { WarpRegistration.ensureAccountDetailed(this@addWarpAmneziaAuto) }.getOrNull()
+        }
+        if (outcome?.account == null) {
+            freeResult(
+                t("⚠️ کلید WARP ساخته نشد", "⚠️ WARP key was not made"),
+                listOf(outcome?.log?.joinToString("\n").orEmpty().ifBlank { "no account" }),
+                null,
+                t("اینترنت باید به api.cloudflareclient.com برسد. یک بار با روش دیگری وصل شو و دوباره بزن.",
+                    "The phone needs to reach api.cloudflareclient.com. Connect another way once and tap again."),
+            )
+            return@freeProgress
+        }
+        val links = MlmAndNextGenVpnHub.BUILTIN_AWG_AND_HY2_URIS
+        val (ordered, pingLines) = rankLinksByLivePing(links, step, fa)
+        val report = ArrayList<String>()
+        report += t("کلید WARP آماده شد", "WARP key ready")
+        report += pingLines
+        if (ordered.isEmpty()) {
+            freeResult(t("⚠️ هیچ endpoint باز نشد", "⚠️ No endpoint opened"), report, null,
+                t("UDP ممکن است بسته باشد. MASQUE را از Cat Warp امتحان کن.",
+                    "UDP may be blocked. Try MASQUE from Cat Warp."))
+            return@freeProgress
+        }
+        step(t("ذخیره به‌عنوان «$name»…", "Saving as “$name”…"))
+        val store = FreeNetworkStore(this@addWarpAmneziaAuto)
+        val text = "# $name\n" + ordered.joinToString("\n")
+        val subId = try {
+            saveFreeSubscription(store.warpAwgSubId, name, text)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), report + (e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.warpAwgSubId = subId
+        renderSubscriptions()
+        freeResult(
+            t("✅ ${ordered.size} سرور Cat Warp Amnezia", "✅ ${ordered.size} Cat Warp Amnezia servers"),
+            report,
+            subId,
+            t("خروجی آی‌پی کلودفلر است نه کشور. اگر وصل نشد، MASQUE را از Cat Warp بزن.",
+                "Exit is a Cloudflare IP, not a country. If it does not connect, use MASQUE from Cat Warp."),
         )
     }
 }
