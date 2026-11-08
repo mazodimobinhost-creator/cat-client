@@ -4,7 +4,6 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +32,7 @@ class AppUpdateManager(context: Context) {
     private val downloads = this.context.getSystemService(DownloadManager::class.java)
     private val updateDirectory get() = File(context.filesDir, "updates")
     private val snapshot get() = File(updateDirectory, "update.apk")
+    private val partFile get() = File(updateDirectory, "update.apk.part")
     private var installed: AppApkMetadata? = null
     private var verified: PendingDownload? = null
 
@@ -73,22 +73,24 @@ class AppUpdateManager(context: Context) {
             val digest = GitHubReleaseClient.expectedSha256(release)
             coroutineContext.ensureActive()
             clearDownload(previous)
-            val apk = release.apk!!
-            val request = DownloadManager.Request(Uri.parse(GitHubReleaseClient.reachableAssetUrl(apk.url)))
-                .setTitle(context.getString(R.string.app_name))
-                .setDescription(context.getString(R.string.update_downloading))
-                .setMimeType("application/vnd.android.package-archive")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                .setVisibleInDownloadsUi(false)
-                .setDestinationInExternalFilesDir(context, "updates", "download.apk")
-                .addRequestHeader("User-Agent", "Cat Client/${BuildConfig.VERSION_NAME}")
-            val id = downloads.enqueue(request)
-            try {
-                savePending(PendingDownload(id, release, digest))
-            } catch (error: Exception) {
-                downloads.remove(id)
-                throw error
+            savePending(PendingDownload(SELF_DOWNLOAD_ID, release, digest))
+        }
+        val apk = release.apk!!
+        try {
+            if (!updateDirectory.isDirectory && !updateDirectory.mkdirs()) throw IOException("Cannot create update storage")
+            GitHubReleaseClient.downloadAsset(apk.url, partFile, apk.size)
+            mutationLock.withLock {
+                val pending = pending() ?: throw IOException("Update download no longer exists")
+                if (!partFile.renameTo(snapshot)) throw IOException("Cannot save private update APK")
+                verifySnapshot(pending)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            mutationLock.withLock {
+                pending()?.let { failDownload(it, error) }
+            }
+            throw error
         }
     }
 
@@ -105,24 +107,12 @@ class AppUpdateManager(context: Context) {
                     verifySnapshot(pending)
                     return@withLock AppDownloadState.Ready(snapshot, pending.release)
                 }
-                downloads.query(DownloadManager.Query().setFilterById(pending.id)).use { cursor ->
-                    if (cursor == null || !cursor.moveToFirst()) throw IOException("Update download no longer exists")
-                    when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
-                        DownloadManager.STATUS_SUCCESSFUL -> {
-                            copyDownload(pending)
-                            verifySnapshot(pending)
-                            AppDownloadState.Ready(snapshot, pending.release)
-                        }
-                        DownloadManager.STATUS_PENDING, DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PAUSED -> {
-                            AppDownloadState.Downloading(
-                                cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
-                                cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
-                                cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_PAUSED,
-                            )
-                        }
-                        else -> throw IOException("Update download failed")
-                    }
+                val total = pending.release.apk?.size ?: 0L
+                val got = when {
+                    partFile.isFile -> partFile.length()
+                    else -> 0L
                 }
+                AppDownloadState.Downloading(got, total, false)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -245,7 +235,7 @@ class AppUpdateManager(context: Context) {
     }
 
     private fun clearDownload(pending: PendingDownload?) {
-        pending?.let { downloads.remove(it.id) }
+        pending?.takeIf { it.id != SELF_DOWNLOAD_ID }?.let { downloads.remove(it.id) }
         if (!preferences.edit().remove("pending").remove("failedReason").commit()) throw IOException("Cannot clear pending update")
         verified = null
         snapshot.delete()
@@ -320,5 +310,6 @@ class AppUpdateManager(context: Context) {
 
     companion object {
         private val mutationLock = Mutex()
+        private const val SELF_DOWNLOAD_ID = 1L
     }
 }

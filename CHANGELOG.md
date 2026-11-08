@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta281] — 2026-11-08 (Panel 6.89.0)
+
+Owner: cannot download the in-app update.
+
+### Fixed
+- **In-app update download no longer goes through Android DownloadManager onto github.com.** Cat fetches the APK itself, ghproxy first, and does not follow a proxy 302 back to GitHub. Listing also tries ghproxy before api.github.com.
+
 ## [1.10.0-beta280] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cloudflare code only for Google Script (not the Cat panel), and a line that says they are connected.
