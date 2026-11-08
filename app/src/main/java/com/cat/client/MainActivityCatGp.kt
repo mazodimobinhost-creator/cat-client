@@ -82,6 +82,9 @@ internal fun MainActivity.showCatGpDialog() {
     refreshStatus()
     box.addView(status, gpLp(8))
 
+    box.addView(gpText(t("کلید مشترک (همان CAT_KEY در اسکریپت)", "Shared key (CAT_KEY in your script)"), 12f), gpLp(10))
+    box.addView(gpText(CatGpEngine.key(ctx), 14f, TEAL, bold = true), gpLp(2))
+
     box.addView(gpText(t("۱) کد را در گوگل بگذارید", "1) Put the code on Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     val panels = runCatching { VercelRoutePlanner.panelsFromSubscriptions(userSubscriptionManager.list().map { it.input }) }.getOrDefault(emptyList())
     val hops = CatGpEngine.hopCandidates(this, panels)
@@ -158,11 +161,79 @@ internal fun MainActivity.showCatGpDialog() {
         }
     }, gpLp(6))
 
-    box.addView(gpText(t("۳) گواهی (یک‌بار، برای سایت‌های قفل‌دار)", "3) Certificate (once, for https sites)"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۳) لبهٔ گوگل — IP و SNI روی خط شما", "3) Google edge — IP and SNI on your line"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t(
+        "خالی = اسکن خودکار. یک آدرس یعنی فقط همان. چند خط = فقط همان‌ها روی این شبکه امتحان می‌شوند.",
+        "Empty = auto-scan. One address pins it. Several lines = only those are tested on this network.",
+    ), 12f), gpLp(2))
+    val ipField = EditText(this).apply {
+        hint = t("آدرس لبهٔ گوگل (مثلاً 216.239.38.120)", "Google edge address (e.g. 216.239.38.120)")
+        setText(CatGpEngine.edgeIpsText(ctx))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        minLines = 1
+        maxLines = 4
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    box.addView(ipField, gpLp(4))
+    box.addView(gpText(t(
+        "SNI باید میزبان گوگل باشد تا اتصال شبیه گوگل دیده شود.",
+        "The SNI must be a Google host so the connection looks like one to Google.",
+    ), 12f), gpLp(8))
+    val sniField = EditText(this).apply {
+        hint = t("SNI لبه (مثلاً beacons.gvt2.com)", "Edge SNI (e.g. beacons.gvt2.com)")
+        setText(CatGpEngine.edgeSni(ctx))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    box.addView(sniField, gpLp(4))
+    val scanBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    box.addView(gpButton(t("📡 اسکن این شبکه برای لبهٔ سالم", "📡 Scan this network for a working edge"), accent = false) {
+        val typedSni = sniField.text?.toString().orEmpty().trim()
+        if (typedSni.isNotBlank() && CatGpEdge.parseSni(typedSni) == null) {
+            refreshStatus(t("❌ SNI باید میزبان گوگل باشد.", "❌ SNI must be a Google host."))
+            return@gpButton
+        }
+        refreshStatus(t("⏳ اسکن واقعی روی خط شما…", "⏳ Real scan on your line…"))
+        scanBox.removeAllViews()
+        activityScope.launch {
+            val hits = withContext(Dispatchers.IO) {
+                CatGpEngine.scanEdges(ctx, ipField.text?.toString().orEmpty(), typedSni)
+            }
+            if (hits.isEmpty()) {
+                refreshStatus(t("❌ روی این خط لبه‌ای جواب نداد.", "❌ No edge answered on this line."))
+                return@launch
+            }
+            refreshStatus(t("✅ ${hits.size} لبه روی خط شما", "✅ ${hits.size} edges on your line"))
+            hits.forEach { hit ->
+                scanBox.addView(gpButton(CatGpEdge.line(hit), accent = false) {
+                    ipField.setText(hit.ip)
+                    sniField.setText(hit.sni)
+                    CatGpEngine.saveEdgeIps(ctx, hit.ip)
+                    CatGpEngine.saveEdgeSni(ctx, hit.sni)
+                    Toast.makeText(
+                        ctx,
+                        t(
+                            "لبه ${hit.ip}، نام ${hit.sni}. ذخیره را بزن تا استفاده شود.",
+                            "Edge ${hit.ip}, name ${hit.sni}. Save the profile to use them.",
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }, gpLp(4))
+            }
+        }
+    }, gpLp(6))
+    box.addView(scanBox, gpLp(2))
+
+    box.addView(gpText(t("۴) گواهی (یک‌بار، برای سایت‌های قفل‌دار)", "4) Certificate (once, for https sites)"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     box.addView(gpText(t(
         "بدون این گواهی، کروم سایت‌های https را باز نمی‌کند. فقط روی همین گوشی ساخته می‌شود.",
         "Without this certificate Chrome will not open https sites. It is made on this phone only.",
     ), 12f), gpLp(2))
+    box.addView(gpText(t("SHA-256 گواهی:", "Certificate SHA-256:") + "\n" + CatGpEngine.caSha256(ctx), 11.5f), gpLp(4))
     box.addView(gpButton(t("🔐 نصب گواهی", "🔐 Install certificate"), accent = false) {
         val direct = CatGpEngine.directInstallIntent(ctx)
         if (direct != null && runCatching { startActivity(direct) }.isSuccess) return@gpButton
@@ -188,7 +259,14 @@ internal fun MainActivity.showCatGpDialog() {
                 Toast.makeText(ctx, it, Toast.LENGTH_LONG).show()
                 return@setPositiveButton
             }
+            val sniTyped = sniField.text?.toString().orEmpty().trim()
+            if (sniTyped.isNotBlank() && CatGpEdge.parseSni(sniTyped) == null) {
+                Toast.makeText(ctx, t("❌ SNI باید میزبان گوگل باشد.", "❌ SNI must be a Google host."), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
             CatGpEngine.saveDeployments(ctx, text)
+            CatGpEngine.saveEdgeIps(ctx, ipField.text?.toString().orEmpty())
+            CatGpEngine.saveEdgeSni(ctx, sniTyped)
             activityScope.launch {
                 val existing = userSubscriptionManager.list().firstOrNull { it.name == CatGpEngine.SUB_NAME }
                 val subId = runCatching { saveFreeSubscription(existing?.id.orEmpty(), CatGpEngine.SUB_NAME, CatGpEngine.subscriptionText(ctx)) }.getOrNull()

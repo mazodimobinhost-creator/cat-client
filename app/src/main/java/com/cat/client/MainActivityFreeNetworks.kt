@@ -151,8 +151,8 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showProtonDialog() }
     entry(
         t("🌐 Cat GP — وقتی فقط گوگل باز است", "🌐 Cat GP — when only Google is open"),
-        t("اینو بزنی: مرورگر از اسکریپت خودتان روی گوگل رد می‌شود. رایگان. فقط مرورگر؛ تلگرام نه.",
-            "Tap: the browser goes through YOUR script on Google. Free. Browsers only; not Telegram."),
+        t("اینو بزنی: مرورگر از اسکریپت خودتان روی گوگل رد می‌شود. IP و SNI لبه را اسکن می‌کند و به Cat GP اضافه می‌کند. فقط مرورگر؛ تلگرام نه.",
+            "Tap: the browser goes through YOUR script on Google. It scans edge IP and SNI and adds them to Cat GP. Browsers only; not Telegram."),
         accent = false,
     ) { showCatGpDialog() }
     entry(

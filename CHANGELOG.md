@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta274] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat GP had no Google edge IP / SNI fields; the other app scanned them and saved them.
+
+### Added
+- **Cat GP takes Google edge IP and SNI.** Empty IP = auto-scan on this network. One address pins it. SNI must be a Google host. Scan runs a real TLS handshake, lists working IP · SNI · ms, and Save puts them on Cat GP. Shared key and certificate SHA-256 are shown. Telegram/Instagram still will not open this way.
+
 ## [1.10.0-beta273] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat Wind after login did nothing (WebView sign-in never became a session).

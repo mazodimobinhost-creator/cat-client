@@ -45,12 +45,44 @@ internal object CatGpEngine {
     fun saveDeployments(c: Context, text: String) { prefs(c).edit().putString("exec", text.trim()).apply() }
     fun scriptPaths(text: String): List<String> = CatGpScripts.scriptPaths(text)
 
-    /** Front IP that worked last time first, then the built-in list. */
+    /** Typed Google edge addresses (one per line). Empty = auto (last working + built-in). */
+    fun edgeIpsText(c: Context): String = prefs(c).getString("ips", "").orEmpty()
+    fun saveEdgeIps(c: Context, text: String) { prefs(c).edit().putString("ips", text.trim()).apply() }
+
+    /** Typed Google edge SNI. Empty = rotate built-in Google hosts. */
+    fun edgeSni(c: Context): String = prefs(c).getString("sni", "").orEmpty()
+    fun saveEdgeSni(c: Context, text: String) { prefs(c).edit().putString("sni", text.trim()).apply() }
+
+    /** Front IP: pinned list if the user typed one, else last working then the built-in list. */
     fun frontIps(c: Context): List<String> {
+        val typed = CatGpEdge.parseIps(edgeIpsText(c))
+        if (typed.isNotEmpty()) return typed
         val best = prefs(c).getString("ip", null)
         return (listOfNotNull(best) + CatGpFronter.DEFAULT_FRONT_IPS).distinct()
     }
     private fun rememberIp(c: Context, ip: String) { prefs(c).edit().putString("ip", ip).apply() }
+
+    fun frontSnis(c: Context): List<String> {
+        val pin = CatGpEdge.parseSni(edgeSni(c))
+        return if (pin != null) listOf(pin) else CatGpFronter.DEFAULT_SNIS
+    }
+
+    fun caSha256(c: Context): String = CatGpEdge.sha256Colon(ca(c).caDer)
+
+    /** Real TLS to Google fronts on this network. Empty IP box = auto-scan defaults + DNS. */
+    fun scanEdges(c: Context, ipsText: String, sniText: String): List<CatGpEdge.Hit> {
+        val extra = listOf("www.google.com", "www.gstatic.com").flatMap { host ->
+            runCatching { java.net.InetAddress.getAllByName(host).mapNotNull { it.hostAddress } }.getOrDefault(emptyList())
+        }.distinct().take(8)
+        val ips = CatGpEdge.ipsToScan(ipsText, extra)
+        val snis = CatGpEdge.snisToScan(sniText)
+        return CatGpEdge.scan(
+            ips,
+            snis,
+            probe = { ip, sni -> CatGpEdge.tlsMs(ip, sni, protect = { protectOutboundSocket(it) }) },
+            parallel = 6,
+        )
+    }
 
     // ── CA ──
 
@@ -162,7 +194,7 @@ internal object CatGpEngine {
         proxy?.let { if (it.isRunning && runningFor == signature) return null }
         stop()
         val ctx = c.applicationContext
-        val f = CatGpFronter(paths, frontIps(ctx), protect = protect)
+        val f = CatGpFronter(paths, frontIps(ctx), snis = frontSnis(ctx), protect = protect)
         val relay = catGpRelayFunction(f) { VpnRuntimeStateStore.incrementGasDailyUsage(ctx, 1) }
         return try {
             // Empty Basic auth: VpnService.setHttpProxy cannot pass credentials, and Chrome
@@ -196,7 +228,7 @@ internal object CatGpEngine {
         if (paths.isEmpty()) return TestResult(false, listOf(CatGpScripts.addressProblem(deploymentsText) ?: "not-exec"))
         val lines = mutableListOf<String>()
         for (ip in frontIps(c).take(5)) {
-            val f = CatGpFronter(paths.take(1), listOf(ip), protect = { protectOutboundSocket(it) })
+            val f = CatGpFronter(paths.take(1), listOf(ip), snis = frontSnis(c), protect = { protectOutboundSocket(it) })
             val started = System.nanoTime()
             try {
                 val reply = catGpRelayFunction(f)(key(c), "http://www.gstatic.com/generate_204", "GET", emptyList(), null)

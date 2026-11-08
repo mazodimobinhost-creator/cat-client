@@ -29,9 +29,11 @@ import java.util.Base64
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPInputStream
@@ -651,7 +653,7 @@ internal class CatGpFronter(
     }
 
     companion object {
-        val DEFAULT_SNIS = listOf("www.google.com", "mail.google.com", "accounts.google.com")
+        val DEFAULT_SNIS = listOf("www.google.com", "beacons.gvt2.com", "mail.google.com", "accounts.google.com")
         /** Google front-end IPs that serve script.google.com behind a Google SNI (checked in order; the first that works is kept). */
         val DEFAULT_FRONT_IPS = listOf(
             "216.239.38.120", "216.239.36.120", "216.239.34.120", "216.239.32.120",
@@ -666,6 +668,128 @@ internal class CatGpFronter(
             Regex("""(/macros/s/[A-Za-z0-9_-]{20,}/(?:exec|dev))""").find(s)?.let { return it.groupValues[1] }
             if (s.matches(Regex("""[A-Za-z0-9_-]{30,}"""))) return "/macros/s/$s/exec"
             return null
+        }
+    }
+}
+
+/**
+ * Google edge IP + SNI for Cat GP. Empty IP list = auto (built-in fronts). A typed Google SNI is pinned.
+ * Scan is a real TLS handshake on this network — nothing is marked working without a probe.
+ */
+internal object CatGpEdge {
+    data class Hit(val ip: String, val sni: String, val rttMs: Long)
+
+    val SCAN_SNIS = listOf(
+        "www.google.com",
+        "beacons.gvt2.com",
+        "accounts.google.com",
+        "www.gstatic.com",
+        "checkin.gstatic.com",
+        "g3.gstatic.com",
+        "meet.google.com",
+        "gmail.com",
+    )
+
+    fun isGoogleHost(sni: String): Boolean {
+        val h = sni.trim().lowercase(Locale.US).removePrefix("https://").substringBefore('/').trimEnd('.')
+        if (h.isBlank() || '/' in h || ' ' in h || h.startsWith('.')) return false
+        if (h in setOf("google.com", "gmail.com", "gstatic.com", "googleapis.com", "youtube.com")) return true
+        val suffixes = listOf(
+            ".google.com", ".gstatic.com", ".googleapis.com",
+            ".gvt1.com", ".gvt2.com", ".gvt3.com",
+            ".googleusercontent.com", ".gmail.com",
+            ".youtube.com", ".googlevideo.com", ".withgoogle.com",
+        )
+        if (suffixes.any { h.endsWith(it) }) return true
+        return h.matches(Regex("""^google\.co\.[a-z]{2}$"""))
+    }
+
+    fun isIp(raw: String): Boolean {
+        val s = raw.trim().trim('[', ']')
+        if (s.matches(Regex("""^(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$"""))) return true
+        return s.contains(':') && s.count { it == ':' } >= 2 &&
+            s.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }
+    }
+
+    fun parseIps(text: String): List<String> =
+        text.split('\n', ',', ';', ' ', '\t').map { it.trim().trim('[', ']') }.filter { it.isNotBlank() && isIp(it) }.distinct()
+
+    fun parseSni(text: String): String? {
+        val s = text.trim().lowercase(Locale.US).removePrefix("https://").substringBefore('/').substringBefore(':').trimEnd('.')
+        if (s.isBlank()) return null
+        return s.takeIf { isGoogleHost(it) }
+    }
+
+    fun ipsToScan(typed: String, extra: List<String> = emptyList()): List<String> =
+        parseIps(typed).ifEmpty { (CatGpFronter.DEFAULT_FRONT_IPS + extra).distinct() }
+
+    fun snisToScan(typed: String): List<String> {
+        val pin = parseSni(typed)
+        return if (pin != null) listOf(pin) + SCAN_SNIS.filter { it != pin } else SCAN_SNIS
+    }
+
+    fun line(hit: Hit): String = "${hit.ip} · ${hit.sni} · ${hit.rttMs} ms"
+
+    fun sha256Colon(der: ByteArray): String {
+        val d = MessageDigest.getInstance("SHA-256").digest(der)
+        return d.joinToString(":") { b -> "%02X".format(b.toInt() and 0xFF) }
+    }
+
+    fun tlsMs(ip: String, sni: String, timeoutMs: Int = 2_500, protect: (Socket) -> Unit = {}): Long? {
+        val t0 = System.nanoTime()
+        val raw = Socket()
+        return try {
+            protect(raw)
+            raw.connect(InetSocketAddress(InetAddress.getByName(ip), 443), timeoutMs)
+            raw.soTimeout = timeoutMs
+            val tls = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, sni, 443, true) as SSLSocket
+            tls.soTimeout = timeoutMs
+            tls.sslParameters = tls.sslParameters.apply {
+                endpointIdentificationAlgorithm = "HTTPS"
+                serverNames = listOf(SNIHostName(sni))
+            }
+            tls.startHandshake()
+            val ok = runCatching { HttpsURLConnection.getDefaultHostnameVerifier().verify(sni, tls.session) }.getOrDefault(true)
+            runCatching { tls.close() }
+            if (!ok) null else ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+        } catch (_: Exception) {
+            runCatching { raw.close() }
+            null
+        }
+    }
+
+    fun scan(
+        ips: List<String>,
+        snis: List<String>,
+        probe: (String, String) -> Long? = { ip, sni -> tlsMs(ip, sni) },
+        maxHits: Int = 12,
+        maxProbes: Int = 36,
+        parallel: Int = 1,
+    ): List<Hit> {
+        val pairs = ips.flatMap { ip -> snis.map { sni -> ip to sni } }.take(maxProbes)
+        if (pairs.isEmpty()) return emptyList()
+        if (parallel <= 1) {
+            val out = ArrayList<Hit>()
+            for ((ip, sni) in pairs) {
+                if (out.size >= maxHits) break
+                val ms = runCatching { probe(ip, sni) }.getOrNull() ?: continue
+                out += Hit(ip, sni, ms)
+            }
+            return out.sortedBy { it.rttMs }
+        }
+        val pool = Executors.newFixedThreadPool(parallel.coerceIn(2, 8))
+        return try {
+            val futures = pairs.map { (ip, sni) ->
+                pool.submit(Callable {
+                    val ms = runCatching { probe(ip, sni) }.getOrNull() ?: return@Callable null
+                    Hit(ip, sni, ms)
+                })
+            }
+            futures.mapNotNull { runCatching { it.get(4, TimeUnit.SECONDS) }.getOrNull() }
+                .sortedBy { it.rttMs }
+                .take(maxHits)
+        } finally {
+            pool.shutdownNow()
         }
     }
 }
