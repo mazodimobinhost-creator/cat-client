@@ -978,19 +978,59 @@ internal object CatGpScripts {
     fun pairLinked(googleExec: String, workerUrl: String): Boolean =
         scriptPaths(googleExec).isNotEmpty() && dedicatedWorkerUrl(workerUrl) != null
 
-    /**
-     * Home location pill: where Cat GP actually leaves (Google Script, plus the dedicated
-     * Worker when the hop is on). Never «Cloudflare edge» — that is the panel/WARP fallback.
-     */
-    fun routeLine(workerUrl: String, hopOn: Boolean, fa: Boolean): String {
-        val host = if (hopOn) dedicatedWorkerUrl(workerUrl)?.let { runCatching { java.net.URI(it).host }.getOrNull() } else null
-        return if (host != null) {
-            if (fa) "Cat GP · گوگل → کلادفلر $host" else "Cat GP · Google → Cloudflare $host"
-        } else if (fa) {
-            "Cat GP · فقط گوگل اسکریپت — کلادفلر در مسیر نیست"
-        } else {
-            "Cat GP · Google Script only — Cloudflare is not in the path"
+    data class ExitTrace(val ip: String, val countryCode: String, val colo: String?)
+
+    /** `/cdn-cgi/trace` body from the GAS/Worker hop — the IP websites see. */
+    fun parseTrace(text: String): ExitTrace? {
+        val fields = text.lineSequence()
+            .mapNotNull { line -> line.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }
+            .toMap()
+        var ip = fields["ip"].orEmpty()
+        if (ip.isBlank()) {
+            val trimmed = text.trim()
+            val v4 = trimmed.matches(Regex("""^\d{1,3}(?:\.\d{1,3}){3}$"""))
+            val v6 = trimmed.contains(':') && trimmed.all { it.isLetterOrDigit() || it == ':' || it == '.' }
+            if (v4 || v6) ip = trimmed
         }
+        if (ip.isBlank()) return null
+        val loc = fields["loc"].orEmpty().uppercase(Locale.US).takeIf { it.length == 2 }.orEmpty()
+        return ExitTrace(ip, loc, fields["colo"]?.takeIf { it.isNotBlank() })
+    }
+
+    fun countryName(cc: String, fa: Boolean): String {
+        val code = cc.trim().uppercase(Locale.US)
+        if (code.length != 2) return ""
+        val loc = if (fa) Locale("fa") else Locale.ENGLISH
+        return Locale("", code).getDisplayCountry(loc).ifBlank { code }
+    }
+
+    /**
+     * Home location pill. No arrows (RTL reversed «کلادفلر → گوگل»). From / to / IP are explicit.
+     */
+    fun routeLine(
+        workerUrl: String,
+        hopOn: Boolean,
+        fa: Boolean,
+        fromCountry: String? = null,
+        toCountry: String? = null,
+        exitIp: String? = null,
+    ): String {
+        val hop = hopOn && dedicatedWorkerUrl(workerUrl) != null
+        val via = when {
+            hop && fa -> "گوگل+کلادفلر"
+            hop -> "Google+Cloudflare"
+            fa -> "فقط گوگل اسکریپت"
+            else -> "Google Script only"
+        }
+        val from = fromCountry?.trim()?.takeIf { it.isNotEmpty() }
+        val to = toCountry?.trim()?.takeIf { it.isNotEmpty() }
+        val ip = exitIp?.trim()?.takeIf { it.isNotEmpty() }?.let { "\u2066$it\u2069" }
+        val parts = mutableListOf("Cat GP", via)
+        if (from != null) parts += if (fa) "از $from" else "from $from"
+        if (to != null) parts += if (fa) "به $to" else "to $to"
+        if (ip != null) parts += ip
+        else parts += if (fa) "در حال خواندن IP" else "reading IP"
+        return parts.joinToString(" · ")
     }
 
     /** Host of a typed panel / hop address, or null when it cannot be a Cat panel. */

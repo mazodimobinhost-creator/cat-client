@@ -177,10 +177,62 @@ internal object CatGpEngine {
 
     fun isActiveTag(tag: String): Boolean = tag.contains("Cat GP", ignoreCase = true)
 
-    fun routeLine(c: Context, fa: Boolean): String = CatGpScripts.routeLine(hopUrl(c), hopWanted(c), fa)
+    fun routeLine(
+        c: Context,
+        fa: Boolean,
+        fromCountry: String? = null,
+        toCountry: String? = null,
+        exitIp: String? = null,
+    ): String = CatGpScripts.routeLine(hopUrl(c), hopWanted(c), fa, fromCountry, toCountry, exitIp)
 
     fun exitProxy(): java.net.Proxy =
         java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress("127.0.0.1", PORT))
+
+    /**
+     * Exit IP/country websites see: one GET of Cloudflare trace through Code.gs (and the Worker
+     * when CAT_WORKER is set). Does not use the local MITM proxy — the app does not trust that CA.
+     */
+    fun exitWhere(c: Context): CatGpScripts.ExitTrace? {
+        val traces = listOf(
+            "https://www.cloudflare.com/cdn-cgi/trace",
+            "https://1.1.1.1/cdn-cgi/trace",
+            "https://api.ipify.org",
+        )
+        fun probe(f: CatGpFronter): CatGpScripts.ExitTrace? {
+            for (url in traces) {
+                val reply = try {
+                    catGpRelayFunction(f)(key(c), url, "GET", emptyList(), null)
+                } catch (_: Exception) {
+                    continue
+                }
+                if (reply.status !in 200..399) continue
+                val parsed = CatGpScripts.parseTrace(reply.body.toString(Charsets.UTF_8)) ?: continue
+                return parsed
+            }
+            return null
+        }
+        fronter?.let { live -> runCatching { probe(live) }.getOrNull() }?.let { return it }
+        val paths = scriptPaths(deployments(c))
+        if (paths.isEmpty()) return null
+        for (ip in frontIps(c).take(2)) {
+            val f = CatGpFronter(
+                paths.take(1),
+                listOf(ip),
+                snis = frontSnis(c),
+                protect = { protectOutboundSocket(it) },
+                timeoutMs = 12_000,
+            )
+            try {
+                probe(f)?.let {
+                    rememberIp(c, ip)
+                    return it
+                }
+            } finally {
+                f.close()
+            }
+        }
+        return null
+    }
 
     /**
      * Real delay: one HTTP generate_204 through Google → Code.gs. Never the Cat core at :2080.

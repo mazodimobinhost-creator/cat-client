@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta286] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat GP still does not show from/to IP and country.
+
+### Fixed
+- **Cat GP home shows از / به + exit IP:** the IP websites see is read through Google Apps Script (`cdn-cgi/trace`), not the local MITM proxy. Phone origin is the physical NIC. No RTL arrow.
+
 ## [1.10.0-beta285] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat GP shows «Cloudflare edge · location unknown» — cannot tell exit IP or if Cloudflare is in the path.

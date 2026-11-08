@@ -2804,6 +2804,42 @@ class MainActivity : Activity() {
         alwaysOnStatusText.setTextColor(if (alwaysOnMode) TEAL else TEXT_SECONDARY)
     }
 
+    /** Cat GP exit via GAS relay + phone origin on the physical NIC. Never MITM :10871. */
+    private suspend fun catGpLiveInfo(): IpGeolocation.Info? = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val exit = try { CatGpEngine.exitWhere(this@MainActivity) } catch (_: Exception) { null }
+        val origin = try { IpGeolocation.physical(activePhysicalNetwork()) } catch (_: Exception) { null }
+        val fa = isPersianUi()
+        val toName = exit?.countryCode?.let { CatGpScripts.countryName(it, fa) }.orEmpty()
+        val fromName = origin?.countryCode?.let { CatGpScripts.countryName(it, fa) }?.takeIf { it.isNotBlank() }
+            ?: origin?.countryName?.takeIf { it.isNotBlank() && it != origin.ip }
+        if (exit == null && origin == null) return@withContext null
+        IpGeolocation.Info(
+            ip = exit?.ip.orEmpty(),
+            countryCode = exit?.countryCode.orEmpty(),
+            countryName = toName,
+            city = exit?.colo,
+            isp = if (CatGpEngine.hopWanted(this@MainActivity) && CatGpScripts.dedicatedWorkerUrl(CatGpEngine.hopUrl(this@MainActivity)) != null) {
+                "Cloudflare Worker"
+            } else {
+                "Google Script"
+            },
+            colo = exit?.colo,
+            realIp = origin?.ip,
+            realCountryCode = origin?.countryCode,
+            realCountryName = fromName,
+        )
+    }
+
+    private fun catGpLocationLine(info: IpGeolocation.Info?): String {
+        val fa = isPersianUi()
+        val from = info?.realCountryName
+            ?: info?.realCountryCode?.let { CatGpScripts.countryName(it, fa) }?.takeIf { it.isNotBlank() }
+        val to = info?.countryName?.takeIf { it.isNotBlank() && it != info.ip }
+            ?: info?.countryCode?.let { CatGpScripts.countryName(it, fa) }?.takeIf { it.isNotBlank() }
+        val ip = info?.ip?.takeIf { it.isNotBlank() }
+        return CatGpEngine.routeLine(this, fa, from, to, ip)
+    }
+
     /**
      * Resolve the REAL exit location through the live tunnel (Cloudflare trace
      * first: it reports the actual edge colo + exit IP) and feed the world map.
@@ -2822,16 +2858,17 @@ class MainActivity : Activity() {
                 PanelDeploymentStore(this@MainActivity).deployments()
                     .firstOrNull()?.workerUrl?.removePrefix("https://")?.trimEnd('/')
             }.getOrNull()
-            val tunnelProxy = if (tunneledAtFetch) {
+            val tunnelProxy = if (tunneledAtFetch && !catGp) {
                 runCatching {
-                    if (catGp) CatGpEngine.exitProxy()
-                    else java.net.Proxy(
+                    java.net.Proxy(
                         java.net.Proxy.Type.HTTP,
                         java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
                     )
                 }.getOrNull()
             } else null
-            val info = runCatching {
+            val info = if (catGp && tunneledAtFetch) {
+                catGpLiveInfo()
+            } else runCatching {
                 IpGeolocation.locate(
                     proxy = tunnelProxy,
                     workerHost = workerHost,
@@ -2858,7 +2895,7 @@ class MainActivity : Activity() {
                     .apply()
             }
             val label = if (catGp && tunneledAtFetch) {
-                CatGpEngine.routeLine(this@MainActivity, isPersianUi()) + " · " + info.ip
+                catGpLocationLine(info)
             } else buildString {
                 if (!tunneledAtFetch) append(getString(R.string.route_direct_state) + " · ")
                 append(info.countryName)
@@ -2867,7 +2904,7 @@ class MainActivity : Activity() {
             connectionGlobe.setDestination(info.flag, label, info.ip)
             if (::connectionCountryText.isInitialized && liveGeo != null && tunneledAtFetch) {
                 connectionCountryText.text = if (catGp) {
-                    CatGpEngine.routeLine(this@MainActivity, isPersianUi()) + " · " + info.ip
+                    catGpLocationLine(info)
                 } else {
                     getString(R.string.route_location, info.flag, info.countryName)
                 }
@@ -3240,9 +3277,9 @@ class MainActivity : Activity() {
         val catGp = CatGpEngine.isActiveTag(activeConnectionTag)
         connectionCountryText.text = when {
             state == VpnState.Started && catGp && live != null ->
-                CatGpEngine.routeLine(this, isPersianUi()) + " · " + live.ip
+                catGpLocationLine(live)
             state == VpnState.Started && catGp ->
-                CatGpEngine.routeLine(this, isPersianUi())
+                catGpLocationLine(null)
             state == VpnState.Started && live != null ->
                 listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
             state == VpnState.Started && connectionCountryFlag.isNotBlank() ->

@@ -142,6 +142,15 @@ object IpGeolocation {
         )
     }
 
+    /** Phone ISP IP/country, bound to the physical network so the dummy TUN is skipped. */
+    suspend fun physical(network: android.net.Network?): Info? = withContext(Dispatchers.IO) {
+        if (network == null) return@withContext null
+        traceRaw(network, null)
+            ?: familyIp(v4 = true, network, null)?.let { ip ->
+                Info(ip = ip, countryCode = "", countryName = ip, city = null, isp = null)
+            }
+    }
+
     /** /cdn-cgi/trace parsed into an Info. [network] binds the socket to a
      *  specific network (physical = bypasses the VPN). */
     private fun traceRaw(network: android.net.Network?, proxy: java.net.Proxy?): Info? {

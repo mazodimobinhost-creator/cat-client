@@ -13,8 +13,8 @@ class Beta272ProtonAutoAddTest {
     fun versionIsBeta272() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 352"))
-        assertTrue(gradle.contains("1.10.0-beta285"))
+        assertTrue(gradle.contains("versionCode = 353"))
+        assertTrue(gradle.contains("1.10.0-beta286"))
     }
 
     @Test

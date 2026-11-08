@@ -1,39 +1,33 @@
 package com.cat.client
 
 import java.io.File
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** beta285 — Cat GP home line is Google Script ± Worker + exit IP, not «Cloudflare edge». */
+/** beta285 — Cat GP home line is Google Script ± Worker, not «Cloudflare edge». */
 class Beta285CatGpExitLineTest {
 
     @Test
     fun versionIsBeta285() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 352"))
-        assertTrue(gradle.contains("1.10.0-beta285"))
+        assertTrue(gradle.contains("versionCode = 353"))
+        assertTrue(gradle.contains("1.10.0-beta286"))
     }
 
     @Test
     fun routeLineSaysWhetherCloudflareIsInThePath() {
         val hop = "https://raspy-sky-8be5.giciza3742.workers.dev/"
-        assertEquals(
-            "Cat GP · گوگل → کلادفلر raspy-sky-8be5.giciza3742.workers.dev",
-            CatGpScripts.routeLine(hop, hopOn = true, fa = true),
-        )
-        assertEquals(
-            "Cat GP · Google → Cloudflare raspy-sky-8be5.giciza3742.workers.dev",
-            CatGpScripts.routeLine(hop, hopOn = true, fa = false),
-        )
-        assertTrue(CatGpScripts.routeLine("", hopOn = true, fa = true).contains("کلادفلر در مسیر نیست"))
-        assertTrue(CatGpScripts.routeLine(hop, hopOn = false, fa = false).contains("not in the path"))
+        val faHop = CatGpScripts.routeLine(hop, hopOn = true, fa = true)
+        val enHop = CatGpScripts.routeLine(hop, hopOn = true, fa = false)
+        assertTrue(faHop.contains("گوگل+کلادفلر"))
+        assertTrue(enHop.contains("Google+Cloudflare"))
+        assertTrue(CatGpScripts.routeLine("", hopOn = true, fa = true).contains("فقط گوگل اسکریپت"))
+        assertTrue(CatGpScripts.routeLine(hop, hopOn = false, fa = false).contains("Google Script only"))
         assertTrue(CatGpEngine.isActiveTag("🐱 Cat · Auto · Cat GP · 🌐"))
         assertFalse(CatGpEngine.isActiveTag("🐱 Cat · Germany · Warp"))
         val ui = src("MainActivity.kt")
-        assertTrue(ui.contains("CatGpEngine.exitProxy()"))
         assertTrue(ui.contains("CatGpEngine.routeLine"))
         assertFalse(ui.contains("route_edge_fallback) && catGp"))
     }
