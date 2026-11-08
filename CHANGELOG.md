@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta285] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat GP shows «Cloudflare edge · location unknown» — cannot tell exit IP or if Cloudflare is in the path.
+
+### Fixed
+- **Cat GP home line is the real path:** Google Script only, or Google → dedicated Worker host, plus the exit IP measured through `:10871`. Not the panel/WARP «Cloudflare edge» fallback.
+
 ## [1.10.0-beta284] — 2026-11-08 (Panel 6.89.0)
 
 Owner: update screen stuck on «preparing download»; must work with VPN and without.

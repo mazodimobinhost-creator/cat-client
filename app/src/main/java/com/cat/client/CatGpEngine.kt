@@ -175,6 +175,13 @@ internal object CatGpEngine {
     fun isProfile(profile: ConnectionProfile): Boolean =
         isProfile(profile.type, profile.server, profile.port, profile.shareLink)
 
+    fun isActiveTag(tag: String): Boolean = tag.contains("Cat GP", ignoreCase = true)
+
+    fun routeLine(c: Context, fa: Boolean): String = CatGpScripts.routeLine(hopUrl(c), hopWanted(c), fa)
+
+    fun exitProxy(): java.net.Proxy =
+        java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress("127.0.0.1", PORT))
+
     /**
      * Real delay: one HTTP generate_204 through Google → Code.gs. Never the Cat core at :2080.
      * Null = the script did not answer (no /exec, Anyone, or Google front blocked).

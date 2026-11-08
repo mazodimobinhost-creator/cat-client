@@ -2817,13 +2817,15 @@ class MainActivity : Activity() {
         liveGeoJob = activityScope.launch {
             // The deployed panel worker knows BOTH IPs in one call: the phone's
             // real ISP IP (tunnel entry) and the exit IP websites see.
-            val workerHost = runCatching {
+            val catGp = CatGpEngine.isActiveTag(activeConnectionTag)
+            val workerHost = if (catGp) null else runCatching {
                 PanelDeploymentStore(this@MainActivity).deployments()
                     .firstOrNull()?.workerUrl?.removePrefix("https://")?.trimEnd('/')
             }.getOrNull()
             val tunnelProxy = if (tunneledAtFetch) {
                 runCatching {
-                    java.net.Proxy(
+                    if (catGp) CatGpEngine.exitProxy()
+                    else java.net.Proxy(
                         java.net.Proxy.Type.HTTP,
                         java.net.InetSocketAddress(MihomoRuntimeDefaults.CONTROLLER_HOST, MihomoRuntimeDefaults.MIXED_PORT),
                     )
@@ -2855,14 +2857,20 @@ class MainActivity : Activity() {
                     .putString("origin_label", listOfNotNull(info.city?.takeIf { it.isNotBlank() }, info.countryName).joinToString(", "))
                     .apply()
             }
-            val label = buildString {
+            val label = if (catGp && tunneledAtFetch) {
+                CatGpEngine.routeLine(this@MainActivity, isPersianUi()) + " · " + info.ip
+            } else buildString {
                 if (!tunneledAtFetch) append(getString(R.string.route_direct_state) + " · ")
                 append(info.countryName)
                 info.colo?.let { colo -> append(" · ").append(colo) }
             }
             connectionGlobe.setDestination(info.flag, label, info.ip)
             if (::connectionCountryText.isInitialized && liveGeo != null && tunneledAtFetch) {
-                connectionCountryText.text = getString(R.string.route_location, info.flag, info.countryName)
+                connectionCountryText.text = if (catGp) {
+                    CatGpEngine.routeLine(this@MainActivity, isPersianUi()) + " · " + info.ip
+                } else {
+                    getString(R.string.route_location, info.flag, info.countryName)
+                }
             }
             renderRealIpLine(info, tunneledAtFetch)
         }
@@ -3229,7 +3237,12 @@ class MainActivity : Activity() {
         statusText.setTextColor(TEXT_PRIMARY)
         timerText.setTextColor(if (state == VpnState.Started) TEXT_PRIMARY else TEXT_SECONDARY)
         val live = liveGeo?.takeIf { state == VpnState.Started }
+        val catGp = CatGpEngine.isActiveTag(activeConnectionTag)
         connectionCountryText.text = when {
+            state == VpnState.Started && catGp && live != null ->
+                CatGpEngine.routeLine(this, isPersianUi()) + " · " + live.ip
+            state == VpnState.Started && catGp ->
+                CatGpEngine.routeLine(this, isPersianUi())
             state == VpnState.Started && live != null ->
                 listOfNotNull(live.city?.takeIf { it.isNotBlank() }, live.countryName).joinToString(", ")
             state == VpnState.Started && connectionCountryFlag.isNotBlank() ->

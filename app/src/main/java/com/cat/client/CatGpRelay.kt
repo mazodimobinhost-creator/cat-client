@@ -978,6 +978,21 @@ internal object CatGpScripts {
     fun pairLinked(googleExec: String, workerUrl: String): Boolean =
         scriptPaths(googleExec).isNotEmpty() && dedicatedWorkerUrl(workerUrl) != null
 
+    /**
+     * Home location pill: where Cat GP actually leaves (Google Script, plus the dedicated
+     * Worker when the hop is on). Never «Cloudflare edge» — that is the panel/WARP fallback.
+     */
+    fun routeLine(workerUrl: String, hopOn: Boolean, fa: Boolean): String {
+        val host = if (hopOn) dedicatedWorkerUrl(workerUrl)?.let { runCatching { java.net.URI(it).host }.getOrNull() } else null
+        return if (host != null) {
+            if (fa) "Cat GP · گوگل → کلادفلر $host" else "Cat GP · Google → Cloudflare $host"
+        } else if (fa) {
+            "Cat GP · فقط گوگل اسکریپت — کلادفلر در مسیر نیست"
+        } else {
+            "Cat GP · Google Script only — Cloudflare is not in the path"
+        }
+    }
+
     /** Host of a typed panel / hop address, or null when it cannot be a Cat panel. */
     fun hopHost(text: String): String? {
         val s = text.trim().removePrefix("https://").removePrefix("http://")
