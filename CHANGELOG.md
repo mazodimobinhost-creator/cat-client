@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta279] — 2026-11-08 (Panel 6.89.0)
+
+Owner: liked a ping antenna on server rows.
+
+### Added
+- **Cat antenna on ping.** Four bars next to the real delay on server rows, the home pill, and the map. Empty when there is no ping. Cat's own drawing — not another app's UI.
+
 ## [1.10.0-beta278] — 2026-11-08 (Panel 6.89.0)
 
 Owner: connect Cat GP to Cloudflare through the Google script so it works better.

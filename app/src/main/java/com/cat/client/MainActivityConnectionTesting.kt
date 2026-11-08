@@ -261,6 +261,7 @@ internal fun MainActivity.showConnectionTestingPage(
         val container: LinearLayout,
         val title: TextView,
         val detail: TextView,
+        val antenna: CatAntennaView,
         val delayBadge: TextView,
         val protocolBadges: LinearLayout,
         val udpBadge: TextView,
@@ -551,6 +552,10 @@ internal fun MainActivity.showConnectionTestingPage(
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
                 }
+                val antenna = CatAntennaView(this@showConnectionTestingPage).apply {
+                    setTrack(withAlpha(TEXT_PRIMARY, 40))
+                    visibility = View.GONE
+                }
                 val delayBadge = TextView(this@showConnectionTestingPage).apply {
                     textSize = 12.5f
                     typeface = CatClientBodyBoldTypeface
@@ -628,7 +633,8 @@ internal fun MainActivity.showConnectionTestingPage(
                 }
                 // ZedSecure row: text column · latency on the trailing edge · speed test · check.
                 container.addView(textColumn, LinearLayout.LayoutParams(0, -2, 1f))
-                container.addView(delayBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+                container.addView(antenna, LinearLayout.LayoutParams(dp(22), dp(16)).apply { marginStart = dp(8) })
+                container.addView(delayBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
                 container.addView(speedAction, LinearLayout.LayoutParams(dp(96), dp(56)).apply { marginStart = dp(4) })
                 container.addView(checkIcon, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(8) })
 
@@ -646,6 +652,7 @@ internal fun MainActivity.showConnectionTestingPage(
                     container,
                     title,
                     detail,
+                    antenna,
                     delayBadge,
                     protocolBadges,
                     udpBadge,
@@ -696,6 +703,8 @@ internal fun MainActivity.showConnectionTestingPage(
                 holder.delayBadge.text = ""
                 holder.delayBadge.visibility = View.GONE
                 holder.delayBadge.background = null
+                holder.antenna.visibility = View.GONE
+                holder.antenna.bind(null)
                 holder.protocolBadges.visibility = View.GONE
                 holder.speedAction.visibility = View.GONE
             } else {
@@ -776,6 +785,14 @@ internal fun MainActivity.showConnectionTestingPage(
                 } else {
                     holder.delayBadge.visibility = View.GONE
                     holder.delayBadge.background = null
+                }
+                val failedDelay = delayRecord?.status == ConnectionDelayStatus.Failure
+                if (delayMs != null || failedDelay) {
+                    holder.antenna.visibility = View.VISIBLE
+                    holder.antenna.bind(delayMs, failed = failedDelay, fa = appLanguagePreferenceStore.read() == AppLanguage.Persian)
+                } else {
+                    holder.antenna.visibility = View.GONE
+                    holder.antenna.bind(null)
                 }
 
                 fun triggerFailoverAndRetest(targetProfile: ConnectionProfile, preferProxyIp: Boolean) {

@@ -407,6 +407,7 @@ class MainActivity : Activity() {
     internal var scannerJob: Job? = null
     private val dockTabs = mutableListOf<DockTab>()
     internal lateinit var pingValueText: TextView
+    internal lateinit var homeAntenna: CatAntennaView
     internal lateinit var uptimeValueText: TextView
 
     /* Free configs (community sources, fetched + ping-tested in-app) */
@@ -2886,6 +2887,9 @@ class MainActivity : Activity() {
         val ping = livePingMs
         pingValueText.text = if (ping != null) "$ping ms" else "—"
         pingValueText.setTextColor(if (ping == null) TEXT_SECONDARY else if (ping < 250) ZedBlobView.ZED_LIME else ERROR)
+        if (::homeAntenna.isInitialized) {
+            homeAntenna.bind(ping?.toInt(), fa = appLanguagePreferenceStore.read() == AppLanguage.Persian)
+        }
     }
 
     /** Silent background ping through the tunnel (feeds the Home pill and the Map card). */

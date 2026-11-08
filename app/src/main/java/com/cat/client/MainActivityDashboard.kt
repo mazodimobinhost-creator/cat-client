@@ -772,7 +772,11 @@ internal fun MainActivity.buildDashboard(): View {
             },
             LinearLayout.LayoutParams(0, -2, 1f),
         )
-        addView(pingValueText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        homeAntenna = CatAntennaView(this@buildDashboard).apply {
+            setTrack(withAlpha(TEXT_PRIMARY, 40))
+        }
+        addView(homeAntenna, LinearLayout.LayoutParams(dp(22), dp(16)).apply { marginStart = dp(8) })
+        addView(pingValueText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
         addView(
             TextView(this@buildDashboard).apply {
                 text = "›"
@@ -1233,7 +1237,14 @@ internal fun MainActivity.showMapPage() {
                 addView(LinearLayout(this@showMapPage).apply {
                     orientation = LinearLayout.HORIZONTAL
                     layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-                    ping?.let { addView(stat(getString(R.string.map_ping), "$it ms"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(18) }) }
+                    gravity = Gravity.CENTER_VERTICAL
+                    ping?.let {
+                        addView(CatAntennaView(this@showMapPage).apply {
+                            setTrack(withAlpha(TEXT_PRIMARY, 40))
+                            bind(it.toInt(), fa = appLanguagePreferenceStore.read() == AppLanguage.Persian)
+                        }, LinearLayout.LayoutParams(dp(22), dp(16)).apply { marginEnd = dp(8) })
+                        addView(stat(getString(R.string.map_ping), "$it ms"), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(18) })
+                    }
                     server?.let { addView(stat(getString(R.string.map_server), it), LinearLayout.LayoutParams(0, -2, 1f)) }
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
             }
