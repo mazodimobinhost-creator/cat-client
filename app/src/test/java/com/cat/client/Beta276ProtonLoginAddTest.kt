@@ -67,7 +67,7 @@ class Beta276ProtonLoginAddTest {
     @Test
     fun hubFetchesFromSignedInPageNotJustAuthCookie() {
         val hub = src("MainActivityFreeNetworks.kt")
-        assertTrue(hub.contains("INPAGE_PULL_JS"))
+        assertTrue(hub.contains("inpagePullJs"))
         assertTrue(hub.contains("filesFromInPage"))
         assertTrue(hub.contains("looksSignedIn"))
         assertTrue(hub.contains("setAcceptThirdPartyCookies"))
