@@ -948,7 +948,35 @@ internal object CatGpScripts {
 
     private val HOP_URL = Regex("""https://[A-Za-z0-9.-]+/gp/[0-9a-f-]{36}(?:/[A-Za-z0-9_-]{8,64})?""")
 
-    fun isHopUrl(text: String): Boolean = HOP_URL.matches(text.trim())
+    fun isHopUrl(text: String): Boolean {
+        val t = text.trim()
+        return dedicatedWorkerUrl(t) != null || HOP_URL.matches(t)
+    }
+
+    /**
+     * Dedicated Cat GP Cloudflare Worker (workers.dev, no path) — not the Cat panel `/gp/<uuid>`.
+     * `https://name.workers.dev` or `name.workers.dev`.
+     */
+    fun dedicatedWorkerUrl(text: String): String? {
+        val raw = text.trim()
+        if (raw.isEmpty()) return null
+        val withScheme = when {
+            raw.startsWith("https://", ignoreCase = true) -> raw
+            raw.startsWith("http://", ignoreCase = true) -> return null
+            else -> "https://$raw"
+        }
+        val uri = runCatching { java.net.URI(withScheme) }.getOrNull() ?: return null
+        if (!uri.scheme.equals("https", ignoreCase = true)) return null
+        val host = uri.host?.lowercase(Locale.US) ?: return null
+        if (!host.endsWith(".workers.dev") || host.endsWith(".pages.dev")) return null
+        val path = uri.rawPath.orEmpty().trimEnd('/')
+        if (path.isNotEmpty() && path != "/") return null
+        if (!uri.rawQuery.isNullOrEmpty() || !uri.fragment.isNullOrEmpty() || uri.userInfo != null) return null
+        return "https://$host"
+    }
+
+    fun pairLinked(googleExec: String, workerUrl: String): Boolean =
+        scriptPaths(googleExec).isNotEmpty() && dedicatedWorkerUrl(workerUrl) != null
 
     /** Host of a typed panel / hop address, or null when it cannot be a Cat panel. */
     fun hopHost(text: String): String? {
@@ -960,21 +988,19 @@ internal object CatGpScripts {
     }
 
     /**
-     * Google Apps Script talks to Cloudflare from Google's network — the phone does not need to reach the panel.
-     * Empty input → first known panel hop. A /gp/<uuid> URL is kept. A workers.dev (or own-domain) host uses that
-     * panel's UUID when we already know it.
+     * Google Apps Script talks to Cloudflare from Google's network — the phone does not need to reach the Worker.
+     * Dedicated `https://name.workers.dev` (Cat GP Worker, not the Cat panel) wins. A pasted `/gp/<uuid>` hop is
+     * still accepted. Empty / unknown → no hop (never borrowed from the Cat panel).
      */
-    fun normalizeHop(text: String, key: String, panels: List<Pair<String, String>>): String {
+    fun normalizeHop(text: String, key: String, panels: List<Pair<String, String>> = emptyList()): String {
         val raw = text.trim()
-        if (raw.isEmpty()) return hopCandidates(panels, key).firstOrNull().orEmpty()
+        dedicatedWorkerUrl(raw)?.let { return it }
         if (HOP_URL.matches(raw)) {
             val hasKey = raw.substringAfter("/gp/").contains('/')
             return if (!hasKey && key.isNotBlank()) "$raw/$key" else raw
         }
-        val host = hopHost(raw) ?: return hopCandidates(panels, key).firstOrNull().orEmpty()
-        val uuid = panels.firstOrNull { hopHost(it.first) == host }?.second
-        if (uuid.isNullOrBlank()) return ""
-        return hopCandidates(listOf("https://$host" to uuid), key).firstOrNull().orEmpty()
+        if (raw.isEmpty()) return ""
+        return ""
     }
 
     /**
@@ -997,9 +1023,13 @@ internal object CatGpScripts {
 
     /** Fills assets/catgp/Code.gs: the key and the optional worker hop become JS string literals. */
     fun fill(template: String, key: String, workerUrl: String): String {
-        val hop = workerUrl.trim().takeIf { isHopUrl(it) }.orEmpty()
+        val hop = workerUrl.trim().let { dedicatedWorkerUrl(it) ?: it.takeIf { u -> isHopUrl(u) }.orEmpty() }
         return template.replace("__CAT_KEY__", CatGpJson.quote(key)).replace("__CAT_WORKER__", CatGpJson.quote(hop))
     }
+
+    /** Fills assets/catgp/worker.js: the same CAT_KEY as Code.gs. */
+    fun fillWorker(template: String, key: String): String =
+        template.replace("__CAT_KEY__", CatGpJson.quote(key))
 }
 
 /** Fronter + codec glued into the proxy's relay function (also used by the in-app test). */

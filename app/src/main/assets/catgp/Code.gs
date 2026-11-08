@@ -3,7 +3,7 @@
 // 2) Deploy → New deployment → Web app → Execute as: Me → Who has access: Anyone → Deploy.
 // 3) Copy the Web app address (.../exec) back into Cat Client.
 // Keep CAT_KEY secret: whoever has it can use your daily Google quota (~20 000 requests).
-// If CAT_WORKER is set, the same key is sent with every hop so a leaked panel UUID cannot fetch.
+// If CAT_WORKER is set, each request goes to YOUR Cat GP Cloudflare Worker (not the Cat panel).
 // After editing: Deploy → Manage deployments → pencil → Version: New version (the address stays).
 // Do not leave the default myFunction in the file. A leftover } then a block comment is
 // "Unexpected token *" in the Apps Script parser (it reads / as a regex).

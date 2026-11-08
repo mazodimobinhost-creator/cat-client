@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta280] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cloudflare code only for Google Script (not the Cat panel), and a line that says they are connected.
+
+### Added
+- **Cat GP Cloudflare Worker is only for Google Script.** Separate from the Cat panel. Copy the Worker, deploy it, paste `…workers.dev`. The app and the Worker page say **Google Script and Cloudflare are connected** when both addresses are saved. Same CAT_KEY. Telegram/Instagram still will not open this way.
+
 ## [1.10.0-beta279] — 2026-11-08 (Panel 6.89.0)
 
 Owner: liked a ping antenna on server rows.

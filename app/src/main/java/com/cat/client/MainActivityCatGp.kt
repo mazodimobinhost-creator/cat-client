@@ -69,73 +69,74 @@ internal fun MainActivity.showCatGpDialog() {
         "اینو بزنی این میشه: وقتی همه‌چیز بسته است و فقط گوگل باز است، مرورگر از یک اسکریپت مال خودتان روی گوگل رد می‌شود. رایگان است؛ سرور نمی‌خواهد. فقط مرورگر (کروم). تلگرام و اینستاگرام از این راه باز نمی‌شوند.",
         "Tap: when everything is blocked except Google, the browser goes through YOUR script on Google. Free, no server. Browsers only (Chrome). Telegram and Instagram will not open this way.",
     ), 13f, TEXT_PRIMARY))
-    val fromSubs = runCatching { VercelRoutePlanner.panelsFromSubscriptions(userSubscriptionManager.list().map { it.input }) }.getOrDefault(emptyList())
-    val fromBuilt = runCatching { PanelDeploymentStore(ctx).deployments().map { it.workerUrl to it.uuid } }.getOrDefault(emptyList())
-    val panels = (fromSubs + fromBuilt).distinct()
-    val hops = CatGpEngine.hopCandidates(this, panels)
     val status = gpText("", 12f)
+    val linkedLine = gpText("", 13.5f, TEAL, bold = true)
     fun refreshStatus(extra: String = "") {
         val saved = CatGpEngine.scriptPaths(CatGpEngine.deployments(ctx)).size
         val ca = CatGpEngine.caInstalled(ctx)
+        val hop = CatGpScripts.normalizeHop(CatGpEngine.hopUrl(ctx), CatGpEngine.key(ctx))
+        val linked = CatGpEngine.hopWanted(ctx) && CatGpScripts.pairLinked(CatGpEngine.deployments(ctx), hop.ifBlank { CatGpEngine.hopUrl(ctx) })
+        linkedLine.text = if (linked) {
+            t("✅ گوگل اسکریپت و کلادفلر به هم متصل شدند", "✅ Google Script and Cloudflare are connected")
+        } else {
+            t("⬜ گوگل اسکریپت و کلادفلر هنوز به هم متصل نیستند", "⬜ Google Script and Cloudflare are not connected yet")
+        }
+        linkedLine.setTextColor(if (linked) TEAL else TEXT_SECONDARY)
         status.text = listOf(
             if (saved > 0) t("✅ آدرس گوگل ذخیره است", "✅ Google address saved") else t("⬜ هنوز آدرس گوگل را نچسبانده‌اید", "⬜ No Google address pasted yet"),
-            if (CatGpEngine.hopWanted(ctx) && CatGpScripts.normalizeHop(CatGpEngine.hopUrl(ctx), CatGpEngine.key(ctx), panels).isNotBlank())
-                t("✅ اسکریپت به کلادفلر وصل می‌شود", "✅ Script talks to Cloudflare")
-            else t("⬜ خروج کلادفلر هنوز در اسکریپت نیست", "⬜ Cloudflare exit not in the script yet"),
+            if (CatGpScripts.dedicatedWorkerUrl(CatGpEngine.hopUrl(ctx)) != null)
+                t("✅ ورکر کلادفلر (فقط اسکریپت گوگل) ذخیره است", "✅ Cloudflare Worker (Google Script only) saved")
+            else t("⬜ ورکر کلادفلر را نچسبانده‌اید — پنل کَت نیست", "⬜ No Cat GP Cloudflare Worker yet — not the Cat panel"),
             if (ca) t("✅ گواهی نصب است — سایت‌های قفل‌دار باز می‌شوند", "✅ Certificate installed — https sites can open") else t("⬜ گواهی هنوز نصب نیست", "⬜ Certificate not installed yet"),
             extra,
         ).filter { it.isNotBlank() }.joinToString("\n")
     }
     refreshStatus()
     box.addView(status, gpLp(8))
+    box.addView(linkedLine, gpLp(8))
 
-    box.addView(gpText(t("کلید مشترک (همان CAT_KEY در اسکریپت)", "Shared key (CAT_KEY in your script)"), 12f), gpLp(10))
+    box.addView(gpText(t("کلید مشترک (همان CAT_KEY در اسکریپت و ورکر)", "Shared key (CAT_KEY in the script and the Worker)"), 12f), gpLp(10))
     box.addView(gpText(CatGpEngine.key(ctx), 14f, TEAL, bold = true), gpLp(2))
 
-    box.addView(gpText(t("۱) کد را در گوگل بگذارید", "1) Put the code on Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
-    box.addView(gpText(t(
-        "اینو بزنی این میشه: گوشی فقط به گوگل می‌رود (اسکریپت مال خودتان). اسکریپت از سرور گوگل به پنل کلادفلر شما می‌زند و سایت‌ها آی‌پی کلادفلر می‌بینند. اگر کلادفلر روی خود گوشی بسته باشد اشکال ندارد.",
-        "Tap: the phone only talks to Google (your script). The script, from Google's servers, calls your Cloudflare panel so sites see a Cloudflare IP. The phone does not need to reach Cloudflare.",
-    ), 12f), gpLp(4))
     val hopBox = CheckBox(this).apply {
-        text = t("خروج کلادفلر — اسکریپت گوگل به پنل وصل شود", "Cloudflare exit — Google script talks to your panel")
+        text = t("خروج کلادفلر — ورکر جدا فقط برای اسکریپت گوگل (نه پنل کَت)", "Cloudflare exit — a separate Worker only for Google Script (not the Cat panel)")
         setTextColor(TEXT_PRIMARY)
         isChecked = CatGpEngine.hopWanted(ctx)
     }
-    box.addView(hopBox, gpLp(4))
+    box.addView(hopBox, gpLp(8))
     val hopField = EditText(this).apply {
-        hint = t("آدرس پنل کلادفلر (…workers.dev)", "Cloudflare panel address (…workers.dev)")
-        setText(CatGpEngine.hopUrl(ctx).ifBlank { hops.firstOrNull().orEmpty() })
+        hint = t("آدرس ورکر Cat GP (…workers.dev)", "Cat GP Worker address (…workers.dev)")
+        setText(CatGpEngine.hopUrl(ctx))
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         textSize = 12.5f
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         textDirection = View.TEXT_DIRECTION_LTR
     }
     box.addView(hopField, gpLp(4))
-    fun resolvedHop(): String {
+    fun resolvedHopOrEmpty(): String {
         if (!hopBox.isChecked) return ""
-        return CatGpScripts.normalizeHop(hopField.text?.toString().orEmpty(), CatGpEngine.key(ctx), panels)
+        return CatGpScripts.normalizeHop(hopField.text?.toString().orEmpty(), CatGpEngine.key(ctx))
     }
-    box.addView(gpButton(t("📋 کپی کردن کد", "📋 Copy the code"), accent = true) {
-        val hop = resolvedHop()
+
+    box.addView(gpText(t("۱) کد را در گوگل بگذارید", "1) Put the code on Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpButton(t("📋 کپی کردن کد گوگل", "📋 Copy the Google code"), accent = true) {
+        val hop = resolvedHopOrEmpty()
         CatGpEngine.saveHopWanted(ctx, hopBox.isChecked)
-        val typedHop = hopField.text?.toString().orEmpty()
-        CatGpEngine.saveHopUrl(ctx, typedHop.ifBlank { hop })
-        if (hop.isNotBlank() && typedHop.isBlank()) hopField.setText(hop)
+        CatGpEngine.saveHopUrl(ctx, hopField.text?.toString().orEmpty().ifBlank { hop })
         if (hopBox.isChecked && hop.isBlank()) {
             Toast.makeText(
                 ctx,
-                t("آدرس پنل کلادفلر را بچسبانید (یا اول پنل را در کَت بسازید). کد بدون خروج کلادفلر کپی شد.",
-                    "Paste the Cloudflare panel address (or build the panel in Cat first). Code was copied without the Cloudflare exit."),
+                t("آدرس ورکر Cat GP را بچسبانید (…workers.dev). پنل کَت نیست. کد گوگل بدون ورکر کپی شد.",
+                    "Paste the Cat GP Worker address (…workers.dev). Not the Cat panel. Google code was copied without the Worker."),
                 Toast.LENGTH_LONG,
             ).show()
         }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("Cat GP Code.gs", CatGpEngine.codeGs(ctx, hop)))
         refreshStatus(
-            if (hop.isNotBlank()) t("📋 کد با خروج کلادفلر کپی شد — در گوگل نسخهٔ جدید Deploy کنید",
-                "📋 Code with Cloudflare exit copied — Deploy a new version on Google")
-            else t("📋 کد کپی شد — حالا «باز کردن گوگل» را بزنید", "📋 Code copied — tap Open Google next"),
+            if (hop.isNotBlank()) t("📋 کد گوگل با آدرس ورکر کپی شد — در گوگل نسخهٔ جدید Deploy کنید",
+                "📋 Google code with the Worker address copied — Deploy a new version on Google")
+            else t("📋 کد گوگل کپی شد — حالا «باز کردن گوگل» را بزنید", "📋 Google code copied — tap Open Google next"),
         )
     }, gpLp(6))
     box.addView(gpButton(t("🌍 باز کردن گوگل", "🌍 Open Google"), accent = false) {
@@ -146,7 +147,28 @@ internal fun MainActivity.showCatGpDialog() {
         "On Google: new project → delete everything → paste → Save.\nThen Deploy → New deployment → Web app → Execute as: Me → Who has access: Anyone → Deploy.\nCopy the address that ends in /exec and paste it below. The box is empty on purpose — do not use an example.",
     ), 12f), gpLp(4))
 
-    box.addView(gpText(t("۲) آدرس را از گوگل بچسبانید", "2) Paste the address from Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۲) کد کلادفلر — فقط برای اسکریپت گوگل", "2) Cloudflare code — only for Google Script"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t(
+        "این ورکر پنل کَت نیست. اسکریپت گوگل از سرور گوگل به این ورکر می‌زند. اگر کلادفلر روی گوشی بسته باشد اشکال ندارد.",
+        "This Worker is not the Cat panel. Google Script calls it from Google's servers. The phone does not need to reach Cloudflare.",
+    ), 12f), gpLp(4))
+    box.addView(gpButton(t("📋 کپی کردن کد کلادفلر", "📋 Copy the Cloudflare code"), accent = true) {
+        CatGpEngine.saveHopWanted(ctx, hopBox.isChecked)
+        CatGpEngine.saveHopUrl(ctx, hopField.text?.toString().orEmpty())
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("Cat GP worker.js", CatGpEngine.workerJs(ctx)))
+        refreshStatus(t("📋 کد کلادفلر کپی شد — در Workers بچسبانید و Deploy کنید",
+            "📋 Cloudflare code copied — paste it in Workers and Deploy"))
+    }, gpLp(6))
+    box.addView(gpButton(t("☁️ باز کردن کلادفلر", "☁️ Open Cloudflare"), accent = false) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/"))) }
+    }, gpLp(6))
+    box.addView(gpText(t(
+        "در کلادفلر: Workers & Pages → Create → همان فایل را بچسبانید → Deploy.\\nآدرس …workers.dev را بالا بچسبانید. بعد کد گوگل را دوباره کپی کنید تا CAT_WORKER داخلش باشد.",
+        "On Cloudflare: Workers & Pages → Create → paste that file → Deploy.\\nPaste the …workers.dev address above. Then copy the Google code again so CAT_WORKER is inside it.",
+    ), 12f), gpLp(4))
+
+    box.addView(gpText(t("۳) آدرس را از گوگل بچسبانید", "3) Paste the address from Google"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     val input = EditText(this).apply {
         hint = t("آدرس واقعی را اینجا بچسبانید (…/exec)", "Paste the real address here (…/exec)")
         setText(CatGpEngine.deployments(ctx))
@@ -186,7 +208,7 @@ internal fun MainActivity.showCatGpDialog() {
         }
     }, gpLp(6))
 
-    box.addView(gpText(t("۳) لبهٔ گوگل — IP و SNI روی خط شما", "3) Google edge — IP and SNI on your line"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۴) لبهٔ گوگل — IP و SNI روی خط شما", "4) Google edge — IP and SNI on your line"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     box.addView(gpText(t(
         "خالی = اسکن خودکار. یک آدرس یعنی فقط همان. چند خط = فقط همان‌ها روی این شبکه امتحان می‌شوند.",
         "Empty = auto-scan. One address pins it. Several lines = only those are tested on this network.",
@@ -256,7 +278,7 @@ internal fun MainActivity.showCatGpDialog() {
     }, gpLp(6))
     box.addView(scanBox, gpLp(2))
 
-    box.addView(gpText(t("۴) گواهی (یک‌بار، برای سایت‌های قفل‌دار)", "4) Certificate (once, for https sites)"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
+    box.addView(gpText(t("۵) گواهی (یک‌بار، برای سایت‌های قفل‌دار)", "5) Certificate (once, for https sites)"), 13.5f, TEXT_PRIMARY, bold = true), gpLp(14))
     box.addView(gpText(t(
         "بدون این گواهی، کروم سایت‌های https را باز نمی‌کند. فقط روی همین گوشی ساخته می‌شود.",
         "Without this certificate Chrome will not open https sites. It is made on this phone only.",

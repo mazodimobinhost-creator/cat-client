@@ -26,11 +26,11 @@
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAmneziaSstp.kt` | 662 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1742 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCatGp.kt` | 403 | beta249 🌐 Cat GP (UI). | 10 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCatGp.kt` | 425 | beta249 🌐 Cat GP (UI). | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityConnectionTesting.kt` | 1900 | Connection testing page (ping/speed lists, chain picker). | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityDashboard.kt` | 1408 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityDashboard.kt` | 1409 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
@@ -228,7 +228,7 @@
 | `AppReport.kt` | 232 | beta220 «📨 report to panel» — ONE button, opt-in, nothing is sent without the user seeing the exact text first. | Beta220RealInternetTest, Beta220WiringTest · — |
 | `CloudflareAccountLinks.kt` | 42 | Cloudflare account/token entry links, and the invariant that makes the in-app «get a token» flow work for brand-new users. | — · — |
 | `CloudflareOperationApproval.kt` | 90 | Safety contract shared by the in-app Cloudflare installer UI. | — · — |
-| `CloudflareWorker.kt` | 2178 | PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09. | Beta225FreeHostsTest, Beta278CatGpCloudflareHopTest, PanelSubKeyTest · compat-consistency, multipart-upload, panel-update-contract, paste-artifact, route-pending |
+| `CloudflareWorker.kt` | 2178 | PanelCatalog — catalog of supported self-hosted VPN panels, researched 2026-09. | Beta225FreeHostsTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, PanelSubKeyTest · compat-consistency, multipart-upload, panel-update-contract, paste-artifact, route-pending |
 | `DeploymentMeasurementStore.kt` | 55 | Stores only conclusive probe evidence. | — · — |
 | `DeploymentProfile.kt` | 70 | — | DeploymentProfileTest · — |
 | `DeploymentProfileStore.kt` | 55 | — | — · — |
@@ -304,8 +304,8 @@
 | `CatAntenna.kt` | 28 | Cat's own signal antenna: how many bars a real delay lights up. | Beta279CatAntennaTest · — |
 | `CatBranding.kt` | 43 | beta207: only Cat's own names on screen. | Beta206EngineTest, Beta263CatWindTest · — |
 | `CatClientApplication.kt` | 87 | — | — · — |
-| `CatGpEngine.kt` | 268 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta275CatGpPencilTest, Beta278CatGpCloudflareHopTest, ConnectionFaultExplainerTest · — |
-| `CatGpRelay.kt` | 1011 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta278CatGpCloudflareHopTest · — |
+| `CatGpEngine.kt` | 274 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta275CatGpPencilTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, ConnectionFaultExplainerTest · — |
+| `CatGpRelay.kt` | 1041 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest · — |
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
 | `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
 | `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
@@ -334,7 +334,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_276 Kotlin files, 117177 lines._
+_276 Kotlin files, 117236 lines._
 
 ## MainActivity screens — function index
 
@@ -359,7 +359,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityCatGp.kt` (6 functions)
 
-`gpFa`:25, `gpButton`:27, `gpText`:48, `gpLp`:57, `showCatGpDialog`:60, `showCatGpEdgeDialog`:319
+`gpFa`:25, `gpButton`:27, `gpText`:48, `gpLp`:57, `showCatGpDialog`:60, `showCatGpEdgeDialog`:341
 
 ### `MainActivityCatWarp.kt` (19 functions)
 
@@ -375,7 +375,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityDashboard.kt` (4 functions)
 
-`buildFlowMeterRow`:110, `buildDashboard`:190, `showMapPage`:1117, `buildZedTicket`:1342
+`buildFlowMeterRow`:110, `buildDashboard`:190, `showMapPage`:1117, `buildZedTicket`:1343
 
 ### `MainActivityDiagnostics.kt` (8 functions)
 

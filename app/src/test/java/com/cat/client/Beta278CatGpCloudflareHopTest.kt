@@ -12,14 +12,14 @@ class Beta278CatGpCloudflareHopTest {
     fun versionIsBeta278() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 346"))
-        assertTrue(gradle.contains("1.10.0-beta279"))
+        assertTrue(gradle.contains("versionCode = 347"))
+        assertTrue(gradle.contains("1.10.0-beta280"))
     }
 
     @Test
     fun hubBakesHopWithoutPhoningCloudflare() {
         val ui = src("MainActivityCatGp.kt")
-        assertTrue(ui.contains("PanelDeploymentStore"))
+        assertFalse(ui.contains("PanelDeploymentStore"))
         assertTrue(ui.contains("normalizeHop"))
         assertTrue(ui.contains("خروج کلادفلر"))
         assertTrue(ui.contains("hopWanted"))

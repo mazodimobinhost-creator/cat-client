@@ -263,6 +263,12 @@ internal object CatGpEngine {
         return CatGpScripts.fill(template, key(c), workerUrl)
     }
 
+    /** The Worker the user pastes into dash.cloudflare.com — Cat GP only, not the Cat panel. */
+    fun workerJs(c: Context): String {
+        val template = c.assets.open("catgp/worker.js").use { String(it.readBytes(), Charsets.UTF_8) }
+        return CatGpScripts.fillWorker(template, key(c))
+    }
+
     fun hopCandidates(c: Context, panels: List<Pair<String, String>>): List<String> =
         CatGpScripts.hopCandidates(panels, key(c))
 }
