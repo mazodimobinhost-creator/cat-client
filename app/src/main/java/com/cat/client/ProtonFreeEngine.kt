@@ -81,8 +81,23 @@ internal object ProtonFreePlanner {
         return Session(uid, joined)
     }
 
-    fun looksSignedIn(cookies: String?, url: String = ""): Boolean {
+    /**
+     * Proton's account app is a SPA: after login the URL often stays `…/vpn/login`
+     * while the page is already OpenVPN / Credentials. Page text wins over the URL.
+     */
+    fun pageLooksSignedIn(pageText: String?): Boolean {
+        val t = pageText.orEmpty().lowercase(Locale.US)
+        if (t.isBlank()) return false
+        if ("following credentials" in t) return true
+        if ("openvpn" in t && ("credential" in t || "username" in t)) return true
+        if ("sign out" in t || "log out" in t || "sign-out" in t) return true
+        if ("wireguard" in t && ("download" in t || "generate" in t || "config" in t)) return true
+        return false
+    }
+
+    fun looksSignedIn(cookies: String?, url: String = "", pageText: String = ""): Boolean {
         if (sessionFromCookies(cookies) != null) return true
+        if (pageLooksSignedIn(pageText)) return true
         val u = url.lowercase(Locale.US)
         if (u.isBlank()) return false
         if ("login" in u || "signup" in u || "pricing" in u) return false
@@ -339,9 +354,11 @@ internal object ProtonFreePlanner {
     val INPAGE_PULL_JS =
         "(function(){try{" +
             "if(typeof window.__catPmState==='string'&&window.__catPmState.charAt(0)==='{')return window.__catPmState;" +
+            "if(typeof window.__catPmState==='string'&&window.__catPmState.indexOf('err:')===0){window.__catPmBusy=false;window.__catPmState=undefined;}" +
             "if(window.__catPmBusy)return 'busy';" +
             "window.__catPmBusy=true;" +
             "var H={'Accept':'application/vnd.protonmail.v1+json','x-pm-appversion':'web-vpn-settings@5.0.2.0'};" +
+            "var uid='__CAT_PM_UID__';if(uid)H['x-pm-uid']=uid;" +
             "function go(u,opt){return fetch(u,Object.assign({credentials:'include',headers:H},opt||{})).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});}" +
             "var roots=[];" +
             "if(location&&location.origin&&location.origin.indexOf('proton')>=0)roots.push(location.origin+'/api');" +
@@ -361,4 +378,9 @@ internal object ProtonFreePlanner {
             "});});});}).catch(function(){chain(i+1);});}" +
             "chain(0);return 'started';" +
             "}catch(e){window.__catPmState='err:'+e;return window.__catPmState;}})()"
+
+    fun inpagePullJs(uid: String = ""): String =
+        INPAGE_PULL_JS.replace("__CAT_PM_UID__", uid.replace("'", "").replace("\\", ""))
+
+    const val RESET_INPAGE_JS = "window.__catPmBusy=false;window.__catPmState=undefined;'ok'"
 }

@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1475 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 17 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1509 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 18 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -328,11 +328,11 @@
 | `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `ProtocolConnect.kt` | 191 | Dedicated Cat editors for TUIC, WireGuard and Cat Warp (Aether). | Beta267CatConnectKitTest · — |
-| `ProtonFreeEngine.kt` | 364 | beta254 — 🟢 Cat Proton: the service's own **free** plan (unlimited data, a handful of countries), used the same way Cat Fox uses a free Firefox acc… | Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest · — |
+| `ProtonFreeEngine.kt` | 386 | beta254 — 🟢 Cat Proton: the service's own **free** plan (unlimited data, a handful of countries), used the same way Cat Fox uses a free Firefox acc… | Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, Beta277ProtonCredentialsPageTest · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_274 Kotlin files, 116913 lines._
+_274 Kotlin files, 116969 lines._
 
 ## MainActivity screens — function index
 
@@ -393,7 +393,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (31 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:192, `freeProgress`:208, `saveFreeSubscription`:233, `connectFreeSubscription`:243, `freeResult`:277, `showFreeProxyDialog`:295, `buildFreeProxy`:316, `showFanoosDialog`:357, `fetchFanoos`:404, `fetchFanoosAll`:463, `showFreeAccountDialog`:600, `showProtonDialog`:745, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:965, `showFreePsiphonDialog`:1037, `pickFreePsiphonCountry`:1075, `connectFreePsiphon`:1094, `showCatWarpFreeDialog`:1133, `connectCatWarpFree`:1194, `showCatWindDialog`:1229, `showCatWindLogin`:1239, `connectCatWind`:1384, `jsString`:1475
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:192, `freeProgress`:208, `saveFreeSubscription`:233, `connectFreeSubscription`:243, `freeResult`:277, `showFreeProxyDialog`:295, `buildFreeProxy`:316, `showFanoosDialog`:357, `fetchFanoos`:404, `fetchFanoosAll`:463, `showFreeAccountDialog`:600, `showProtonDialog`:745, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:999, `showFreePsiphonDialog`:1071, `pickFreePsiphonCountry`:1109, `connectFreePsiphon`:1128, `showCatWarpFreeDialog`:1167, `connectCatWarpFree`:1228, `showCatWindDialog`:1263, `showCatWindLogin`:1273, `connectCatWind`:1418, `jsString`:1509
 
 ### `MainActivityGuides.kt` (9 functions)
 

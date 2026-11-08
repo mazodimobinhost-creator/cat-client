@@ -806,6 +806,7 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         runCatching { android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true) }
     }
     var lastUrl = ProtonFreePlanner.LOGIN
+    var lastPageText = ""
 
     fun note(msg: String) { status.text = msg }
 
@@ -859,16 +860,36 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         if (files.isNotEmpty()) finishWith(files)
     }
 
-    fun kickInPage() {
+    fun kickInPage(uid: String = ProtonFreePlanner.sessionFromCookies(protonCookies())?.uid.orEmpty()) {
         runCatching {
-            webView.evaluateJavascript(ProtonFreePlanner.INPAGE_PULL_JS) { consumeInPage(it) }
+            webView.evaluateJavascript(ProtonFreePlanner.inpagePullJs(uid)) { consumeInPage(it) }
         }
+    }
+
+    fun forcePull() {
+        pulling = false
+        runCatching { webView.evaluateJavascript(ProtonFreePlanner.RESET_INPAGE_JS) { } }
+        note(t("✅ دارم کانفیگ‌ها را می‌گیرم…", "✅ Fetching configs…"))
+        pulling = true
+        val session = ProtonFreePlanner.sessionFromCookies(protonCookies())
+        if (session != null) {
+            activityScope.launch(Dispatchers.IO) {
+                val result = runCatching { ProtonFreePlanner.pullWireGuardFiles(session, want) }
+                withContext(Dispatchers.Main) {
+                    result.fold(
+                        onSuccess = { finishWith(it) },
+                        onFailure = { kickInPage(session.uid) },
+                    )
+                }
+            }
+        }
+        kickInPage(session?.uid.orEmpty())
     }
 
     fun pullFromSession() {
         val cookies = protonCookies()
         val session = ProtonFreePlanner.sessionFromCookies(cookies)
-        val signed = session != null || ProtonFreePlanner.looksSignedIn(cookies, lastUrl)
+        val signed = session != null || ProtonFreePlanner.looksSignedIn(cookies, lastUrl, lastPageText)
         if (!signed) return
         if (!pulling) {
             pulling = true
@@ -881,7 +902,7 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
                             onSuccess = { finishWith(it) },
                             onFailure = {
                                 pulling = false
-                                kickInPage()
+                                kickInPage(session.uid)
                                 pulling = true
                                 note(t("✅ وارد شدی؛ از خود صفحه می‌گیرم…", "✅ Signed in; fetching from the page…"))
                             },
@@ -890,7 +911,7 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
                 }
             }
         }
-        kickInPage()
+        kickInPage(session?.uid.orEmpty())
     }
 
     fun downloadUrl(url: String, filename: String) {
@@ -932,12 +953,19 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
                 note(t("پلن رایگان را انتخاب کن (پولی را نزن)؛ بعدش خودکار می‌آید.", "Pick the free plan (not paid); then it continues on its own."))
             }
             pullFromSession()
+            runCatching {
+                webView.evaluateJavascript(ProtonFreePlanner.SCAN_JS) { raw ->
+                    lastPageText = jsString(raw)
+                    pullFromSession()
+                }
+            }
         }
     }
 
     box.addView(freeButton(t("🔑 ورود", "🔑 Sign in"), accent = true) { webView.loadUrl(ProtonFreePlanner.LOGIN) }, freeLp(6))
     box.addView(freeButton(t("🆕 ساخت حساب رایگان", "🆕 Create a free account"), accent = false) { webView.loadUrl(ProtonFreePlanner.SIGNUP) }, freeLp(4))
     box.addView(webView, LinearLayout.LayoutParams(-1, dp(380)).apply { topMargin = dp(6) })
+    box.addView(freeButton(t("📥 گرفتن کانفیگ‌ها", "📥 Fetch configs"), accent = true) { forcePull() }, freeLp(6))
     box.addView(status, freeLp(6))
 
     val dialog = MaterialAlertDialogBuilder(this)
@@ -955,6 +983,12 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
     poll = activityScope.launch {
         while (true) {
             delay(1_200)
+            runCatching {
+                webView.evaluateJavascript(ProtonFreePlanner.SCAN_JS) { raw ->
+                    lastPageText = jsString(raw)
+                    pullFromSession()
+                }
+            }
             pullFromSession()
             val clip = runCatching { readClipboardConfigText().orEmpty() }.getOrDefault("")
             if (ProtonFreePlanner.looksLikeConf(clip)) takeConf("clipboard.conf", clip)

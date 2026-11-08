@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta277] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Proton still showed OpenVPN Credentials and nothing happened (URL stayed /login).
+
+### Fixed
+- **Cat Proton treats the Credentials page as signed-in even when the URL still says login.** The account app is a SPA. Page text (OpenVPN / Credentials) starts the fetch. There is also **📥 Fetch configs**. Plus is not faked.
+
 ## [1.10.0-beta276] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Proton login reached OpenVPN Credentials and Cat still said “sign in”; no configs.
