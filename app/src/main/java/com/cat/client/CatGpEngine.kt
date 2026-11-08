@@ -53,6 +53,12 @@ internal object CatGpEngine {
     fun edgeSni(c: Context): String = prefs(c).getString("sni", "").orEmpty()
     fun saveEdgeSni(c: Context, text: String) { prefs(c).edit().putString("sni", text.trim()).apply() }
 
+    /** Cloudflare panel hop baked into Code.gs (Google's servers call it — the phone does not). */
+    fun hopUrl(c: Context): String = prefs(c).getString("hop", "").orEmpty()
+    fun saveHopUrl(c: Context, text: String) { prefs(c).edit().putString("hop", text.trim()).apply() }
+    fun hopWanted(c: Context): Boolean = prefs(c).getBoolean("hopOn", true)
+    fun saveHopWanted(c: Context, on: Boolean) { prefs(c).edit().putBoolean("hopOn", on).apply() }
+
     /** Front IP: pinned list if the user typed one, else last working then the built-in list. */
     fun frontIps(c: Context): List<String> {
         val typed = CatGpEdge.parseIps(edgeIpsText(c))

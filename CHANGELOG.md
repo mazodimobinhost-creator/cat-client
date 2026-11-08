@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta278] — 2026-11-08 (Panel 6.89.0)
+
+Owner: connect Cat GP to Cloudflare through the Google script so it works better.
+
+### Fixed
+- **Cat GP Google script talks to your Cloudflare panel.** The phone still only opens Google. The script, from Google's servers, calls `/gp` on your panel so sites see a Cloudflare IP. Cat no longer drops that hop just because Cloudflare is blocked on the phone. Paste the panel address (or Cat uses the panel it already built). Telegram/Instagram still will not open this way.
+
 ## [1.10.0-beta277] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Proton still showed OpenVPN Credentials and nothing happened (URL stayed /login).

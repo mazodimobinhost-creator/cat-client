@@ -12,8 +12,8 @@ class Beta271CatGpChromeProxyTest {
     fun versionIsBeta271() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 344"))
-        assertTrue(gradle.contains("1.10.0-beta277"))
+        assertTrue(gradle.contains("versionCode = 345"))
+        assertTrue(gradle.contains("1.10.0-beta278"))
     }
 
     @Test

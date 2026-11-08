@@ -936,12 +936,46 @@ internal object CatGpScripts {
         Regex("""server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*$port\b""").containsMatchIn(yaml) ||
             Regex("""127\.0\.0\.1:$port\b""").containsMatchIn(yaml)
 
-    /** Cat panels (Cloudflare / own domain, not *.vercel.app) → /gp/<uuid>/<key> hop (key optional for tests). */
+    /** Cat panels (Cloudflare / own domain, not *.vercel.app / *.pages.dev) → /gp/<uuid>/<key> hop (key optional for tests). */
     fun hopCandidates(panels: List<Pair<String, String>>, key: String = ""): List<String> =
-        panels.filter { !it.first.contains(".vercel.app") }.map { (base, uuid) ->
+        panels.filter { p ->
+            val h = p.first.lowercase(Locale.US)
+            !h.contains(".vercel.app") && !h.contains(".pages.dev")
+        }.map { (base, uuid) ->
             val u = base.trimEnd('/') + "/gp/" + uuid.lowercase(Locale.US)
             if (key.isNotBlank()) "$u/$key" else u
         }.distinct()
+
+    private val HOP_URL = Regex("""https://[A-Za-z0-9.-]+/gp/[0-9a-f-]{36}(?:/[A-Za-z0-9_-]{8,64})?""")
+
+    fun isHopUrl(text: String): Boolean = HOP_URL.matches(text.trim())
+
+    /** Host of a typed panel / hop address, or null when it cannot be a Cat panel. */
+    fun hopHost(text: String): String? {
+        val s = text.trim().removePrefix("https://").removePrefix("http://")
+            .substringBefore('/').substringBefore(':').trim().lowercase(Locale.US)
+        if (s.isBlank() || '.' !in s || ' ' in s || '/' in s) return null
+        if (s.endsWith(".vercel.app") || s.endsWith(".pages.dev")) return null
+        return s
+    }
+
+    /**
+     * Google Apps Script talks to Cloudflare from Google's network — the phone does not need to reach the panel.
+     * Empty input → first known panel hop. A /gp/<uuid> URL is kept. A workers.dev (or own-domain) host uses that
+     * panel's UUID when we already know it.
+     */
+    fun normalizeHop(text: String, key: String, panels: List<Pair<String, String>>): String {
+        val raw = text.trim()
+        if (raw.isEmpty()) return hopCandidates(panels, key).firstOrNull().orEmpty()
+        if (HOP_URL.matches(raw)) {
+            val hasKey = raw.substringAfter("/gp/").contains('/')
+            return if (!hasKey && key.isNotBlank()) "$raw/$key" else raw
+        }
+        val host = hopHost(raw) ?: return hopCandidates(panels, key).firstOrNull().orEmpty()
+        val uuid = panels.firstOrNull { hopHost(it.first) == host }?.second
+        if (uuid.isNullOrBlank()) return ""
+        return hopCandidates(listOf("https://$host" to uuid), key).firstOrNull().orEmpty()
+    }
 
     /**
      * True when this row is Cat's own Google Apps Script relay (`http://127.0.0.1:10871`),
@@ -963,7 +997,7 @@ internal object CatGpScripts {
 
     /** Fills assets/catgp/Code.gs: the key and the optional worker hop become JS string literals. */
     fun fill(template: String, key: String, workerUrl: String): String {
-        val hop = workerUrl.trim().takeIf { it.matches(Regex("""https://[A-Za-z0-9.-]+/gp/[0-9a-f-]{36}(?:/[A-Za-z0-9_-]{8,64})?""")) }.orEmpty()
+        val hop = workerUrl.trim().takeIf { isHopUrl(it) }.orEmpty()
         return template.replace("__CAT_KEY__", CatGpJson.quote(key)).replace("__CAT_WORKER__", CatGpJson.quote(hop))
     }
 }

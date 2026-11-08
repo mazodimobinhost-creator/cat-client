@@ -100,6 +100,18 @@ class Beta249CatGpTest {
             CatGpScripts.hopCandidates(listOf("https://p.example.workers.dev" to uuid.uppercase(), "https://x.vercel.app" to uuid)))
         assertEquals(listOf("https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1"),
             CatGpScripts.hopCandidates(listOf("https://p.example.workers.dev" to uuid.uppercase(), "https://x.vercel.app" to uuid), "toktoktoktoktok1"))
+        assertTrue(CatGpScripts.hopCandidates(listOf("https://x.pages.dev" to uuid)).isEmpty())
+        assertEquals(
+            "https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1",
+            CatGpScripts.normalizeHop("", "toktoktoktoktok1", listOf("https://p.example.workers.dev" to uuid)),
+        )
+        assertEquals(
+            "https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1",
+            CatGpScripts.normalizeHop("https://p.example.workers.dev", "toktoktoktoktok1", listOf("https://p.example.workers.dev" to uuid)),
+        )
+        assertEquals("", CatGpScripts.normalizeHop("https://unknown.workers.dev", "toktoktoktoktok1", listOf("https://p.example.workers.dev" to uuid)))
+        assertTrue(CatGpScripts.isHopUrl("https://p.example.workers.dev/gp/$uuid/toktoktoktoktok1"))
+        assertFalse(CatGpScripts.isHopUrl("javascript:alert(1)"))
         assertEquals("empty", CatGpScripts.addressProblem(""))
         assertEquals("example", CatGpScripts.addressProblem("https://script.google.com/macros/s/AKfycb…/exec"))
         assertEquals("not-exec", CatGpScripts.addressProblem("https://example.com/"))
