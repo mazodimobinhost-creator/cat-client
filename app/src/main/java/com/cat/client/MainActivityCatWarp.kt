@@ -3090,6 +3090,10 @@ internal fun MainActivity.aetherLineTitle(line: String): String {
 }
 
 internal fun MainActivity.editSubscriptionOrAetherConfig(item: UserSubscription) {
+    if (item.name == CatGpEngine.SUB_NAME || item.input.contains("127.0.0.1:${CatGpEngine.PORT}")) {
+        showCatGpDialog()
+        return
+    }
     val lines = subscriptionAetherLines(item)
     if (lines.isEmpty()) {
         showEditSubscriptionDialog(item)

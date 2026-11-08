@@ -85,8 +85,25 @@ internal fun MainActivity.showFreeNetworksHub() {
     fun t(f: String, e: String) = if (fa) f else e
     val box = freeBox()
     var dialog: AlertDialog? = null
-    fun entry(title: String, detail: String, accent: Boolean, action: () -> Unit) {
-        box.addView(freeButton(title, accent) { dialog?.dismiss(); action() }, freeLp(10))
+    fun entry(title: String, detail: String, accent: Boolean, pencil: (() -> Unit)? = null, action: () -> Unit) {
+        if (pencil == null) {
+            box.addView(freeButton(title, accent) { dialog?.dismiss(); action() }, freeLp(10))
+        } else {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val main = freeButton(title, accent) { dialog?.dismiss(); action() }
+            main.setOnLongClickListener { dialog?.dismiss(); pencil(); true }
+            row.addView(main, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(
+                freeButton("✏️", accent = false) { dialog?.dismiss(); pencil() }.apply {
+                    contentDescription = t("ویرایش IP و SNI", "Edit IP and SNI")
+                },
+                LinearLayout.LayoutParams(dp(56), -2).apply { marginStart = dp(6) },
+            )
+            box.addView(row, freeLp(10))
+        }
         box.addView(freeText(detail, 12f), freeLp(3))
     }
     entry(
@@ -151,9 +168,10 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showProtonDialog() }
     entry(
         t("🌐 Cat GP — وقتی فقط گوگل باز است", "🌐 Cat GP — when only Google is open"),
-        t("اینو بزنی: مرورگر از اسکریپت خودتان روی گوگل رد می‌شود. IP و SNI لبه را اسکن می‌کند و به Cat GP اضافه می‌کند. فقط مرورگر؛ تلگرام نه.",
-            "Tap: the browser goes through YOUR script on Google. It scans edge IP and SNI and adds them to Cat GP. Browsers only; not Telegram."),
+        t("اینو بزنی: مرورگر از اسکریپت خودتان روی گوگل رد می‌شود. مداد یا نگه‌داشتن = IP و SNI لبه. فقط مرورگر؛ تلگرام نه.",
+            "Tap: the browser goes through YOUR script on Google. Pencil or hold = edge IP and SNI. Browsers only; not Telegram."),
         accent = false,
+        pencil = { showCatGpEdgeDialog() },
     ) { showCatGpDialog() }
     entry(
         t("🔐 Cat Amnezia (کلید خودت)", "🔐 Cat Amnezia (your own key)"),

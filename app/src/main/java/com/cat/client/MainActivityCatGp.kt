@@ -209,7 +209,7 @@ internal fun MainActivity.showCatGpDialog() {
             }
             refreshStatus(t("✅ ${hits.size} لبه روی خط شما", "✅ ${hits.size} edges on your line"))
             hits.forEach { hit ->
-                scanBox.addView(gpButton(CatGpEdge.line(hit), accent = false) {
+                fun applyHit() {
                     ipField.setText(hit.ip)
                     sniField.setText(hit.sni)
                     CatGpEngine.saveEdgeIps(ctx, hit.ip)
@@ -222,6 +222,9 @@ internal fun MainActivity.showCatGpDialog() {
                         ),
                         Toast.LENGTH_LONG,
                     ).show()
+                }
+                scanBox.addView(gpButton(CatGpEdge.line(hit), accent = false) { applyHit() }.also { btn ->
+                    btn.setOnLongClickListener { applyHit(); true }
                 }, gpLp(4))
             }
         }
@@ -280,6 +283,93 @@ internal fun MainActivity.showCatGpDialog() {
                 }
                 connectFreeSubscription(subId)
             }
+        }
+        .create()
+        .showCatClientDialog()
+}
+
+/** Pencil / long-press on 🌐 Cat GP: edit Google edge IP + SNI and scan this network. */
+internal fun MainActivity.showCatGpEdgeDialog() {
+    val fa = gpFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val ctx = this
+    val box = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(18), dp(8), dp(18), dp(6))
+    }
+    box.addView(gpText(t(
+        "IP و SNI لبهٔ گوگل را بگذار یا این شبکه را اسکن کن. روی ردیف بزن یا نگه دار تا به Cat GP اضافه شود.",
+        "Set the Google edge IP and SNI, or scan this network. Tap or hold a row to add it to Cat GP.",
+    ), 13f, TEXT_PRIMARY), gpLp(0))
+    val ipField = EditText(this).apply {
+        hint = t("آدرس لبهٔ گوگل", "Google edge address")
+        setText(CatGpEngine.edgeIpsText(ctx))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        minLines = 1
+        maxLines = 4
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    box.addView(ipField, gpLp(8))
+    val sniField = EditText(this).apply {
+        hint = t("SNI لبه (میزبان گوگل)", "Edge SNI (Google host)")
+        setText(CatGpEngine.edgeSni(ctx))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        textSize = 12.5f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
+    box.addView(sniField, gpLp(8))
+    val status = gpText("", 12.5f, TEAL, bold = true)
+    box.addView(status, gpLp(6))
+    val scanBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    fun applyHit(hit: CatGpEdge.Hit) {
+        ipField.setText(hit.ip)
+        sniField.setText(hit.sni)
+        CatGpEngine.saveEdgeIps(ctx, hit.ip)
+        CatGpEngine.saveEdgeSni(ctx, hit.sni)
+        status.text = t("✅ اضافه شد: ${hit.ip} · ${hit.sni}", "✅ Added: ${hit.ip} · ${hit.sni}")
+        Toast.makeText(ctx, status.text, Toast.LENGTH_SHORT).show()
+    }
+    box.addView(gpButton(t("📡 اسکن این شبکه برای لبهٔ سالم", "📡 Scan this network for a working edge"), accent = true) {
+        val typedSni = sniField.text?.toString().orEmpty().trim()
+        if (typedSni.isNotBlank() && CatGpEdge.parseSni(typedSni) == null) {
+            status.text = t("❌ SNI باید میزبان گوگل باشد.", "❌ SNI must be a Google host.")
+            return@gpButton
+        }
+        status.text = t("⏳ اسکن واقعی روی خط شما…", "⏳ Real scan on your line…")
+        scanBox.removeAllViews()
+        activityScope.launch {
+            val hits = withContext(Dispatchers.IO) {
+                CatGpEngine.scanEdges(ctx, ipField.text?.toString().orEmpty(), typedSni)
+            }
+            if (hits.isEmpty()) {
+                status.text = t("❌ روی این خط لبه‌ای جواب نداد.", "❌ No edge answered on this line.")
+                return@launch
+            }
+            status.text = t("✅ ${hits.size} لبه — بزن یا نگه دار", "✅ ${hits.size} edges — tap or hold")
+            hits.forEach { hit ->
+                scanBox.addView(gpButton(CatGpEdge.line(hit), accent = false) { applyHit(hit) }.also { btn ->
+                    btn.setOnLongClickListener { applyHit(hit); true }
+                }, gpLp(4))
+            }
+        }
+    }, gpLp(8))
+    box.addView(scanBox, gpLp(2))
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("✏️ لبهٔ گوگل Cat GP", "✏️ Cat GP Google edge"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(t("بستن", "Close"), null)
+        .setPositiveButton(t("💾 ذخیره", "💾 Save")) { _, _ ->
+            val sniTyped = sniField.text?.toString().orEmpty().trim()
+            if (sniTyped.isNotBlank() && CatGpEdge.parseSni(sniTyped) == null) {
+                Toast.makeText(ctx, t("❌ SNI باید میزبان گوگل باشد.", "❌ SNI must be a Google host."), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
+            CatGpEngine.saveEdgeIps(ctx, ipField.text?.toString().orEmpty())
+            CatGpEngine.saveEdgeSni(ctx, sniTyped)
+            Toast.makeText(ctx, t("✅ IP و SNI ذخیره شد", "✅ IP and SNI saved"), Toast.LENGTH_SHORT).show()
         }
         .create()
         .showCatClientDialog()

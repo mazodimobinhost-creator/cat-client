@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta275] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Cat GP IP/SNI was buried; long-press did nothing.
+
+### Added
+- **Pencil and long-press on Cat GP.** ✏️ next to Cat GP (free-networks list and the subscription card) opens Google edge IP + SNI. Hold the row, or hold a scan result, to add it. Save keeps the pin.
+
 ## [1.10.0-beta274] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat GP had no Google edge IP / SNI fields; the other app scanned them and saved them.

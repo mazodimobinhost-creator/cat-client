@@ -26,8 +26,8 @@
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAmneziaSstp.kt` | 662 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1742 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCatGp.kt` | 286 | beta249 🌐 Cat GP (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCatWarp.kt` | 3358 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 10 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCatGp.kt` | 376 | beta249 🌐 Cat GP (UI). | 9 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityConnectionTesting.kt` | 1883 | Connection testing page (ping/speed lists, chain picker). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDashboard.kt` | 1398 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1418 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 15 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1436 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 16 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -43,7 +43,7 @@
 | `MainActivityProtocolConnect.kt` | 136 | Dedicated TUIC / WireGuard / Cat Warp editors with a Connect button. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 7 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivitySubscriptions.kt` | 2344 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 8 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivitySubscriptions.kt` | 2367 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 9 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 8 JVM · 9 panel (see `affected-tests.py`) |
 
 ### VPN service, lifecycle & state
@@ -302,7 +302,7 @@
 | `AppUpdateUi.kt` | 385 | Activity-owned controls; Android owns the download after this activity closes. | — · — |
 | `CatBranding.kt` | 43 | beta207: only Cat's own names on screen. | Beta206EngineTest, Beta263CatWindTest · — |
 | `CatClientApplication.kt` | 87 | — | — · — |
-| `CatGpEngine.kt` | 262 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, ConnectionFaultExplainerTest · — |
+| `CatGpEngine.kt` | 262 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta275CatGpPencilTest, ConnectionFaultExplainerTest · — |
 | `CatGpRelay.kt` | 977 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest · — |
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
 | `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
@@ -332,7 +332,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_274 Kotlin files, 116669 lines._
+_274 Kotlin files, 116804 lines._
 
 ## MainActivity screens — function index
 
@@ -355,13 +355,13 @@ for the dialog/button you want to change.
 
 `showWireGuardRowsFailedHelp`:111, `probeEndpointReachabilityMs`:136, `runMidStreamFreezeDetectorDialog`:172, `showDomainFrontingAndUnpoisonResolverDialog`:203, `showGoogleAppsScriptRelayDialog`:284, `showLiteWorkerGeneratorDialog`:286, `showConnectionResilienceAndKillSwitchDialog`:320, `runAiAndGeminiUnblockTesterDialog`:368, `runNetMelliDetectorDialog`:417, `showNineAntiFilterPresetsDialog`:447, `detectLocalLanIpv4Address`:487, `connectWhiteDnsTunnelDirectly`:508, `runSlipNetSixPointScoreDialog`:575, `showAllVpns2026ComparisonAndMlmHubDialog`:643, `showDeltaKroneckerHubDialog`:700, `openDeltaKroneckerFeed`:759, `fetchDeltaKroneckerTorBridges`:771, `runSmartIranBankingShieldDialog`:837, `isFusedSubscriptionName`:882, `readClipboardConfigText`:887, `collectFusionRawTexts`:894, `showMultiConfigSpeedFusionDialog`:907, `activateFusedBundle`:977, `showCatFusionShareDialog`:1023, `runDirectCdnDomainFrontingV23Dialog`:1097, `resolveUserRealConfigTemplate`:1162, `showNetMelli2026BypassLabDialog`:1206, `runNonCloudflareWhitelistScannerDialog`:1260, `runFactADnsSniOracleDialog`:1328, `showLocalFakeClientHelloProxyDialog`:1381, `generateAndAddHybridNetMelliTunnelsDialog`:1416, `runRegionalFirewallFingerprinterDialog`:1483, `runWhiteDnsAutoMtuAndCarrierDialog`:1559, `runCloudflareSixPortsAndSniScanDialog`:1633, `runFetchMoatTorBridgesDialog`:1700
 
-### `MainActivityCatGp.kt` (5 functions)
+### `MainActivityCatGp.kt` (6 functions)
 
-`gpFa`:25, `gpButton`:27, `gpText`:48, `gpLp`:57, `showCatGpDialog`:60
+`gpFa`:25, `gpButton`:27, `gpText`:48, `gpLp`:57, `showCatGpDialog`:60, `showCatGpEdgeDialog`:292
 
 ### `MainActivityCatWarp.kt` (19 functions)
 
-`buildAetherScreen`:109, `showAetherExitLocationPickerDialog`:277, `showGetNewWarpKeysDialog`:401, `runOneTapPattNgMimPsiphonSetup`:750, `showAetherConfigEditor`:911, `showWarpKeysStatusDialog`:1245, `showAddAetherDialog`:1355, `showAetherAutoScanAndBuildWizard`:2626, `probeAndShowAetherExitIpDialog`:3015, `subscriptionAetherLines`:3076, `aetherLineTitle`:3086, `editSubscriptionOrAetherConfig`:3092, `openCatWarpEditorForCurrentConfig`:3116, `openCatWarpEditorForLink`:3131, `showDeadLocalRowExplanation`:3176, `saveEditedAetherLine`:3200, `prewarmWarpKeyInBackground`:3258, `exportAetherIdentityToClipboard`:3282, `importAetherIdentityFromClipboard`:3316
+`buildAetherScreen`:109, `showAetherExitLocationPickerDialog`:277, `showGetNewWarpKeysDialog`:401, `runOneTapPattNgMimPsiphonSetup`:750, `showAetherConfigEditor`:911, `showWarpKeysStatusDialog`:1245, `showAddAetherDialog`:1355, `showAetherAutoScanAndBuildWizard`:2626, `probeAndShowAetherExitIpDialog`:3015, `subscriptionAetherLines`:3076, `aetherLineTitle`:3086, `editSubscriptionOrAetherConfig`:3092, `openCatWarpEditorForCurrentConfig`:3120, `openCatWarpEditorForLink`:3135, `showDeadLocalRowExplanation`:3180, `saveEditedAetherLine`:3204, `prewarmWarpKeyInBackground`:3262, `exportAetherIdentityToClipboard`:3286, `importAetherIdentityFromClipboard`:3320
 
 ### `MainActivityCloud.kt` (46 functions)
 
@@ -393,7 +393,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (31 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:174, `freeProgress`:190, `saveFreeSubscription`:215, `connectFreeSubscription`:225, `freeResult`:259, `showFreeProxyDialog`:277, `buildFreeProxy`:298, `showFanoosDialog`:339, `fetchFanoos`:386, `fetchFanoosAll`:445, `showFreeAccountDialog`:582, `showProtonDialog`:727, `showProtonPaste`:731, `showProtonWebView`:755, `addProtonConfs`:908, `showFreePsiphonDialog`:980, `pickFreePsiphonCountry`:1018, `connectFreePsiphon`:1037, `showCatWarpFreeDialog`:1076, `connectCatWarpFree`:1137, `showCatWindDialog`:1172, `showCatWindLogin`:1182, `connectCatWind`:1327, `jsString`:1418
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:192, `freeProgress`:208, `saveFreeSubscription`:233, `connectFreeSubscription`:243, `freeResult`:277, `showFreeProxyDialog`:295, `buildFreeProxy`:316, `showFanoosDialog`:357, `fetchFanoos`:404, `fetchFanoosAll`:463, `showFreeAccountDialog`:600, `showProtonDialog`:745, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:926, `showFreePsiphonDialog`:998, `pickFreePsiphonCountry`:1036, `connectFreePsiphon`:1055, `showCatWarpFreeDialog`:1094, `connectCatWarpFree`:1155, `showCatWindDialog`:1190, `showCatWindLogin`:1200, `connectCatWind`:1345, `jsString`:1436
 
 ### `MainActivityGuides.kt` (9 functions)
 
@@ -425,7 +425,7 @@ for the dialog/button you want to change.
 
 ### `MainActivitySubscriptions.kt` (48 functions)
 
-`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:793, `optimizeUserSubscription`:1061, `fetchFreeConfigs`:1342, `freeConfigRow`:1389, `copyFreeConfig`:1458, `addSingleConfig`:1465, `showQuickConfigMenu`:1494, `showQuickConfigDialog`:1515, `testFreeConfigs`:1562, `importFreeConfigs`:1575, `ensureFreeSubscription`:1594, `showConfigQrCodes`:1613, `subscriptionUsageLine`:1665, `openSubscriptionConnectionTesting`:1688, `startSubscriptionQrScan`:1707, `showAddSubscriptionMenu`:1717, `saveAetherConfigIntoMainSubscriptionList`:1777, `connectCatWarpAfterSave`:1821, `addSubscriptionFromClipboard`:1830, `importAndConnectAetherSelection`:1864, `showAddSubscriptionDialog`:1916, `unescapeHtmlEntities`:1920, `pushChainToPanelSuspend`:1933, `pushChainToPanelApi`:1966, `showEditSubscriptionDialog`:1986, `testSubscription`:1988, `refreshSubscription`:1995, `refreshBuiltInSubscription`:2005, `runSubscriptionAction`:2015, `collectVerifiedEndpointsForFailover`:2036, `rotateProfileRouteInSubscription`:2090, `showConnectionShareMenu`:2121, `subscriptionLink`:2193, `copySubscriptionLink`:2195, `shareSubscriptionLink`:2201, `openSubscriptionInApp`:2215, `openSubscriptionInfoPage`:2234, `confirmDeleteSubscription`:2247, `onSubscriptionSelected`:2261, `connectionCountLabel`:2300, `localizedSubscriptionError`:2303, `selectedSubscriptionName`:2308, `builtInSubscriptionName`:2314, `showSubscriptionSelectorMenu`:2322
+`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:816, `optimizeUserSubscription`:1084, `fetchFreeConfigs`:1365, `freeConfigRow`:1412, `copyFreeConfig`:1481, `addSingleConfig`:1488, `showQuickConfigMenu`:1517, `showQuickConfigDialog`:1538, `testFreeConfigs`:1585, `importFreeConfigs`:1598, `ensureFreeSubscription`:1617, `showConfigQrCodes`:1636, `subscriptionUsageLine`:1688, `openSubscriptionConnectionTesting`:1711, `startSubscriptionQrScan`:1730, `showAddSubscriptionMenu`:1740, `saveAetherConfigIntoMainSubscriptionList`:1800, `connectCatWarpAfterSave`:1844, `addSubscriptionFromClipboard`:1853, `importAndConnectAetherSelection`:1887, `showAddSubscriptionDialog`:1939, `unescapeHtmlEntities`:1943, `pushChainToPanelSuspend`:1956, `pushChainToPanelApi`:1989, `showEditSubscriptionDialog`:2009, `testSubscription`:2011, `refreshSubscription`:2018, `refreshBuiltInSubscription`:2028, `runSubscriptionAction`:2038, `collectVerifiedEndpointsForFailover`:2059, `rotateProfileRouteInSubscription`:2113, `showConnectionShareMenu`:2144, `subscriptionLink`:2216, `copySubscriptionLink`:2218, `shareSubscriptionLink`:2224, `openSubscriptionInApp`:2238, `openSubscriptionInfoPage`:2257, `confirmDeleteSubscription`:2270, `onSubscriptionSelected`:2284, `connectionCountLabel`:2323, `localizedSubscriptionError`:2326, `selectedSubscriptionName`:2331, `builtInSubscriptionName`:2337, `showSubscriptionSelectorMenu`:2345
 
 ### `MainActivityUiKit.kt` (14 functions)
 

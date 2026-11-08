@@ -610,6 +610,13 @@ internal fun MainActivity.subscriptionCard(
     if (canSelect) {
         setOnClickListener { selectAction?.second?.invoke() }
     }
+    if (title == CatGpEngine.SUB_NAME) {
+        isLongClickable = true
+        setOnLongClickListener {
+            showCatGpEdgeDialog()
+            true
+        }
+    }
 
     addView(
         LinearLayout(this@subscriptionCard).apply {
@@ -646,6 +653,22 @@ internal fun MainActivity.subscriptionCard(
                 },
                 LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(12) },
             )
+            if (title == CatGpEngine.SUB_NAME) {
+                addView(
+                    TextView(this@subscriptionCard).apply {
+                        text = "✏️"
+                        textSize = 18f
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                        isClickable = true
+                        isFocusable = true
+                        contentDescription = getString(R.string.subscription_action_edit)
+                        setPadding(dp(6), dp(6), dp(6), dp(6))
+                        setOnClickListener { showCatGpEdgeDialog() }
+                    },
+                    LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginStart = dp(6) },
+                )
+            }
             // ⋮ overflow (edit · refresh · share · delete …), like Zed's per-row menu.
             addView(
                 ImageView(this@subscriptionCard).apply {
