@@ -13,8 +13,8 @@ class Beta272ProtonAutoAddTest {
     fun versionIsBeta272() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 342"))
-        assertTrue(gradle.contains("1.10.0-beta275"))
+        assertTrue(gradle.contains("versionCode = 343"))
+        assertTrue(gradle.contains("1.10.0-beta276"))
     }
 
     @Test
@@ -25,7 +25,10 @@ class Beta272ProtonAutoAddTest {
         assertNotNull(session)
         assertEquals("uid123", session!!.uid)
         assertFalse(ProtonFreePlanner.looksSignedIn(null, "https://account.proton.me/vpn/signup"))
+        assertFalse(ProtonFreePlanner.looksSignedIn(null, "https://account.proton.me/vpn/login"))
         assertTrue(ProtonFreePlanner.looksSignedIn("AUTH-uid123=tokentok"))
+        assertTrue(ProtonFreePlanner.looksSignedIn(null, "https://account.protonvpn.com/downloads"))
+        assertTrue(ProtonFreePlanner.looksSignedIn("", "https://account.protonvpn.com/OpenVPN"))
     }
 
     @Test

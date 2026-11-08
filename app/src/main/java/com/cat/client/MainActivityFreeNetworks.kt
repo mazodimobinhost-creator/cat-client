@@ -802,6 +802,10 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         }
     }
     runCatching { android.webkit.CookieManager.getInstance().setAcceptCookie(true) }
+    if (android.os.Build.VERSION.SDK_INT >= 21) {
+        runCatching { android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true) }
+    }
+    var lastUrl = ProtonFreePlanner.LOGIN
 
     fun note(msg: String) { status.text = msg }
 
@@ -823,36 +827,70 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         if (!pulling && collected.isNotEmpty()) finishWith(collected.toList())
     }
 
-    fun protonCookies(): String = listOf(
-        "https://account.proton.me",
-        "https://account.protonvpn.com",
-        "https://proton.me",
-    ).mapNotNull { runCatching { android.webkit.CookieManager.getInstance().getCookie(it) }.getOrNull() }
-        .filter { it.isNotBlank() }
-        .joinToString("; ")
+    fun protonCookies(): String {
+        runCatching { android.webkit.CookieManager.getInstance().flush() }
+        return listOf(
+            "https://account.proton.me",
+            "https://account.protonvpn.com",
+            "https://proton.me",
+            "https://protonvpn.com",
+            "https://mail.proton.me",
+        ).mapNotNull { runCatching { android.webkit.CookieManager.getInstance().getCookie(it) }.getOrNull() }
+            .filter { it.isNotBlank() }
+            .joinToString("; ")
+    }
 
-    fun pullFromSession() {
-        if (pulling) return
-        val session = ProtonFreePlanner.sessionFromCookies(protonCookies()) ?: return
-        pulling = true
-        note(t("✅ وارد شدی؛ دارم همهٔ کانفیگ‌ها را می‌گیرم…", "✅ Signed in; fetching every config…"))
-        activityScope.launch(Dispatchers.IO) {
-            val result = runCatching { ProtonFreePlanner.pullWireGuardFiles(session, want) }
-            withContext(Dispatchers.Main) {
-                result.fold(
-                    onSuccess = { finishWith(it) },
-                    onFailure = { error ->
-                        pulling = false
-                        note(
-                            t(
-                                "خودکار نشد (${error.message ?: "error"}). اگر فایل .conf کپی کردی، همان را می‌خوانم.",
-                                "Auto-fetch failed (${error.message ?: "error"}). If you copied a .conf, I will read it.",
-                            ),
-                        )
-                    },
+    fun consumeInPage(raw: String?) {
+        val text = jsString(raw)
+        val files = try {
+            ProtonFreePlanner.filesFromInPage(text, want)
+        } catch (error: Exception) {
+            if (pulling && text.startsWith("err:")) {
+                pulling = false
+                note(
+                    t(
+                        "خودکار نشد (${error.message ?: "error"}). صفحهٔ حساب را باز نگه دار.",
+                        "Auto-fetch failed (${error.message ?: "error"}). Keep the account page open.",
+                    ),
                 )
             }
+            return
+        } ?: return
+        if (files.isNotEmpty()) finishWith(files)
+    }
+
+    fun kickInPage() {
+        runCatching {
+            webView.evaluateJavascript(ProtonFreePlanner.INPAGE_PULL_JS) { consumeInPage(it) }
         }
+    }
+
+    fun pullFromSession() {
+        val cookies = protonCookies()
+        val session = ProtonFreePlanner.sessionFromCookies(cookies)
+        val signed = session != null || ProtonFreePlanner.looksSignedIn(cookies, lastUrl)
+        if (!signed) return
+        if (!pulling) {
+            pulling = true
+            note(t("✅ وارد شدی؛ دارم همهٔ کانفیگ‌ها را می‌گیرم…", "✅ Signed in; fetching every config…"))
+            if (session != null) {
+                activityScope.launch(Dispatchers.IO) {
+                    val result = runCatching { ProtonFreePlanner.pullWireGuardFiles(session, want) }
+                    withContext(Dispatchers.Main) {
+                        result.fold(
+                            onSuccess = { finishWith(it) },
+                            onFailure = {
+                                pulling = false
+                                kickInPage()
+                                pulling = true
+                                note(t("✅ وارد شدی؛ از خود صفحه می‌گیرم…", "✅ Signed in; fetching from the page…"))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        kickInPage()
     }
 
     fun downloadUrl(url: String, filename: String) {
@@ -888,7 +926,8 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
         }
 
         override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-            val page = url.orEmpty().lowercase(java.util.Locale.US)
+            lastUrl = url.orEmpty().ifBlank { lastUrl }
+            val page = lastUrl.lowercase(java.util.Locale.US)
             if ("pricing" in page || "plan" in page) {
                 note(t("پلن رایگان را انتخاب کن (پولی را نزن)؛ بعدش خودکار می‌آید.", "Pick the free plan (not paid); then it continues on its own."))
             }

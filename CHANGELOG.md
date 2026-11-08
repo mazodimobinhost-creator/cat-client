@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta276] — 2026-11-08 (Panel 6.89.0)
+
+Owner: Proton login reached OpenVPN Credentials and Cat still said “sign in”; no configs.
+
+### Fixed
+- **Cat Proton after login fetches configs even on the Credentials / OpenVPN page.** That page means you are in. Cat uses the page session (not only an `AUTH-` cookie) and adds every allowed WireGuard row. Plus is not faked. Human check stays yours.
+
 ## [1.10.0-beta275] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat GP IP/SNI was buried; long-press did nothing.

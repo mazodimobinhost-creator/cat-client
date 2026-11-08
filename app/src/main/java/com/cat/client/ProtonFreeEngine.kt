@@ -84,8 +84,48 @@ internal object ProtonFreePlanner {
     fun looksSignedIn(cookies: String?, url: String = ""): Boolean {
         if (sessionFromCookies(cookies) != null) return true
         val u = url.lowercase(Locale.US)
+        if (u.isBlank()) return false
         if ("login" in u || "signup" in u || "pricing" in u) return false
-        return false
+        if ("credential" in u || "openvpn" in u || "downloads" in u || "wireguard" in u) return true
+        if ("account.protonvpn.com" in u) return true
+        return "account.proton.me" in u && "/vpn" in u
+    }
+
+    /**
+     * Blob from the signed-in Proton page (`fetch(..., {credentials:'include'})`).
+     * `null` = not ready yet (`started` / `busy`). Throws if the page reported an error.
+     */
+    fun filesFromInPage(blob: String, want: Set<String> = emptySet()): List<Pair<String, String>>? {
+        val t = blob.trim().trim('"')
+        if (t.isBlank() || t == "started" || t == "busy" || t == "null") return null
+        if (t.startsWith("err:")) throw IOException(t.removePrefix("err:").ifBlank { "Proton in-page fetch failed" })
+        val root = JSONObject(t)
+        val vpnJson = when (val vpn = root.opt("vpn")) {
+            is JSONObject -> vpn.toString()
+            is String -> vpn
+            else -> ""
+        }
+        val logicals = when (val log = root.opt("logicals")) {
+            is JSONObject -> log.toString()
+            is String -> log
+            else -> ""
+        }
+        val keyJson = when (val key = root.opt("key")) {
+            is JSONObject -> key
+            is String -> JSONObject(key)
+            else -> JSONObject()
+        }
+        val tier = maxTier(vpnJson) ?: 0
+        val picked = pickServers(servers(logicals), tier, want)
+        if (picked.isEmpty()) throw IOException("this Proton account has no allowed WireGuard servers")
+        val privatePem = keyJson.optString("PrivateKey")
+        val publicPem = keyJson.optString("PublicKey")
+        if (privatePem.isBlank() || publicPem.isBlank()) throw IOException("Proton did not return a WireGuard key")
+        val x25519 = x25519PrivateFromPkcs8Body(pemBody(privatePem))
+        return picked.map { server ->
+            val file = server.name.replace(Regex("[^A-Za-z0-9._-]"), "-") + ".conf"
+            file to confFor(x25519, server)
+        }
     }
 
     /** `GET /vpn/logicals` (or `/api/vpn/logicals`) body → online servers with an X25519 key. */
@@ -254,7 +294,7 @@ internal object ProtonFreePlanner {
         val headers = LinkedHashMap<String, String>()
         headers["Accept"] = "application/vnd.protonmail.v1+json"
         headers["x-pm-appversion"] = APP_VERSION
-        headers["x-pm-uid"] = session.uid
+        if (session.uid.isNotBlank()) headers["x-pm-uid"] = session.uid
         headers["Cookie"] = session.cookieHeader
         headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
         if (json) headers["Content-Type"] = "application/json"
@@ -291,4 +331,34 @@ internal object ProtonFreePlanner {
         "(function(){try{var t=[document.body?document.body.innerText:'',document.title||''];" +
             "var as=document.querySelectorAll('a[href]');for(var i=0;i<as.length;i++)t.push(as[i].href||'');" +
             "return t.join('\\n').slice(0,20000);}catch(e){return '';}})()"
+
+    /**
+     * Same-origin `fetch` on the signed-in Proton tab (HttpOnly cookies the Kotlin jar may miss).
+     * Returns `started` / `busy` until `{vpn,logicals,key}` is ready.
+     */
+    val INPAGE_PULL_JS =
+        "(function(){try{" +
+            "if(typeof window.__catPmState==='string'&&window.__catPmState.charAt(0)==='{')return window.__catPmState;" +
+            "if(window.__catPmBusy)return 'busy';" +
+            "window.__catPmBusy=true;" +
+            "var H={'Accept':'application/vnd.protonmail.v1+json','x-pm-appversion':'web-vpn-settings@5.0.2.0'};" +
+            "function go(u,opt){return fetch(u,Object.assign({credentials:'include',headers:H},opt||{})).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});}" +
+            "var roots=[];" +
+            "if(location&&location.origin&&location.origin.indexOf('proton')>=0)roots.push(location.origin+'/api');" +
+            "roots.push('https://account.protonvpn.com/api','https://account.proton.me/api');" +
+            "function chain(i){if(i>=roots.length){window.__catPmState='err:no-api';return;}" +
+            "var r=roots[i];" +
+            "go(r+'/vpn').then(function(vpn){" +
+            "return go(r+'/vpn/logicals').then(function(logicals){" +
+            "return go(r+'/vpn/v1/certificate/key/EC').then(function(key){" +
+            "var k=JSON.parse(key);" +
+            "var pub=(k.PublicKey||'').replace(/-----BEGIN PUBLIC KEY-----/g,'').replace(/-----END PUBLIC KEY-----/g,'').replace(/\\s/g,'');" +
+            "var body=JSON.stringify({ClientPublicKey:pub,Mode:'persistent',DeviceName:'Cat'," +
+            "Features:{platform:'Android',SafeMode:false,SplitTCP:true,PortForwarding:false,RandomNAT:false,NetShieldLevel:0}});" +
+            "return go(r+'/vpn/v1/certificate',{method:'POST',headers:Object.assign({},H,{'Content-Type':'application/json'}),body:body})" +
+            ".catch(function(){return '';}).then(function(){" +
+            "window.__catPmState=JSON.stringify({vpn:JSON.parse(vpn),logicals:JSON.parse(logicals),key:k});" +
+            "});});});}).catch(function(){chain(i+1);});}" +
+            "chain(0);return 'started';" +
+            "}catch(e){window.__catPmState='err:'+e;return window.__catPmState;}})()"
 }

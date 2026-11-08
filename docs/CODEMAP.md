@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 7 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1436 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 16 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1475 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind ·… | 17 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 904 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 8 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 7 JVM · 9 panel (see `affected-tests.py`) |
@@ -138,7 +138,7 @@
 | `CatWarpListPolicy.kt` | 97 | beta214: small pure helpers behind the Cat Warp list fixes. | Beta214CatWarpListTest · — |
 | `CommunitySourceFetcher.kt` | 52 | Manual/page-visible fetch only. | CommunitySourceFetcherTest · — |
 | `CommunitySourceRegistry.kt` | 53 | — | CommunitySourceFetcherTest, CommunitySourceRegistryTest, FreeConfigsRegistryBridgeTest · — |
-| `ConfigFileImport.kt` | 247 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, WhiteDnsToolkitTest · — |
+| `ConfigFileImport.kt` | 247 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, WhiteDnsToolkitTest · — |
 | `ConnectionDisplay.kt` | 203 | — | — · — |
 | `ConnectionLabelPolicy.kt` | 69 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest · — |
 | `DeltaKroneckerHub.kt` | 109 | 🔺 Delta-Kronecker feeds (github.com/Delta-Kronecker) — public, regularly re-tested lists, consumed BY URL on the user's own phone. | DeltaKroneckerFeedsTest · — |
@@ -328,11 +328,11 @@
 | `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `ProtocolConnect.kt` | 191 | Dedicated Cat editors for TUIC, WireGuard and Cat Warp (Aether). | Beta267CatConnectKitTest · — |
-| `ProtonFreeEngine.kt` | 294 | beta254 — 🟢 Cat Proton: the service's own **free** plan (unlimited data, a handful of countries), used the same way Cat Fox uses a free Firefox acc… | Beta254FreeVpnsTest, Beta272ProtonAutoAddTest · — |
+| `ProtonFreeEngine.kt` | 364 | beta254 — 🟢 Cat Proton: the service's own **free** plan (unlimited data, a handful of countries), used the same way Cat Fox uses a free Firefox acc… | Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_274 Kotlin files, 116804 lines._
+_274 Kotlin files, 116913 lines._
 
 ## MainActivity screens — function index
 
@@ -393,7 +393,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (31 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:192, `freeProgress`:208, `saveFreeSubscription`:233, `connectFreeSubscription`:243, `freeResult`:277, `showFreeProxyDialog`:295, `buildFreeProxy`:316, `showFanoosDialog`:357, `fetchFanoos`:404, `fetchFanoosAll`:463, `showFreeAccountDialog`:600, `showProtonDialog`:745, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:926, `showFreePsiphonDialog`:998, `pickFreePsiphonCountry`:1036, `connectFreePsiphon`:1055, `showCatWarpFreeDialog`:1094, `connectCatWarpFree`:1155, `showCatWindDialog`:1190, `showCatWindLogin`:1200, `connectCatWind`:1345, `jsString`:1436
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:192, `freeProgress`:208, `saveFreeSubscription`:233, `connectFreeSubscription`:243, `freeResult`:277, `showFreeProxyDialog`:295, `buildFreeProxy`:316, `showFanoosDialog`:357, `fetchFanoos`:404, `fetchFanoosAll`:463, `showFreeAccountDialog`:600, `showProtonDialog`:745, `showProtonPaste`:749, `showProtonWebView`:773, `addProtonConfs`:965, `showFreePsiphonDialog`:1037, `pickFreePsiphonCountry`:1075, `connectFreePsiphon`:1094, `showCatWarpFreeDialog`:1133, `connectCatWarpFree`:1194, `showCatWindDialog`:1229, `showCatWindLogin`:1239, `connectCatWind`:1384, `jsString`:1475
 
 ### `MainActivityGuides.kt` (9 functions)
 
