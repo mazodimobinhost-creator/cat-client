@@ -397,7 +397,7 @@ internal object LocalSniSpoofProxy {
             titleEn = "CF Method 1: Whitelisted SNI Decoupled from Worker Host",
             summaryFa = "قرار دادن speed.cloudflare.com یا radar.cloudflare.com در SNI هندشیک TLS در حالی که هدر Host داخل WebSocket/HTTP2 آدرس ورکر شماست.",
             summaryEn = "Places speed.cloudflare.com or radar.cloudflare.com in TLS SNI while keeping your Worker hostname in the inner Host header.",
-            sampleEndpoint = "188.114.98.0:443",
+            sampleEndpoint = "188.114.98.224:443",
             sampleSni = "speed.cloudflare.com",
             queryParams = "security=tls&sni=speed.cloudflare.com&fp=chrome&alpn=http%2F1.1",
         ),
@@ -417,9 +417,9 @@ internal object LocalSniSpoofProxy {
             id = "cf-fake-ch-ff",
             titleFa = "روش ۳ کلادفلر: تزریق Fake ClientHello + متد F&F ایرانسل و IPv6 همراه اول",
             titleEn = "CF Method 3: Fake ClientHello Injection + Irancell F&F / MCI IPv6",
-            summaryFa = "ترکیب finalMask=tlshello-0-len، cipherSuites=semi-python و fingerprint=unsafe روی 188.114.98.0:443 (ایرانسل) و [2a06:98c1:3101::6812:202f]:443 (همراه اول).",
-            summaryEn = "Combines finalMask=tlshello-0-len, cipherSuites=semi-python and fingerprint=unsafe on 188.114.98.0:443 (Irancell) & [2a06:98c1:3101::6812:202f]:443 (MCI).",
-            sampleEndpoint = "188.114.98.0:443",
+            summaryFa = "ترکیب finalMask=tlshello-0-len، cipherSuites=semi-python و fingerprint=unsafe روی 188.114.98.224:443 (ایرانسل) و [2a06:98c1:3101::6812:202f]:443 (همراه اول).",
+            summaryEn = "Combines finalMask=tlshello-0-len, cipherSuites=semi-python and fingerprint=unsafe on 188.114.98.224:443 (Irancell) & [2a06:98c1:3101::6812:202f]:443 (MCI).",
+            sampleEndpoint = "188.114.98.224:443",
             sampleSni = "www.cloudflare.com",
             queryParams = "security=tls&sni=www.cloudflare.com&fp=unsafe&alpn=http%2F1.1&cs=semi-python&fm=tlshello-0-len",
         ),
@@ -1185,7 +1185,7 @@ internal object LocalSniSpoofProxy {
         }
     }
     @Volatile
-    var lastActiveEdgeEndpoint: String = "188.114.98.0:443"
+    var lastActiveEdgeEndpoint: String = "188.114.98.224:443"
         private set
     @Volatile
     var lastActiveEdgeRttMs: Long = -1L
@@ -1306,7 +1306,7 @@ internal object LocalSniSpoofProxy {
             return RealConfigTemplate(
                 scheme = "vless",
                 uuidOrPass = cleanUuid,
-                remoteHost = "188.114.98.0",
+                remoteHost = "188.114.98.224",
                 remotePort = 443,
                 hostHeader = cleanWorker,
                 sni = cleanWorker,
@@ -1334,10 +1334,15 @@ internal object LocalSniSpoofProxy {
     ).apply { allowCoreThreadTimeOut(true) }
 
     /**
-     * Starts a direct TCP port forwarder on `127.0.0.1` that intercepts the first TLS ClientHello
-     * record (`0x16`) from Mihomo's VLESS/Trojan outbound, applies [strategy] (SNI record split,
-     * decoy ClientHello, or 2-stage fragment), and forwards it to `[remoteHost]:[remotePort]`.
+     * Same loopback port in the UI process and the VPN process, so saved `127.0.0.1` rows still
+     * hit the splitter even if the YAML rewrite misses.
      */
+    @Suppress("UNUSED_PARAMETER")
+    fun preferredForwarderPort(remoteHost: String, remotePort: Int, strategyId: String = currentActiveStrategy.id): Int {
+        val h = kotlin.math.abs("$remoteHost:$remotePort".hashCode())
+        return 19_000 + (h % 900)
+    }
+
     fun startDirectTcpSpoofForwarder(
         remoteHost: String,
         remotePort: Int,
@@ -1363,7 +1368,10 @@ internal object LocalSniSpoofProxy {
             return existing.localPort
         }
         return runCatching {
-            val server = ServerSocket(0, 64, InetAddress.getByName("127.0.0.1"))
+            val preferred = preferredForwarderPort(remoteHost, remotePort)
+            val loopback = InetAddress.getByName("127.0.0.1")
+            val server = runCatching { ServerSocket(preferred, 64, loopback) }
+                .getOrElse { ServerSocket(0, 64, loopback) }
             activeTcpForwarders[key] = server
             if (autoHealWatchdogEnabled) {
                 ensureAutoHealWatchdogLoop()
@@ -1532,7 +1540,7 @@ internal object LocalSniSpoofProxy {
         // 2. Probe clean Cloudflare edges in parallel using real multi-chunk SNI-split TLS handshakes
         // so the fastest reachable edge on the user's ISP is placed right at the top!
         val candidateCfEdges = listOf(
-            "188.114.98.0" to 443,
+            "188.114.98.224" to 443,
             "162.159.198.235" to 443,
             "172.67.73.163" to 443,
             "104.16.132.229" to 443,
@@ -1626,7 +1634,7 @@ internal object LocalSniSpoofProxy {
     }
 
     @Volatile
-    var currentActiveStrategy: SpoofStrategy = SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI
+    var currentActiveStrategy: SpoofStrategy = SpoofStrategy.TLS_RECORD_TINY_FRAG
         private set
     @Volatile
     var currentDecoySni: String = "ebanksepah.ir"
@@ -1708,7 +1716,7 @@ internal object LocalSniSpoofProxy {
         val prev = lastActiveEdgeEndpoint
         val prevHost = prev.substringBeforeLast(':')
         val candidates = listOf(
-            "188.114.98.0" to 443,
+            "188.114.98.224" to 443,
             "162.159.198.235" to 443,
             "172.67.73.163" to 443,
             "104.16.132.229" to 443,
@@ -1796,7 +1804,7 @@ internal object LocalSniSpoofProxy {
                 tick++
                 val endpoint = lastActiveEdgeEndpoint
                 val colon = endpoint.lastIndexOf(':')
-                val host = if (colon > 0) endpoint.substring(0, colon) else "188.114.98.0"
+                val host = if (colon > 0) endpoint.substring(0, colon) else "188.114.98.224"
                 val port = if (colon > 0) endpoint.substring(colon + 1).toIntOrNull() ?: 443 else 443
 
                 // Gaming RRC Anti-Sleep keepalive pulse every 10s
@@ -1915,12 +1923,12 @@ internal object LocalSniSpoofProxy {
      * and packet loss (%) for gaming and voice/video calls.
      */
     fun measureLiveJitterAndLatency(
-        host: String = lastActiveEdgeEndpoint.substringBeforeLast(':').ifBlank { "188.114.98.0" },
+        host: String = lastActiveEdgeEndpoint.substringBeforeLast(':').ifBlank { "188.114.98.224" },
         port: Int = lastActiveEdgeEndpoint.substringAfterLast(':').toIntOrNull() ?: 443,
         samples: Int = 5,
         timeoutMs: Int = 900,
     ): JitterMetricsReport {
-        val cleanHost = host.trim().removePrefix("[").removeSuffix("]").ifBlank { "188.114.98.0" }
+        val cleanHost = host.trim().removePrefix("[").removeSuffix("]").ifBlank { "188.114.98.224" }
         val rtts = mutableListOf<Long>()
         var lost = 0
         val count = samples.coerceIn(2, 8)
@@ -2473,12 +2481,12 @@ internal object LocalSniSpoofProxy {
      * and measures real download & upload throughput.
      */
     fun probeTunnelSpeedAndUploadFreeze(
-        host: String = lastActiveEdgeEndpoint.substringBeforeLast(':').ifBlank { "188.114.98.0" },
+        host: String = lastActiveEdgeEndpoint.substringBeforeLast(':').ifBlank { "188.114.98.224" },
         port: Int = lastActiveEdgeEndpoint.substringAfterLast(':').toIntOrNull() ?: 443,
         sni: String = "speed.cloudflare.com",
         timeoutMs: Int = 2_200,
     ): TunnelSpeedAndUploadReport {
-        val cleanHost = host.trim().removePrefix("[").removeSuffix("]").ifBlank { "188.114.98.0" }
+        val cleanHost = host.trim().removePrefix("[").removeSuffix("]").ifBlank { "188.114.98.224" }
         val ping = probeSpoofedTlsHandshake(
             ip = cleanHost,
             port = port,

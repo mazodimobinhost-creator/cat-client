@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind · 🚀 Cat Warp. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt / CatWarpFree.kt / VoidlyFree.kt.
+// beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️ Cat Wind · 🚀 Cat Warp · 🧵 Cat DNS. Fetching: FreeNetworkEngines.kt / CatWindEngine.kt / CatWarpFree.kt / VoidlyFree.kt / SlipNetFree.kt.
 
 private fun MainActivity.freeFa(): Boolean = appLanguagePreferenceStore.read() == AppLanguage.Persian
 
@@ -136,6 +136,12 @@ internal fun MainActivity.showFreeNetworksHub() {
             "Tap: AmneziaWG configs are built and appear in the list now, then it connects. The WARP key is made at connect. Exit is a Cloudflare IP, not a country."),
         accent = true,
     ) { addWarpAmneziaAuto() }
+    entry(
+        t("🧵 Cat DNS رایگان (ریزولور اسکن می‌شود — نت ملی)", "🧵 Free Cat DNS (scans resolvers — national net)"),
+        t("اینو بزنی: ریزولورهای باز روی همین خط اسکن می‌شوند، تانل DNS رایگان ساخته می‌شود و وصل می‌شود. کند است؛ برای وقتی تقریباً همه‌چیز بسته است.",
+            "Tap: open resolvers on this line are scanned, a free DNS tunnel is built, and it connects. Slow; for when almost everything is blocked."),
+        accent = true,
+    ) { addFreeSlipNet() }
     entry(
         t("🆓 Cat Free Proxy (۷ کشور، بدون حساب)", "🆓 Cat Free Proxy (7 countries, no account)"),
         t("اینو بزنی: برنامه از یک شبکهٔ رایگان عمومی سرور تازه با رمز می‌گیرد و وصل می‌شود. فقط وب و اپ‌ها (TCP)؛ تماس صوتی و بازی‌هایی که UDP می‌خواهند کار نمی‌کنند. رمزها هر ۶ ساعت خودکار نو می‌شوند.",
@@ -1287,6 +1293,57 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>, regio
             t("فقط UDP است. اگر وصل نشد، اپراتور UDP را بسته؛ «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کن.",
                 "UDP only. If it does not connect, the operator is blocking UDP; try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”."),
         )
+    }
+}
+
+internal fun MainActivity.addFreeSlipNet() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val name = "🧵 Cat DNS"
+    freeProgress(t("⏳ اسکن ریزولور و ساخت تانل DNS…", "⏳ Scanning resolvers and building the DNS tunnel…")) { step ->
+        step(t("اسکن ریزولور روی این خط…", "Scanning resolvers on this line…"))
+        val cards = withContext(Dispatchers.IO) {
+            runCatching { WhiteDnsSmartScanner.scanResolversWithSlipNetScore(maxCandidates = 10, timeoutMs = 800) }
+                .getOrDefault(emptyList())
+        }
+        val resolvers = cards.filter { it.udpAlive || it.tcpAlive }.sortedByDescending { it.score }.map { it.resolverIp }
+        val used = if (resolvers.isNotEmpty()) resolvers else listOf("178.22.122.100")
+        val raw = SlipNetFreePlanner.linksForResolvers(used)
+        val links = SlipNetFreePlanner.runnableUris(raw)
+        if (links.isEmpty()) {
+            freeResult(
+                t("⚠️ تانل DNS ساخته نشد", "⚠️ DNS tunnel was not built"),
+                listOf(t("ریزولور باز پیدا نشد یا کلید سرور ناقص است.", "No open resolver, or the server key is missing.")),
+                null,
+                "",
+            )
+            return@freeProgress
+        }
+        step(t("ذخیره در فهرست…", "Saving to the list…"))
+        val store = FreeNetworkStore(this@addFreeSlipNet)
+        val subId = try {
+            saveFreeSubscription(store.slipNetSubId, name, links.joinToString("\n"))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), listOf(e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.slipNetSubId = subId
+        withContext(Dispatchers.Main) { renderSubscriptions() }
+        val report = ArrayList<String>()
+        report += t("✅ ${links.size} تانل DNS با ${used.size} ریزولور", "✅ ${links.size} DNS tunnels on ${used.size} resolvers")
+        used.take(4).forEach { ip ->
+            val card = cards.firstOrNull { it.resolverIp == ip }
+            report += if (card != null) "${card.providerNameFa.ifBlank { ip }} · ${card.score}/6 · $ip" else ip
+        }
+        freeResult(
+            t("✅ Cat DNS آمد — ${links.size} ردیف", "✅ Cat DNS is in — ${links.size} rows"),
+            report,
+            subId,
+            t("کند است. اگر وصل نشد، MASQUE را از Cat Warp بزن.",
+                "Slow. If it does not connect, use MASQUE from Cat Warp."),
+        )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId) }
     }
 }
 

@@ -526,6 +526,9 @@ internal object WhiteDnsSmartScanner {
             "dnstt 192.0.2.4:1 A998F319ADB60EE344540EC4B21524CC484F96BE $resolverSpec pubkey=241169008830694749fe96bb070c4855c5bb5b9c47b3833ed7d88521ba30a43f domain=t.ruhnama.net",
             "dnstt 192.0.2.4:2 80EEFA4F4875ED2B7B5A86DF2D7588AD32E29F15 $resolverSpec pubkey=a2fb71077eeaa54a02cda7a90be306af5d299ab21822a8b277d4eacbc9168631 domain=t2.bypasscensorship.org",
             "dnstt 192.0.2.4:3 74D409BED3E2F881F365543A72C8F079CB84FFEB $resolverSpec pubkey=c596c458fc3453dc40903ab235f5854a2609831075640c4c5584f76de05b8271 domain=t.arkadag.org",
+            "dnstt 192.0.2.4:4 172AA6B63080A9E4E87DC1BCA4EB5906B9DDE41F $resolverSpec pubkey=172aa6b63080a9e4e87dc1bca4eb5906b9dde41f77096e43a806e77e6e069c27 domain=t.cryptomeanscryptography.club",
+            "dnstt 192.0.2.4:5 A5DA2BA2DA39AB7DD9DCA5F639B4BF02ACDF8F8D $resolverSpec pubkey=a5da2ba2da39ab7dd9dca5f639b4bf02acdf8f8da2ab2d4a373dbf5ff3e0563a domain=rent.snapp.autos",
+            "dnstt 192.0.2.4:6 023678BEC148AAAAE5E03D450A1D05917129B632 $resolverSpec pubkey=023678bec148aaaae5e03d450a1d05917129b632ca24ce1bbbd1b42bf377c36e domain=tunnel.dnstt.xyz",
         )
     }
 

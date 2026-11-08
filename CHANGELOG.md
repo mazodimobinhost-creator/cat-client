@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta291] — 2026-11-08 (Panel 6.89.0)
+
+Owner: spoofing must actually apply; free Cat DNS with assigned resolvers; refresh 2026 methods.
+
+### Fixed
+- **SNI spoof:** the local splitter binds a deterministic `127.0.0.1:19000–19899` port (same in UI and VPN). YAML rewrite finds `port` even when extra fields sit between it and `sni-fwd-target`. Default strategy is tiny TLS fragments (DPI reassembles a single SNI split). Cloudflare sample hosts are `188.114.98.224`, not the network address `.0`.
+- **Cat DNS connect:** only real dnstt / NoizDNS / VayDNS URIs are saved (fake cottendns/stormdns/soar rows are dropped). VPN rewrite of `whitedns-uri` ports is the same broader match.
+
+### Added
+- **Free Cat DNS:** شبکه‌های رایگان → «🧵 Cat DNS». Scans open resolvers on this line (Shecan / 403 / Electro / Radar / TCI), attaches public dnstt domains, saves and connects. Finder: «اسلیپ نت» / «dnstt». MLM hub row 6 does the same.
+
+### Notes
+- Methods that still matter on Net Melli: AmneziaWG junk, MASQUE-H2, DNS tunnels, REALITY. Plain WG / OpenVPN / IKEv2 still fail DPI. Low-TTL SNI spoof was killed by national NAT (2026).
+
 ## [1.10.0-beta290] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Telegram AmneziaWG `.conf` must open in Cat; WARP rows need real hosts.

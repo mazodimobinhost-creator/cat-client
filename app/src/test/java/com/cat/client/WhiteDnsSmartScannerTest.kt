@@ -29,8 +29,10 @@ class WhiteDnsSmartScannerTest {
 
     @Test fun dnsttBridgeBuilderUsesVerifiedIranResolver() {
         val lines = WhiteDnsSmartScanner.buildDnsttBridgesForResolver("185.212.51.144")
-        assertEquals(3, lines.size)
+        assertEquals(6, lines.size)
         assertTrue(lines.all { it.contains("udp=185.212.51.144:53") })
+        assertTrue(lines.any { it.contains("domain=t.ruhnama.net") })
+        assertTrue(lines.any { it.contains("domain=rent.snapp.autos") })
 
         val dotLines = WhiteDnsSmartScanner.buildDnsttBridgesForResolver("178.22.122.100", "dot")
         assertTrue(dotLines.all { it.contains("dot=178.22.122.100:853") })

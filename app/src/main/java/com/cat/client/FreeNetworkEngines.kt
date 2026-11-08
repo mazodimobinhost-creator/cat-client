@@ -834,6 +834,10 @@ internal class FreeNetworkStore(context: Context) {
         get() = prefs.getString("wa_sub", "").orEmpty()
         set(v) { prefs.edit().putString("wa_sub", v).apply() }
 
+    var slipNetSubId: String
+        get() = prefs.getString("sn_sub", "").orEmpty()
+        set(v) { prefs.edit().putString("sn_sub", v).apply() }
+
     var freeAccountSubId: String
         get() = prefs.getString("fa_sub", "").orEmpty()
         set(v) { prefs.edit().putString("fa_sub", v).apply() }

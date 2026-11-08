@@ -3138,9 +3138,10 @@ class CatClientVpnService : VpnService() {
                     if (result is SlipNetCliEngine.StartResult.Ready) {
                         childProcessEngineActive = true
                         val updated = yaml.replace(
-                            Regex("""(port\s*:\s*)\d+(\s*\r?\n(?:.*\r?\n){0,3}\s*whitedns-uri\s*:\s*['"]?""" + Regex.escape(uri)),
-                            "$1$activePort$2",
-                        )
+                            Regex("""(port\s*:\s*)\d+((?:\s*\r?\n(?!\s*port\s*:).*){0,25}?\s*\r?\n\s*whitedns-uri\s*:\s*['"]?""" + Regex.escape(uri)),
+                        ) { mr ->
+                            "${mr.groupValues[1]}$activePort${mr.groupValues[2]}"
+                        }
                         if (updated != yaml) {
                             yaml = updated
                             modified = true
@@ -3272,9 +3273,11 @@ class CatClientVpnService : VpnService() {
                     if (activePort in 1..65535) {
                         val escapedTarget = Regex.escape(rawTarget)
                         val blockPattern = Regex(
-                            """(server\s*:\s*['"]?127\.0\.0\.1['"]?\s*\r?\n\s*port\s*:\s*)\d+((?:\s*\r?\n.*){0,25}?\s*\r?\n\s*sni-fwd-target\s*:\s*['"]?$escapedTarget['"]?)""",
+                            """(port\s*:\s*)\d+((?:\s*\r?\n(?!\s*port\s*:).*){0,25}?\s*\r?\n\s*sni-fwd-target\s*:\s*['"]?$escapedTarget['"]?)""",
                         )
-                        val updated = yaml.replace(blockPattern, "$1$activePort$2")
+                        val updated = yaml.replace(blockPattern) { mr ->
+                            "${mr.groupValues[1]}$activePort${mr.groupValues[2]}"
+                        }
                         if (updated != yaml) {
                             yaml = updated
                             modified = true

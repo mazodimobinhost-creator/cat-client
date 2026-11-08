@@ -3758,7 +3758,7 @@ internal fun MainActivity.showCloudflareFiveSpoofMethodsDialog() {
                 val targetHostPort = if (realTemplate != null) "${realTemplate.remoteHost}:${realTemplate.remotePort}" else m.sampleEndpoint
                 val encTarget = runCatching { java.net.URLEncoder.encode(targetHostPort, "UTF-8") }.getOrDefault(targetHostPort)
                 val snippet = if (realTemplate != null) {
-                    "$scheme://$realUuid@127.0.0.1:$fwdPort?${encParam}type=${realTemplate.networkType}&host=$realHost&path=$encPath&sni=$realSni&${m.queryParams}&sni_fwd_target=$encTarget#CF-Spoof-${m.index}-${realTemplate.remark}"
+                    "$scheme://$realUuid@127.0.0.1:$fwdPort?${encParam}type=${realTemplate.networkType}&host=$realHost&path=$encPath&${m.queryParams}&sni_fwd_target=$encTarget#CF-Spoof-${m.index}-${realTemplate.remark}"
                 } else {
                     "aether://162.159.198.235:443?protocol=mim&transport=h2&sni=${m.sampleSni}&outer=162.159.198.235:443&inner=162.159.198.2:443&psiphon=chain&region=DE#CF-Spoof-${m.index}"
                 }

@@ -520,14 +520,25 @@ internal fun MainActivity.connectWhiteDnsTunnelDirectly(bundle: WhiteDnsTunnelBu
                 bundle.dnstHumanUri,
                 bundle.slipNetUri,
             ).filter { it.isNotBlank() }
-            uris.forEach { uri ->
+            val runnable = uris.filter { uri ->
+                WhiteDnsSmartScanner.parseTunnelUri(uri)?.let { SlipNetCliEngine.supports(it) } == true
+            }
+            if (runnable.isEmpty()) {
+                Toast.makeText(
+                    this@connectWhiteDnsTunnelDirectly,
+                    if (isFarsi) "تانل DNS واقعی برای این ریزولور ساخته نشد." else "No real DNS tunnel could be built for that resolver.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            runnable.forEach { uri ->
                 WhiteDnsSmartScanner.parseTunnelUri(uri)?.let { parsed ->
                     withContext(Dispatchers.IO) {
                         WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
                     }
                 }
             }
-            val content = uris.joinToString("\n")
+            val content = runnable.joinToString("\n")
             val title = "🧬 تانل Cat DNS (اتصال مستقیم)"
             val existing = userSubscriptionManager.list().firstOrNull { it.name == title }
             val saved = withContext(Dispatchers.IO) {
@@ -548,8 +559,8 @@ internal fun MainActivity.connectWhiteDnsTunnelDirectly(bundle: WhiteDnsTunnelBu
             renderAdvancedControls()
             Toast.makeText(
                 this@connectWhiteDnsTunnelDirectly,
-                if (isFarsi) "🚀 ۹ موتور تانل DNS (CottenMax / MasterDNS / StormDNS / Soar / VayDNS / NoizDNS / Slipstream / dnst) فعال شد — در حال اتصال…"
-                else "🚀 9 DNS Tunnel Engines activated in app — connecting…",
+                if (isFarsi) "🚀 تانل DNS واقعی ذخیره شد — در حال اتصال…"
+                else "🚀 Real DNS tunnel saved — connecting…",
                 Toast.LENGTH_LONG,
             ).show()
             openScreen(SCREEN_HOME)
@@ -667,7 +678,7 @@ internal fun MainActivity.showAllVpns2026ComparisonAndMlmHubDialog() {
                         renderAdvancedControls()
                     }
                 }
-                5 -> runSlipNetSixPointScoreDialog()
+                5 -> addFreeSlipNet()
                 6 -> runSmartIranBankingShieldDialog()
                 7 -> showPaqetPatthEngineDialog()
                 8 -> showRecommendedOneClickConnectWizardDialog()
