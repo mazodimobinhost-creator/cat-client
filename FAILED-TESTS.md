@@ -1,12 +1,12 @@
 ### npm test failure excerpt
 ```
-  duration_ms: 0.691057
+  duration_ms: 0.762303
   type: 'test'
   ...
 # Subtest: panel repair resolves its Worker from the prerelease list too
 not ok 9 - panel repair resolves its Worker from the prerelease list too
   ---
-  duration_ms: 0.812561
+  duration_ms: 0.978778
   type: 'test'
   location: '/home/runner/work/cat-client/cat-client/scripts/panels/app-prerelease-update.test.mjs:10:1'
   failureType: 'testCodeFailure'
