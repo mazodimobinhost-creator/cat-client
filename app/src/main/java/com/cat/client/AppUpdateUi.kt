@@ -96,14 +96,8 @@ internal class AppUpdateUi(
                 else -> manager.availableRelease()?.let(::download)
             }
         }
-        releaseButton = button(R.string.update_view_release) {
-            manager.availableRelease()?.let { release ->
-                try {
-                    activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.url)))
-                } catch (error: Exception) {
-                    fail("update.release.open.failed", error, R.string.update_install_failed)
-                }
-            }
+        releaseButton = button(R.string.update_download_browser) {
+            manager.availableRelease()?.let(::openMirroredApk)
         }
         listOf(checkButton, actionButton, releaseButton).forEach {
             panel.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
@@ -197,11 +191,21 @@ internal class AppUpdateUi(
                 throw error
             } catch (error: Exception) {
                 state = AppDownloadState.Failed()
+                openMirroredApk(release)
                 fail("update.download.failed", error, R.string.update_download_failed)
             } finally {
                 busy = false
                 render()
             }
+        }
+    }
+
+    private fun openMirroredApk(release: AppRelease) {
+        val apk = release.apk?.url ?: return
+        try {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubReleaseClient.browserAssetUrl(apk))))
+        } catch (error: Exception) {
+            DiagnosticLogger.warn(activity, "update.browser.failed", error = error)
         }
     }
 

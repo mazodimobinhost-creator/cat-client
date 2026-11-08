@@ -115,6 +115,7 @@
     <string name="update_available_title">نسخه جدید آماده است</string>
     <string name="update_available_message">نسخه %1$s Cat Client در گیت‌هاب منتشر شده است.</string>
     <string name="update_view_release">مشاهده در گیت‌هاب</string>
+    <string name="update_download_browser">دانلود با مرورگر</string>
     <string name="update_settings_title">به‌روزرسانی برنامه</string>
     <string name="update_badge">جدید</string>
     <string name="update_check">بررسی نسخه جدید</string>

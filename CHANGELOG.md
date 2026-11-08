@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta282] — 2026-11-08 (Panel 6.89.0)
+
+Owner: still cannot download the update (in-app or the ghproxy.net link).
+
+### Fixed
+- **In-app APK download walks gh-proxy.com / akams / kkgithub**, 10-minute body timeout, Chrome UA, and does not require SHA256SUMS to *start*. If the GET still fails, Cat opens the mirrored APK in the system browser. «دانلود با مرورگر» no longer opens github.com.
+
 ## [1.10.0-beta281] — 2026-11-08 (Panel 6.89.0)
 
 Owner: cannot download the in-app update.

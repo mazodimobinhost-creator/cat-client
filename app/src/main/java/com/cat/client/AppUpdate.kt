@@ -344,12 +344,12 @@ object GitHubReleaseClient {
                 throw IOException("GitHub API redirected to an invalid URL")
             }
             val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = if (asset) 15_000 else 8_000
+            connection.connectTimeout = 8_000
             connection.readTimeout = if (asset) 30_000 else 15_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", if (asset) "application/octet-stream" else "application/vnd.github+json")
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            connection.setRequestProperty("User-Agent", "Cat Client/${BuildConfig.VERSION_NAME}")
+            connection.setRequestProperty("User-Agent", if (asset) ASSET_UA else "Cat Client/${BuildConfig.VERSION_NAME}")
             try {
                 val status = connection.responseCode
                 if (status in setOf(301, 302, 303, 307, 308)) {
@@ -410,8 +410,15 @@ object GitHubReleaseClient {
     }
 
     /** Proxies first: github.com itself is often blocked, and a proxy that 302s there is useless. */
-    internal fun assetUrlCandidates(githubUrl: String): List<String> =
-        ASSET_MIRRORS.map { it + githubUrl } + githubUrl
+    internal fun assetUrlCandidates(githubUrl: String): List<String> {
+        val prefixed = ASSET_MIRRORS.map { it + githubUrl }
+        val rewritten = REWRITE_HOSTS.map { githubUrl.replaceFirst("https://github.com/", "https://$it/") }
+        return (prefixed + rewritten + githubUrl).distinct()
+    }
+
+    /** First URL that is not github.com — for the system browser when the in-app GET cannot finish. */
+    internal fun browserAssetUrl(githubUrl: String): String =
+        assetUrlCandidates(githubUrl).first { !it.startsWith("https://github.com/") }
 
     /**
      * GET the APK (or any release asset) through the first working mirror.
@@ -439,12 +446,11 @@ object GitHubReleaseClient {
             val uri = checkedUri(url)
             if (uri.host !in ASSET_HOSTS) throw IOException("GitHub asset redirected to an invalid host")
             val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 120_000
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 600_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/octet-stream")
-            connection.setRequestProperty("Accept-Encoding", "identity")
-            connection.setRequestProperty("User-Agent", "Cat Client/${BuildConfig.VERSION_NAME}")
+            connection.setRequestProperty("User-Agent", ASSET_UA)
             try {
                 val status = connection.responseCode
                 if (status in setOf(301, 302, 303, 307, 308)) {
@@ -554,21 +560,29 @@ object GitHubReleaseClient {
     private const val GITHUB_REPOSITORY = "cat-client"
     private const val ACTIVE_BRANCH = "arena/c5b36768-cat-client"
     private val RELEASES_PATH = "/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases"
+    private const val ASSET_UA =
+        "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     private val RELEASES_URLS = listOf(
-        "https://ghproxy.net/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
         "https://gh-proxy.com/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
-        "https://ghproxy.link/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://cdn.gh-proxy.com/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://github.akams.cn/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://ghproxy.net/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
         "https://ghfast.top/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
         "https://ghps.cc/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
+        "https://ghproxy.link/https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
         "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases?per_page=20",
     )
     private val PROXY_HOSTS = setOf(
-        "ghproxy.net",
         "gh-proxy.com",
+        "cdn.gh-proxy.com",
+        "github.akams.cn",
+        "ghproxy.net",
         "ghproxy.link",
         "mirror.ghproxy.com",
         "ghfast.top",
         "ghps.cc",
+        "kkgithub.com",
+        "bgithub.xyz",
     )
     private val GITHUB_DIRECT_HOSTS = setOf(
         "github.com",
@@ -579,11 +593,14 @@ object GitHubReleaseClient {
     private val ASSET_HOSTS = GITHUB_DIRECT_HOSTS + PROXY_HOSTS + setOf("cdn.jsdelivr.net")
 
     private val ASSET_MIRRORS = listOf(
-        "https://ghproxy.net/",
         "https://gh-proxy.com/",
-        "https://ghproxy.link/",
-        "https://mirror.ghproxy.com/",
+        "https://cdn.gh-proxy.com/",
+        "https://github.akams.cn/",
+        "https://ghproxy.net/",
         "https://ghfast.top/",
         "https://ghps.cc/",
+        "https://ghproxy.link/",
+        "https://mirror.ghproxy.com/",
     )
+    private val REWRITE_HOSTS = listOf("kkgithub.com", "bgithub.xyz")
 }

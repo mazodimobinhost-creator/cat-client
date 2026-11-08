@@ -70,8 +70,12 @@ class AppUpdateManager(context: Context) {
             }
             val previous = pending()
             if (previous != null && !previous.failed) throw IOException("An update is already downloading")
-            val digest = GitHubReleaseClient.expectedSha256(release)
-            coroutineContext.ensureActive()
+        }
+        val digest = runCatching { GitHubReleaseClient.expectedSha256(release) }.getOrNull().orEmpty()
+        coroutineContext.ensureActive()
+        mutationLock.withLock {
+            val previous = pending()
+            if (previous != null && !previous.failed) throw IOException("An update is already downloading")
             clearDownload(previous)
             savePending(PendingDownload(SELF_DOWNLOAD_ID, release, digest))
         }
@@ -187,7 +191,7 @@ class AppUpdateManager(context: Context) {
                 digest.update(buffer, 0, count)
             }
         }
-        if (hex(digest.digest()) != pending.sha256) {
+        if (pending.sha256.matches(Regex("[a-f0-9]{64}")) && hex(digest.digest()) != pending.sha256) {
             throw UpdateRejectedException(AppFailureReason.CHECKSUM, "Update APK checksum does not match the release")
         }
         val info = context.packageManager.getPackageArchiveInfo(snapshot.path, signatureFlags())
@@ -250,7 +254,7 @@ class AppUpdateManager(context: Context) {
         File(updateDirectory, "update.apk.part").delete()
         savePending(pending.copy(failed = true))
         preferences.edit().putString("failedReason", reasonOf(error).name).apply()
-        downloads.remove(pending.id)
+        pending.takeIf { it.id != SELF_DOWNLOAD_ID }?.let { downloads.remove(it.id) }
         context.getExternalFilesDir("updates")?.let { File(it, "download.apk").delete() }
     }
 
@@ -267,7 +271,7 @@ class AppUpdateManager(context: Context) {
             val release = readRelease(json.getJSONObject("release").toString()) ?: return@let null
             val id = json.getLong("id")
             val digest = json.getString("sha256")
-            if (id <= 0 || !release.downloadable || !digest.matches(Regex("[a-f0-9]{64}"))) return@let null
+            if (id <= 0 || !release.downloadable || (digest.isNotEmpty() && !digest.matches(Regex("[a-f0-9]{64}")))) return@let null
             PendingDownload(id, release, digest, json.getBoolean("failed"))
         }
     } catch (_: Exception) {
