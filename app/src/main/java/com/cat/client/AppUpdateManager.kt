@@ -70,14 +70,15 @@ class AppUpdateManager(context: Context) {
             }
             val previous = pending()
             if (previous != null && !previous.failed) throw IOException("An update is already downloading")
+            clearDownload(previous)
+            savePending(PendingDownload(SELF_DOWNLOAD_ID, release, ""))
         }
         val digest = runCatching { GitHubReleaseClient.expectedSha256(release) }.getOrNull().orEmpty()
         coroutineContext.ensureActive()
-        mutationLock.withLock {
-            val previous = pending()
-            if (previous != null && !previous.failed) throw IOException("An update is already downloading")
-            clearDownload(previous)
-            savePending(PendingDownload(SELF_DOWNLOAD_ID, release, digest))
+        if (digest.isNotEmpty()) {
+            mutationLock.withLock {
+                pending()?.let { savePending(it.copy(sha256 = digest)) }
+            }
         }
         val apk = release.apk!!
         try {

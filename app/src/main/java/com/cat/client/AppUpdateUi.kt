@@ -34,6 +34,7 @@ internal class AppUpdateUi(
     private val manager = AppUpdateManager(activity)
     private var state: AppDownloadState = AppDownloadState.Idle
     private var polling: Job? = null
+    private var downloadJob: Job? = null
     private var resumed = false
     private var checking = false
     private var busy = false
@@ -177,16 +178,14 @@ internal class AppUpdateUi(
 
     private fun download(release: AppRelease) {
         if (busy || !release.downloadable) return
-        busy = true
         notice = activity.getString(R.string.update_preparing)
         render()
-        scope.launch {
+        downloadJob?.cancel()
+        downloadJob = scope.launch {
             try {
                 manager.download(release)
                 notice = null
                 installWhenReady = resumed
-                busy = false
-                poll()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -194,10 +193,11 @@ internal class AppUpdateUi(
                 openMirroredApk(release)
                 fail("update.download.failed", error, R.string.update_download_failed)
             } finally {
-                busy = false
+                poll()
                 render()
             }
         }
+        poll()
     }
 
     private fun openMirroredApk(release: AppRelease) {
@@ -212,6 +212,7 @@ internal class AppUpdateUi(
     private fun cancelDownload() {
         if (busy) return
         installWhenReady = false
+        downloadJob?.cancel()
         busy = true
         polling?.cancel()
         scope.launch {
@@ -237,6 +238,7 @@ internal class AppUpdateUi(
             do {
                 try {
                     state = manager.refreshDownload()
+                    if (state is AppDownloadState.Downloading) notice = null
                     render()
                     if (state is AppDownloadState.Ready && installWhenReady && resumed) {
                         installWhenReady = false
@@ -248,7 +250,8 @@ internal class AppUpdateUi(
                     state = AppDownloadState.Failed()
                     fail("update.refresh.failed", error, R.string.update_download_failed)
                 }
-                if (state !is AppDownloadState.Downloading && state !is AppDownloadState.Verifying) break
+                val transferring = downloadJob?.isActive == true
+                if (state !is AppDownloadState.Downloading && state !is AppDownloadState.Verifying && !transferring) break
                 delay(1_000)
             } while (resumed)
         }

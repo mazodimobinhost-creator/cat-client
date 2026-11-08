@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta284] — 2026-11-08 (Panel 6.89.0)
+
+Owner: update screen stuck on «preparing download»; must work with VPN and without.
+
+### Fixed
+- **In-app APK download races github.com (VPN) with gh-proxy/kkgithub (no VPN)** and writes the part file as bytes arrive, so the UI shows progress instead of sitting on «preparing». Hung mirrors no longer block GitHub, and the reverse.
+
 ## [1.10.0-beta283] — 2026-11-08 (Panel 6.89.0)
 
 Owner: Cat GP Worker is live (`raspy-sky-8be5.giciza3742.workers.dev`) but the connected tick stays empty.

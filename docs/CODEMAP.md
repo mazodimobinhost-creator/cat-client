@@ -298,9 +298,9 @@
 | `AppLock.kt` | 100 | App lock (PIN, optionally unlocked with the phone's own fingerprint / face / pattern through the system credential screen). | WhiteDnsToolkitTest · — |
 | `AppSettingsResetter.kt` | 29 | — | — · — |
 | `AppToolsController.kt` | 993 | One place for the "everyday" tools that were missing: import a config file (SAF), backup / restore subscriptions, app lock, automatic subscription… | Beta238FoxWebChannelTest, Beta239ProtocolsTelegramTest · — |
-| `AppUpdate.kt` | 606 | — | Beta270AppUpdateTest, Beta281InAppUpdateDownloadTest, Beta282BrowserUpdateDownloadTest · app-prerelease-update |
-| `AppUpdateManager.kt` | 319 | — | Beta270AppUpdateTest, Beta281InAppUpdateDownloadTest, Beta282BrowserUpdateDownloadTest · — |
-| `AppUpdateUi.kt` | 389 | Activity-owned controls; Android owns the download after this activity closes. | Beta282BrowserUpdateDownloadTest · — |
+| `AppUpdate.kt` | 621 | — | Beta270AppUpdateTest, Beta281InAppUpdateDownloadTest, Beta282BrowserUpdateDownloadTest, Beta284VpnAndDirectUpdateDownloadTest · app-prerelease-update |
+| `AppUpdateManager.kt` | 320 | — | Beta270AppUpdateTest, Beta281InAppUpdateDownloadTest, Beta282BrowserUpdateDownloadTest, Beta284VpnAndDirectUpdateDownloadTest · — |
+| `AppUpdateUi.kt` | 392 | Activity-owned controls; Android owns the download after this activity closes. | Beta282BrowserUpdateDownloadTest, Beta284VpnAndDirectUpdateDownloadTest · — |
 | `CatAntenna.kt` | 28 | Cat's own signal antenna: how many bars a real delay lights up. | Beta279CatAntennaTest · — |
 | `CatBranding.kt` | 43 | beta207: only Cat's own names on screen. | Beta206EngineTest, Beta263CatWindTest · — |
 | `CatClientApplication.kt` | 87 | — | — · — |
@@ -334,7 +334,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_276 Kotlin files, 117380 lines._
+_276 Kotlin files, 117399 lines._
 
 ## MainActivity screens — function index
 

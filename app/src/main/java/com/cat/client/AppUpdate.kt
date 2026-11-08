@@ -1,7 +1,10 @@
 package com.cat.client
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
@@ -344,8 +347,8 @@ object GitHubReleaseClient {
                 throw IOException("GitHub API redirected to an invalid URL")
             }
             val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 8_000
-            connection.readTimeout = if (asset) 30_000 else 15_000
+            connection.connectTimeout = 4_000
+            connection.readTimeout = if (asset) 20_000 else 8_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", if (asset) "application/octet-stream" else "application/vnd.github+json")
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
@@ -385,35 +388,42 @@ object GitHubReleaseClient {
         throw IOException("GitHub release redirected too many times")
     }
 
-    private suspend fun fetchReleasesJson(): String {
-        var lastError: IOException? = null
-        for (url in RELEASES_URLS) {
-            try {
-                return readText(url, 2_097_152, asset = false)
-            } catch (error: IOException) {
-                lastError = error
-            }
-        }
-        throw lastError ?: IOException("GitHub release list was unavailable")
-    }
+    private suspend fun fetchReleasesJson(): String =
+        firstSuccessful(RELEASES_URLS) { readText(it, 2_097_152, asset = false) }
 
-    private suspend fun readMirroredAsset(githubUrl: String, maxBytes: Int): String {
-        var lastError: IOException? = null
-        for (candidate in assetUrlCandidates(githubUrl)) {
-            try {
-                return readText(candidate, maxBytes, asset = true)
-            } catch (error: IOException) {
-                lastError = error
-            }
-        }
-        throw lastError ?: IOException("GitHub asset download failed")
-    }
+    private suspend fun readMirroredAsset(githubUrl: String, maxBytes: Int): String =
+        firstSuccessful(assetUrlCandidates(githubUrl)) { readText(it, maxBytes, asset = true) }
 
-    /** Proxies first: github.com itself is often blocked, and a proxy that 302s there is useless. */
+    /**
+     * github.com (VPN / unfiltered) raced with gh-proxy / kkgithub (filtered lines).
+     * First URL that answers wins; a hung mirror must not block GitHub, and the reverse.
+     */
     internal fun assetUrlCandidates(githubUrl: String): List<String> {
         val prefixed = ASSET_MIRRORS.map { it + githubUrl }
         val rewritten = REWRITE_HOSTS.map { githubUrl.replaceFirst("https://github.com/", "https://$it/") }
-        return (prefixed + rewritten + githubUrl).distinct()
+        return (listOf(githubUrl) + prefixed + rewritten).distinct()
+    }
+
+    /** First success among [candidates]; others are cancelled. VPN and no-VPN hit different hosts. */
+    internal suspend fun <T> firstSuccessful(candidates: List<String>, block: suspend (String) -> T): T = coroutineScope {
+        val result = CompletableDeferred<T>()
+        val failed = java.util.concurrent.atomic.AtomicInteger(0)
+        val jobs = candidates.map { url ->
+            launch(Dispatchers.IO) {
+                try {
+                    result.complete(block(url))
+                } catch (error: Exception) {
+                    if (failed.incrementAndGet() >= candidates.size) {
+                        result.completeExceptionally(error)
+                    }
+                }
+            }
+        }
+        try {
+            result.await()
+        } finally {
+            jobs.forEach { it.cancel() }
+        }
     }
 
     /** First URL that is not github.com — for the system browser when the in-app GET cannot finish. */
@@ -421,13 +431,21 @@ object GitHubReleaseClient {
         assetUrlCandidates(githubUrl).first { !it.startsWith("https://github.com/") }
 
     /**
-     * GET the APK (or any release asset) through the first working mirror.
-     * Does not use Android DownloadManager (it follows 302s onto github.com and dies on filtered lines).
+     * GET the APK through the first host that answers (github.com with VPN, a mirror without).
+     * Bytes go to [dest] as they arrive so the UI can show progress instead of "preparing".
      */
     suspend fun downloadAsset(githubUrl: String, dest: File, expectedSize: Long) {
         require(expectedSize in 1..400L * 1024 * 1024) { "GitHub asset size is invalid" }
+        val all = assetUrlCandidates(githubUrl)
+        val winner = runCatching {
+            firstSuccessful(all) { url ->
+                if (!probeAsset(url)) throw IOException("GitHub asset is not reachable")
+                url
+            }
+        }.getOrNull()
+        val order = if (winner == null) all else listOf(winner) + all.filter { it != winner }
         var lastError: IOException? = null
-        for (candidate in assetUrlCandidates(githubUrl)) {
+        for (candidate in order) {
             try {
                 downloadOneAsset(candidate, dest, expectedSize)
                 return
@@ -447,7 +465,7 @@ object GitHubReleaseClient {
             if (uri.host !in ASSET_HOSTS) throw IOException("GitHub asset redirected to an invalid host")
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.connectTimeout = 8_000
-            connection.readTimeout = 600_000
+            connection.readTimeout = 60_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/octet-stream")
             connection.setRequestProperty("User-Agent", ASSET_UA)
@@ -464,27 +482,23 @@ object GitHubReleaseClient {
                 if (status !in 200..299) throw IOException("GitHub release request failed: $status")
                 val parent = dest.parentFile
                 if (parent != null && !parent.isDirectory && !parent.mkdirs()) throw IOException("Cannot create update storage")
-                val tmp = File(dest.path + ".get")
-                try {
-                    connection.inputStream.use { input ->
-                        tmp.outputStream().use { output ->
-                            val buffer = ByteArray(65_536)
-                            var copied = 0L
-                            while (true) {
-                                coroutineContext.ensureActive()
-                                val count = input.read(buffer)
-                                if (count == -1) break
-                                copied += count
-                                if (copied > expectedSize) throw IOException("Update APK is larger than its release asset")
-                                output.write(buffer, 0, count)
-                            }
-                            output.fd.sync()
-                            if (copied != expectedSize) throw IOException("Update APK size does not match the release")
+                dest.delete()
+                connection.inputStream.use { input ->
+                    dest.outputStream().use { output ->
+                        val buffer = ByteArray(65_536)
+                        var copied = 0L
+                        while (true) {
+                            coroutineContext.ensureActive()
+                            val count = input.read(buffer)
+                            if (count == -1) break
+                            copied += count
+                            if (copied > expectedSize) throw IOException("Update APK is larger than its release asset")
+                            output.write(buffer, 0, count)
+                            if (copied % (256L * 1024L) < buffer.size) output.flush()
                         }
+                        output.fd.sync()
+                        if (copied != expectedSize) throw IOException("Update APK size does not match the release")
                     }
-                    if (!tmp.renameTo(dest)) throw IOException("Cannot save private update APK")
-                } finally {
-                    tmp.delete()
                 }
                 return
             } finally {
@@ -510,11 +524,12 @@ object GitHubReleaseClient {
         }
         if (uri.host !in ASSET_HOSTS) return false
         val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 8_000
-        connection.readTimeout = 8_000
+        connection.connectTimeout = 4_000
+        connection.readTimeout = 4_000
         connection.instanceFollowRedirects = false
-        connection.requestMethod = "HEAD"
-        connection.setRequestProperty("User-Agent", "Cat Client/${BuildConfig.VERSION_NAME}")
+        connection.requestMethod = "GET"
+        connection.setRequestProperty("Range", "bytes=0-255")
+        connection.setRequestProperty("User-Agent", ASSET_UA)
         return try {
             val status = connection.responseCode
             if (status in setOf(301, 302, 303, 307, 308)) {
