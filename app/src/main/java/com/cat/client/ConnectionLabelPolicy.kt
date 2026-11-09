@@ -12,8 +12,16 @@ object ConnectionLabelPolicy {
     )
     private val numberedPrefix = Regex("^\\s*(?:🐱\\s*)?\\d+[.)]\\s*")
 
-    fun displayName(profile: ConnectionProfile): String =
-        displayName(profile.tag, profile.type, profile.server, profile.port)
+    fun displayName(profile: ConnectionProfile): String {
+        val fallback = displayName(profile.tag, profile.type, profile.server, profile.port)
+        if (" · DNS · " in fallback || " · Spoof · " in fallback) return fallback
+        val pub = ConnectionPublicEndpoint.of(profile)
+        if (pub.isLoopback) return fallback
+        val loc = ConnectionLocationPolicy.countryFromText(Locale.ENGLISH, pub.host, pub.extra, profile.tag)
+        val place = loc?.country ?: pub.host
+        val flag = loc?.flag ?: "🌐"
+        return "🐱 Cat · $place · ${pub.kind} · ${pub.authority()} · $flag"
+    }
 
     fun displayName(tag: String, type: String, server: String, port: Int): String {
         val raw = tag.trim()

@@ -4,6 +4,17 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta294] — 2026-11-09 (Panel 6.89.0)
+
+Owner: rows showed 127.0.0.1 + local SOCKS port; need a per-config pencil; DNSTT/SlipNet through Cloudflare as a resolver.
+
+### Fixed
+- **Connection rows:** show the public IP / location from the share link (`dnstt://` resolver, spoof `sni_fwd_target`, `@host:port`), not `SOCKS5 · 127.0.0.1 · 108xx`.
+
+### Added
+- **✏️ IP / port / SNI** on each config (row pencil + long-press), same idea as Cat GP — not a new home button.
+- **Cat DNS via Cloudflare resolver:** `1.1.1.1:53` and DoH `https://1.1.1.1/dns-query` (`--dns` on the packaged SlipNet CLI). Not a dnstt server on Workers.
+
 ## [1.10.0-beta293] — 2026-11-09 (Panel 6.89.0)
 
 Owner: connection test showed 28 SOCKS5 127.0.0.1 Local failed; DNS/spoof must actually run.

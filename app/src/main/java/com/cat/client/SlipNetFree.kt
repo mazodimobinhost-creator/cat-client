@@ -3,8 +3,9 @@ package com.cat.client
 import android.content.Context
 
 /**
- * beta293 — free Cat DNS (dnstt) for Net Melli. Scan resolvers, start the packaged engine,
- * keep only tunnels that actually carry a request. Not another app.
+ * beta293/294 — free Cat DNS (dnstt) for Net Melli. Scan resolvers, also try Cloudflare
+ * 1.1.1.1 / DoH as the recursive resolver (not a Worker dnstt server). Keep only tunnels
+ * that actually carry a request. Not another app.
  */
 internal object SlipNetFreePlanner {
     data class PublicTunnel(val domain: String, val pubkey: String, val tag: String)
@@ -19,16 +20,28 @@ internal object SlipNetFreePlanner {
         PublicTunnel("tunnel.dnstt.xyz", "023678bec148aaaae5e03d450a1d05917129b632ca24ce1bbbd1b42bf377c36e", "xyz"),
     )
 
-    fun dnsttUri(resolverIp: String, tunnel: PublicTunnel): String {
+    fun dnsttUri(resolverIp: String, tunnel: PublicTunnel, doh: String = ""): String {
         val ip = resolverIp.trim().substringBefore('%')
-        return "dnstt://$ip:53/${tunnel.domain}?pubkey=${tunnel.pubkey}#Cat-DNS-${tunnel.tag}-$ip"
+        val dohQ = if (doh.startsWith("https://")) "&doh=${java.net.URLEncoder.encode(doh, "UTF-8")}" else ""
+        val tag = if (dohQ.isNotBlank()) "cf-${tunnel.tag}" else tunnel.tag
+        return "dnstt://$ip:53/${tunnel.domain}?pubkey=${tunnel.pubkey}$dohQ#Cat-DNS-$tag-$ip"
+    }
+
+    fun cloudflareLinks(): List<String> {
+        val tunnels = PUBLIC_TUNNELS.take(3)
+        return tunnels.flatMap { t ->
+            listOf(
+                dnsttUri("1.1.1.1", t),
+                dnsttUri("1.1.1.1", t, doh = "https://1.1.1.1/dns-query"),
+            )
+        }
     }
 
     fun linksForResolvers(resolverIps: List<String>): List<String> {
         val ips = resolverIps.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(2)
-        if (ips.isEmpty()) return emptyList()
         val tunnels = PUBLIC_TUNNELS.take(3)
-        return ips.flatMap { ip -> tunnels.map { dnsttUri(ip, it) } }
+        val iran = ips.flatMap { ip -> tunnels.map { dnsttUri(ip, it) } }
+        return (iran + cloudflareLinks()).distinct()
     }
 
     fun runnableUris(uris: List<String>): List<String> = uris.filter { raw ->

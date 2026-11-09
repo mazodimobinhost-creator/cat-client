@@ -268,6 +268,7 @@ internal fun MainActivity.showConnectionTestingPage(
         val checkIcon: View,
         val speedAction: FrameLayout,
         val speedButton: TextView,
+        val pencil: TextView,
     )
 
     val content = MaxWidthLinearLayout(this).apply {
@@ -602,6 +603,16 @@ internal fun MainActivity.showConnectionTestingPage(
                     setSelectableBackground()
                     addView(speedButton, FrameLayout.LayoutParams(-2, dp(32), Gravity.CENTER))
                 }
+                val pencil = TextView(this@showConnectionTestingPage).apply {
+                    text = "✏️"
+                    textSize = 16f
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = getString(R.string.subscription_action_edit)
+                    setPadding(dp(6), dp(6), dp(6), dp(6))
+                }
                 // Selection indicator (small dot)
                 val checkIcon = View(this@showConnectionTestingPage).apply {
                     background = GradientDrawable().apply {
@@ -636,6 +647,7 @@ internal fun MainActivity.showConnectionTestingPage(
                 container.addView(antenna, LinearLayout.LayoutParams(dp(22), dp(16)).apply { marginStart = dp(8) })
                 container.addView(delayBadge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
                 container.addView(speedAction, LinearLayout.LayoutParams(dp(96), dp(56)).apply { marginStart = dp(4) })
+                container.addView(pencil, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginStart = dp(2) })
                 container.addView(checkIcon, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(8) })
 
                 row = LinearLayout(this@showConnectionTestingPage).apply {
@@ -659,6 +671,7 @@ internal fun MainActivity.showConnectionTestingPage(
                     checkIcon,
                     speedAction,
                     speedButton,
+                    pencil,
                 )
                 row.tag = holder
             } else {
@@ -707,6 +720,7 @@ internal fun MainActivity.showConnectionTestingPage(
                 holder.antenna.bind(null)
                 holder.protocolBadges.visibility = View.GONE
                 holder.speedAction.visibility = View.GONE
+                holder.pencil.visibility = View.GONE
             } else {
                 holder.title.text = profile.displayTag
                 holder.protocolBadges.visibility = View.VISIBLE
@@ -739,12 +753,18 @@ internal fun MainActivity.showConnectionTestingPage(
                 holder.detail.text = if (SubscriptionStore.isBuiltInSubscription(selectedSubscriptionId)) {
                     profile.type.uppercase(Locale.US)
                 } else {
-                    getString(
-                        R.string.connection_detail,
-                        profile.type.uppercase(Locale.US),
-                        profile.server,
-                        profile.port,
-                    )
+                    ConnectionPublicEndpoint.detailLine(profile)
+                }
+                holder.pencil.visibility = if (profile.shareLink.isNullOrBlank()) View.GONE else View.VISIBLE
+                holder.pencil.setOnClickListener {
+                    showProfileValuesEditorDialog(selectedSubscriptionId, profile) { updated ->
+                        selectorProfiles = selectorProfiles.map { if (it.tag == profile.tag) updated else it }
+                        if (selectedSubscriptionId == subscriptionStore.readSelectedSubscriptionId()) {
+                            connectionProfiles = connectionProfiles.map { if (it.tag == profile.tag) updated else it }
+                        }
+                        filteredProfiles = visibleProfiles()
+                        notifyDataSetChanged()
+                    }
                 }
                 val delayRecord = connectionDelayRecords[profile.fingerprint]
                 val delayMs: Int? = if (delayRecord?.status == ConnectionDelayStatus.Success) {
@@ -957,6 +977,14 @@ internal fun MainActivity.showConnectionTestingPage(
                     anchor = row,
                     profile = target,
                     subscriptionId = selectedSubscriptionId,
+                    onProfileEdited = { updated ->
+                        selectorProfiles = selectorProfiles.map { if (it.tag == target.tag) updated else it }
+                        if (selectedSubscriptionId == subscriptionStore.readSelectedSubscriptionId()) {
+                            connectionProfiles = connectionProfiles.map { if (it.tag == target.tag) updated else it }
+                        }
+                        filteredProfiles = visibleProfiles()
+                        notifyDataSetChanged()
+                    },
                     onRotateAndRetest = if (!pickerMode && canRunConnectionTests) { preferProxyIp ->
                         if (!testRunning) {
                             val rotated = rotateProfileRouteInSubscription(selectedSubscriptionId, target, preferProxyIp)

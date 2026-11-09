@@ -83,12 +83,17 @@ object ConnectionDetailsPresenter {
             latencyMs?.takeIf { it > 0L }?.let {
                 add(stringFor(R.string.connection_detail_ping).format(it))
             }
+            val pub = ConnectionPublicEndpoint.of(profile)
             val endpoint = frontingIp.takeIf { it.isNotBlank() }
-                ?: profile.server.takeIf { isIpLiteral(it) }
+                ?: pub.host.takeIf { it.isNotBlank() && !pub.isLoopback }
+                ?: profile.server.takeIf { isIpLiteral(it) && !ConnectionPublicEndpoint.isLoopbackHost(it) }
             endpoint?.let {
                 add(stringFor(R.string.connection_detail_edge_ip).format(it))
             }
-            if (showServer && profile.server != endpoint) add(truncateServer(profile.server))
+            if (showServer) {
+                val shown = if (!pub.isLoopback) pub.authority() else profile.server
+                if (shown != endpoint) add(truncateServer(shown))
+            }
             profile.amneziaNoise?.let {
                 add(stringFor(R.string.connection_detail_amnezia).format(it.count, it.minSize, it.maxSize))
             }

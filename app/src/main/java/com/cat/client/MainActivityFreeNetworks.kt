@@ -1308,17 +1308,12 @@ internal fun MainActivity.addFreeSlipNet() {
         }
         val resolvers = cards.filter { it.udpAlive || it.tcpAlive }.sortedByDescending { it.score }.map { it.resolverIp }
         val used = resolvers.take(2)
-        if (used.isEmpty()) {
-            freeResult(
-                t("⚠️ ریزولور باز پیدا نشد", "⚠️ No open resolver"),
-                listOf(t("روی این خط DNS جواب نداد. MASQUE را از Cat Warp بزن.", "DNS did not answer on this line. Use MASQUE from Cat Warp.")),
-                null,
-                "",
-            )
-            return@freeProgress
-        }
         step(t("ساخت تانل و تست واقعی (نه 127.0.0.1 خالی)…", "Building the tunnel and testing for real (not empty 127.0.0.1)…"))
-        val raw = SlipNetFreePlanner.linksForResolvers(used)
+        val raw = if (used.isEmpty()) {
+            SlipNetFreePlanner.cloudflareLinks()
+        } else {
+            SlipNetFreePlanner.linksForResolvers(used)
+        }
         val links = withContext(Dispatchers.IO) {
             SlipNetFreePlanner.probeWorking(this@addFreeSlipNet, raw, maxKeep = 3, timeoutMs = 8_000) { s ->
                 step(s)

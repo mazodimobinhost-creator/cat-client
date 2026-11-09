@@ -156,7 +156,14 @@ internal object SlipNetCliEngine {
         val port = if (preferredPort in 1..65535 && !isListening(preferredPort)) preferredPort else freePort()
         val resolver = parsed.resolverIp.trim()
         val args = mutableListOf(bin.absolutePath)
-        if (resolver.isNotBlank()) {
+        // Packaged SlipNet CLI (`anonvector/SlipNet` cli/main.go) accepts
+        // `--dns 1.1.1.1`, `--dns https://…/dns-query` (DoH) and `--dns tls://…` (DoT).
+        val doh = Regex("[?&]doh=([^&]+)").find(parsed.rawUri)?.groupValues?.getOrNull(1)
+            ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
+            ?.takeIf { it.startsWith("https://") }
+        if (!doh.isNullOrBlank()) {
+            args += listOf("--dns", doh)
+        } else if (resolver.isNotBlank()) {
             args += listOf("--dns", if (resolver.contains(':') && !resolver.contains('.')) "[$resolver]:${parsed.resolverPort}" else "$resolver:${parsed.resolverPort}")
         }
         args += listOf("--host", "127.0.0.1", "--port", port.toString(), cliUri)

@@ -29,13 +29,13 @@
 | `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityConnectionTesting.kt` | 1900 | Connection testing page (ping/speed lists, chain picker). | 11 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityConnectionTesting.kt` | 1928 | Connection testing page (ping/speed lists, chain picker). | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDashboard.kt` | 1409 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 13 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1846 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 26 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1841 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 27 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 959 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 16 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 10 JVM · 9 panel (see `affected-tests.py`) |
@@ -43,7 +43,7 @@
 | `MainActivityProtocolConnect.kt` | 136 | Dedicated TUIC / WireGuard / Cat Warp editors with a Connect button. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivitySubscriptions.kt` | 2367 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivitySubscriptions.kt` | 2438 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 11 JVM · 9 panel (see `affected-tests.py`) |
 
 ### VPN service, lifecycle & state
@@ -119,8 +119,8 @@
 | `PsiphonCarrierConfig.kt` | 287 | Minimal Psiphon proxy-only configuration for the isolated carrier process. | Beta209WarpEditorTest, Beta255EnginesAuditTest, PsiphonCarrierConfigTest · — |
 | `PsiphonCarrierService.kt` | 149 | Psiphon's Go runtime is isolated from Cat's other native runtimes in :psiphon. | Beta255EnginesAuditTest · — |
 | `PsiphonTunPlan.kt` | 77 | Final local leg: Android TUN → Mihomo → isolated Psiphon or Tor SOCKS. | PsiphonTunPlanTest · — |
-| `SlipNetCliEngine.kt` | 313 | Real DNS-tunnel engine. | Beta218ConnectFreezeTest · — |
-| `SlipNetFree.kt` | 67 | beta293 — free Cat DNS (dnstt) for Net Melli. | Beta291SpoofAndSlipNetTest, Beta293DnsTunnelTestNotLoopbackDead · — |
+| `SlipNetCliEngine.kt` | 320 | Real DNS-tunnel engine. | Beta218ConnectFreezeTest, Beta294PublicIpAndCfDnsTest · — |
+| `SlipNetFree.kt` | 80 | beta293/294 — free Cat DNS (dnstt) for Net Melli. | Beta291SpoofAndSlipNetTest, Beta293DnsTunnelTestNotLoopbackDead, Beta294PublicIpAndCfDnsTest · — |
 | `SstpClient.kt` | 1078 | One SSTP server: `sstp://user:pass@host:port?ip=1.2.3.4#remark`. | Beta212SstpTest · — |
 | `VercelRelay.kt` | 684 | Vercel XHTTP relay ("config on Vercel"). | Beta247VercelRoutesTest, VercelRelayTest · — |
 | `VercelRelayController.kt` | 1801 | "🔺 Config on Vercel": deploys an XHTTP relay into the user's own Vercel account with their token, then builds ready configs (vercel.com address, pr… | — · — |
@@ -141,7 +141,7 @@
 | `CommunitySourceRegistry.kt` | 53 | — | CommunitySourceFetcherTest, CommunitySourceRegistryTest, FreeConfigsRegistryBridgeTest · — |
 | `ConfigFileImport.kt` | 250 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, Beta287VoidlyWireGuardTest, Beta290TelegramAmneziaConfTest, WhiteDnsToolkitTest · — |
 | `ConnectionDisplay.kt` | 203 | — | — · — |
-| `ConnectionLabelPolicy.kt` | 81 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest, Beta293DnsTunnelTestNotLoopbackDead · — |
+| `ConnectionLabelPolicy.kt` | 89 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest, Beta293DnsTunnelTestNotLoopbackDead · — |
 | `DeltaKroneckerHub.kt` | 109 | 🔺 Delta-Kronecker feeds (github.com/Delta-Kronecker) — public, regularly re-tested lists, consumed BY URL on the user's own phone. | DeltaKroneckerFeedsTest · — |
 | `FreeConfigs.kt` | 420 | FreeConfigs — public, community-maintained config sources. | Beta239ProtocolsTelegramTest, FreeConfigsRegistryBridgeTest, FreeConfigsSafetyTest · — |
 | `QrCodes.kt` | 45 | QrCodes — offline QR rendering for config share-links. | — · — |
@@ -165,7 +165,7 @@
 |---|---:|---|---|
 | `AutoConnectionPlanner.kt` | 72 | Fail-closed selection policy for “build for this network”. | — · — |
 | `CatClientScanStateStore.kt` | 114 | — | — · — |
-| `CleanIp.kt` | 519 | — | ConnectionChainTunnelTest, SmartRouteMeasurementAdapterTest · — |
+| `CleanIp.kt` | 519 | — | Beta294PublicIpAndCfDnsTest, ConnectionChainTunnelTest, SmartRouteMeasurementAdapterTest · — |
 | `CleanIpCache.kt` | 49 | — | — · — |
 | `CommunityIpLibrary.kt` | 131 | Community clean-IP library (imported from public shared lists, 2026-09). | — · — |
 | `ConnectionFaultExplainer.kt` | 194 | Turns a raw connection failure (core/engine exception text, including its cause chain) into a short, plain-language reason and a "what to do" hint,… | Beta214CatWarpListTest, Beta215AetherEngineSlotTest, Beta269CatGpCoreHealthTest, ConnectionFaultExplainerTest · — |
@@ -270,7 +270,7 @@
 | `ConnectButtonModel.kt` | 45 | — | — · — |
 | `ConnectionGlobeView.kt` | 426 | ConnectionGlobeView — a rotating 3D orthographic globe on the Cat dashboard: - Natural Earth 110m land projected onto a sphere (not a flat map), -… | — · — |
 | `ConnectionOrbView.kt` | 882 | A smooth liquid orb button with gentle morphing, layered gradients, and particle effects - matching the Cat Client design. | — · — |
-| `DashboardStatePresentation.kt` | 123 | — | — · — |
+| `DashboardStatePresentation.kt` | 128 | — | — · — |
 | `DashboardViews.kt` | 819 | — | — · android-contrast |
 | `DebouncedTextWatcher.kt` | 38 | beta217: several boxes re-did heavy work on *every* key press — decoding every pasted config to show the «detected N configs» line, filtering and r… | — · — |
 | `FlagBadge.kt` | 100 | ZedSecure FlagBadge: flags come from the bundled SVG set (`assets/flags/<cc>.svg`, the same artwork Zed ships — e.g. | — · — |
@@ -312,6 +312,7 @@
 | `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
+| `ConnectionPublicEndpoint.kt` | 187 | What to show and edit for a row. | Beta294PublicIpAndCfDnsTest · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `CoreOptionsSettings.kt` | 72 | beta240 — three engine options that other clients show in their settings screen and Cat did not have. | Beta240CoreOptionsTest · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
@@ -336,7 +337,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_278 Kotlin files, 118279 lines._
+_279 Kotlin files, 118593 lines._
 
 ## MainActivity screens — function index
 
@@ -397,7 +398,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (37 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:295, `showFreeProxyDialog`:313, `buildFreeProxy`:334, `showFanoosDialog`:375, `fetchFanoos`:422, `fetchFanoosAll`:481, `showFreeAccountDialog`:618, `showProtonDialog`:763, `showProtonPaste`:767, `showProtonWebView`:791, `addProtonConfs`:1017, `showVoidlyDialog`:1087, `showVoidlyGenerate`:1141, `showVoidlyPaste`:1213, `addVoidlyConfs`:1237, `addFreeSlipNet`:1299, `addWarpAmneziaAuto`:1369, `showFreePsiphonDialog`:1408, `pickFreePsiphonCountry`:1446, `connectFreePsiphon`:1465, `showCatWarpFreeDialog`:1504, `connectCatWarpFree`:1565, `showCatWindDialog`:1600, `showCatWindLogin`:1610, `connectCatWind`:1755, `jsString`:1846
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:295, `showFreeProxyDialog`:313, `buildFreeProxy`:334, `showFanoosDialog`:375, `fetchFanoos`:422, `fetchFanoosAll`:481, `showFreeAccountDialog`:618, `showProtonDialog`:763, `showProtonPaste`:767, `showProtonWebView`:791, `addProtonConfs`:1017, `showVoidlyDialog`:1087, `showVoidlyGenerate`:1141, `showVoidlyPaste`:1213, `addVoidlyConfs`:1237, `addFreeSlipNet`:1299, `addWarpAmneziaAuto`:1364, `showFreePsiphonDialog`:1403, `pickFreePsiphonCountry`:1441, `connectFreePsiphon`:1460, `showCatWarpFreeDialog`:1499, `connectCatWarpFree`:1560, `showCatWindDialog`:1595, `showCatWindLogin`:1605, `connectCatWind`:1750, `jsString`:1841
 
 ### `MainActivityGuides.kt` (10 functions)
 
@@ -427,9 +428,9 @@ for the dialog/button you want to change.
 
 `buildScannerScreen`:125, `renderScannerSources`:1305, `startIpScanner`:1407, `renderScannerIpHealth`:1565, `runScannerAiTest`:1648, `sendScanToPanelSuspend`:1732, `buildSniScannerCard`:1839, `showWhitelistSuperScannerDialog`:1948, `runCottenMaxDualUdpTcpScannerDialog`:2321, `injectScannedIpsIntoActiveSubscription`:2414, `scannerInput`:2524, `scannerFieldLayout`:2537, `recommendedScannerSnis`:2548, `scannerSniPreference`:2553, `buildSubscriptionFromScan`:2632, `saveScannerSni`:2695, `scannerPortPreference`:2702, `saveScannerPort`:2708, `scannerSourcePreference`:2721, `saveScannerSource`:2725, `scannerSourceEnabled`:2738, `scannerRangesPreference`:2746, `saveScannerRanges`:2751, `stopIpScanner`:2758, `runScannerSpeedTest`:2769, `renderIpHealthCountries`:2832, `startIpHealthLoop`:2894, `runCognitiveFailover`:2912, `runIpHealthSweep`:2948, `runNeighborScan`:2999, `scannerProfileRow`:3075, `refreshScannerProfileRow`:3114, `scannerPlainList`:3127, `copyScannerPlainList`:3142, `runScannerForeignTest`:3154, `probeForeignService`:3199, `foreignServiceVerdict`:3232, `scannerForeignResultRow`:3250, `shareScannerForeignReport`:3287, `shareScannerResults`:3315, `saveScanHistoryRun`:3333, `scanHistoryRaw`:3342, `renderScanHistory`:3345, `refreshScannerCountrySummary`:3374, `scannerVisibleCap`:3394, `scannerFilterVisible`:3396, `scannerFilterRow`:3403, `refreshScannerFilters`:3433, `scannerRowKey`:3452, `scannerSourceList`:3455, `scannerSortedRows`:3459, `scannerSelectedResults`:3475, `toggleScannerRow`:3481, `selectAllScannerResults`:3487, `selectVerifiedScannerResults`:3493, `copySelectedScannerResults`:3500, `sendSelectedScannerResults`:3512, `refreshScannerHeader`:3525, `scannerHeaderRow`:3534, `scannerSelectionBar`:3598, `scannerPlainRowsBlock`:3669, `verifyScannerRowsPainted`:3697, `fallbackScannerRow`:3724, `scannerMeasureLine`:3739, `scannerWorkerHost`:3775, `measureScannerRows`:3793, `scannerResultRow`:3814, `panelNeedsUsername`:3876, `updateScannerPanelPushProgress`:3887, `sendScanToPanel`:3899, `pushIpsToPanel`:3907, `copyScannerIp`:3939, `applyScannerResult`:3949, `operatorSuggestButton`:3980, `rememberScanForOperator`:4013
 
-### `MainActivitySubscriptions.kt` (48 functions)
+### `MainActivitySubscriptions.kt` (49 functions)
 
-`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:816, `optimizeUserSubscription`:1084, `fetchFreeConfigs`:1365, `freeConfigRow`:1412, `copyFreeConfig`:1481, `addSingleConfig`:1488, `showQuickConfigMenu`:1517, `showQuickConfigDialog`:1538, `testFreeConfigs`:1585, `importFreeConfigs`:1598, `ensureFreeSubscription`:1617, `showConfigQrCodes`:1636, `subscriptionUsageLine`:1688, `openSubscriptionConnectionTesting`:1711, `startSubscriptionQrScan`:1730, `showAddSubscriptionMenu`:1740, `saveAetherConfigIntoMainSubscriptionList`:1800, `connectCatWarpAfterSave`:1844, `addSubscriptionFromClipboard`:1853, `importAndConnectAetherSelection`:1887, `showAddSubscriptionDialog`:1939, `unescapeHtmlEntities`:1943, `pushChainToPanelSuspend`:1956, `pushChainToPanelApi`:1989, `showEditSubscriptionDialog`:2009, `testSubscription`:2011, `refreshSubscription`:2018, `refreshBuiltInSubscription`:2028, `runSubscriptionAction`:2038, `collectVerifiedEndpointsForFailover`:2059, `rotateProfileRouteInSubscription`:2113, `showConnectionShareMenu`:2144, `subscriptionLink`:2216, `copySubscriptionLink`:2218, `shareSubscriptionLink`:2224, `openSubscriptionInApp`:2238, `openSubscriptionInfoPage`:2257, `confirmDeleteSubscription`:2270, `onSubscriptionSelected`:2284, `connectionCountLabel`:2323, `localizedSubscriptionError`:2326, `selectedSubscriptionName`:2331, `builtInSubscriptionName`:2337, `showSubscriptionSelectorMenu`:2345
+`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:816, `optimizeUserSubscription`:1084, `fetchFreeConfigs`:1365, `freeConfigRow`:1412, `copyFreeConfig`:1481, `addSingleConfig`:1488, `showQuickConfigMenu`:1517, `showQuickConfigDialog`:1538, `testFreeConfigs`:1585, `importFreeConfigs`:1598, `ensureFreeSubscription`:1617, `showConfigQrCodes`:1636, `subscriptionUsageLine`:1688, `openSubscriptionConnectionTesting`:1711, `startSubscriptionQrScan`:1730, `showAddSubscriptionMenu`:1740, `saveAetherConfigIntoMainSubscriptionList`:1800, `connectCatWarpAfterSave`:1844, `addSubscriptionFromClipboard`:1853, `importAndConnectAetherSelection`:1887, `showAddSubscriptionDialog`:1939, `unescapeHtmlEntities`:1943, `pushChainToPanelSuspend`:1956, `pushChainToPanelApi`:1989, `showEditSubscriptionDialog`:2009, `testSubscription`:2011, `refreshSubscription`:2018, `refreshBuiltInSubscription`:2028, `runSubscriptionAction`:2038, `collectVerifiedEndpointsForFailover`:2059, `rotateProfileRouteInSubscription`:2113, `showConnectionShareMenu`:2144, `subscriptionLink`:2224, `copySubscriptionLink`:2226, `shareSubscriptionLink`:2232, `openSubscriptionInApp`:2246, `openSubscriptionInfoPage`:2265, `confirmDeleteSubscription`:2278, `onSubscriptionSelected`:2292, `connectionCountLabel`:2331, `localizedSubscriptionError`:2334, `selectedSubscriptionName`:2339, `builtInSubscriptionName`:2345, `showProfileValuesEditorDialog`:2353, `showSubscriptionSelectorMenu`:2416
 
 ### `MainActivityUiKit.kt` (14 functions)
 
@@ -612,6 +613,7 @@ for the dialog/button you want to change.
 | `ConnectionOrbView` | `ConnectionOrbView.kt` |
 | `ConnectionProfile` | `CleanIp.kt` |
 | `ConnectionProfileSelectionPolicy` | `ProfileDelaySelector.kt` |
+| `ConnectionPublicEndpoint` | `ConnectionPublicEndpoint.kt` |
 | `ConnectionRequest` | `ConnectionLifecycle.kt` |
 | `ConnectionSelectionPreferenceStore` | `ConnectionSelectionPreferenceStore.kt` |
 | `ConnectionSession` | `ConnectionLifecycle.kt` |

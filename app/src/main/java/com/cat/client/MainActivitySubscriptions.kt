@@ -2146,6 +2146,7 @@ internal fun MainActivity.showConnectionShareMenu(
     profile: ConnectionProfile,
     onRotateAndRetest: ((preferProxyIp: Boolean) -> Unit)? = null,
     subscriptionId: String? = null,
+    onProfileEdited: ((ConnectionProfile) -> Unit)? = null,
 ) {
     val link = profile.shareLink?.takeIf(String::isNotBlank)
     if (link == null) {
@@ -2166,6 +2167,13 @@ internal fun MainActivity.showConnectionShareMenu(
             menu.add(if (isFarsi) "✏️ ویرایش این کانفیگ Cat Warp" else "✏️ Edit this Cat Warp config")
                 .setOnMenuItemClickListener {
                     openCatWarpEditorForLink(subscriptionId, link, autoScan = false)
+                    true
+                }
+        }
+        if (!catWarpRow && subscriptionId != null) {
+            menu.add(if (isFarsi) "✏️ ویرایش IP / پورت / SNI" else "✏️ Edit IP / port / SNI")
+                .setOnMenuItemClickListener {
+                    showProfileValuesEditorDialog(subscriptionId, profile, onProfileEdited)
                     true
                 }
         }
@@ -2341,6 +2349,69 @@ internal fun MainActivity.builtInSubscriptionName(id: String): String = getStrin
         R.string.subscription_private_name
     },
 )
+
+internal fun MainActivity.showProfileValuesEditorDialog(
+    subscriptionId: String,
+    profile: ConnectionProfile,
+    onSaved: ((ConnectionProfile) -> Unit)? = null,
+) {
+    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    fun t(p: String, e: String) = if (fa) p else e
+    val shown = ConnectionPublicEndpoint.of(profile)
+    val link = profile.shareLink?.trim().orEmpty()
+    if (link.isBlank()) {
+        Toast.makeText(this, t("این ردیف لینک قابل‌ویرایش ندارد.", "This row has no editable link."), Toast.LENGTH_LONG).show()
+        return
+    }
+    val pad = dp(18)
+    val box = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(pad, dp(8), pad, dp(6))
+    }
+    fun field(hint: String, value: String, input: Int): EditText = EditText(this).apply {
+        this.hint = hint
+        setText(value)
+        inputType = input
+        textSize = 13f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        box.addView(this, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+    }
+    box.addView(TextView(this).apply {
+        text = t(
+            "IP و پورت واقعی (نه 127.0.0.1). برای تانل DNS ریزولور را عوض کن. برای اسپوف، IP لبه.",
+            "Real IP and port (not 127.0.0.1). For a DNS tunnel this is the resolver. For spoof, the edge IP.",
+        )
+        textSize = 13f
+        setTextColor(TEXT_PRIMARY)
+    })
+    val ipField = field(t("آی‌پی / میزبان", "IP / host"), shown.host, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+    val portField = field(t("پورت", "Port"), shown.port.toString(), InputType.TYPE_CLASS_NUMBER)
+    val sniField = field(t("SNI", "SNI"), shown.sni.ifBlank { shown.extra }, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+    val hostField = field(t("Host (وب‌سوکت)", "Host (WebSocket)"), shown.wsHost, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("✏️ مقادیر کانفیگ", "✏️ Config values"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(android.R.string.cancel, null)
+        .setPositiveButton(t("💾 ذخیره", "💾 Save")) { _, _ ->
+            val ip = ipField.text?.toString().orEmpty()
+            val port = portField.text?.toString()?.toIntOrNull() ?: 0
+            val next = ConnectionPublicEndpoint.applyEdits(link, ip, port, sniField.text?.toString().orEmpty(), hostField.text?.toString().orEmpty())
+            if (next == null) {
+                Toast.makeText(this, t("IP یا پورت درست نیست (127.0.0.1 نگذار).", "IP or port is not valid (do not set 127.0.0.1)."), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
+            val updated = userSubscriptionManager.replaceProfileShareLink(subscriptionId, profile.tag, next)
+            if (updated == null) {
+                Toast.makeText(this, t("ذخیره نشد.", "Not saved."), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
+            Toast.makeText(this, t("✅ ذخیره شد: ${ConnectionPublicEndpoint.of(updated).authority()}", "✅ Saved: ${ConnectionPublicEndpoint.of(updated).authority()}"), Toast.LENGTH_SHORT).show()
+            onSaved?.invoke(updated)
+        }
+        .create()
+        .showCatClientDialog()
+}
 
 internal fun MainActivity.showSubscriptionSelectorMenu(anchor: View) {
     val subscriptions = SubscriptionStore.BUILT_IN_SUBSCRIPTION_IDS.map {

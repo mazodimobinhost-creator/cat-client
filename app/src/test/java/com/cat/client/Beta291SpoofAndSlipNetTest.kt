@@ -16,8 +16,8 @@ class Beta291SpoofAndSlipNetTest {
     fun versionIsBeta291() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 360"))
-        assertTrue(gradle.contains("1.10.0-beta293"))
+        assertTrue(gradle.contains("versionCode = 361"))
+        assertTrue(gradle.contains("1.10.0-beta294"))
     }
 
     @Test
@@ -65,7 +65,8 @@ class Beta291SpoofAndSlipNetTest {
     @Test
     fun freeCatDnsUrisAreRealDnsttAndParse() {
         val links = SlipNetFreePlanner.linksForResolvers(listOf("178.22.122.100", "10.202.10.202"))
-        assertEquals(6, links.size)
+        assertTrue(links.size >= 6)
+        assertTrue(links.any { it.contains("1.1.1.1") })
         links.forEach { uri ->
             assertTrue(uri.startsWith("dnstt://"))
             val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri)
@@ -73,7 +74,11 @@ class Beta291SpoofAndSlipNetTest {
             assertEquals("dnstt", parsed!!.scheme)
             assertTrue(parsed.publicKeyHex.length >= 32)
             assertTrue(parsed.tunnelDomain.contains("."))
-            assertTrue(parsed.resolverIp == "178.22.122.100" || parsed.resolverIp == "10.202.10.202")
+            assertTrue(
+                parsed.resolverIp == "178.22.122.100" ||
+                    parsed.resolverIp == "10.202.10.202" ||
+                    parsed.resolverIp == "1.1.1.1",
+            )
         }
         assertEquals(links.size, SlipNetFreePlanner.runnableUris(links + "cottendns://x").size)
         val free = src("MainActivityFreeNetworks.kt")
