@@ -1307,13 +1307,32 @@ internal fun MainActivity.addFreeSlipNet() {
                 .getOrDefault(emptyList())
         }
         val resolvers = cards.filter { it.udpAlive || it.tcpAlive }.sortedByDescending { it.score }.map { it.resolverIp }
-        val used = if (resolvers.isNotEmpty()) resolvers else listOf("178.22.122.100")
+        val used = resolvers.take(2)
+        if (used.isEmpty()) {
+            freeResult(
+                t("⚠️ ریزولور باز پیدا نشد", "⚠️ No open resolver"),
+                listOf(t("روی این خط DNS جواب نداد. MASQUE را از Cat Warp بزن.", "DNS did not answer on this line. Use MASQUE from Cat Warp.")),
+                null,
+                "",
+            )
+            return@freeProgress
+        }
+        step(t("ساخت تانل و تست واقعی (نه 127.0.0.1 خالی)…", "Building the tunnel and testing for real (not empty 127.0.0.1)…"))
         val raw = SlipNetFreePlanner.linksForResolvers(used)
-        val links = SlipNetFreePlanner.runnableUris(raw)
+        val links = withContext(Dispatchers.IO) {
+            SlipNetFreePlanner.probeWorking(this@addFreeSlipNet, raw, maxKeep = 3, timeoutMs = 8_000) { s ->
+                step(s)
+            }
+        }
         if (links.isEmpty()) {
             freeResult(
-                t("⚠️ تانل DNS ساخته نشد", "⚠️ DNS tunnel was not built"),
-                listOf(t("ریزولور باز پیدا نشد یا کلید سرور ناقص است.", "No open resolver, or the server key is missing.")),
+                t("⚠️ تانل DNS روی این خط جواب نداد", "⚠️ DNS tunnel did not work on this line"),
+                listOf(
+                    t("ریزولور باز بود، ولی سرورهای عمومی dnstt از این خط داده رد نکردند. ۲۸ ردیف مردهٔ 127.0.0.1 ذخیره نشد.",
+                        "A resolver was open, but the public dnstt servers did not carry data on this line. 28 dead 127.0.0.1 rows were not saved."),
+                    t("MASQUE یا سایفون را بزن. اگر سرور dnstt خودت داری لینک dnstt:// را در اشتراک‌ها بچسبان.",
+                        "Use MASQUE or Psiphon. If you have your own dnstt server, paste dnstt:// in subscriptions."),
+                ),
                 null,
                 "",
             )

@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta293] — 2026-11-09 (Panel 6.89.0)
+
+Owner: connection test showed 28 SOCKS5 127.0.0.1 Local failed; DNS/spoof must actually run.
+
+### Fixed
+- **Cat DNS:** no longer saves 28 dead `127.0.0.1` SOCKS rows. Scans resolvers, starts the packaged dnstt engine, keeps only tunnels that carry HTTPS. If none work, says so — does not fill the list.
+- **Connection test:** DNS-tunnel rows start the engine then SOCKS CONNECT (not a ping of loopback). Spoof rows start the splitter first. Labels show DNS / Spoof, not «Local».
+
 ## [1.10.0-beta292] — 2026-11-09 (Panel 6.89.0)
 
 Owner: what else still works — DNS, Cloudflare, VPS, host, free VPNs.

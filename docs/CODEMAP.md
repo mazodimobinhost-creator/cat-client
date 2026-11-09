@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 13 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1827 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 25 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1846 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 26 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 959 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 16 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 10 JVM · 9 panel (see `affected-tests.py`) |
@@ -54,7 +54,7 @@
 | `CatClientVpnService.kt` | 4378 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 14 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatGp.kt` | 85 | beta269 🌐 Cat GP connect + dummy TUN (system HTTP proxy). | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatWarp.kt` | 407 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 13 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceConnectionTests.kt` | 835 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 13 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceConnectionTests.kt` | 877 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 14 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceDpiBypass.kt` | 163 | Fragmenting proxy (ByeByeDPI) start/stop for the Cat core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
@@ -119,8 +119,8 @@
 | `PsiphonCarrierConfig.kt` | 287 | Minimal Psiphon proxy-only configuration for the isolated carrier process. | Beta209WarpEditorTest, Beta255EnginesAuditTest, PsiphonCarrierConfigTest · — |
 | `PsiphonCarrierService.kt` | 149 | Psiphon's Go runtime is isolated from Cat's other native runtimes in :psiphon. | Beta255EnginesAuditTest · — |
 | `PsiphonTunPlan.kt` | 77 | Final local leg: Android TUN → Mihomo → isolated Psiphon or Tor SOCKS. | PsiphonTunPlanTest · — |
-| `SlipNetCliEngine.kt` | 272 | Real DNS-tunnel engine. | Beta218ConnectFreezeTest · — |
-| `SlipNetFree.kt` | 39 | beta291 — free Cat DNS (dnstt) for Net Melli: scan resolvers on this line, attach public tunnel domains, save as a normal subscription. | Beta291SpoofAndSlipNetTest · — |
+| `SlipNetCliEngine.kt` | 313 | Real DNS-tunnel engine. | Beta218ConnectFreezeTest · — |
+| `SlipNetFree.kt` | 67 | beta293 — free Cat DNS (dnstt) for Net Melli. | Beta291SpoofAndSlipNetTest, Beta293DnsTunnelTestNotLoopbackDead · — |
 | `SstpClient.kt` | 1078 | One SSTP server: `sstp://user:pass@host:port?ip=1.2.3.4#remark`. | Beta212SstpTest · — |
 | `VercelRelay.kt` | 684 | Vercel XHTTP relay ("config on Vercel"). | Beta247VercelRoutesTest, VercelRelayTest · — |
 | `VercelRelayController.kt` | 1801 | "🔺 Config on Vercel": deploys an XHTTP relay into the user's own Vercel account with their token, then builds ready configs (vercel.com address, pr… | — · — |
@@ -141,7 +141,7 @@
 | `CommunitySourceRegistry.kt` | 53 | — | CommunitySourceFetcherTest, CommunitySourceRegistryTest, FreeConfigsRegistryBridgeTest · — |
 | `ConfigFileImport.kt` | 250 | WireGuard / AmneziaWG `.conf` text → `wireguard://` / `awg://` share links, so a plain `.conf` file can be pasted, shared or opened anywhere a subs… | AmneziaVpnKeyTest, Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, Beta287VoidlyWireGuardTest, Beta290TelegramAmneziaConfTest, WhiteDnsToolkitTest · — |
 | `ConnectionDisplay.kt` | 203 | — | — · — |
-| `ConnectionLabelPolicy.kt` | 69 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest · — |
+| `ConnectionLabelPolicy.kt` | 81 | UI-only labels for connection rows. | Beta206EngineTest, Beta212SstpTest, Beta293DnsTunnelTestNotLoopbackDead · — |
 | `DeltaKroneckerHub.kt` | 109 | 🔺 Delta-Kronecker feeds (github.com/Delta-Kronecker) — public, regularly re-tested lists, consumed BY URL on the user's own phone. | DeltaKroneckerFeedsTest · — |
 | `FreeConfigs.kt` | 420 | FreeConfigs — public, community-maintained config sources. | Beta239ProtocolsTelegramTest, FreeConfigsRegistryBridgeTest, FreeConfigsSafetyTest · — |
 | `QrCodes.kt` | 45 | QrCodes — offline QR rendering for config share-links. | — · — |
@@ -336,7 +336,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_278 Kotlin files, 118137 lines._
+_278 Kotlin files, 118279 lines._
 
 ## MainActivity screens — function index
 
@@ -397,7 +397,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (37 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:295, `showFreeProxyDialog`:313, `buildFreeProxy`:334, `showFanoosDialog`:375, `fetchFanoos`:422, `fetchFanoosAll`:481, `showFreeAccountDialog`:618, `showProtonDialog`:763, `showProtonPaste`:767, `showProtonWebView`:791, `addProtonConfs`:1017, `showVoidlyDialog`:1087, `showVoidlyGenerate`:1141, `showVoidlyPaste`:1213, `addVoidlyConfs`:1237, `addFreeSlipNet`:1299, `addWarpAmneziaAuto`:1350, `showFreePsiphonDialog`:1389, `pickFreePsiphonCountry`:1427, `connectFreePsiphon`:1446, `showCatWarpFreeDialog`:1485, `connectCatWarpFree`:1546, `showCatWindDialog`:1581, `showCatWindLogin`:1591, `connectCatWind`:1736, `jsString`:1827
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:295, `showFreeProxyDialog`:313, `buildFreeProxy`:334, `showFanoosDialog`:375, `fetchFanoos`:422, `fetchFanoosAll`:481, `showFreeAccountDialog`:618, `showProtonDialog`:763, `showProtonPaste`:767, `showProtonWebView`:791, `addProtonConfs`:1017, `showVoidlyDialog`:1087, `showVoidlyGenerate`:1141, `showVoidlyPaste`:1213, `addVoidlyConfs`:1237, `addFreeSlipNet`:1299, `addWarpAmneziaAuto`:1369, `showFreePsiphonDialog`:1408, `pickFreePsiphonCountry`:1446, `connectFreePsiphon`:1465, `showCatWarpFreeDialog`:1504, `connectCatWarpFree`:1565, `showCatWindDialog`:1600, `showCatWindLogin`:1610, `connectCatWind`:1755, `jsString`:1846
 
 ### `MainActivityGuides.kt` (10 functions)
 

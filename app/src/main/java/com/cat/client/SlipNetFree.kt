@@ -1,9 +1,10 @@
 package com.cat.client
 
+import android.content.Context
+
 /**
- * beta291 — free Cat DNS (dnstt) for Net Melli: scan resolvers on this line, attach public
- * tunnel domains, save as a normal subscription. The real engine is [SlipNetCliEngine]
- * (packaged libslipnet.so). Not another app.
+ * beta293 — free Cat DNS (dnstt) for Net Melli. Scan resolvers, start the packaged engine,
+ * keep only tunnels that actually carry a request. Not another app.
  */
 internal object SlipNetFreePlanner {
     data class PublicTunnel(val domain: String, val pubkey: String, val tag: String)
@@ -24,9 +25,10 @@ internal object SlipNetFreePlanner {
     }
 
     fun linksForResolvers(resolverIps: List<String>): List<String> {
-        val ips = resolverIps.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(4)
+        val ips = resolverIps.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(2)
         if (ips.isEmpty()) return emptyList()
-        return ips.flatMap { ip -> PUBLIC_TUNNELS.map { dnsttUri(ip, it) } }
+        val tunnels = PUBLIC_TUNNELS.take(3)
+        return ips.flatMap { ip -> tunnels.map { dnsttUri(ip, it) } }
     }
 
     fun runnableUris(uris: List<String>): List<String> = uris.filter { raw ->
@@ -35,5 +37,31 @@ internal object SlipNetFreePlanner {
             parsed.publicKeyHex.length >= 32 &&
             '.' in parsed.tunnelDomain &&
             parsed.resolverIp.isNotBlank()
+    }
+
+    /**
+     * Starts [SlipNetCliEngine] and keeps URIs whose SOCKS port actually carries HTTPS.
+     * Does not save 127.0.0.1 rows that the connection tester would mark failed.
+     */
+    fun probeWorking(
+        context: Context,
+        uris: List<String>,
+        maxKeep: Int = 3,
+        timeoutMs: Int = 8_000,
+        onStep: (String) -> Unit = {},
+    ): List<String> {
+        SlipNetCliEngine.attach(context)
+        val out = ArrayList<String>()
+        for (uri in runnableUris(uris)) {
+            if (out.size >= maxKeep) break
+            val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri) ?: continue
+            onStep("${parsed.tunnelDomain} @ ${parsed.resolverIp}")
+            val port = WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+            val ready = WhiteDnsSmartScanner.lastEngineResult(parsed) is SlipNetCliEngine.StartResult.Ready
+            if (!ready) continue
+            val delay = SlipNetCliEngine.httpDelayThroughSocks(port, timeoutMs)
+            if (delay != null) out += uri
+        }
+        return out
     }
 }

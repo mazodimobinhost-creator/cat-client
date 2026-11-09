@@ -649,6 +649,16 @@ internal suspend fun CatClientVpnService.realConnectionDelayMs(
         // beta206: a real HTTP request through the local Firefox VPN bridge and Mozilla's proxy.
         return withContext(Dispatchers.IO) { realFenixDelayMs(profile, rawShare, timeoutMs) }
     }
+    val loopback = profile.server.trim().removePrefix("[").removeSuffix("]") in setOf("127.0.0.1", "localhost", "::1")
+    if (scheme in WhiteDnsSmartScanner.SUPPORTED_TUNNEL_SCHEMES ||
+        rawShare.contains("whitedns-uri", ignoreCase = true) ||
+        (loopback && profile.port in 10_853..10_899)
+    ) {
+        return withContext(Dispatchers.IO) { realDnsTunnelDelayMs(profile, rawShare, timeoutMs) }
+    }
+    if (rawShare.contains("sni_fwd_target=", ignoreCase = true) || profile.port in 19_000..19_899) {
+        withContext(Dispatchers.IO) { ensureSpoofForwarderForDelay(rawShare) }
+    }
     connectionDelayMs(
         controller = controller,
         profile = profile,
@@ -689,6 +699,38 @@ internal suspend fun CatClientVpnService.realConnectionDelayMs(
         "profile=${profile.tag}",
     )
     return null
+}
+
+internal fun CatClientVpnService.realDnsTunnelDelayMs(
+    profile: ConnectionProfile,
+    rawShare: String,
+    timeoutMs: Int,
+): Int? {
+    SlipNetCliEngine.attach(applicationContext)
+    val uri = when {
+        WhiteDnsSmartScanner.parseTunnelUri(rawShare) != null -> rawShare
+        else -> {
+            val json = profile.outboundJson.orEmpty()
+            Regex("""whitedns-uri["']?\s*[:=]\s*["']([^"']+)""").find(json)?.groupValues?.get(1)
+                ?: Regex("""dnstt://[^\s"'<>]+""").find(json)?.value
+        }
+    } ?: return null
+    val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri) ?: return null
+    val port = WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
+    if (WhiteDnsSmartScanner.lastEngineResult(parsed) !is SlipNetCliEngine.StartResult.Ready) return null
+    return SlipNetCliEngine.httpDelayThroughSocks(port, timeoutMs)
+}
+
+internal fun CatClientVpnService.ensureSpoofForwarderForDelay(rawShare: String) {
+    val encoded = Regex("sni_fwd_target=([^&#]+)").find(rawShare)?.groupValues?.getOrNull(1)
+        ?: Regex("sni-fwd-target=([^&#]+)").find(rawShare)?.groupValues?.getOrNull(1)
+        ?: return
+    val target = runCatching { java.net.URLDecoder.decode(encoded, "UTF-8") }.getOrDefault(encoded)
+    val colon = target.lastIndexOf(':')
+    if (colon <= 0) return
+    val host = target.substring(0, colon).removePrefix("[").removeSuffix("]")
+    val port = target.substring(colon + 1).toIntOrNull() ?: 443
+    LocalSniSpoofProxy.startDirectTcpSpoofForwarder(host, port)
 }
 
 internal fun CatClientVpnService.realAetherDelayMs(profile: ConnectionProfile, rawShare: String, timeoutMs: Int): Int? {

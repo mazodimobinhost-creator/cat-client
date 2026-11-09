@@ -26,6 +26,18 @@ object ConnectionLabelPolicy {
         val host = server.trim().removePrefix("[").removeSuffix("]").lowercase(Locale.US)
         val localType = type.lowercase(Locale.US) in setOf("socks5", "socks", "http")
         if (localType && (host == "127.0.0.1" || host == "localhost" || host == "::1")) {
+            val dnsMark = Regex("Cat-DNS-([A-Za-z0-9]+)-([0-9.]+)").find(raw)
+            if (dnsMark != null || port in 10_853..10_899) {
+                val tunnel = dnsMark?.groupValues?.getOrNull(1) ?: "DNS"
+                val resolver = dnsMark?.groupValues?.getOrNull(2).orEmpty()
+                val place = if (resolver.isNotBlank()) "$tunnel · $resolver" else tunnel
+                return "🐱 Cat · DNS · $place · 🧵"
+            }
+            if (port in 19_000..19_899 || raw.contains("Spoof", ignoreCase = true) || raw.contains("sni_fwd", ignoreCase = true)) {
+                val sni = Regex("sni=([^&]+)").find(raw)?.groupValues?.getOrNull(1)?.take(24)
+                val place = sni?.ifBlank { null } ?: "whitelist SNI"
+                return "🐱 Cat · Spoof · $place · 🪄"
+            }
             val engine = when (port) {
                 1819 -> "Warp"
                 10829 -> "Fox VPN"

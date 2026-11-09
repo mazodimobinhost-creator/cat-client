@@ -230,6 +230,47 @@ internal object SlipNetCliEngine {
         Socket().use { s -> s.connect(InetSocketAddress("127.0.0.1", port), 250); true }
     }.getOrDefault(false)
 
+    /** SOCKS5 CONNECT + HTTP 204 through the local engine. Null = tunnel did not carry a request. */
+    fun httpDelayThroughSocks(port: Int, timeoutMs: Int): Int? {
+        if (port !in 1..65535) return null
+        return runCatching {
+            val t0 = System.nanoTime()
+            Socket().use { s ->
+                s.soTimeout = timeoutMs.coerceIn(1_500, 20_000)
+                s.connect(InetSocketAddress("127.0.0.1", port), s.soTimeout)
+                val out = s.getOutputStream()
+                val inp = java.io.DataInputStream(s.getInputStream())
+                out.write(byteArrayOf(5, 1, 0)); out.flush()
+                val greet = ByteArray(2).also { inp.readFully(it) }
+                check(greet[0].toInt() == 5 && greet[1].toInt() == 0)
+                val host = "www.gstatic.com".toByteArray(Charsets.US_ASCII)
+                out.write(byteArrayOf(5, 1, 0, 3, host.size.toByte()) + host + byteArrayOf(1, 0xBB.toByte()))
+                out.flush()
+                val head = ByteArray(4).also { inp.readFully(it) }
+                check(head[1].toInt() == 0)
+                val addrLen = when (head[3].toInt() and 0xFF) {
+                    1 -> 4
+                    4 -> 16
+                    3 -> inp.readUnsignedByte()
+                    else -> 0
+                }
+                inp.readFully(ByteArray(addrLen + 2))
+                val tls = (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory)
+                    .createSocket(s, "www.gstatic.com", 443, false) as javax.net.ssl.SSLSocket
+                tls.soTimeout = s.soTimeout
+                tls.startHandshake()
+                tls.outputStream.write(
+                    "GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n".toByteArray(),
+                )
+                tls.outputStream.flush()
+                val buf = ByteArray(96)
+                val n = tls.inputStream.read(buf)
+                check(n > 0)
+                ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
+            }
+        }.getOrNull()
+    }
+
     private fun freePort(): Int = runCatching {
         java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.localPort }
     }.getOrDefault(10899)
