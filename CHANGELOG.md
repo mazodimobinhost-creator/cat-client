@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta295] — 2026-11-09 (Panel 6.89.0)
+
+Owner: VPS Iran↔foreign relay + multi-location; quota/days were truncated on the subscription card.
+
+### Added
+- **Cat VPS (finder):** one script for Iran→foreign DNAT relay, extra country exits on extra ports. Not 3X-UI / RegionHop. Paste the same config in Cat with the Iran IP.
+
+### Fixed
+- **Subscription quota:** remaining GB and days left are a dedicated line (not cut off in the 2-line detail). Same `subscription-userinfo` the panel already sends.
+
 ## [1.10.0-beta294] — 2026-11-09 (Panel 6.89.0)
 
 Owner: rows showed 127.0.0.1 + local SOCKS port; need a per-config pencil; DNSTT/SlipNet through Cloudflare as a resolver.

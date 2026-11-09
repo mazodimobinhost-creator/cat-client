@@ -13,8 +13,8 @@ class Beta290TelegramAmneziaConfTest {
     fun versionIsBeta290() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 361"))
-        assertTrue(gradle.contains("1.10.0-beta294"))
+        assertTrue(gradle.contains("versionCode = 362"))
+        assertTrue(gradle.contains("1.10.0-beta295"))
     }
 
     @Test

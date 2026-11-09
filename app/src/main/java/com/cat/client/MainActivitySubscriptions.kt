@@ -545,7 +545,7 @@ internal fun MainActivity.renderSubscriptions() {
         subscriptionsList.addView(
             subscriptionCard(
                 title = item.name,
-                detail = detail + subscriptionUsageLine(usage) + SubscriptionProviderInfoPolicy.cardLines(provider, item.name),
+                detail = detail + SubscriptionProviderInfoPolicy.cardLines(provider, item.name),
                 selected = selectedId == item.id,
                 error = localizedSubscriptionError(item.lastError),
                 onTestConnections = { openSubscriptionConnectionTesting(item.id) },
@@ -707,6 +707,28 @@ internal fun MainActivity.subscriptionCard(
         textDirection = View.TEXT_DIRECTION_FIRST_STRONG
         gravity = Gravity.START
     }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+    val usageLine = subscriptionUsageLine(usage).trim()
+    if (usageLine.isNotBlank()) {
+        val days = usage?.expireEpochSeconds?.let { seconds ->
+            ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L)
+        }
+        val usageColor = when {
+            days != null && days <= 0L -> ERROR
+            days != null && days <= 3L -> AMBER
+            usage != null && usage.totalBytes > 0 && usage.usedFraction >= 0.9f -> ERROR
+            else -> TEAL
+        }
+        addView(TextView(this@subscriptionCard).apply {
+            text = usageLine
+            textSize = 13.5f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(usageColor)
+            includeFontPadding = false
+            layoutDirection = View.LAYOUT_DIRECTION_LOCALE
+            textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+            gravity = Gravity.START
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+    }
     if (usage != null && usage.totalBytes > 0) {
         // Quota bar (panel reported total=): green → amber → red as it fills up.
         val fraction = usage.usedFraction
@@ -1695,6 +1717,7 @@ internal fun MainActivity.subscriptionUsageLine(usage: SubscriptionUsage?): Stri
             SubscriptionUsagePolicy.formatBytes(usage.totalBytes),
             usage.usedPercent,
         )
+        parts += getString(R.string.subscription_usage_left, SubscriptionUsagePolicy.formatBytes(usage.remainingBytes))
     } else if (usage.usedBytes > 0) {
         parts += getString(
             R.string.subscription_usage_used_only,
@@ -1702,10 +1725,14 @@ internal fun MainActivity.subscriptionUsageLine(usage: SubscriptionUsage?): Stri
         )
     }
     usage.expireEpochSeconds?.let { seconds ->
-        val days = ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0L)
-        parts += getString(R.string.subscription_usage_expiry, days)
+        val days = ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L)
+        parts += if (days <= 0L) {
+            getString(R.string.subscription_usage_expired)
+        } else {
+            getString(R.string.subscription_usage_expiry, days)
+        }
     }
-    return if (parts.isEmpty()) "" else "\n" + parts.joinToString(" · ")
+    return if (parts.isEmpty()) "" else parts.joinToString(" · ")
 }
 
 internal fun MainActivity.openSubscriptionConnectionTesting(subscriptionId: String) {

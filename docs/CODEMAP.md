@@ -36,14 +36,14 @@
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFreeNetworks.kt` | 1841 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 27 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 959 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 16 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 1038 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 17 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityProtocolConnect.kt` | 136 | Dedicated TUIC / WireGuard / Cat Warp editors with a Connect button. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 10 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivitySubscriptions.kt` | 2438 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivitySubscriptions.kt` | 2465 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 11 JVM · 9 panel (see `affected-tests.py`) |
 
 ### VPN service, lifecycle & state
@@ -152,7 +152,7 @@
 | `SubscriptionProviderInfo.kt` | 138 | beta239 — the provider headers that subscription panels (Marzban, 3x-ui, Hiddify-style and others) send next to `subscription-userinfo`. | Beta239ProtocolsTelegramTest · — |
 | `SubscriptionSnapshot.kt` | 487 | — | Beta217PerformanceTest, Beta239ProtocolsTelegramTest, Beta247FreeNetworksImportTest, WhiteDnsSmartScannerTest · — |
 | `SubscriptionStore.kt` | 491 | — | SmartRouteMeasurementAdapterTest · — |
-| `SubscriptionUsage.kt` | 105 | Subscription usage reported by a panel through the `subscription-userinfo` response header (`upload=…; download=…; total=…; expire=…`). | — · — |
+| `SubscriptionUsage.kt` | 105 | Subscription usage reported by a panel through the `subscription-userinfo` response header (`upload=…; download=…; total=…; expire=…`). | Beta295VpsRelayAndUsageTest · — |
 | `UserSubscriptions.kt` | 835 | — | Beta220FinalMaskTest, Beta223XrayEngineTest, Beta239ProtocolsTelegramTest, Beta247FreeNetworksImportTest, IspProtocolMatrixTest, WhiteDnsSmartScannerTest · — |
 | `VerifiedConfigDiff.kt` | 28 | Preview shown before optimizer/failover applies a config change. | — · — |
 | `VerifiedConfigFailover.kt` | 120 | — | — · — |
@@ -308,6 +308,7 @@
 | `CatGpEngine.kt` | 333 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta275CatGpPencilTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, Beta285CatGpExitLineTest, Beta286CatGpFromToIpTest, ConnectionFaultExplainerTest · — |
 | `CatGpRelay.kt` | 1096 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, Beta283CatGpWorkerTickTest, Beta285CatGpExitLineTest, Beta286CatGpFromToIpTest · — |
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
+| `CatVpsRelay.kt` | 91 | Cat VPS workshop — Iran middlebox → foreign exits. | Beta295VpsRelayAndUsageTest · — |
 | `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
 | `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
@@ -337,7 +338,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_279 Kotlin files, 118593 lines._
+_280 Kotlin files, 118790 lines._
 
 ## MainActivity screens — function index
 
@@ -400,9 +401,9 @@ for the dialog/button you want to change.
 
 `freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:295, `showFreeProxyDialog`:313, `buildFreeProxy`:334, `showFanoosDialog`:375, `fetchFanoos`:422, `fetchFanoosAll`:481, `showFreeAccountDialog`:618, `showProtonDialog`:763, `showProtonPaste`:767, `showProtonWebView`:791, `addProtonConfs`:1017, `showVoidlyDialog`:1087, `showVoidlyGenerate`:1141, `showVoidlyPaste`:1213, `addVoidlyConfs`:1237, `addFreeSlipNet`:1299, `addWarpAmneziaAuto`:1364, `showFreePsiphonDialog`:1403, `pickFreePsiphonCountry`:1441, `connectFreePsiphon`:1460, `showCatWarpFreeDialog`:1499, `connectCatWarpFree`:1560, `showCatWindDialog`:1595, `showCatWindLogin`:1605, `connectCatWind`:1750, `jsString`:1841
 
-### `MainActivityGuides.kt` (10 functions)
+### `MainActivityGuides.kt` (11 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:507, `normalizeFinderText`:742, `featureFinderBar`:746, `showDnsCfHostFreeMethodsDialog`:781, `showFirewallConnectionGuideDialog`:822, `showPrivacyPolicyIfNeeded`:878, `showPrivacyPolicyDialog`:884
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:507, `normalizeFinderText`:742, `featureFinderBar`:746, `showDnsCfHostFreeMethodsDialog`:781, `showCatVpsWorkshopDialog`:826, `showFirewallConnectionGuideDialog`:901, `showPrivacyPolicyIfNeeded`:957, `showPrivacyPolicyDialog`:963
 
 ### `MainActivityMethodFinder.kt` (7 functions)
 
@@ -430,7 +431,7 @@ for the dialog/button you want to change.
 
 ### `MainActivitySubscriptions.kt` (49 functions)
 
-`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:816, `optimizeUserSubscription`:1084, `fetchFreeConfigs`:1365, `freeConfigRow`:1412, `copyFreeConfig`:1481, `addSingleConfig`:1488, `showQuickConfigMenu`:1517, `showQuickConfigDialog`:1538, `testFreeConfigs`:1585, `importFreeConfigs`:1598, `ensureFreeSubscription`:1617, `showConfigQrCodes`:1636, `subscriptionUsageLine`:1688, `openSubscriptionConnectionTesting`:1711, `startSubscriptionQrScan`:1730, `showAddSubscriptionMenu`:1740, `saveAetherConfigIntoMainSubscriptionList`:1800, `connectCatWarpAfterSave`:1844, `addSubscriptionFromClipboard`:1853, `importAndConnectAetherSelection`:1887, `showAddSubscriptionDialog`:1939, `unescapeHtmlEntities`:1943, `pushChainToPanelSuspend`:1956, `pushChainToPanelApi`:1989, `showEditSubscriptionDialog`:2009, `testSubscription`:2011, `refreshSubscription`:2018, `refreshBuiltInSubscription`:2028, `runSubscriptionAction`:2038, `collectVerifiedEndpointsForFailover`:2059, `rotateProfileRouteInSubscription`:2113, `showConnectionShareMenu`:2144, `subscriptionLink`:2224, `copySubscriptionLink`:2226, `shareSubscriptionLink`:2232, `openSubscriptionInApp`:2246, `openSubscriptionInfoPage`:2265, `confirmDeleteSubscription`:2278, `onSubscriptionSelected`:2292, `connectionCountLabel`:2331, `localizedSubscriptionError`:2334, `selectedSubscriptionName`:2339, `builtInSubscriptionName`:2345, `showProfileValuesEditorDialog`:2353, `showSubscriptionSelectorMenu`:2416
+`buildSubscriptionsScreen`:112, `buildFreeConfigsSection`:304, `renderSubscriptions`:461, `subscriptionCard`:573, `showSubscriptionDialog`:838, `optimizeUserSubscription`:1106, `fetchFreeConfigs`:1387, `freeConfigRow`:1434, `copyFreeConfig`:1503, `addSingleConfig`:1510, `showQuickConfigMenu`:1539, `showQuickConfigDialog`:1560, `testFreeConfigs`:1607, `importFreeConfigs`:1620, `ensureFreeSubscription`:1639, `showConfigQrCodes`:1658, `subscriptionUsageLine`:1710, `openSubscriptionConnectionTesting`:1738, `startSubscriptionQrScan`:1757, `showAddSubscriptionMenu`:1767, `saveAetherConfigIntoMainSubscriptionList`:1827, `connectCatWarpAfterSave`:1871, `addSubscriptionFromClipboard`:1880, `importAndConnectAetherSelection`:1914, `showAddSubscriptionDialog`:1966, `unescapeHtmlEntities`:1970, `pushChainToPanelSuspend`:1983, `pushChainToPanelApi`:2016, `showEditSubscriptionDialog`:2036, `testSubscription`:2038, `refreshSubscription`:2045, `refreshBuiltInSubscription`:2055, `runSubscriptionAction`:2065, `collectVerifiedEndpointsForFailover`:2086, `rotateProfileRouteInSubscription`:2140, `showConnectionShareMenu`:2171, `subscriptionLink`:2251, `copySubscriptionLink`:2253, `shareSubscriptionLink`:2259, `openSubscriptionInApp`:2273, `openSubscriptionInfoPage`:2292, `confirmDeleteSubscription`:2305, `onSubscriptionSelected`:2319, `connectionCountLabel`:2358, `localizedSubscriptionError`:2361, `selectedSubscriptionName`:2366, `builtInSubscriptionName`:2372, `showProfileValuesEditorDialog`:2380, `showSubscriptionSelectorMenu`:2443
 
 ### `MainActivityUiKit.kt` (14 functions)
 
@@ -545,6 +546,7 @@ for the dialog/button you want to change.
 | `CatGpScripts` | `CatGpRelay.kt` |
 | `CatPanelPair` | `CatPanelPair.kt` |
 | `CatPanelPairStore` | `CatPanelPair.kt` |
+| `CatVpsRelay` | `CatVpsRelay.kt` |
 | `CatWarpFreePlanner` | `CatWarpFree.kt` |
 | `CatWarpListPolicy` | `CatWarpListPolicy.kt` |
 | `CatWindClient` | `CatWindEngine.kt` |

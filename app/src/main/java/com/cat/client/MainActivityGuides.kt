@@ -790,8 +790,8 @@ internal fun MainActivity.showDnsCfHostFreeMethodsDialog() {
             to { showCatWarpFreeDialog() },
         t("☁️ حساب کلودفلر — ورکر (نه Pages)", "☁️ Cloudflare account — Worker (not Pages)")
             to { showPanelWizard() },
-        t("🖥️ وی‌پی‌اس خودت — Reality / Hysteria2 / Amnezia را بچسبان", "🖥️ Your VPS — paste Reality / Hysteria2 / Amnezia")
-            to { openScreen(SCREEN_SERVERS); showAddSubscriptionDialog() },
+        t("🖥️ وی‌پی‌اس — رله ایران↔خارج، چند لوکیشن، چسباندن لینک", "🖥️ VPS — Iran↔foreign relay, multi-location, paste links")
+            to { showCatVpsWorkshopDialog() },
         t("🖥 هاست رایگان Node — Bot-Hosting / Railway", "🖥 Free Node host — Bot-Hosting / Railway")
             to { openScreen(SCREEN_CLOUD) },
         t("▲ رله xHTTP روی Vercel", "▲ xHTTP relay on Vercel")
@@ -815,6 +815,85 @@ internal fun MainActivity.showDnsCfHostFreeMethodsDialog() {
         )
         .setItems(rows.map { it.first }.toTypedArray()) { _, i -> rows[i].second.invoke() }
         .setNegativeButton(android.R.string.cancel, null)
+        .create()
+        .showCatClientDialog()
+}
+
+/**
+ * Cat VPS workshop (finder only — no extra home button). Iran server forwards
+ * to foreign exits. Not 3X-UI / RegionHop.
+ */
+internal fun MainActivity.showCatVpsWorkshopDialog() {
+    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    fun t(p: String, e: String) = if (fa) p else e
+    val pad = dp(18)
+    val box = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(pad, dp(8), pad, dp(6))
+    }
+    box.addView(TextView(this).apply {
+        text = t(
+            "این پنل ثنایی و RegionHop نیست. اسکریپت را روی سرور ایران اجرا کن تا ترافیک به سرور خارج برود. بعد در Cat همان لینک را با IP ایران و پورت رله بچسبان؛ SNI همان هاست خارج بماند.",
+            "This is not 3X-UI or RegionHop. Run the script on the Iran server so traffic goes to the foreign server. Then paste the same link in Cat with the Iran IP and the relay port; keep SNI as the foreign host.",
+        )
+        textSize = 13f
+        setTextColor(TEXT_PRIMARY)
+    })
+    fun field(hint: String, value: String = "", input: Int): EditText = EditText(this).apply {
+        this.hint = hint
+        setText(value)
+        inputType = input
+        textSize = 13f
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        box.addView(this, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+    }
+    val iran = field(t("IP سرور ایران", "Iran server IP"), "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+    val foreign = field(t("IP / هاست سرور خارج", "Foreign server IP / host"), "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+    val port = field(t("پورت خارج (پیش‌فرض ۴۴۳)", "Foreign port (default 443)"), "443", InputType.TYPE_CLASS_NUMBER)
+    box.addView(TextView(this).apply {
+        text = t(
+            "چند لوکیشن (اختیاری، هر خط: نام IP):\nde 9.9.9.9\nau 1.2.3.4:8443",
+            "More exits (optional, one per line: name IP):\nde 9.9.9.9\nau 1.2.3.4:8443",
+        )
+        textSize = 12f
+        setTextColor(TEXT_SECONDARY)
+    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+    val extra = field(t("لوکیشن‌های اضافه", "Extra locations"), "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
+    extra.minLines = 2
+    extra.maxLines = 6
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("🖥️ وی‌پی‌اس Cat", "🖥️ Cat VPS"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNeutralButton(t("📋 چسباندن لینک کانفیگ", "📋 Paste config links")) { _, _ ->
+            openScreen(SCREEN_SERVERS)
+            showAddSubscriptionDialog()
+        }
+        .setNegativeButton(android.R.string.cancel, null)
+        .setPositiveButton(t("📋 کپی اسکریپت رله", "📋 Copy relay script")) { _, _ ->
+            val p = port.text?.toString()?.toIntOrNull() ?: 443
+            val hops = CatVpsRelay.parseHops(
+                extra.text?.toString().orEmpty(),
+                foreign.text?.toString().orEmpty(),
+                p,
+            )
+            val script = CatVpsRelay.script(iran.text?.toString().orEmpty(), hops)
+            if (script == null) {
+                Toast.makeText(
+                    this,
+                    t("IP خارج را بگذار (نه 127.0.0.1).", "Set the foreign IP (not 127.0.0.1)."),
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@setPositiveButton
+            }
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("cat-vps-relay", script))
+            Toast.makeText(
+                this,
+                t("✅ اسکریپت کپی شد — روی سرور ایران با root اجرا کن.", "✅ Script copied — run it as root on the Iran server."),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         .create()
         .showCatClientDialog()
 }
