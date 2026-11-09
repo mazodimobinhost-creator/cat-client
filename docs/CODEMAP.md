@@ -36,7 +36,7 @@
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFreeNetworks.kt` | 1841 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 27 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 1038 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 17 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 1054 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 18 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 11 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 10 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 10 JVM · 9 panel (see `affected-tests.py`) |
@@ -308,7 +308,7 @@
 | `CatGpEngine.kt` | 333 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta275CatGpPencilTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, Beta285CatGpExitLineTest, Beta286CatGpFromToIpTest, ConnectionFaultExplainerTest · — |
 | `CatGpRelay.kt` | 1096 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, Beta283CatGpWorkerTickTest, Beta285CatGpExitLineTest, Beta286CatGpFromToIpTest · — |
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
-| `CatVpsRelay.kt` | 91 | Cat VPS workshop — Iran middlebox → foreign exits. | Beta295VpsRelayAndUsageTest · — |
+| `CatVpsRelay.kt` | 179 | Cat VPS workshop — Iran middlebox → foreign exits. | Beta295VpsRelayAndUsageTest, Beta296VpsXrayRoutingTest · — |
 | `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
 | `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
@@ -338,7 +338,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_280 Kotlin files, 118790 lines._
+_280 Kotlin files, 118894 lines._
 
 ## MainActivity screens — function index
 
@@ -403,7 +403,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityGuides.kt` (11 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:507, `normalizeFinderText`:742, `featureFinderBar`:746, `showDnsCfHostFreeMethodsDialog`:781, `showCatVpsWorkshopDialog`:826, `showFirewallConnectionGuideDialog`:901, `showPrivacyPolicyIfNeeded`:957, `showPrivacyPolicyDialog`:963
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:354, `finderEntries`:358, `showFeatureFinderDialog`:507, `normalizeFinderText`:742, `featureFinderBar`:746, `showDnsCfHostFreeMethodsDialog`:781, `showCatVpsWorkshopDialog`:826, `showFirewallConnectionGuideDialog`:917, `showPrivacyPolicyIfNeeded`:973, `showPrivacyPolicyDialog`:979
 
 ### `MainActivityMethodFinder.kt` (7 functions)
 

@@ -3,6 +3,10 @@ package com.cat.client
 /**
  * Cat VPS workshop — Iran middlebox → foreign exits. Not 3X-UI, not RegionHop.
  * The phone only copies a script; the user runs it on their own VPS.
+ *
+ * Two shapes, same hops:
+ *  - iptables DNAT (raw TCP)
+ *  - Xray-core inbounds + outbounds + routing (inbound tag → outbound tag)
  */
 internal object CatVpsRelay {
     data class Hop(
@@ -43,6 +47,7 @@ internal object CatVpsRelay {
         sb.appendLine("# Cat VPS relay — run on the IRAN server (needs root).")
         sb.appendLine("# After this, paste configs in Cat with address=$iran")
         sb.appendLine("# and the listen port below; keep SNI/Host as the foreign server.")
+        sb.appendLine("# Do not also bind Xray on the same listen ports.")
         sb.appendLine("set -euo pipefail")
         sb.appendLine("sysctl -w net.ipv4.ip_forward=1 >/dev/null")
         sb.appendLine("sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>/dev/null || true")
@@ -55,6 +60,89 @@ internal object CatVpsRelay {
         }
         sb.appendLine("iptables -t nat -C POSTROUTING -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -j MASQUERADE")
         sb.appendLine("echo \"Cat relay ready. In Cat: address=$iran  port=<listen>  SNI=foreign host.\"")
+        return sb.toString()
+    }
+
+    /** Xray JSON: one dokodemo inbound per hop, freedom outbound, routing inboundTag → outboundTag. */
+    fun xrayConfig(hops: List<Hop>): String? {
+        if (hops.isEmpty()) return null
+        val inbounds = hops.map { hop ->
+            linkedMapOf(
+                "tag" to "in-${hop.tag}",
+                "listen" to "0.0.0.0",
+                "port" to hop.listenPort,
+                "protocol" to "dokodemo-door",
+                "settings" to linkedMapOf(
+                    "address" to hop.foreignHost,
+                    "port" to hop.foreignPort,
+                    "network" to "tcp",
+                    "followRedirect" to false,
+                ),
+            )
+        }
+        val outbounds = hops.map { hop ->
+            linkedMapOf(
+                "tag" to "out-${hop.tag}",
+                "protocol" to "freedom",
+                "settings" to emptyMap<String, Any?>(),
+            )
+        } + listOf(
+            linkedMapOf("tag" to "direct", "protocol" to "freedom"),
+            linkedMapOf("tag" to "block", "protocol" to "blackhole"),
+        )
+        val rules = hops.map { hop ->
+            linkedMapOf(
+                "type" to "field",
+                "inboundTag" to listOf("in-${hop.tag}"),
+                "outboundTag" to "out-${hop.tag}",
+            )
+        }
+        return XrayJson.write(
+            linkedMapOf(
+                "log" to mapOf("loglevel" to "warning"),
+                "inbounds" to inbounds,
+                "outbounds" to outbounds,
+                "routing" to linkedMapOf(
+                    "domainStrategy" to "AsIs",
+                    "rules" to rules,
+                ),
+            ),
+        )
+    }
+
+    fun xrayScript(iranHint: String, hops: List<Hop>): String? {
+        val json = xrayConfig(hops) ?: return null
+        val iran = iranHint.trim().ifBlank { "IRAN_IP" }
+        val sb = StringBuilder()
+        sb.appendLine("#!/bin/bash")
+        sb.appendLine("# Cat VPS Xray — inbounds / outbounds / routing. Run on the IRAN server (root).")
+        sb.appendLine("# Official Xray-core only — not a web panel. Do not also run iptables DNAT on the same ports.")
+        sb.appendLine("set -euo pipefail")
+        sb.appendLine("umask 077")
+        sb.appendLine("mkdir -p /usr/local/etc/xray")
+        sb.appendLine("if [ -f /usr/local/etc/xray/config.json ]; then cp -a /usr/local/etc/xray/config.json /usr/local/etc/xray/config.json.bak.cat; fi")
+        sb.appendLine("cat > /usr/local/etc/xray/config.json << 'CAT_XRAY'")
+        sb.appendLine(json)
+        sb.appendLine("CAT_XRAY")
+        hops.forEach { hop ->
+            sb.appendLine(
+                "echo \"in-${hop.tag}: $iran:${hop.listenPort}  ->  out-${hop.tag} ${hop.foreignHost}:${hop.foreignPort}\"",
+            )
+        }
+        sb.appendLine("if command -v xray >/dev/null 2>&1; then")
+        sb.appendLine("  if command -v systemctl >/dev/null 2>&1 && systemctl restart xray; then")
+        sb.appendLine("    echo \"xray restarted\"")
+        sb.appendLine("  else")
+        sb.appendLine("    echo \"Restart xray yourself: xray run -c /usr/local/etc/xray/config.json\"")
+        sb.appendLine("  fi")
+        sb.appendLine("  echo \"Xray config written. In Cat: address=$iran  port=<listen>  SNI=foreign host.\"")
+        sb.appendLine("else")
+        sb.appendLine("  echo \"Xray-core is not installed. You run the official installer yourself:\"")
+        sb.appendLine(
+            "  echo 'bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install'",
+        )
+        sb.appendLine("  echo \"Then run this script again.\"")
+        sb.appendLine("fi")
         return sb.toString()
     }
 

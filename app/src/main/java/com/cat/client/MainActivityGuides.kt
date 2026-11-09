@@ -790,7 +790,7 @@ internal fun MainActivity.showDnsCfHostFreeMethodsDialog() {
             to { showCatWarpFreeDialog() },
         t("☁️ حساب کلودفلر — ورکر (نه Pages)", "☁️ Cloudflare account — Worker (not Pages)")
             to { showPanelWizard() },
-        t("🖥️ وی‌پی‌اس — رله ایران↔خارج، چند لوکیشن، چسباندن لینک", "🖥️ VPS — Iran↔foreign relay, multi-location, paste links")
+        t("🖥️ وی‌پی‌اس — رله ایران↔خارج، اینباند/اوت‌باند", "🖥️ VPS — Iran↔foreign relay, inbound/outbound")
             to { showCatVpsWorkshopDialog() },
         t("🖥 هاست رایگان Node — Bot-Hosting / Railway", "🖥 Free Node host — Bot-Hosting / Railway")
             to { openScreen(SCREEN_CLOUD) },
@@ -833,8 +833,8 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
     }
     box.addView(TextView(this).apply {
         text = t(
-            "این پنل ثنایی و RegionHop نیست. اسکریپت را روی سرور ایران اجرا کن تا ترافیک به سرور خارج برود. بعد در Cat همان لینک را با IP ایران و پورت رله بچسبان؛ SNI همان هاست خارج بماند.",
-            "This is not 3X-UI or RegionHop. Run the script on the Iran server so traffic goes to the foreign server. Then paste the same link in Cat with the Iran IP and the relay port; keep SNI as the foreign host.",
+            "این پنل ثنایی و RegionHop نیست — روی وی‌پی‌اس خودت اجرا می‌شود نه ورکر. iptables فقط TCP را جلو می‌دهد. Xray همان اینباند / اوت‌باند / رولینگ را می‌سازد: هر پورت شنود یک اینباند، هر خروج یک اوت‌باند، ترافیک اینباند→اوت‌باند. یکی را انتخاب کن، هر دو را روی یک پورت نگذار. بعد در Cat همان لینک را با IP ایران و پورت رله بچسبان؛ SNI همان هاست خارج بماند.",
+            "This is not 3X-UI or RegionHop — it runs on your VPS, not a Worker. iptables only forwards TCP. Xray builds inbounds / outbounds / routing: each listen port is an inbound, each exit an outbound, traffic inbound→outbound. Pick one; do not bind both on the same port. Then paste the same link in Cat with the Iran IP and the relay port; keep SNI as the foreign host.",
         )
         textSize = 13f
         setTextColor(TEXT_PRIMARY)
@@ -862,6 +862,43 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
     val extra = field(t("لوکیشن‌های اضافه", "Extra locations"), "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
     extra.minLines = 2
     extra.maxLines = 6
+    fun hops(): List<CatVpsRelay.Hop> {
+        val p = port.text?.toString()?.toIntOrNull() ?: 443
+        return CatVpsRelay.parseHops(
+            extra.text?.toString().orEmpty(),
+            foreign.text?.toString().orEmpty(),
+            p,
+        )
+    }
+    fun copyNamed(label: String, body: String?) {
+        if (body == null) {
+            Toast.makeText(
+                this,
+                t("IP خارج را بگذار (نه 127.0.0.1).", "Set the foreign IP (not 127.0.0.1)."),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(label, body))
+        Toast.makeText(
+            this,
+            t("✅ اسکریپت کپی شد — روی سرور ایران با root اجرا کن.", "✅ Script copied — run it as root on the Iran server."),
+            Toast.LENGTH_LONG,
+        ).show()
+    }
+    box.addView(
+        MaterialButton(this).apply {
+            text = t("📋 کپی Xray (اینباند → اوت‌باند)", "📋 Copy Xray (inbound → outbound)")
+            isAllCaps = false
+            textSize = 13f
+            cornerRadius = dp(10)
+            setOnClickListener {
+                copyNamed("cat-vps-xray", CatVpsRelay.xrayScript(iran.text?.toString().orEmpty(), hops()))
+            }
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
+    )
     MaterialAlertDialogBuilder(this)
         .setTitle(t("🖥️ وی‌پی‌اس Cat", "🖥️ Cat VPS"))
         .setView(ScrollView(this).apply { addView(box) })
@@ -871,28 +908,7 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
         }
         .setNegativeButton(android.R.string.cancel, null)
         .setPositiveButton(t("📋 کپی اسکریپت رله", "📋 Copy relay script")) { _, _ ->
-            val p = port.text?.toString()?.toIntOrNull() ?: 443
-            val hops = CatVpsRelay.parseHops(
-                extra.text?.toString().orEmpty(),
-                foreign.text?.toString().orEmpty(),
-                p,
-            )
-            val script = CatVpsRelay.script(iran.text?.toString().orEmpty(), hops)
-            if (script == null) {
-                Toast.makeText(
-                    this,
-                    t("IP خارج را بگذار (نه 127.0.0.1).", "Set the foreign IP (not 127.0.0.1)."),
-                    Toast.LENGTH_LONG,
-                ).show()
-                return@setPositiveButton
-            }
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("cat-vps-relay", script))
-            Toast.makeText(
-                this,
-                t("✅ اسکریپت کپی شد — روی سرور ایران با root اجرا کن.", "✅ Script copied — run it as root on the Iran server."),
-                Toast.LENGTH_LONG,
-            ).show()
+            copyNamed("cat-vps-relay", CatVpsRelay.script(iran.text?.toString().orEmpty(), hops()))
         }
         .create()
         .showCatClientDialog()

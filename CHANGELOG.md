@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta296] — 2026-11-09 (Panel 6.89.0)
+
+Owner: Sanaei-like bits were for the VPS, not the Worker.
+
+### Added
+- **Cat VPS Xray:** finder workshop copies an Xray-core config with tagged **inbounds** (dokodemo-door), **outbounds** (freedom + direct/block) and **routing** inboundTag→outboundTag — same hops as the iptables relay. Official Xray-core only; does not install 3X-UI / RegionHop. Pick iptables **or** Xray on a port, not both.
+
 ## [1.10.0-beta295] — 2026-11-09 (Panel 6.89.0)
 
 Owner: VPS Iran↔foreign relay + multi-location; quota/days were truncated on the subscription card.
