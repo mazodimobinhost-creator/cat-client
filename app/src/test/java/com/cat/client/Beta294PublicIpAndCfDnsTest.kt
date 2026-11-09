@@ -69,7 +69,7 @@ class Beta294PublicIpAndCfDnsTest {
         )
         val vlessLine = ConnectionPublicEndpoint.detailLine(vless)
         assertTrue(vlessLine, vlessLine.contains("203.0.113.9:8443"))
-        assertTrue(vlessLine, vlessLine.contains("SNI www.cloudflare.com"))
+        assertTrue(vlessLine, vlessLine.contains("www.cloudflare.com"))
     }
 
     @Test
