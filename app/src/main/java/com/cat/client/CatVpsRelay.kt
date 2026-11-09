@@ -56,7 +56,8 @@ internal object CatVpsRelay {
         hops.forEach { hop ->
             val dest = hostForIptables(hop.foreignHost)
             sb.appendLine("iptables -t nat -A CAT_RELAY -p tcp --dport ${hop.listenPort} -j DNAT --to-destination ${dest}:${hop.foreignPort}")
-            sb.appendLine("echo \"${hop.tag}: $iran:${hop.listenPort}  ->  ${hop.foreignHost}:${hop.foreignPort}\"")
+            sb.appendLine("iptables -t nat -A CAT_RELAY -p udp --dport ${hop.listenPort} -j DNAT --to-destination ${dest}:${hop.foreignPort}")
+            sb.appendLine("echo \"${hop.tag}: $iran:${hop.listenPort}  ->  ${hop.foreignHost}:${hop.foreignPort}  (tcp+udp)\"")
         }
         sb.appendLine("iptables -t nat -C POSTROUTING -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -j MASQUERADE")
         sb.appendLine("echo \"Cat relay ready. In Cat: address=$iran  port=<listen>  SNI=foreign host.\"")
@@ -75,7 +76,7 @@ internal object CatVpsRelay {
                 "settings" to linkedMapOf(
                     "address" to hop.foreignHost,
                     "port" to hop.foreignPort,
-                    "network" to "tcp",
+                    "network" to "tcp,udp",
                     "followRedirect" to false,
                 ),
             )

@@ -833,8 +833,8 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
     }
     box.addView(TextView(this).apply {
         text = t(
-            "این پنل ثنایی و RegionHop نیست — روی وی‌پی‌اس خودت اجرا می‌شود نه ورکر. iptables فقط TCP را جلو می‌دهد. Xray همان اینباند / اوت‌باند / رولینگ را می‌سازد: هر پورت شنود یک اینباند، هر خروج یک اوت‌باند، ترافیک اینباند→اوت‌باند. یکی را انتخاب کن، هر دو را روی یک پورت نگذار. بعد در Cat همان لینک را با IP ایران و پورت رله بچسبان؛ SNI همان هاست خارج بماند.",
-            "This is not 3X-UI or RegionHop — it runs on your VPS, not a Worker. iptables only forwards TCP. Xray builds inbounds / outbounds / routing: each listen port is an inbound, each exit an outbound, traffic inbound→outbound. Pick one; do not bind both on the same port. Then paste the same link in Cat with the Iran IP and the relay port; keep SNI as the foreign host.",
+            "ورکر پنل سرور وایرگارد/OpenVPN نیست. روی وی‌پی‌اس: iptables و Xray رلهٔ ایران→خارج (TCP+UDP). وایرگارد را روی سرور خارج اجرا کن؛ conf چاپ‌شده را در Cat بچسبان. OpenVPN فقط TCP روی سرور است — Cat آن را وصل نمی‌کند (برای Cat همان وایرگارد). اگر IP ایران را بگذاری، قطعهٔ DNAT روی ایران هم در اسکریپت است.",
+            "The Worker panel is not a WireGuard/OpenVPN server. On the VPS: iptables and Xray relay Iran→foreign (TCP+UDP). Run WireGuard on the foreign server; paste the printed .conf in Cat. OpenVPN is TCP on the VPS only — Cat does not connect it (use WireGuard in Cat). If you set an Iran IP, the script includes DNAT for that hop.",
         )
         textSize = 13f
         setTextColor(TEXT_PRIMARY)
@@ -870,34 +870,61 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
             p,
         )
     }
-    fun copyNamed(label: String, body: String?) {
+    fun copyNamed(label: String, body: String?, ok: String) {
         if (body == null) {
             Toast.makeText(
                 this,
-                t("IP خارج را بگذار (نه 127.0.0.1).", "Set the foreign IP (not 127.0.0.1)."),
+                t("IP خارج را بگذار (نه 127.0.0.1، نه پورت ۸۰/۴۴۳/۱۰۸۰ برای WG/OpenVPN).", "Set the foreign IP (not 127.0.0.1; not port 80/443/1080 for WG/OpenVPN)."),
                 Toast.LENGTH_LONG,
             ).show()
             return
         }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText(label, body))
-        Toast.makeText(
-            this,
-            t("✅ اسکریپت کپی شد — روی سرور ایران با root اجرا کن.", "✅ Script copied — run it as root on the Iran server."),
-            Toast.LENGTH_LONG,
-        ).show()
+        Toast.makeText(this, ok, Toast.LENGTH_LONG).show()
+    }
+    fun tunnelBtn(label: String, onClick: () -> Unit): MaterialButton = MaterialButton(this).apply {
+        text = label
+        isAllCaps = false
+        textSize = 13f
+        cornerRadius = dp(10)
+        setOnClickListener { onClick() }
     }
     box.addView(
-        MaterialButton(this).apply {
-            text = t("📋 کپی Xray (اینباند → اوت‌باند)", "📋 Copy Xray (inbound → outbound)")
-            isAllCaps = false
-            textSize = 13f
-            cornerRadius = dp(10)
-            setOnClickListener {
-                copyNamed("cat-vps-xray", CatVpsRelay.xrayScript(iran.text?.toString().orEmpty(), hops()))
-            }
+        tunnelBtn(t("📋 کپی Xray (اینباند → اوت‌باند)", "📋 Copy Xray (inbound → outbound)")) {
+            copyNamed(
+                "cat-vps-xray",
+                CatVpsRelay.xrayScript(iran.text?.toString().orEmpty(), hops()),
+                t("✅ اسکریپت کپی شد — روی سرور ایران با root اجرا کن.", "✅ Script copied — run it as root on the Iran server."),
+            )
         },
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) },
+    )
+    box.addView(
+        tunnelBtn(t("📋 وایرگارد (Cat وصل می‌کند)", "📋 WireGuard (Cat connects)")) {
+            copyNamed(
+                "cat-vps-wg",
+                CatVpsTunnels.wireGuardBundle(
+                    iran.text?.toString().orEmpty(),
+                    foreign.text?.toString().orEmpty(),
+                ),
+                t("✅ وایرگارد — روی سرور خارج اجرا کن؛ conf را در Cat بچسبان.", "✅ WireGuard — run on the foreign server; paste the .conf in Cat."),
+            )
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+    )
+    box.addView(
+        tunnelBtn(t("📋 OpenVPN TCP (Cat وصل نمی‌کند)", "📋 OpenVPN TCP (Cat cannot connect)")) {
+            copyNamed(
+                "cat-vps-ovpn",
+                CatVpsTunnels.openVpnTcpBundle(
+                    iran.text?.toString().orEmpty(),
+                    foreign.text?.toString().orEmpty(),
+                ),
+                t("✅ OpenVPN TCP — روی سرور خارج. برای Cat وایرگارد بزن.", "✅ OpenVPN TCP — on the foreign server. For Cat, use WireGuard."),
+            )
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
     )
     MaterialAlertDialogBuilder(this)
         .setTitle(t("🖥️ وی‌پی‌اس Cat", "🖥️ Cat VPS"))
@@ -908,7 +935,11 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
         }
         .setNegativeButton(android.R.string.cancel, null)
         .setPositiveButton(t("📋 کپی اسکریپت رله", "📋 Copy relay script")) { _, _ ->
-            copyNamed("cat-vps-relay", CatVpsRelay.script(iran.text?.toString().orEmpty(), hops()))
+            copyNamed(
+                "cat-vps-relay",
+                CatVpsRelay.script(iran.text?.toString().orEmpty(), hops()),
+                t("✅ اسکریپت کپی شد — روی سرور ایران با root اجرا کن.", "✅ Script copied — run it as root on the Iran server."),
+            )
         }
         .create()
         .showCatClientDialog()

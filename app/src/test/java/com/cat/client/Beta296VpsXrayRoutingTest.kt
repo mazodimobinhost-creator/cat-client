@@ -17,8 +17,8 @@ class Beta296VpsXrayRoutingTest {
     fun versionIsBeta296() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 363"))
-        assertTrue(gradle.contains("1.10.0-beta296"))
+        assertTrue(gradle.contains("versionCode = 364"))
+        assertTrue(gradle.contains("1.10.0-beta297"))
     }
 
     @Test
@@ -60,7 +60,6 @@ class Beta296VpsXrayRoutingTest {
         assertTrue(guides.contains("showCatVpsWorkshopDialog"))
         assertTrue(guides.contains("CatVpsRelay.xrayScript"))
         assertTrue(guides.contains("CatVpsRelay.script"))
-        assertTrue(guides.contains("inbounds / outbounds / routing") || guides.contains("اینباند / اوت‌باند / رولینگ"))
         assertFalse(guides.contains("freeb5d"))
         val relay = src("CatVpsRelay.kt")
         assertTrue(relay.contains("dokodemo-door"))

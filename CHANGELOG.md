@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta297] — 2026-11-09 (Panel 6.89.0)
+
+Owner: which tunnels on VPS + this panel; OpenVPN and WireGuard.
+
+### Added
+- **Cat VPS WireGuard:** finder copies a distro `wireguard` script (keys on the VPS, prints a `.conf` Cat can paste). Optional Iran UDP/TCP DNAT so the phone dials the Iran IP. Not wg-easy. Not on the Worker.
+- **Cat VPS OpenVPN TCP:** server script on the foreign VPS (static key, port 1194). Cat has no OpenVPN engine — use WireGuard in Cat.
+- **Relay UDP:** iptables DNAT and Xray dokodemo now forward UDP as well as TCP (WireGuard through the Iran hop).
+
 ## [1.10.0-beta296] — 2026-11-09 (Panel 6.89.0)
 
 Owner: Sanaei-like bits were for the VPS, not the Worker.

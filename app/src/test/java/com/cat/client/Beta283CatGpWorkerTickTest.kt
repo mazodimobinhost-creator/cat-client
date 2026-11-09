@@ -13,8 +13,8 @@ class Beta283CatGpWorkerTickTest {
     fun versionIsBeta283() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 363"))
-        assertTrue(gradle.contains("1.10.0-beta296"))
+        assertTrue(gradle.contains("versionCode = 364"))
+        assertTrue(gradle.contains("1.10.0-beta297"))
     }
 
     @Test
