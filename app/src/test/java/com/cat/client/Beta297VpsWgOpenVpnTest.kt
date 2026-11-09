@@ -16,8 +16,8 @@ class Beta297VpsWgOpenVpnTest {
     fun versionIsBeta297() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 364"))
-        assertTrue(gradle.contains("1.10.0-beta297"))
+        assertTrue(gradle.contains("versionCode = 365"))
+        assertTrue(gradle.contains("1.10.0-beta298"))
     }
 
     @Test
@@ -42,13 +42,16 @@ class Beta297VpsWgOpenVpnTest {
         assertTrue(wg, wg.contains("Endpoint = 10.10.10.10:51820"))
         assertTrue(wg, wg.contains("ListenPort = 51820"))
         assertTrue(wg, wg.contains("/etc/wireguard/wg0.conf"))
-        assertTrue(wg, wg.contains("echo 'apt-get update && apt-get install -y wireguard'"))
-        assertFalse(wg.lineSequence().any { it.trim().startsWith("apt-get") || it.trim().startsWith("curl ") })
+        assertTrue(wg, wg.contains("apt-get install -y wireguard"))
+        assertTrue(wg, wg.contains("wg-quick up wg0"))
+        assertTrue(wg, wg.contains("/root/cat-wg-phone.conf"))
+        assertFalse(wg, wg.contains("Then run this script again"))
         assertFalse(wg, wg.contains("wg-easy", ignoreCase = true) || wg.contains("3x-ui", ignoreCase = true))
         assertTrue(wg, wg.contains("-p udp --dport 51820"))
+        assertTrue(wg, wg.contains("cat > /root/cat-iran-dnat.sh"))
         val local = CatVpsTunnels.wireGuardBundle("", "203.0.113.8")!!
         assertTrue(local, local.contains("Endpoint = 203.0.113.8:51820"))
-        assertFalse(local, local.contains("IRAN VPS"))
+        assertFalse(local, local.contains("cat-iran-dnat.sh"))
     }
 
     @Test
@@ -61,8 +64,9 @@ class Beta297VpsWgOpenVpnTest {
         assertTrue(ov, ov.contains("proto tcp-client"))
         assertTrue(ov, ov.contains("remote 10.10.10.10 1194"))
         assertTrue(ov, ov.contains("Cat cannot import") || ov.contains("use WireGuard in Cat"))
-        assertTrue(ov, ov.contains("echo 'apt-get update && apt-get install -y openvpn'"))
-        assertFalse(ov.lineSequence().any { it.trim().startsWith("apt-get") })
+        assertTrue(ov, ov.contains("apt-get install -y openvpn"))
+        assertTrue(ov, ov.contains("systemctl enable --now cat-openvpn"))
+        assertFalse(ov, ov.contains("Then run this script again"))
         assertFalse(ov, ov.contains("3x-ui", ignoreCase = true) || ov.contains("openvpn-panel", ignoreCase = true))
     }
 

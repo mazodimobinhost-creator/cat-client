@@ -308,8 +308,9 @@
 | `CatGpEngine.kt` | 333 | 🌐 Cat GP on the phone: settings, the persisted CA, the user's Code.gs, and the local proxy's life cycle. | Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta275CatGpPencilTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, Beta285CatGpExitLineTest, Beta286CatGpFromToIpTest, ConnectionFaultExplainerTest · — |
 | `CatGpRelay.kt` | 1096 | 🌐 Cat GP — a personal Google Apps Script relay (Cat's own implementation, pure JVM so it is unit-tested). | Beta249CatGpTest, Beta269CatGpCoreHealthTest, Beta271CatGpChromeProxyTest, Beta274CatGpEdgeTest, Beta278CatGpCloudflareHopTest, Beta280CatGpDedicatedWorkerTest, Beta283CatGpWorkerTickTest, Beta285CatGpExitLineTest, Beta286CatGpFromToIpTest · — |
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
-| `CatVpsRelay.kt` | 180 | Cat VPS workshop — Iran middlebox → foreign exits. | Beta295VpsRelayAndUsageTest, Beta296VpsXrayRoutingTest, Beta297VpsWgOpenVpnTest · — |
-| `CatVpsTunnels.kt` | 157 | Cat VPS tunnels the Worker panel cannot host: WireGuard and OpenVPN. | Beta297VpsWgOpenVpnTest · — |
+| `CatVpsRelay.kt` | 187 | Cat VPS workshop — Iran middlebox → foreign exits. | Beta295VpsRelayAndUsageTest, Beta296VpsXrayRoutingTest, Beta297VpsWgOpenVpnTest, Beta298VpsScriptsRunTest · — |
+| `CatVpsSh.kt` | 63 | Shared bash the VPS scripts actually run (install, persist, start). | — · — |
+| `CatVpsTunnels.kt` | 183 | Cat VPS tunnels: WireGuard and OpenVPN on the owner's VPS. | Beta297VpsWgOpenVpnTest, Beta298VpsScriptsRunTest · — |
 | `CatWarpFree.kt` | 74 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest · — |
 | `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
@@ -339,7 +340,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_281 Kotlin files, 119083 lines._
+_282 Kotlin files, 119179 lines._
 
 ## MainActivity screens — function index
 
@@ -548,6 +549,7 @@ for the dialog/button you want to change.
 | `CatPanelPair` | `CatPanelPair.kt` |
 | `CatPanelPairStore` | `CatPanelPair.kt` |
 | `CatVpsRelay` | `CatVpsRelay.kt` |
+| `CatVpsSh` | `CatVpsSh.kt` |
 | `CatVpsTunnels` | `CatVpsTunnels.kt` |
 | `CatWarpFreePlanner` | `CatWarpFree.kt` |
 | `CatWarpListPolicy` | `CatWarpListPolicy.kt` |

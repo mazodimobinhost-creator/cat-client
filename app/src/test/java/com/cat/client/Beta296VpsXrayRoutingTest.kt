@@ -17,8 +17,8 @@ class Beta296VpsXrayRoutingTest {
     fun versionIsBeta296() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 364"))
-        assertTrue(gradle.contains("1.10.0-beta297"))
+        assertTrue(gradle.contains("versionCode = 365"))
+        assertTrue(gradle.contains("1.10.0-beta298"))
     }
 
     @Test
@@ -48,9 +48,10 @@ class Beta296VpsXrayRoutingTest {
         assertTrue(script, script.contains("Xray-install"))
         assertTrue(
             script,
-            script.contains("echo 'bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install'"),
+            script.contains("bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install"),
         )
-        assertFalse(script.lineSequence().any { it.trim().startsWith("curl ") || it.trim().startsWith("bash -c") })
+        assertFalse(script, script.contains("Then run this script again"))
+        assertTrue(script, script.contains("systemctl restart xray"))
         assertFalse(script, script.contains("3x-ui", ignoreCase = true) || script.contains("regionhop", ignoreCase = true))
     }
 

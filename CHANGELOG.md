@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta298] — 2026-11-09 (Panel 6.89.0)
+
+Owner: VPS scripts must actually do the work.
+
+### Fixed
+- **Cat VPS scripts:** install packages, persist `ip_forward` + iptables, open ufw if active, start Xray / `wg-quick` / OpenVPN. No more «install it yourself then run again». Iran DNAT for WG/OpenVPN is a separate `cat-iran-dnat.sh` to run on Iran, not mixed into the foreign script.
+
 ## [1.10.0-beta297] — 2026-11-09 (Panel 6.89.0)
 
 Owner: which tunnels on VPS + this panel; OpenVPN and WireGuard.
