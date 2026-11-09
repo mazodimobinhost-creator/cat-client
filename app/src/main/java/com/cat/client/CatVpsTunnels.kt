@@ -1,8 +1,8 @@
 package com.cat.client
 
 /**
- * Cat VPS tunnels the Worker panel cannot host: WireGuard and OpenVPN.
- * Scripts run on the owner's VPS. Cat imports the WireGuard `.conf` the WG script prints.
+ * Cat VPS tunnels: WireGuard and OpenVPN on the owner's VPS.
+ * Cat imports the WireGuard `.conf` the WG script prints.
  * OpenVPN is TCP on the VPS only — Cat has no OpenVPN engine.
  */
 internal object CatVpsTunnels {

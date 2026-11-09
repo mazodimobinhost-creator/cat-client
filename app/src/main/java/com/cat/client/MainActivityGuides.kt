@@ -833,8 +833,8 @@ internal fun MainActivity.showCatVpsWorkshopDialog() {
     }
     box.addView(TextView(this).apply {
         text = t(
-            "ورکر پنل سرور وایرگارد/OpenVPN نیست. روی وی‌پی‌اس: iptables و Xray رلهٔ ایران→خارج (TCP+UDP). وایرگارد را روی سرور خارج اجرا کن؛ conf چاپ‌شده را در Cat بچسبان. OpenVPN فقط TCP روی سرور است — Cat آن را وصل نمی‌کند (برای Cat همان وایرگارد). اگر IP ایران را بگذاری، قطعهٔ DNAT روی ایران هم در اسکریپت است.",
-            "The Worker panel is not a WireGuard/OpenVPN server. On the VPS: iptables and Xray relay Iran→foreign (TCP+UDP). Run WireGuard on the foreign server; paste the printed .conf in Cat. OpenVPN is TCP on the VPS only — Cat does not connect it (use WireGuard in Cat). If you set an Iran IP, the script includes DNAT for that hop.",
+            "فقط وی‌پی‌اس.\n\n۱) رله — اسکریپت رله یا Xray را روی سرور ایران اجرا کن؛ لینک را با IP ایران در Cat بچسبان.\n۲) وایرگارد — اسکریپت را روی سرور خارج اجرا کن؛ conf چاپ‌شده را در Cat بچسبان (Cat وصل می‌کند).\n۳) OpenVPN — اسکریپت را روی سرور خارج اجرا کن؛ Cat این را وصل نمی‌کند.\nاگر IP ایران را هم بگذاری، وایرگارد از ایران رد می‌شود.",
+            "VPS only.\n\n1) Relay — run the relay or Xray script on the Iran server; paste the link in Cat with the Iran IP.\n2) WireGuard — run the script on the foreign server; paste the printed .conf in Cat (Cat connects).\n3) OpenVPN — run the script on the foreign server; Cat does not connect this.\nIf you also set an Iran IP, WireGuard goes in through Iran.",
         )
         textSize = 13f
         setTextColor(TEXT_PRIMARY)
