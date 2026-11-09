@@ -360,6 +360,10 @@ internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
         "همهٔ روش‌های برنامه را واقعاً روی اینترنت شما امتحان می‌کند، بهترین را بالا می‌آورد و «⭐ اتصال به بهترین» با یک دکمه وصل می‌کند. اگر نمی‌دانید چه بزنید، همین را بزنید.",
         "Really tries every method on your internet, puts the best on top, and “⭐ Connect with the best” connects in one tap. If unsure, tap this.",
         "وصل اتصال پیشنهادی ساده کدام روش کار می‌کند بررسی connect recommended easy start which method works check") { showRecommendedOneClickConnectWizardDialog() },
+    FinderEntry("🧭 DNS / کلودفلر / وی‌پی‌اس / هاست / رایگان", "🧭 DNS / Cloudflare / VPS / host / free",
+        "کدام روش را بزنی: تانل DNS، ورکر کلودفلر، وی‌پی‌اس خودت، هاست رایگان، یا VPNهای رایگان داخل Cat.",
+        "Which to tap: DNS tunnel, Cloudflare Worker, your VPS, a free host, or the free VPNs already in Cat.",
+        "دی ان اس dns کلودفلر کلادفلر وی پی اس وی‌پی‌اس vps هاست host ورکر worker رایگان free naive hysteria reality") { showDnsCfHostFreeMethodsDialog() },
     FinderEntry("🆓 سرور رایگان وایرگارد / Hysteria2", "🆓 Free WireGuard / Hysteria2 servers",
         "سرورهای رایگان عمومی را می‌گیرد، واقعاً امتحان می‌کند و سالم‌ها را با یک دکمه وصل می‌کند.",
         "Fetches public free servers, really tests them and connects to a working one in one tap.",
@@ -770,6 +774,51 @@ internal fun MainActivity.featureFinderBar(): View {
     }
 }
 
+/**
+ * beta292 — one tap map: DNS / Cloudflare Worker / your VPS / free host / free VPNs.
+ * Launches engines that already exist. Not extra home buttons.
+ */
+internal fun MainActivity.showDnsCfHostFreeMethodsDialog() {
+    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    fun t(p: String, e: String) = if (fa) p else e
+    val rows = listOf(
+        t("🧵 فقط DNS باز است — Cat DNS (کند، نت ملی)", "🧵 Only DNS is open — Cat DNS (slow, national net)")
+            to { addFreeSlipNet() },
+        t("🌀 هیچ سروری نداری — سایفون", "🌀 No server of your own — Psiphon")
+            to { showFreePsiphonDialog() },
+        t("🚀 کلودفلر بدون وی‌پی‌اس — Cat Warp / MASQUE-H2", "🚀 Cloudflare with no VPS — Cat Warp / MASQUE-H2")
+            to { showCatWarpFreeDialog() },
+        t("☁️ حساب کلودفلر — ورکر (نه Pages)", "☁️ Cloudflare account — Worker (not Pages)")
+            to { showPanelWizard() },
+        t("🖥️ وی‌پی‌اس خودت — Reality / Hysteria2 / Amnezia را بچسبان", "🖥️ Your VPS — paste Reality / Hysteria2 / Amnezia")
+            to { openScreen(SCREEN_SERVERS); showAddSubscriptionDialog() },
+        t("🖥 هاست رایگان Node — Bot-Hosting / Railway", "🖥 Free Node host — Bot-Hosting / Railway")
+            to { openScreen(SCREEN_CLOUD) },
+        t("▲ رله xHTTP روی Vercel", "▲ xHTTP relay on Vercel")
+            to { vercelRelay.showPanel() },
+        t("🟢 VPN رایگان داخل Cat — Proton / Wind / SSTP / Outline", "🟢 Free VPNs in Cat — Proton / Wind / SSTP / Outline")
+            to { showFreeNetworksHub() },
+        t("🆓 Hysteria2 و وایرگارد عمومی", "🆓 Public Hysteria2 and WireGuard")
+            to { showMethodFinderDialog(FinderFamily.FREE_SERVERS, freeOnly = true) },
+        t("🌐 فقط گوگل باز است — Cat GP", "🌐 Only Google is open — Cat GP")
+            to { showCatGpDialog() },
+        t("📦 کانفیگ رایگان از گیت‌هاب", "📦 Free configs from GitHub")
+            to { runFetchSevenGitHubFreeConfigSourcesDialog() },
+    )
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("🧭 DNS / کلودفلر / وی‌پی‌اس / هاست / رایگان", "🧭 DNS / Cloudflare / VPS / host / free"))
+        .setMessage(
+            t(
+                "هیچ‌کدام روی خط تو تضمین نیست. بزن تا همان روش اجرا شود. NaiveProxy و اپ جدا لازم نیست. Pages فیلتر است؛ ورکر یا دامنهٔ خودت.",
+                "None is guaranteed on your line. Tap to run that method. No NaiveProxy and no extra app. Pages is filtered; use a Worker or your own domain.",
+            ),
+        )
+        .setItems(rows.map { it.first }.toTypedArray()) { _, i -> rows[i].second.invoke() }
+        .setNegativeButton(android.R.string.cancel, null)
+        .create()
+        .showCatClientDialog()
+}
+
 internal fun MainActivity.showFirewallConnectionGuideDialog() {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
     val msg = if (isFarsi) {
@@ -785,7 +834,7 @@ internal fun MainActivity.showFirewallConnectionGuideDialog() {
             "───────────────\n" +
             "🟧 راه‌های اتصال به کلودفلر بر روی فایروال ایرانسل:\n\n" +
             "۱) CDN/WORKER با متد F&F (رفع محدودیت آپلود):\n" +
-            "• مقدار echConfigList پاک شود و از آدرسی مانند 188.114.98.0 استفاده شود.\n" +
+            "• مقدار echConfigList پاک شود و از آدرسی مانند 188.114.98.224 استفاده شود.\n" +
             "• مقدار finalMask روی tlshello-0-len (متد F&F)، مقدار cipherSuites روی semi-python (متد F&F) و فینگرپرینت روی unsafe قرار گیرد.\n" +
             "• مقدار ALPN برای ws روی http/1.1 و برای XHTTP روی h2,http/1.1 تنظیم شود.\n" +
             "• (سایر روش‌ها روی فایروال ایرانسل با محدودیت سرعت آپلود مواجه هستند.)\n" +
@@ -804,7 +853,7 @@ internal fun MainActivity.showFirewallConnectionGuideDialog() {
             "2) WARP with IPv6: Add Cat Warp → WireGuard → IPv6 → Scan → Name & Save.\n" +
             "3) MASQUE/H2: Add Cat Warp → MASQUE-HTTP/2 → Scan → Name & Save.\n\n" +
             "🟧 Irancell Firewall Methods:\n" +
-            "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.0; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP). In Cat these configs automatically run on the built-in Xray core, so the tlshello split really happens (if Xray does not start, the fragmenting proxy is tried); cipherSuites=semi-python is not a real cipher name and Xray ignores it too; fingerprint=unsafe means plain TLS — if it does not connect, try WARP or MASQUE/H2.\n" +
+            "1) CDN/Worker with F&F (fixes upload throttling): clear echConfigList; IP e.g. 188.114.98.224; finalMask=tlshello-0-len; cipherSuites=semi-python; fingerprint=unsafe; ALPN=http/1.1 (ws) or h2,http/1.1 (XHTTP). In Cat these configs automatically run on the built-in Xray core, so the tlshello split really happens (if Xray does not start, the fragmenting proxy is tried); cipherSuites=semi-python is not a real cipher name and Xray ignores it too; fingerprint=unsafe means plain TLS — if it does not connect, try WARP or MASQUE/H2.\n" +
             "2) WARP: Add Cat Warp → WireGuard → Any IP → Scan → Save.\n" +
             "3) MASQUE/H2: Same as MCI.\n\n" +
             "🔓 3) Sanction Bypass (warp -> psiphon/tor):\n" +
@@ -819,7 +868,9 @@ internal fun MainActivity.showFirewallConnectionGuideDialog() {
         .setNeutralButton(if (isFarsi) "➕ افزودن Cat Warp" else "➕ Add Cat Warp") { _, _ ->
             showAddAetherDialog()
         }
-        .setPositiveButton(android.R.string.ok, null)
+        .setPositiveButton(if (isFarsi) "🧭 DNS / وی‌پی‌اس / هاست" else "🧭 DNS / VPS / host") { _, _ ->
+            showDnsCfHostFreeMethodsDialog()
+        }
         .create()
         .showCatClientDialog()
 }

@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta292] — 2026-11-09 (Panel 6.89.0)
+
+Owner: what else still works — DNS, Cloudflare, VPS, host, free VPNs.
+
+### Added
+- **Finder «DNS / کلودفلر / وی‌پی‌اس / هاست / رایگان»:** one list; tap runs Cat DNS, Psiphon, Cat Warp, Worker panel (not Pages), paste your VPS, Node host, Vercel xHTTP, Proton/Wind/SSTP/Outline, public Hysteria2/WG, Cat GP, or GitHub free configs. No extra home buttons. NaiveProxy is not a Cat engine.
+
 ## [1.10.0-beta291] — 2026-11-08 (Panel 6.89.0)
 
 Owner: spoofing must actually apply; free Cat DNS with assigned resolvers; refresh 2026 methods.

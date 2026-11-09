@@ -29,9 +29,15 @@
 | AmneziaWG junk + هدر | UDP شبیه ترافیک معمولی | Cat Warp Amnezia؛ تلگرام `.conf` (beta290) |
 | MASQUE-H2 روی ۴۴۳ | شبیه HTTPS | Cat Warp → MASQUE-H2 |
 | تانل DNS (dnstt) | فقط DNS عبور می‌کند | شبکه‌های رایگان → Cat DNS (beta291) |
-| VLESS + REALITY | بدون فرگمنت | ساب کاربر / تعمیر کانفیگ |
+| VLESS + REALITY روی وی‌پی‌اس خودت | شبیه HTTPS واقعی | بچسبان در اشتراک‌ها |
+| VLESS WS/xHTTP پشت ورکر کلودفلر | CDN؛ `*.pages.dev` فیلتر | جادوگر پنل (ورکر) / رله Vercel |
+| Hysteria2 / TUIC (UDP) | بعضی خطوط UDP را می‌بندند | جستجو → Hysteria2 رایگان؛ یا کانفیگ خودت |
+| سایفون / Proton / Wind / SSTP / Outline | رایگان؛ DPI گاهی می‌بندد | شبکه‌های رایگان |
+| Cat GP (اسکریپت گوگل) | وقتی فقط گوگل باز است | Cat GP — فقط مرورگر |
 | اسپوف SNI تکه‌تکه | DPI ری‌اسمبل می‌کند؛ TTL/seq با NAT ملی مرد | اسپوف محلی با پورت ثابت + tiny-frag (beta291) — تضمین عبور نیست |
-| WG / OpenVPN / IKEv2 خام | DPI می‌بندد | نیاور |
+| WG / OpenVPN / IKEv2 خام / NaiveProxy جدا | DPI می‌بندد یا هسته ندارد | نیاور |
+
+**کلودفلر «وی‌پی‌اس» چیست:** خود کلودفلر وی‌پی‌اس نمی‌فروشد. یا (۱) حساب رایگان → ورکر، نه Pages؛ یا (۲) وی‌پی‌اس خودت با Reality/Hysteria2/Amnezia و در صورت نیاز CDN جلوی آن. هاست رایگان Node در تب ابر (Bot-Hosting / Railway).
 
 Plain WireGuard بدون junk، OpenVPN، و اسپوف TTL پایین را دوباره امتحان نکن.
 

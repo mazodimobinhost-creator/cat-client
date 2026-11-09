@@ -12,17 +12,17 @@ class Beta284VpnAndDirectUpdateDownloadTest {
     fun versionIsBeta284() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 358"))
-        assertTrue(gradle.contains("1.10.0-beta291"))
+        assertTrue(gradle.contains("versionCode = 359"))
+        assertTrue(gradle.contains("1.10.0-beta292"))
     }
 
     @Test
     fun racesGithubWithMirrorsAndShowsProgressFile() {
-        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta291/CatClient-V1.10.0-beta291-arm64-v8a.apk"
+        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta292/CatClient-V1.10.0-beta292-arm64-v8a.apk"
         val candidates = GitHubReleaseClient.assetUrlCandidates(apk)
         assertEquals(apk, candidates.first())
         assertTrue(candidates.contains("https://gh-proxy.com/$apk"))
-        assertTrue(candidates.contains("https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta291/CatClient-V1.10.0-beta291-arm64-v8a.apk"))
+        assertTrue(candidates.contains("https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta292/CatClient-V1.10.0-beta292-arm64-v8a.apk"))
         val src = src("AppUpdate.kt")
         assertTrue(src.contains("firstSuccessful"))
         assertTrue(src.contains("Range\", \"bytes=0-255"))

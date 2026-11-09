@@ -12,8 +12,8 @@ class Beta270AppUpdateTest {
     fun versionIsBeta270() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 358"))
-        assertTrue(gradle.contains("1.10.0-beta291"))
+        assertTrue(gradle.contains("versionCode = 359"))
+        assertTrue(gradle.contains("1.10.0-beta292"))
         assertFalse(gradle.contains("versionCode = 336"))
         assertFalse(gradle.contains("1.10.0-beta269"))
     }
