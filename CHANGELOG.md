@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta299] — 2026-11-11 (Panel 6.89.0)
+
+Owner: scan Cloudflare WARP endpoints on the phone (VPN off) and keep the working IP:port as WireGuard / Amnezia / MASQUE inside Cat Warp.
+
+### Added
+- **Cat Warp scan this line:** from the Cat Warp picker (not a new home button), walks WARP endpoints on the current network with the Cat Warp core, keeps the exact `IP:port` that answered, saves AmneziaWG `awg://auto@…` rows Cat connects, and one Cat Warp MASQUE-H2 or WireGuard config. Disconnect first. Exit is a Cloudflare IP, not a country.
+
 ## [1.10.0-beta298] — 2026-11-09 (Panel 6.89.0)
 
 Owner: VPS scripts must actually do the work.

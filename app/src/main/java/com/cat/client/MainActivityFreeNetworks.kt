@@ -126,8 +126,8 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showCatWindDialog() }
     entry(
         t("🚀 Cat Warp — تونل کلودفلر با پینگ زنده", "🚀 Cat Warp — Cloudflare tunnel with live ping"),
-        t("اینو بزنی: پروتکل را انتخاب می‌کنی (وایرگارد برای ایرانسل، MASQUE-H2 برای همراه اول)، پینگ واقعی همان IP:port روی خط تو، بعد وصل می‌شود. خروجی آی‌پی کلودفلر است — تعویض کشور نیست. SSTP جدا در همین فهرست است.",
-            "Tap: pick a protocol (WireGuard for Irancell, MASQUE-H2 for Hamrah-e Aval), live ping of that IP:port on your line, then connect. Exit is a Cloudflare IP — not a country-change VPN. SSTP is a separate item in this list."),
+        t("اینو بزنی: پروتکل را انتخاب می‌کنی (وایرگارد برای ایرانسل، MASQUE-H2 برای همراه اول)، پینگ واقعی همان IP:port روی خط تو، یا «اسکن این خط» تا اندپوینت باز همین اینترنت پیدا شود و کانفیگ وایرگارد/Amnezia ساخته شود. خروجی آی‌پی کلودفلر است — تعویض کشور نیست. SSTP جدا در همین فهرست است.",
+            "Tap: pick a protocol (WireGuard for Irancell, MASQUE-H2 for Hamrah-e Aval), live ping of that IP:port on your line, or «Scan this line» to find an open endpoint here and build WireGuard/Amnezia configs. Exit is a Cloudflare IP — not a country-change VPN. SSTP is a separate item in this list."),
         accent = true,
     ) { showCatWarpFreeDialog() }
     entry(
@@ -1524,6 +1524,9 @@ internal fun MainActivity.showCatWarpFreeDialog() {
             val p = display.getOrNull(idx) ?: return@setAdapter
             connectCatWarpFree(p)
         }
+        .setNeutralButton(t("🔍 اسکن این خط", "🔍 Scan this line")) { _, _ ->
+            scanCatWarpOnThisLine()
+        }
         .setNegativeButton(t("بستن", "Close"), null)
         .create()
     shown.setOnDismissListener { pingJob?.cancel() }
@@ -1553,6 +1556,136 @@ internal fun MainActivity.showCatWarpFreeDialog() {
             labels.clear()
             display.forEach { labels += line(it) }
             push()
+        }
+    }
+}
+
+/**
+ * Walk Cloudflare WARP endpoints on THIS network (Cat Warp core, VPN off), keep the exact
+ * IP:port that answered, add AmneziaWG links Cat connects and one Cat Warp config.
+ */
+internal fun MainActivity.scanCatWarpOnThisLine() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    if (currentVpnServiceState != VpnState.Stopped) {
+        Toast.makeText(
+            this,
+            t("اول قطع کنید؛ اسکن باید روی خط خودِ شما (بدون VPN) انجام شود.", "Disconnect first; the scan must run on your own line (no VPN)."),
+            Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+    if (!AetherRuntimeCapabilities.detect().nativeCoreLoaded) {
+        Toast.makeText(
+            this,
+            t("هستهٔ Cat Warp در این نسخه بارگذاری نشد.", "The Cat Warp core is not loaded in this build."),
+            Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+    freeProgress(t("🔍 اسکن اندپوینت روی همین خط…", "🔍 Scanning endpoints on this line…")) { step ->
+        val toml = java.io.File(filesDir, "aether.toml")
+        step(t("۱) کلید WARP…", "1) WARP key…"))
+        withContext(Dispatchers.IO) {
+            runCatching { AetherOperations.provision(AetherMode.WireGuard, toml, null, "both") }
+        }
+        step(t("۲) اسکن WireGuard (۱ تا ۳ دقیقه)…", "2) WireGuard scan (1–3 min)…"))
+        val wg = withContext(Dispatchers.IO) {
+            AetherOperations.scan(AetherMode.WireGuard, toml, "both", scanMode = "turbo").getOrNull().orEmpty()
+        }
+        wg.take(8).forEach { step("✅ WG ${it.peer} · ${it.rttMillis} ms") }
+        step(t("۳) اسکن MASQUE HTTP/2…", "3) MASQUE HTTP/2 scan…"))
+        val h2 = withContext(Dispatchers.IO) {
+            AetherOperations.scan(AetherMode.MasqueHttp2, toml, "v4", "h2", scanMode = "turbo").getOrNull().orEmpty()
+        }
+        h2.take(8).forEach { step("✅ H2 ${it.peer} · ${it.rttMillis} ms") }
+        val awg = CatWarpFreePlanner.awgLinksFromPeers(wg.map { it.peer })
+        val vanilla = wg.mapNotNull { hit ->
+            CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { peer ->
+                CatWarpFreePlanner.wireguardUri(peer, "Cat Warp WG $peer")
+            }
+        }.distinct()
+        val links = (awg + vanilla).distinct()
+        if (links.isEmpty() && wg.isEmpty() && h2.isEmpty()) {
+            freeResult(
+                t("روی این خط اندپوینت باز پیدا نشد", "No open endpoint on this line"),
+                listOf(
+                    t(
+                        "VPN خاموش بود. اگر همراه اول هستید MASQUE را از فهرست Cat Warp بزنید.",
+                        "VPN was off. On Hamrah-e Aval try MASQUE from the Cat Warp list.",
+                    ),
+                ),
+                null,
+                "",
+            )
+            return@freeProgress
+        }
+        var subId: String? = null
+        if (links.isNotEmpty()) {
+            step(t("ذخیره وایرگارد/Amnezia با همان IP:port…", "Saving WireGuard/Amnezia with the same IP:port…"))
+            val store = FreeNetworkStore(this@scanCatWarpOnThisLine)
+            val name = "$amneziaSubscriptionPrefix · Cat Warp"
+            subId = saveFreeSubscription(store.warpAwgSubId, name, links.joinToString("\n"))
+            store.warpAwgSubId = subId
+        }
+        val bestH2 = h2.firstOrNull()?.let { hit ->
+            CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { hit.copy(peer = it) }
+        }
+        val bestWg = wg.firstOrNull()?.let { hit ->
+            CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { hit.copy(peer = it) }
+        }
+        val best = bestH2 ?: bestWg
+        if (best != null) {
+            val mode = if (bestH2 != null) AetherMode.MasqueHttp2 else AetherMode.WireGuard
+            val cur = aetherPreferenceStore.read()
+            val ready = cur.copy(
+                enabled = true,
+                mode = mode,
+                chainTarget = "none",
+                endpoint = best.peer,
+                ipScan = CatWarpFreePlanner.ipScanForPeer(best.peer),
+                masqueTransport = if (mode == AetherMode.MasqueHttp2) "h2" else cur.masqueTransport,
+                endpointScannedAt = System.currentTimeMillis(),
+                profileName = "Cat Warp · ${best.peer}",
+            )
+            saveAetherConfigIntoMainSubscriptionList(ready, activateAetherEngine = true, replaceAll = true) {
+                renderSubscriptions()
+            }
+        } else {
+            withContext(Dispatchers.Main) { renderSubscriptions() }
+        }
+        val report = buildList {
+            add(t("✅ ${awg.size} AmneziaWG · ${vanilla.size} وایرگارد", "✅ ${awg.size} AmneziaWG · ${vanilla.size} WireGuard"))
+            wg.take(5).forEach { add("WG ${it.peer}") }
+            h2.take(5).forEach { add("MASQUE ${it.peer}") }
+            if (best != null) add("Cat Warp ${best.peer}")
+        }
+        withContext(Dispatchers.Main) {
+            val box = freeBox()
+            box.addView(freeText(report.joinToString("\n"), 12f))
+            box.addView(
+                freeText(
+                    t(
+                        "خروجی آی‌پی کلودفلر است نه کشور. پورت همان است که جواب داد.",
+                        "Exit is a Cloudflare IP, not a country. Port is the one that answered.",
+                    ),
+                    12.5f,
+                    TEXT_PRIMARY,
+                ),
+                freeLp(8),
+            )
+            val connectSubId = subId
+            val builder = MaterialAlertDialogBuilder(this@scanCatWarpOnThisLine)
+                .setTitle(t("✅ اسکن تمام شد", "✅ Scan finished"))
+                .setView(ScrollView(this@scanCatWarpOnThisLine).apply { addView(box) })
+                .setNegativeButton(t("بستن", "Close"), null)
+                .setNeutralButton(t("📋 دیدن کانفیگ‌ها", "📋 See configs")) { _, _ -> openScreen(SCREEN_SERVERS) }
+            if (best != null) {
+                builder.setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ -> connectCatWarpAfterSave() }
+            } else if (connectSubId != null) {
+                builder.setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ -> connectFreeSubscription(connectSubId) }
+            }
+            builder.create().showCatClientDialog()
         }
     }
 }
