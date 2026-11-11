@@ -16,7 +16,7 @@ import kotlin.math.sin
  * Home strip shown while connected: hops on this line and a packet moving along them.
  * Not a new button. Uses the measured IPs and the connected protocol.
  */
-class ConnectionPathView(context: Context) : View(context) {
+internal class ConnectionPathView(context: Context) : View(context) {
     private val palette = CatClientDesignTokens.forContext(context)
 
     private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG)
