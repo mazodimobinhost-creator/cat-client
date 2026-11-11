@@ -109,8 +109,8 @@ class Beta263CatWindTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 370"))
-        assertTrue(gradle.contains("1.10.0-beta303"))
+        assertTrue(gradle.contains("versionCode = 371"))
+        assertTrue(gradle.contains("1.10.0-beta304"))
     }
 
     private fun src(name: String): String = listOf(

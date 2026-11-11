@@ -266,7 +266,7 @@ class MainActivity : Activity() {
     internal var liveSelectableConnectionFingerprints: Set<String> = emptySet()
 
     internal lateinit var connectionGlobe: ConnectionGlobeView
-    internal lateinit var connectionPathWebView: ConnectionPathWebView
+    internal lateinit var connectionPathView: ConnectionPathView
     internal lateinit var connectionRealIpText: TextView
     @Volatile internal var liveGeoTunneled: Boolean = false
     private var liveGeoDirectAttempted: Boolean = false
@@ -2924,7 +2924,7 @@ class MainActivity : Activity() {
                 info.colo?.let { colo -> append(" · ").append(colo) }
             }
             connectionGlobe.setDestination(info.flag, label, info.ip)
-            if (::connectionPathWebView.isInitialized) {
+            if (::connectionPathView.isInitialized) {
                 renderConnectionPath(if (tunneledAtFetch) VpnState.Started else buttonModel.state)
             }
             if (::connectionCountryText.isInitialized && liveGeo != null && tunneledAtFetch) {
@@ -3136,10 +3136,17 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Drive HTML path on Home for the selected config. CatPath.load on every
-     * disconnect/config change. setState follows the real VPN, not a timer. */
+    /** Home hops: phone → how you connected → edge → exit. Globe stays the switch. */
     internal fun renderConnectionPath(state: VpnState) {
-        if (!::connectionPathWebView.isInitialized) return
+        if (!::connectionPathView.isInitialized) return
+        val live = state == VpnState.Started || state == VpnState.Starting || state is VpnState.Error
+        if (::connectActionButton.isInitialized) {
+            connectActionButton.visibility = if (live) View.VISIBLE else View.GONE
+        }
+        if (!live) {
+            connectionPathView.bind(null)
+            return
+        }
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val selected = connectionSelectionPreferenceStore.readSelectedProfile(
             selectedSubscriptionId,
@@ -3150,43 +3157,31 @@ class MainActivity : Activity() {
             ?: selected
         val tag = activeConnectionTag.ifBlank { profile?.tag.orEmpty() }
         val geo = liveGeo?.takeIf { liveGeoTunneled }
-        val failRaw = (state as? VpnState.Error)?.message
-        val failMsg = failRaw?.let { ConnectionFaultExplainer.explain(it).title(isPersianUi()) }
-        val json = ConnectionPath.toPathJson(
-            profile = profile,
-            geo = geo,
-            tag = tag,
-            failAt = if (state is VpnState.Error) ConnectionPath.failStep(failRaw) else null,
-            failMsg = if (state is VpnState.Error) failMsg else null,
-        )
+        val fa = isPersianUi()
         val catGp = CatGpEngine.isActiveTag(tag) || profile?.let(CatGpEngine::isProfile) == true
+        var peer: String? = null
+        var peerTitle: String? = null
         if (catGp) {
-            val sni = CatGpEngine.frontSnis(this).firstOrNull()
             val ip = CatGpEngine.frontIps(this).firstOrNull()?.takeIf { !LiveNetPing.isLoopback(it) }
-            ConnectionPath.applyEdge(
-                json,
-                name = tag.ifBlank { "Cat GP" },
-                host = sni ?: ip,
-                ip = ip,
-                sni = sni,
-                port = 443,
-                cdn = true,
-                protocol = "https",
-                transport = "h2",
-                security = "tls",
-            )
+            val sni = CatGpEngine.frontSnis(this).firstOrNull()
+            peer = ip?.let { host -> if (':' in host) "[$host]:443" else "$host:443" } ?: sni
+            peerTitle = when {
+                sni.orEmpty().contains("google", ignoreCase = true) -> if (fa) "گوگل" else "Google"
+                sni.orEmpty().contains("cloudflare", ignoreCase = true) -> "Cloudflare"
+                else -> if (fa) "لبه" else "Edge"
+            }
         }
-        val live = state == VpnState.Started || state == VpnState.Starting || state is VpnState.Error
-        if (!live || (json.optString("host").isBlank() && json.optString("ip").isBlank())) {
-            connectionPathWebView.bind(null, "ready", null)
-            return
-        }
-        val pathState = when (state) {
-            VpnState.Started -> "connected"
-            is VpnState.Error -> "failed"
-            else -> "connecting"
-        }
-        connectionPathWebView.bind(json, pathState, failMsg)
+        connectionPathView.bind(
+            ConnectionPath.snapshot(
+                fa = fa,
+                profile = profile,
+                geo = geo,
+                chainHops = activeChainHopCount,
+                tag = tag,
+                peerOverride = peer,
+                peerTitle = peerTitle,
+            ),
+        )
     }
 
     /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */
@@ -3326,9 +3321,14 @@ class MainActivity : Activity() {
                 heroStateText.setOnClickListener { showConnectionFaultDialog(state.message) }
             } else {
                 heroStateText.text = getString(presentation.titleRes)
-                heroStateText.contentDescription = null
-                heroStateText.setOnClickListener(null)
-                heroStateText.isClickable = false
+                heroStateText.contentDescription = getString(buttonModel.labelRes())
+                if (state == VpnState.Started || state == VpnState.Starting) {
+                    heroStateText.setOnClickListener { handleButtonClick() }
+                    heroStateText.isClickable = true
+                } else {
+                    heroStateText.setOnClickListener(null)
+                    heroStateText.isClickable = false
+                }
             }
         }
         if (::homeLocationPill.isInitialized) homeLocationPill.visibility = if (state == VpnState.Started) View.VISIBLE else View.GONE

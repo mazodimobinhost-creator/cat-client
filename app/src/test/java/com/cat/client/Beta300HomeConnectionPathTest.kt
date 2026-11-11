@@ -14,8 +14,8 @@ class Beta300HomeConnectionPathTest {
     fun versionIsBeta300() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 370"))
-        assertTrue(gradle.contains("1.10.0-beta303"))
+        assertTrue(gradle.contains("versionCode = 371"))
+        assertTrue(gradle.contains("1.10.0-beta304"))
     }
 
     @Test
@@ -72,21 +72,44 @@ class Beta300HomeConnectionPathTest {
         val masque = ConnectionPath.protocolLabel("masque-h2", "Cat Warp", fa = false)
         assertEquals("Cat Warp", masque)
         assertEquals("Cat GP", ConnectionPath.protocolLabel("http", "🌐 Cat GP", fa = true))
+        val catGp = ConnectionProfile(
+            tag = "🌐 Cat GP",
+            type = "http",
+            server = "127.0.0.1",
+            port = 10871,
+            transport = "tcp",
+            validationHost = "127.0.0.1",
+        )
+        val gp = ConnectionPath.snapshot(
+            fa = true,
+            profile = catGp,
+            geo = geo,
+            chainHops = 1,
+            tag = "🌐 Cat GP",
+            peerOverride = "216.239.38.120:443",
+            peerTitle = "گوگل",
+        )
+        assertTrue(gp.caption.contains("Cat GP"))
+        assertTrue(gp.hops.any { it.title == "گوگل" && it.detail == "216.239.38.120:443" })
+        assertTrue(gp.hops.any { it.title == "خروجی" && it.detail == "1.1.1.1" })
+        assertFalse(gp.hops.any { it.detail.contains("127.0.0.1") })
+        assertFalse(gp.hops.any { it.detail.contains("10871") })
     }
 
     @Test
     fun homeShowsPathWhenConnectedWithoutExtraButton() {
         val dash = src("MainActivityDashboard.kt")
-        assertTrue(dash.contains("connectionPathWebView = ConnectionPathWebView"))
-        assertTrue(dash.contains("heroFrame.addView"))
-        assertTrue(dash.contains("connectionPathWebView"))
+        assertTrue(dash.contains("connectionPathView = ConnectionPathView"))
+        assertTrue(dash.contains("addView(connectionPathView"))
+        assertTrue(dash.contains("addView(connectActionButton"))
+        assertFalse(dash.contains("ConnectionPathWebView"))
         assertFalse(dash.contains("Protocol Explorer") || dash.contains("protocol-explorer"))
         val main = src("MainActivity.kt")
         assertTrue(main.contains("fun renderConnectionPath"))
-        assertTrue(main.contains("ConnectionPath.toPathJson"))
-        assertTrue(main.contains("CatPath") || src("ConnectionPathWebView.kt").contains("CatPath.load"))
+        assertTrue(main.contains("ConnectionPath.snapshot"))
+        assertTrue(main.contains("connectActionButton.visibility = if (live) View.VISIBLE"))
         assertTrue(main.contains("renderConnectionPath(state)"))
-        assertFalse(src("MainActivityGuides.kt").contains("ConnectionPathWebView"))
+        assertFalse(src("MainActivityGuides.kt").contains("ConnectionPathView"))
     }
 
     private fun src(name: String): String = listOf(

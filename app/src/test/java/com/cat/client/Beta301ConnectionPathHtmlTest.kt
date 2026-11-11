@@ -14,8 +14,8 @@ class Beta301ConnectionPathHtmlTest {
     fun versionIsBeta301() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 370"))
-        assertTrue(gradle.contains("1.10.0-beta303"))
+        assertTrue(gradle.contains("versionCode = 371"))
+        assertTrue(gradle.contains("1.10.0-beta304"))
     }
 
     @Test
@@ -131,14 +131,10 @@ class Beta301ConnectionPathHtmlTest {
         assertTrue(wv.contains("allowFileAccessFromFileURLs = false"))
         assertFalse(wv.contains("addJavascriptInterface("))
         val dash = src("MainActivityDashboard.kt")
-        assertTrue(dash.contains("ConnectionPathWebView"))
-        assertTrue(src("MainActivity.kt").contains("CatPath.setState") || wv.contains("CatPath.setState"))
-        val main = src("MainActivity.kt")
-        assertTrue(main.contains("readSelectedProfile"))
-        assertTrue(wv.contains("CatPath.load(\$j)}catch") || wv.contains("CatPath.load(\$j)"))
-        assertFalse(main.contains("val hide = state == VpnState.Stopped"))
-        assertTrue(wv.contains("\"ready\""))
-        assertTrue(dash.contains("heroFrame.addView"))
+        assertTrue(dash.contains("ConnectionPathView"))
+        assertFalse(dash.contains("ConnectionPathWebView"))
+        assertTrue(wv.contains("CatPath.setState"))
+        assertTrue(src("MainActivity.kt").contains("connectActionButton.visibility = if (live) View.VISIBLE"))
     }
 
     @Test

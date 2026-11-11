@@ -400,12 +400,11 @@ internal fun MainActivity.buildDashboard(): View {
             true
         }
     }
-    connectionPathWebView = ConnectionPathWebView(this).apply {
+    connectionPathView = ConnectionPathView(this).apply {
         visibility = View.GONE
-        setOnLongClickListener {
-            handleButtonClick()
-            true
-        }
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { refreshDashboardIp() }
     }
     // Aras-style action capsule: a big 56dp pill. Filled purple gradient
     // while the tunnel is up, state-tinted while switching, quiet glass
@@ -649,7 +648,6 @@ internal fun MainActivity.buildDashboard(): View {
         }
         addView(heroCluster, heroClusterParams)
     }
-    // Connection Path sits in the hero (the circled globe) when connected — not a block under the pill.
     homeHintText = TextView(this).apply {
         setText(R.string.portal_hint)
         textSize = 14f
@@ -741,14 +739,18 @@ internal fun MainActivity.buildDashboard(): View {
             addView(homeHintText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
         addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
+        addView(connectionPathView, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
+            marginStart = dp(8)
+            marginEnd = dp(8)
+        })
+        addView(connectActionButton, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(10)
+            marginStart = dp(24)
+            marginEnd = dp(24)
+        })
         addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     }
-    val pathIndex = heroFrame.indexOfChild(heroCluster).takeIf { it >= 0 } ?: heroFrame.childCount
-    heroFrame.addView(
-        connectionPathWebView,
-        pathIndex,
-        FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) },
-    )
 
     // ---- Location pill (ZedSecure ConnectionInfoPill): flag · city/country · exit IP · ping · chevron.
     connectionCountryText.textSize = 14f
@@ -1071,7 +1073,6 @@ internal fun MainActivity.buildDashboard(): View {
                 addView(trafficRow, contentParams(dp(14)))
                 addView(activeConfigCard, contentParams(dp(8)))
                 addView(realInternetCard, contentParams(dp(8)))
-                addView(connectActionButton, contentParams(dp(14)))
             }
         }
         AppDesign.Pixel -> {
@@ -1088,7 +1089,6 @@ internal fun MainActivity.buildDashboard(): View {
                 addView(activeConfigCard, contentParams(dp(10)))
                 addView(realInternetCard, contentParams(dp(8)))
                 addView(trafficRow, contentParams(dp(3)))
-                addView(connectActionButton, contentParams(dp(14)))
             }
         }
         AppDesign.Old -> dashboardContent.apply {
@@ -1098,7 +1098,6 @@ internal fun MainActivity.buildDashboard(): View {
             addView(trafficRow, contentParams(dp(18)))
             addView(activeConfigCard, contentParams(dp(14)))
             addView(realInternetCard, contentParams(dp(8)))
-            addView(connectActionButton, contentParams(dp(14)))
         }
     }
     // Cat-specific controls (routing rows, VPN/Proxy mode, quota graph) move to the Servers screen.

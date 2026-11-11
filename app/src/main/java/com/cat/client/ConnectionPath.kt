@@ -29,6 +29,8 @@ internal object ConnectionPath {
         geo: IpGeolocation.Info?,
         chainHops: Int,
         tag: String,
+        peerOverride: String? = null,
+        peerTitle: String? = null,
     ): ConnectionPathSnapshot {
         val proto = protocolLabel(profile?.type.orEmpty(), tag, fa)
         val fromPlace = geo?.realCountryName?.takeIf { it.isNotBlank() }
@@ -43,9 +45,12 @@ internal object ConnectionPath {
             detail = fromIp ?: fromPlace,
         )
         hops += ConnectionPathHop(title = proto, detail = "")
-        peerLabel(profile)?.let { peer ->
+        val peer = peerOverride?.trim()?.takeIf { it.isNotBlank() && "127.0.0.1" !in it && it != "::1" }
+            ?: peerLabel(profile)
+        val peerHost = peer?.substringBeforeLast(':')?.removePrefix("[")?.removeSuffix("]")
+        if (peer != null && peerHost != exitIp) {
             hops += ConnectionPathHop(
-                title = if (fa) "سرور" else "Server",
+                title = peerTitle ?: if (fa) "سرور" else "Server",
                 detail = peer,
             )
         }

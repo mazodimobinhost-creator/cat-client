@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta304] — 2026-11-11 (Panel 6.89.0)
+
+Owner: Home path must be readable and Disconnect must work.
+
+### Fixed
+- **Disconnect:** the globe is the switch again. A **قطع اتصال** button sits under the hops while connected.
+- **Path:** native hops under the globe — phone → protocol → edge → exit (real IPs, never `127.0.0.1`). The WebView no longer covers the connect control.
+
 ## [1.10.0-beta303] — 2026-11-11 (Panel 6.89.0)
 
 Owner: Connection Path in the Home globe, auto-plays when connected, no Play button.
