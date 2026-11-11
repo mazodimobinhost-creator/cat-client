@@ -244,10 +244,6 @@ internal fun MainActivity.buildDashboard(): View {
         }
     }
 
-    fun pathWebParams(topMargin: Int = 0): LinearLayout.LayoutParams {
-        return contentParams(topMargin).apply { height = dp(520) }
-    }
-
     // ZedSecure brand header: status chip · log icon · spacer · app name.
     statusDot = View(this).apply {
         background = GradientDrawable().apply {
@@ -406,6 +402,10 @@ internal fun MainActivity.buildDashboard(): View {
     }
     connectionPathWebView = ConnectionPathWebView(this).apply {
         visibility = View.GONE
+        setOnLongClickListener {
+            handleButtonClick()
+            true
+        }
     }
     // Aras-style action capsule: a big 56dp pill. Filled purple gradient
     // while the tunnel is up, state-tinted while switching, quiet glass
@@ -649,6 +649,7 @@ internal fun MainActivity.buildDashboard(): View {
         }
         addView(heroCluster, heroClusterParams)
     }
+    // Connection Path sits in the hero (the circled globe) when connected — not a block under the pill.
     homeHintText = TextView(this).apply {
         setText(R.string.portal_hint)
         textSize = 14f
@@ -742,6 +743,12 @@ internal fun MainActivity.buildDashboard(): View {
         addView(timerText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
         addView(publicServerNotice, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     }
+    val pathIndex = heroFrame.indexOfChild(heroCluster).takeIf { it >= 0 } ?: heroFrame.childCount
+    heroFrame.addView(
+        connectionPathWebView,
+        pathIndex,
+        FrameLayout.LayoutParams(-1, -1).apply { bottomMargin = dp(58) },
+    )
 
     // ---- Location pill (ZedSecure ConnectionInfoPill): flag · city/country · exit IP · ping · chevron.
     connectionCountryText.textSize = 14f
@@ -1061,7 +1068,6 @@ internal fun MainActivity.buildDashboard(): View {
                 addView(headerBlock, contentParams(dp(12)))
                 addView(signalSection, contentParams(dp(0)))
                 addView(locationPill, contentParams(dp(14)))
-                addView(connectionPathWebView, pathWebParams(dp(8)))
                 addView(trafficRow, contentParams(dp(14)))
                 addView(activeConfigCard, contentParams(dp(8)))
                 addView(realInternetCard, contentParams(dp(8)))
@@ -1076,7 +1082,6 @@ internal fun MainActivity.buildDashboard(): View {
                 setColor(withAlpha(zedScheme.onPrimaryContainer, 24))
             }
             pixelCard?.addView(locationPill, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
-            pixelCard?.addView(connectionPathWebView, LinearLayout.LayoutParams(-1, dp(520)).apply { topMargin = dp(8) })
             dashboardContent.apply {
                 addView(headerBlock, contentParams(dp(12)))
                 addView(signalSection, contentParams(dp(8)))
@@ -1089,7 +1094,6 @@ internal fun MainActivity.buildDashboard(): View {
         AppDesign.Old -> dashboardContent.apply {
             addView(headerBlock, contentParams(dp(12)))
             addView(locationPill, contentParams(dp(14)))
-            addView(connectionPathWebView, pathWebParams(dp(8)))
             addView(signalSection, contentParams(dp(4)))
             addView(trafficRow, contentParams(dp(18)))
             addView(activeConfigCard, contentParams(dp(14)))

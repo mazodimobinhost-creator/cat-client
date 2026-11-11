@@ -13,8 +13,8 @@ class Beta281InAppUpdateDownloadTest {
     fun versionIsBeta281() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 369"))
-        assertTrue(gradle.contains("1.10.0-beta302"))
+        assertTrue(gradle.contains("versionCode = 370"))
+        assertTrue(gradle.contains("1.10.0-beta303"))
     }
 
     @Test
@@ -23,7 +23,7 @@ class Beta281InAppUpdateDownloadTest {
         assertTrue(src.contains("fun downloadAsset"))
         assertTrue(src.contains("followAssetRedirect"))
         assertTrue(src.contains("ghfast.top"))
-        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta302/CatClient-V1.10.0-beta302-arm64-v8a.apk"
+        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta303/CatClient-V1.10.0-beta303-arm64-v8a.apk"
         val candidates = GitHubReleaseClient.assetUrlCandidates(apk)
         assertEquals(apk, candidates.first())
         assertTrue(candidates.contains("https://gh-proxy.com/$apk"))

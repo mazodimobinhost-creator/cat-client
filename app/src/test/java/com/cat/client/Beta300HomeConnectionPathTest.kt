@@ -14,8 +14,8 @@ class Beta300HomeConnectionPathTest {
     fun versionIsBeta300() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 369"))
-        assertTrue(gradle.contains("1.10.0-beta302"))
+        assertTrue(gradle.contains("versionCode = 370"))
+        assertTrue(gradle.contains("1.10.0-beta303"))
     }
 
     @Test
@@ -78,7 +78,8 @@ class Beta300HomeConnectionPathTest {
     fun homeShowsPathWhenConnectedWithoutExtraButton() {
         val dash = src("MainActivityDashboard.kt")
         assertTrue(dash.contains("connectionPathWebView = ConnectionPathWebView"))
-        assertTrue(dash.contains("addView(connectionPathWebView") || dash.contains("pixelCard?.addView(connectionPathWebView"))
+        assertTrue(dash.contains("heroFrame.addView"))
+        assertTrue(dash.contains("connectionPathWebView"))
         assertFalse(dash.contains("Protocol Explorer") || dash.contains("protocol-explorer"))
         val main = src("MainActivity.kt")
         assertTrue(main.contains("fun renderConnectionPath"))

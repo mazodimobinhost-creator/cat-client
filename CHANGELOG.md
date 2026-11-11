@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta303] — 2026-11-11 (Panel 6.89.0)
+
+Owner: Connection Path in the Home globe, auto-plays when connected, no Play button.
+
+### Changed
+- **Home hero:** the Drive network diagram covers the circled blob while connecting/connected. No PLAY/STEP bar — `CatPath.setState` runs from the VPN. Cat GP uses the Google/CF front, never `127.0.0.1:10871`. Long-press disconnects.
+
 ## [1.10.0-beta302] — 2026-11-11 (Panel 6.89.0)
 
 Owner: Connection Path on Home for the selected config, not only while the VPN is up.

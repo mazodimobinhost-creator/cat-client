@@ -14,8 +14,8 @@ class Beta301ConnectionPathHtmlTest {
     fun versionIsBeta301() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 369"))
-        assertTrue(gradle.contains("1.10.0-beta302"))
+        assertTrue(gradle.contains("versionCode = 370"))
+        assertTrue(gradle.contains("1.10.0-beta303"))
     }
 
     @Test
@@ -119,6 +119,7 @@ class Beta301ConnectionPathHtmlTest {
         assertTrue(html.contains("window.CatPath={load:"))
         assertTrue(html.contains("function setState"))
         assertTrue(html.contains("#0b1020"))
+        assertTrue(html.contains(".bar{display:none"))
         assertFalse(html.contains("rocket-loader"))
         assertFalse(html.contains("fonts.googleapis"))
         assertFalse(html.contains("addJavascriptInterface("))
@@ -137,6 +138,34 @@ class Beta301ConnectionPathHtmlTest {
         assertTrue(wv.contains("CatPath.load(\$j)}catch") || wv.contains("CatPath.load(\$j)"))
         assertFalse(main.contains("val hide = state == VpnState.Stopped"))
         assertTrue(wv.contains("\"ready\""))
+        assertTrue(dash.contains("heroFrame.addView"))
+    }
+
+    @Test
+    fun applyEdgeReplacesLoopbackForCatGp() {
+        val o = org.json.JSONObject()
+            .put("name", "Cat GP")
+            .put("protocol", "http")
+            .put("host", "127.0.0.1")
+            .put("port", 10871)
+        ConnectionPath.applyEdge(
+            o,
+            host = "www.google.com",
+            ip = "203.0.113.10",
+            sni = "www.google.com",
+            port = 443,
+            cdn = true,
+            protocol = "https",
+            transport = "h2",
+            security = "tls",
+        )
+        assertFalse(o.toString().contains("127.0.0.1"))
+        assertFalse(o.toString().contains("10871"))
+        assertEquals("www.google.com", o.getString("host"))
+        assertEquals("203.0.113.10", o.getString("ip"))
+        assertEquals(443, o.getInt("port"))
+        assertTrue(o.getBoolean("cdn"))
+        assertEquals("https", o.getString("protocol"))
     }
 
     private fun src(name: String): String = listOf(

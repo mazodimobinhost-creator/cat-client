@@ -223,6 +223,39 @@ internal object ConnectionPath {
 
     fun allowedKeys(): Set<String> = PATH_KEYS
 
+    /**
+     * Overlay a real hop (Cat GP Google/CF front, etc.) so Home never shows loopback
+     * as the path. Only values the caller already has — never UUID/password.
+     */
+    fun applyEdge(
+        o: JSONObject,
+        name: String? = null,
+        host: String? = null,
+        ip: String? = null,
+        sni: String? = null,
+        port: Int? = null,
+        cdn: Boolean? = null,
+        protocol: String? = null,
+        transport: String? = null,
+        security: String? = null,
+    ): JSONObject {
+        name?.trim()?.takeIf { it.isNotBlank() }?.let { o.put("name", it.take(40)) }
+        protocol?.trim()?.takeIf { it.isNotBlank() }?.let { o.put("protocol", it.lowercase()) }
+        transport?.trim()?.takeIf { it.isNotBlank() }?.let { o.put("transport", it.lowercase()) }
+        security?.trim()?.takeIf { it.isNotBlank() }?.let { o.put("security", it.lowercase()) }
+        val publicHost = host?.trim()?.removePrefix("[")?.removeSuffix("]")
+            ?.takeIf { it.isNotBlank() && !LiveNetPing.isLoopback(it) }
+        val publicIp = ip?.trim()?.removePrefix("[")?.removeSuffix("]")
+            ?.takeIf { it.isNotBlank() && !LiveNetPing.isLoopback(it) && looksLikeIp(it) }
+        if (!publicHost.isNullOrBlank()) o.put("host", publicHost)
+        if (!publicIp.isNullOrBlank()) o.put("ip", publicIp)
+        sni?.trim()?.takeIf { it.isNotBlank() }?.let { o.put("sni", it) }
+        port?.takeIf { it in 1..65535 }?.let { o.put("port", it) }
+        if (cdn != null) o.put("cdn", cdn)
+        if (cdn == true && !publicIp.isNullOrBlank()) o.put("cdnIp", publicIp)
+        return stripSecrets(o)
+    }
+
     private fun stripSecrets(o: JSONObject): JSONObject {
         val keys = o.keys().asSequence().toList()
         for (k in keys) {

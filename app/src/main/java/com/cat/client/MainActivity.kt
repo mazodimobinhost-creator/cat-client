@@ -3159,15 +3159,32 @@ class MainActivity : Activity() {
             failAt = if (state is VpnState.Error) ConnectionPath.failStep(failRaw) else null,
             failMsg = if (state is VpnState.Error) failMsg else null,
         )
-        if (json.optString("host").isBlank() && json.optString("ip").isBlank()) {
+        val catGp = CatGpEngine.isActiveTag(tag) || profile?.let(CatGpEngine::isProfile) == true
+        if (catGp) {
+            val sni = CatGpEngine.frontSnis(this).firstOrNull()
+            val ip = CatGpEngine.frontIps(this).firstOrNull()?.takeIf { !LiveNetPing.isLoopback(it) }
+            ConnectionPath.applyEdge(
+                json,
+                name = tag.ifBlank { "Cat GP" },
+                host = sni ?: ip,
+                ip = ip,
+                sni = sni,
+                port = 443,
+                cdn = true,
+                protocol = "https",
+                transport = "h2",
+                security = "tls",
+            )
+        }
+        val live = state == VpnState.Started || state == VpnState.Starting || state is VpnState.Error
+        if (!live || (json.optString("host").isBlank() && json.optString("ip").isBlank())) {
             connectionPathWebView.bind(null, "ready", null)
             return
         }
         val pathState = when (state) {
             VpnState.Started -> "connected"
             is VpnState.Error -> "failed"
-            VpnState.Starting -> "connecting"
-            else -> "ready"
+            else -> "connecting"
         }
         connectionPathWebView.bind(json, pathState, failMsg)
     }
