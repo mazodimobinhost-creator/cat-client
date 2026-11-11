@@ -667,7 +667,7 @@ internal fun MainActivity.buildDashboard(): View {
             }
             setOnClickListener { closeConnectionPathDiagram() }
         }
-        connectionPathStage = FrameLayout(this).apply {
+        connectionPathStage = FrameLayout(this@buildDashboard).apply {
             visibility = View.GONE
             clipToOutline = true
             outlineProvider = ViewOutlineProvider.BACKGROUND
