@@ -14,8 +14,8 @@ class Beta300HomeConnectionPathTest {
     fun versionIsBeta300() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 371"))
-        assertTrue(gradle.contains("1.10.0-beta304"))
+        assertTrue(gradle.contains("versionCode = 372"))
+        assertTrue(gradle.contains("1.10.0-beta305"))
     }
 
     @Test
@@ -102,12 +102,18 @@ class Beta300HomeConnectionPathTest {
         assertTrue(dash.contains("connectionPathView = ConnectionPathView"))
         assertTrue(dash.contains("addView(connectionPathView"))
         assertTrue(dash.contains("addView(connectActionButton"))
-        assertFalse(dash.contains("ConnectionPathWebView"))
+        assertTrue(dash.contains("connectionPathWebView = ConnectionPathWebView"))
+        assertTrue(dash.contains("addView(\n            connectionPathStage") || dash.contains("connectionPathStage"))
+        assertTrue(dash.contains("toggleConnectionPathDiagram"))
+        assertTrue(dash.contains("closeConnectionPathDiagram"))
         assertFalse(dash.contains("Protocol Explorer") || dash.contains("protocol-explorer"))
         val main = src("MainActivity.kt")
         assertTrue(main.contains("fun renderConnectionPath"))
         assertTrue(main.contains("ConnectionPath.snapshot"))
+        assertTrue(main.contains("ConnectionPath.toPathJson"))
         assertTrue(main.contains("connectActionButton.visibility = if (live) View.VISIBLE"))
+        assertTrue(main.contains("postDelayed(hidePathAfterConnect, 2200L)"))
+        assertTrue(main.contains("fun setPathDiagramVisible"))
         assertTrue(main.contains("renderConnectionPath(state)"))
         assertFalse(src("MainActivityGuides.kt").contains("ConnectionPathView"))
     }

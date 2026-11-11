@@ -4,6 +4,22 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta305] — 2026-11-11 (Panel 6.89.0)
+
+Owner: Home stays native; the Drive diagram only replaces the circle while connecting.
+
+Chose **(الف)**: rewrite nothing of the dock/cards/nav. Only the hero circle swaps to `connection_path.html?app=1`. Full-page WebView (ب) would replace the native dock and was how the floating widget broke.
+
+### Design vs `cat_home.html` (reference, not pixels)
+- **Typeface:** HTML Vazirmatn — app keeps CatClient display/body/data.
+- **Colour:** HTML `#0e1120` / `#6cc8ff` / `#8b8cf5` — app keeps Zed accent.
+- **Hero:** HTML 216px 2D orb — app keeps Zed blob / Portal / Pixel core (3D).
+- **Path card / IP / traffic / server / dock:** already native; numbers stay live, not the HTML samples.
+- **Diagram:** isometric hops inside the circle only. Auto on connect; 2s ACTIVE then the circle; map FAB reopens; ✕ closes; error stays with a red node. قطع اتصال stays under the hops.
+
+### Added
+- **Circle swap:** `CatPath.load` / `setState` from the real VPN. No `addJavascriptInterface`. UUID/password/keys stay out of JSON.
+
 ## [1.10.0-beta304] — 2026-11-11 (Panel 6.89.0)
 
 Owner: Home path must be readable and Disconnect must work.

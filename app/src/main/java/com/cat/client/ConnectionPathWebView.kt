@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.os.Build
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -11,24 +14,25 @@ import android.webkit.WebViewClient
 import org.json.JSONObject
 
 /**
- * Home WebView for assets/connection_path.html. JS on, no file access to the
+ * Home WebView for assets/connection_path.html?app=1. JS on, no file access to the
  * rest of the device, no addJavascriptInterface. CatPath.load / setState via evaluateJavascript.
+ * Sits in the hero circle only — the rest of Home stays native.
  */
 @SuppressLint("SetJavaScriptEnabled")
 internal class ConnectionPathWebView(context: Context) : WebView(context) {
     private var pageReady = false
     private var pendingJson: String? = null
-    private var pendingState: String = "connecting"
+    private var pendingState: String = "idle"
     private var pendingFail: String? = null
 
     init {
-        visibility = GONE
-        setBackgroundColor(Color.parseColor("#0b1020"))
+        setBackgroundColor(Color.TRANSPARENT)
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         contentDescription = context.getString(R.string.connection_path_title)
         overScrollMode = OVER_SCROLL_NEVER
-        isVerticalScrollBarEnabled = true
+        isVerticalScrollBarEnabled = false
         isHorizontalScrollBarEnabled = false
+        isNestedScrollingEnabled = false
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = false
         settings.databaseEnabled = false
@@ -57,16 +61,15 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
         }
-        loadUrl("file:///android_asset/connection_path.html")
+        loadUrl("file:///android_asset/connection_path.html?app=1")
     }
 
     fun bind(json: JSONObject?, state: String, failMsg: String?) {
         if (json == null) {
-            visibility = GONE
+            pendingJson = null
             pauseJs()
             return
         }
-        visibility = VISIBLE
         pendingJson = json.toString()
         pendingState = state
         pendingFail = failMsg
@@ -76,13 +79,18 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
             "connecting" -> context.getString(R.string.connection_path_connecting)
             else -> context.getString(R.string.connection_path_title)
         }
-        resumeJs()
+        if (visibility == VISIBLE) resumeJs()
         if (pageReady) flush()
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        lockParentScroll(event.actionMasked != MotionEvent.ACTION_UP && event.actionMasked != MotionEvent.ACTION_CANCEL)
+        return super.onTouchEvent(event)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (visibility == VISIBLE) resumeJs() else pauseJs()
+        if (visibility == VISIBLE && pendingJson != null) resumeJs() else pauseJs()
     }
 
     override fun onDetachedFromWindow() {
@@ -93,6 +101,14 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
     override fun onVisibilityAggregated(isVisible: Boolean) {
         super.onVisibilityAggregated(isVisible)
         if (isVisible && pendingJson != null) resumeJs() else pauseJs()
+    }
+
+    private fun lockParentScroll(lock: Boolean) {
+        var p: View? = this
+        while (p != null) {
+            (p.parent as? ViewGroup)?.requestDisallowInterceptTouchEvent(lock)
+            p = p.parent as? View
+        }
     }
 
     private fun resumeJs() {
@@ -106,7 +122,7 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
     private fun flush() {
         val j = pendingJson ?: return
         val st = when (pendingState) {
-            "connected", "failed", "connecting", "ready" -> pendingState
+            "connected", "failed", "connecting", "idle", "ready" -> pendingState
             else -> "ready"
         }
         val msg = pendingFail.orEmpty()

@@ -14,8 +14,8 @@ class Beta301ConnectionPathHtmlTest {
     fun versionIsBeta301() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 371"))
-        assertTrue(gradle.contains("1.10.0-beta304"))
+        assertTrue(gradle.contains("versionCode = 372"))
+        assertTrue(gradle.contains("1.10.0-beta305"))
     }
 
     @Test
@@ -118,23 +118,26 @@ class Beta301ConnectionPathHtmlTest {
         ).first { it.isFile }.readText()
         assertTrue(html.contains("window.CatPath={load:"))
         assertTrue(html.contains("function setState"))
-        assertTrue(html.contains("#0b1020"))
-        assertTrue(html.contains(".bar{display:none"))
+        assertTrue(html.contains("?app=1") || html.contains("app=1"))
+        assertTrue(html.contains("#171a26"))
         assertFalse(html.contains("rocket-loader"))
         assertFalse(html.contains("fonts.googleapis"))
         assertFalse(html.contains("addJavascriptInterface("))
         val wv = src("ConnectionPathWebView.kt")
-        assertTrue(wv.contains("file:///android_asset/connection_path.html"))
+        assertTrue(wv.contains("file:///android_asset/connection_path.html?app=1"))
         assertTrue(wv.contains("javaScriptEnabled = true"))
         assertTrue(wv.contains("domStorageEnabled = false"))
         assertTrue(wv.contains("blockNetworkLoads = true"))
         assertTrue(wv.contains("allowFileAccessFromFileURLs = false"))
+        assertTrue(wv.contains("Color.TRANSPARENT"))
         assertFalse(wv.contains("addJavascriptInterface("))
         val dash = src("MainActivityDashboard.kt")
         assertTrue(dash.contains("ConnectionPathView"))
-        assertFalse(dash.contains("ConnectionPathWebView"))
+        assertTrue(dash.contains("ConnectionPathWebView"))
+        assertTrue(dash.contains("dp(16)"))
         assertTrue(wv.contains("CatPath.setState"))
         assertTrue(src("MainActivity.kt").contains("connectActionButton.visibility = if (live) View.VISIBLE"))
+        assertTrue(src("MainActivity.kt").contains("setPathDiagramVisible(true)"))
     }
 
     @Test

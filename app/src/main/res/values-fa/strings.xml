@@ -422,6 +422,7 @@
     <string name="connection_path_connecting">در حال اتصال</string>
     <string name="connection_path_connected">متصل</string>
     <string name="connection_path_failed">اتصال ناموفق</string>
+    <string name="connection_path_close">بستن مسیر</string>
     <string name="route_location">%1$s  %2$s</string>
     <string name="route_direct_state">بدون فیلترشکن</string>
     <string name="route_real_ip_line">IP واقعی: %1$s %2$s</string>

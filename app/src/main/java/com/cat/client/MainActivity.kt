@@ -97,6 +97,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -267,6 +268,15 @@ class MainActivity : Activity() {
 
     internal lateinit var connectionGlobe: ConnectionGlobeView
     internal lateinit var connectionPathView: ConnectionPathView
+    internal lateinit var connectionPathWebView: ConnectionPathWebView
+    internal lateinit var connectionPathStage: FrameLayout
+    internal lateinit var connectionPathClose: TextView
+    internal var homeHeroCluster: View? = null
+    internal var pathDiagramPinned: Boolean = false
+    private var lastPathKind: String = "idle"
+    private val hidePathAfterConnect = Runnable {
+        if (!pathDiagramPinned) setPathDiagramVisible(false)
+    }
     internal lateinit var connectionRealIpText: TextView
     @Volatile internal var liveGeoTunneled: Boolean = false
     private var liveGeoDirectAttempted: Boolean = false
@@ -3143,10 +3153,6 @@ class MainActivity : Activity() {
         if (::connectActionButton.isInitialized) {
             connectActionButton.visibility = if (live) View.VISIBLE else View.GONE
         }
-        if (!live) {
-            connectionPathView.bind(null)
-            return
-        }
         val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
         val selected = connectionSelectionPreferenceStore.readSelectedProfile(
             selectedSubscriptionId,
@@ -3171,17 +3177,116 @@ class MainActivity : Activity() {
                 else -> if (fa) "لبه" else "Edge"
             }
         }
-        connectionPathView.bind(
-            ConnectionPath.snapshot(
-                fa = fa,
-                profile = profile,
-                geo = geo,
-                chainHops = activeChainHopCount,
-                tag = tag,
-                peerOverride = peer,
-                peerTitle = peerTitle,
-            ),
+        if (!live) {
+            connectionPathView.bind(null)
+        } else {
+            connectionPathView.bind(
+                ConnectionPath.snapshot(
+                    fa = fa,
+                    profile = profile,
+                    geo = geo,
+                    chainHops = activeChainHopCount,
+                    tag = tag,
+                    peerOverride = peer,
+                    peerTitle = peerTitle,
+                ),
+            )
+        }
+        val failMsg = (state as? VpnState.Error)?.message
+        val json = ConnectionPath.toPathJson(
+            profile,
+            geo ?: liveGeo,
+            tag.ifBlank { profile?.displayTag.orEmpty() },
+            failAt = ConnectionPath.failStep(failMsg),
+            failMsg = failMsg,
         )
+        if (catGp) {
+            val frontIp = CatGpEngine.frontIps(this).firstOrNull()?.takeIf { !LiveNetPing.isLoopback(it) }
+            val sni = CatGpEngine.frontSnis(this).firstOrNull()
+            ConnectionPath.applyEdge(
+                json,
+                name = "Cat GP",
+                host = sni ?: frontIp,
+                ip = frontIp,
+                sni = sni,
+                port = 443,
+                cdn = true,
+                protocol = "https",
+                transport = "h2",
+                security = "tls",
+            )
+            val exit = ConnectionPath.publicIp(geo?.ip)
+            if (exit != null) json.put("ip", exit) else json.remove("ip")
+        } else if (!json.has("ip")) {
+            ConnectionPath.publicIp(geo?.ip)?.let { json.put("ip", it) }
+        }
+        val pathState = when {
+            state == VpnState.Starting -> "connecting"
+            state == VpnState.Started -> "connected"
+            state is VpnState.Error -> "failed"
+            pathDiagramPinned -> "ready"
+            else -> "idle"
+        }
+        if (::connectionPathWebView.isInitialized) {
+            connectionPathWebView.bind(json, pathState, failMsg)
+        }
+        when (pathState) {
+            "connecting", "failed" -> {
+                lastPathKind = pathState
+                mainHandler.removeCallbacks(hidePathAfterConnect)
+                setPathDiagramVisible(true)
+            }
+            "connected" -> {
+                val justConnected = lastPathKind != "connected"
+                lastPathKind = pathState
+                if (justConnected) {
+                    setPathDiagramVisible(true)
+                    mainHandler.removeCallbacks(hidePathAfterConnect)
+                    if (!pathDiagramPinned) mainHandler.postDelayed(hidePathAfterConnect, 2200L)
+                }
+            }
+            else -> {
+                lastPathKind = pathState
+                mainHandler.removeCallbacks(hidePathAfterConnect)
+                if (!pathDiagramPinned) setPathDiagramVisible(false)
+            }
+        }
+    }
+
+    /** Swap the hero circle with the path diagram. Connect / قطع اتصال stay native below. */
+    internal fun setPathDiagramVisible(show: Boolean) {
+        if (!::connectionPathStage.isInitialized) return
+        connectionPathStage.visibility = if (show) View.VISIBLE else View.GONE
+        when (appDesign) {
+            AppDesign.Portal -> portalView?.visibility = if (show) View.INVISIBLE else View.VISIBLE
+            AppDesign.Pixel -> pixelCore?.visibility = if (show) View.INVISIBLE else View.VISIBLE
+            AppDesign.Old -> if (::connectionBlob.isInitialized) {
+                connectionBlob.visibility = if (show) View.INVISIBLE else View.VISIBLE
+            }
+        }
+        homeHeroCluster?.visibility = if (show) View.INVISIBLE else View.VISIBLE
+        if (!show && ::heroPingAction.isInitialized) {
+            heroPingAction.visibility = if (buttonModel.state == VpnState.Started) View.VISIBLE else View.GONE
+        }
+    }
+
+    internal fun toggleConnectionPathDiagram() {
+        if (!::connectionPathStage.isInitialized) return
+        if (connectionPathStage.visibility == View.VISIBLE) {
+            pathDiagramPinned = false
+            setPathDiagramVisible(false)
+            return
+        }
+        pathDiagramPinned = true
+        mainHandler.removeCallbacks(hidePathAfterConnect)
+        renderConnectionPath(buttonModel.state)
+        setPathDiagramVisible(true)
+    }
+
+    internal fun closeConnectionPathDiagram() {
+        pathDiagramPinned = false
+        mainHandler.removeCallbacks(hidePathAfterConnect)
+        setPathDiagramVisible(false)
     }
 
     /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */
@@ -3596,6 +3701,12 @@ class MainActivity : Activity() {
         // Zed HomeFabCluster: anchored at the blob's lower-right, running down past the state label.
         heroClusterParams?.topMargin = target / 2 + blob / 2 - dp(32)
         connectionBlob.layoutParams = (connectionBlob.layoutParams as FrameLayout.LayoutParams).apply { width = blob; height = blob }
+        if (::connectionPathStage.isInitialized) {
+            val pathH = (target - dp(52)).coerceIn(dp(180), dp(340))
+            connectionPathStage.layoutParams = (connectionPathStage.layoutParams as FrameLayout.LayoutParams).apply {
+                height = pathH
+            }
+        }
         hero.layoutParams = hero.layoutParams.apply { height = target }
         hero.post {
             homeStageFitting = false

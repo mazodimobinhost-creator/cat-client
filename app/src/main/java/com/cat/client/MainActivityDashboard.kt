@@ -621,14 +621,17 @@ internal fun MainActivity.buildDashboard(): View {
     }
     val heroCluster = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        addView(
-            roundAction(R.drawable.ic_map, R.string.map_title) { showMapPage() },
-            LinearLayout.LayoutParams(dp(54), dp(54)),
-        )
+        val mapAction = roundAction(R.drawable.ic_map, R.string.connection_path_title) { toggleConnectionPathDiagram() }
+        mapAction.setOnLongClickListener {
+            showMapPage()
+            true
+        }
+        addView(mapAction, LinearLayout.LayoutParams(dp(54), dp(54)))
         heroPingAction = roundAction(R.drawable.ic_speedometer, R.string.speedtest_title) { showSpeedTestPage() }
         addView(heroPingAction, LinearLayout.LayoutParams(dp(54), dp(54)).apply { topMargin = dp(10) })
         refreshActionButton.visibility = View.GONE
     }
+    homeHeroCluster = heroCluster
     val heroFrame = FrameLayout(this).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         clipChildren = false
@@ -647,6 +650,51 @@ internal fun MainActivity.buildDashboard(): View {
             topMargin = dp(228)
         }
         addView(heroCluster, heroClusterParams)
+        connectionPathWebView = ConnectionPathWebView(this@buildDashboard)
+        connectionPathClose = TextView(this@buildDashboard).apply {
+            text = "✕"
+            gravity = Gravity.CENTER
+            textSize = 16f
+            typeface = CatClientBodyBoldTypeface
+            setTextColor(Color.WHITE)
+            contentDescription = getString(R.string.connection_path_close)
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#10131e"))
+                setStroke(dp(1), Color.parseColor("#2b3350"))
+            }
+            setOnClickListener { closeConnectionPathDiagram() }
+        }
+        connectionPathStage = FrameLayout(this).apply {
+            visibility = View.GONE
+            clipToOutline = true
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(28).toFloat()
+                setColor(Color.TRANSPARENT)
+            }
+            addView(connectionPathWebView, FrameLayout.LayoutParams(-1, -1))
+            addView(
+                connectionPathClose,
+                FrameLayout.LayoutParams(dp(34), dp(34)).apply {
+                    gravity = Gravity.START or Gravity.TOP
+                    topMargin = dp(8)
+                    marginStart = dp(8)
+                },
+            )
+        }
+        addView(
+            connectionPathStage,
+            FrameLayout.LayoutParams(-1, dp(320)).apply {
+                gravity = Gravity.TOP
+                marginStart = dp(16)
+                marginEnd = dp(16)
+                topMargin = dp(4)
+            },
+        )
     }
     homeHintText = TextView(this).apply {
         setText(R.string.portal_hint)
@@ -724,6 +772,8 @@ internal fun MainActivity.buildDashboard(): View {
         }
         AppDesign.Old -> Unit
     }
+    heroFrame.bringChildToFront(connectionPathStage)
+    heroFrame.bringChildToFront(heroCluster)
     val signalSection = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL

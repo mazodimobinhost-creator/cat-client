@@ -22,7 +22,7 @@
 
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
-| `MainActivity.kt` | 3845 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivity.kt` | 3955 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAmneziaSstp.kt` | 664 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 16 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1753 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 12 JVM · 9 panel (see `affected-tests.py`) |
@@ -30,7 +30,7 @@
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 16 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityConnectionTesting.kt` | 1928 | Connection testing page (ping/speed lists, chain picker). | 14 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityDashboard.kt` | 1423 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityDashboard.kt` | 1472 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 12 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 14 JVM · 9 panel (see `affected-tests.py`) |
@@ -271,7 +271,7 @@
 | `ConnectionGlobeView.kt` | 426 | ConnectionGlobeView — a rotating 3D orthographic globe on the Cat dashboard: - Natural Earth 110m land projected onto a sphere (not a flat map), -… | — · — |
 | `ConnectionOrbView.kt` | 882 | A smooth liquid orb button with gentle morphing, layered gradients, and particle effects - matching the Cat Client design. | — · — |
 | `ConnectionPathView.kt` | 195 | Home strip shown while connected: hops on this line and a packet moving along them. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
-| `ConnectionPathWebView.kt` | 126 | Home WebView for assets/connection_path.html. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
+| `ConnectionPathWebView.kt` | 142 | Home WebView for assets/connection_path.html?app=1. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
 | `DashboardStatePresentation.kt` | 128 | — | — · — |
 | `DashboardViews.kt` | 819 | — | — · android-contrast |
 | `DebouncedTextWatcher.kt` | 38 | beta217: several boxes re-did heavy work on *every* key press — decoding every pasted config to show the «detected N configs» line, filtering and r… | — · — |
@@ -343,16 +343,16 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_285 Kotlin files, 120068 lines._
+_285 Kotlin files, 120243 lines._
 
 ## MainActivity screens — function index
 
 Every member of MainActivity.kt and every extension in the area files, with its line. Search this list
 for the dialog/button you want to change.
 
-### `MainActivity.kt` (112 functions)
+### `MainActivity.kt` (115 functions)
 
-`delayUntilNextRefresh`:108, `initializeContent`:116, `attachBaseContext`:470, `onCreate`:488, `onNewIntent`:594, `handleCatClientDeepLink`:606, `buildAppShell`:682, `setConnectionTestingPageVisible`:796, `closeConnectionTestingPage`:857, `addDockTab`:865, `glassDockBackground`:902, `setDockExpanded`:914, `dockPillBackground`:934, `renderDockSelection`:949, `layoutDockWidths`:983, `openScreen`:1029, `cloudScannerSwitch`:1046, `showAppTab`:1086, `buildHomeUsageCard`:1109, `renderHomeUsageCard`:1174, `vpnStateEqualsStarted`:1225, `renderFreeConfigs`:1228, `renderConnectionDetails`:1256, `renderDashboardLocalEndpoint`:1279, `renderDashboardConnectionMetadataVisibility`:1295, `localizedError`:1308, `onStart`:1311, `onStop`:1366, `onResume`:1385, `prewarmSubscriptionSnapshots`:1399, `onPause`:1412, `onSaveInstanceState`:1418, `onBackPressed`:1430, `onDestroy`:1439, `onTrimMemory`:1453, `onActivityResult`:1469, `onRequestPermissionsResult`:1505, `setSpeedText`:1526, `applyZedHomeState`:1549, `refreshScannerSelection`:1666, `renderScannerResults`:1673, `showPanelWizardDone`:1824, `handleAutomaticConnectionProgress`:1888, `handleStateChanged`:1901, `applyRuntimeState`:1964, `handleButtonClick`:2022, `handleRefreshClick`:2056, `refreshLocationOptions`:2088, `fetchPrivateSubscriptionOnLoad`:2117, `updateLocationOptions`:2137, `handleConnectionSelected`:2177, `renderConnectionSelection`:2255, `renderHomeConnectionRows`:2295, `showLocationSelector`:2329, `dialogLocationOptions`:2351, `handleLocationSelected`:2384, `renderLocationSelection`:2416, `automaticLocationOption`:2434, `renderRoutingModeSelection`:2437, `handleDnsPrivacySelected`:2446, `commitDnsPrivacyEndpoint`:2463, `renderDnsPrivacySelection`:2506, `commitFrontingIpInput`:2554, `renderLanSharingControls`:2597, `renderConnectionOptionsControls`:2631, `renderFrontingIpChips`:2685, `renderAdvancedControls`:2715, `beginConnectFlow`:2734, `requestNotificationPermissionIfNeeded`:2742, `requestVpnPermissionThenConnect`:2762, `startPendingConnectAction`:2788, `startVpnService`:2795, `requestActiveConnectionSwitch`:2807, `renderAlwaysOnStatus`:2817, `catGpLiveInfo`:2830, `catGpLocationLine`:2855, `beginLiveGeoCheck`:2870, `activePhysicalNetwork`:2943, `renderPingValue`:2955, `measureTunnelPingQuietly`:2966, `runTunnelPing`:2997, `appTrafficRidesVpn`:3050, `refreshDashboardIp`:3058, `runPingAll`:3068, `renderConnectionPath`:3140, `renderRealIpLine`:3188, `currentVpnStateIsStarted`:3199, `pendingGlobeCountry`:3201, `connectPillGradient`:3213, `applyConnectPillStyle`:3222, `connectHapticEnabled`:3247, `connectHaptic`:3250, `isPersianUi`:3266, `showConnectionFaultDialog`:3270, `renderState`:3297, `startTimerUpdates`:3493, `setTimerText`:3499, `toggleAppTheme`:3513, `updateTransferSpeeds`:3520, `renderTrafficBars`:3563, `fitHomeStage`:3581, `selectedRowColor`:3607, `applyHomeBackdrop`:3610, `syncShellBackdrop`:3620, `resetTransferSpeeds`:3641, `bytesPerSecond`:3658, `formatDuration`:3663, `glassSurfaceDrawable`:3671, `catClientPopupMenu`:3767, `withAlpha`:3770, `dp`:3783, `accentFor`:3785
+`delayUntilNextRefresh`:109, `initializeContent`:117, `attachBaseContext`:480, `onCreate`:498, `onNewIntent`:604, `handleCatClientDeepLink`:616, `buildAppShell`:692, `setConnectionTestingPageVisible`:806, `closeConnectionTestingPage`:867, `addDockTab`:875, `glassDockBackground`:912, `setDockExpanded`:924, `dockPillBackground`:944, `renderDockSelection`:959, `layoutDockWidths`:993, `openScreen`:1039, `cloudScannerSwitch`:1056, `showAppTab`:1096, `buildHomeUsageCard`:1119, `renderHomeUsageCard`:1184, `vpnStateEqualsStarted`:1235, `renderFreeConfigs`:1238, `renderConnectionDetails`:1266, `renderDashboardLocalEndpoint`:1289, `renderDashboardConnectionMetadataVisibility`:1305, `localizedError`:1318, `onStart`:1321, `onStop`:1376, `onResume`:1395, `prewarmSubscriptionSnapshots`:1409, `onPause`:1422, `onSaveInstanceState`:1428, `onBackPressed`:1440, `onDestroy`:1449, `onTrimMemory`:1463, `onActivityResult`:1479, `onRequestPermissionsResult`:1515, `setSpeedText`:1536, `applyZedHomeState`:1559, `refreshScannerSelection`:1676, `renderScannerResults`:1683, `showPanelWizardDone`:1834, `handleAutomaticConnectionProgress`:1898, `handleStateChanged`:1911, `applyRuntimeState`:1974, `handleButtonClick`:2032, `handleRefreshClick`:2066, `refreshLocationOptions`:2098, `fetchPrivateSubscriptionOnLoad`:2127, `updateLocationOptions`:2147, `handleConnectionSelected`:2187, `renderConnectionSelection`:2265, `renderHomeConnectionRows`:2305, `showLocationSelector`:2339, `dialogLocationOptions`:2361, `handleLocationSelected`:2394, `renderLocationSelection`:2426, `automaticLocationOption`:2444, `renderRoutingModeSelection`:2447, `handleDnsPrivacySelected`:2456, `commitDnsPrivacyEndpoint`:2473, `renderDnsPrivacySelection`:2516, `commitFrontingIpInput`:2564, `renderLanSharingControls`:2607, `renderConnectionOptionsControls`:2641, `renderFrontingIpChips`:2695, `renderAdvancedControls`:2725, `beginConnectFlow`:2744, `requestNotificationPermissionIfNeeded`:2752, `requestVpnPermissionThenConnect`:2772, `startPendingConnectAction`:2798, `startVpnService`:2805, `requestActiveConnectionSwitch`:2817, `renderAlwaysOnStatus`:2827, `catGpLiveInfo`:2840, `catGpLocationLine`:2865, `beginLiveGeoCheck`:2880, `activePhysicalNetwork`:2953, `renderPingValue`:2965, `measureTunnelPingQuietly`:2976, `runTunnelPing`:3007, `appTrafficRidesVpn`:3060, `refreshDashboardIp`:3068, `runPingAll`:3078, `renderConnectionPath`:3150, `setPathDiagramVisible`:3256, `toggleConnectionPathDiagram`:3272, `closeConnectionPathDiagram`:3285, `renderRealIpLine`:3292, `currentVpnStateIsStarted`:3303, `pendingGlobeCountry`:3305, `connectPillGradient`:3317, `applyConnectPillStyle`:3326, `connectHapticEnabled`:3351, `connectHaptic`:3354, `isPersianUi`:3370, `showConnectionFaultDialog`:3374, `renderState`:3401, `startTimerUpdates`:3597, `setTimerText`:3603, `toggleAppTheme`:3617, `updateTransferSpeeds`:3624, `renderTrafficBars`:3667, `fitHomeStage`:3685, `selectedRowColor`:3717, `applyHomeBackdrop`:3720, `syncShellBackdrop`:3730, `resetTransferSpeeds`:3751, `bytesPerSecond`:3768, `formatDuration`:3773, `glassSurfaceDrawable`:3781, `catClientPopupMenu`:3877, `withAlpha`:3880, `dp`:3893, `accentFor`:3895
 
 ### `MainActivityAdvanced.kt` (59 functions)
 
@@ -384,7 +384,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityDashboard.kt` (4 functions)
 
-`buildFlowMeterRow`:110, `buildDashboard`:190, `showMapPage`:1131, `buildZedTicket`:1357
+`buildFlowMeterRow`:110, `buildDashboard`:190, `showMapPage`:1180, `buildZedTicket`:1406
 
 ### `MainActivityDiagnostics.kt` (8 functions)
 

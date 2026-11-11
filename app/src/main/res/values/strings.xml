@@ -423,6 +423,7 @@
     <string name="connection_path_connecting">Connecting</string>
     <string name="connection_path_connected">Connected</string>
     <string name="connection_path_failed">Connection failed</string>
+    <string name="connection_path_close">Close path</string>
     <string name="route_location">%1$s  %2$s</string>
     <string name="route_direct_state">No VPN</string>
     <string name="route_real_ip_line">Real IP: %1$s %2$s</string>
