@@ -2289,6 +2289,7 @@ class MainActivity : Activity() {
         connectionSelectorRow.contentDescription = getString(R.string.connection_content_description, value)
         if (::activeConfigTitle.isInitialized) activeConfigTitle.text = value
         renderHomeConnectionRows()
+        renderConnectionPath(buttonModel.state)
     }
 
     internal fun renderHomeConnectionRows() {
@@ -3135,34 +3136,38 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Drive HTML path on Home. CatPath.load / setState from the live VPN, not a timer. */
+    /** Drive HTML path on Home for the selected config. CatPath.load on every
+     * disconnect/config change. setState follows the real VPN, not a timer. */
     internal fun renderConnectionPath(state: VpnState) {
         if (!::connectionPathWebView.isInitialized) return
-        val hide = state == VpnState.Stopped || state == VpnState.Stopping || state == VpnState.DailyLimitReached
-        if (hide) {
-            connectionPathWebView.bind(null, "connecting", null)
-            return
-        }
+        val selectedSubscriptionId = SubscriptionStore(this).readSelectedSubscriptionId()
+        val selected = connectionSelectionPreferenceStore.readSelectedProfile(
+            selectedSubscriptionId,
+            connectionProfiles,
+        )
         val profile = connectionProfiles.firstOrNull { it.fingerprint == activeConnectionFingerprint }
             ?: connectionProfiles.firstOrNull { it.tag == activeConnectionTag }
+            ?: selected
+        val tag = activeConnectionTag.ifBlank { profile?.tag.orEmpty() }
         val geo = liveGeo?.takeIf { liveGeoTunneled }
         val failRaw = (state as? VpnState.Error)?.message
         val failMsg = failRaw?.let { ConnectionFaultExplainer.explain(it).title(isPersianUi()) }
         val json = ConnectionPath.toPathJson(
             profile = profile,
             geo = geo,
-            tag = activeConnectionTag,
-            failAt = ConnectionPath.failStep(failRaw),
-            failMsg = failMsg,
+            tag = tag,
+            failAt = if (state is VpnState.Error) ConnectionPath.failStep(failRaw) else null,
+            failMsg = if (state is VpnState.Error) failMsg else null,
         )
         if (json.optString("host").isBlank() && json.optString("ip").isBlank()) {
-            connectionPathWebView.bind(null, "connecting", null)
+            connectionPathWebView.bind(null, "ready", null)
             return
         }
         val pathState = when (state) {
             VpnState.Started -> "connected"
             is VpnState.Error -> "failed"
-            else -> "connecting"
+            VpnState.Starting -> "connecting"
+            else -> "ready"
         }
         connectionPathWebView.bind(json, pathState, failMsg)
     }

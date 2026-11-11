@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta302] — 2026-11-11 (Panel 6.89.0)
+
+Owner: Connection Path on Home for the selected config, not only while the VPN is up.
+
+### Fixed
+- **Home connection path:** the Drive HTML stays on Home with `CatPath.load` of the selected config (READY). `connecting` / `connected` / `failed` follow the VPN. Disconnect or a config change reloads. Assets need file access so the page actually opens on API 26–29.
+
 ## [1.10.0-beta301] — 2026-11-11 (Panel 6.89.0)
 
 Owner: put the Drive connection-path HTML on Home and drive it from the live VPN.

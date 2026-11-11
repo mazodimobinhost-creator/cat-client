@@ -32,7 +32,8 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = false
         settings.databaseEnabled = false
-        settings.allowFileAccess = false
+        // android_asset needs file access on API 26–29; FromFileURLs stays off so the page cannot read the rest of the device.
+        settings.allowFileAccess = true
         settings.allowContentAccess = false
         settings.allowFileAccessFromFileURLs = false
         settings.allowUniversalAccessFromFileURLs = false
@@ -72,7 +73,8 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
         contentDescription = when (state) {
             "connected" -> context.getString(R.string.connection_path_connected)
             "failed" -> context.getString(R.string.connection_path_failed)
-            else -> context.getString(R.string.connection_path_connecting)
+            "connecting" -> context.getString(R.string.connection_path_connecting)
+            else -> context.getString(R.string.connection_path_title)
         }
         resumeJs()
         if (pageReady) flush()
@@ -104,8 +106,8 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
     private fun flush() {
         val j = pendingJson ?: return
         val st = when (pendingState) {
-            "connected", "failed", "connecting" -> pendingState
-            else -> "connecting"
+            "connected", "failed", "connecting", "ready" -> pendingState
+            else -> "ready"
         }
         val msg = pendingFail.orEmpty()
             .replace("\\", "\\\\")
@@ -113,10 +115,11 @@ internal class ConnectionPathWebView(context: Context) : WebView(context) {
             .replace("\n", " ")
             .replace("\r", " ")
             .take(180)
-        val js = if (st == "failed" && msg.isNotBlank()) {
-            "try{CatPath.load($j);CatPath.setState(\"failed\",\"$msg\")}catch(e){}"
-        } else {
-            "try{CatPath.load($j);CatPath.setState(\"$st\")}catch(e){}"
+        val js = when {
+            st == "ready" -> "try{CatPath.load($j)}catch(e){}"
+            st == "failed" && msg.isNotBlank() ->
+                "try{CatPath.load($j);CatPath.setState(\"failed\",\"$msg\")}catch(e){}"
+            else -> "try{CatPath.load($j);CatPath.setState(\"$st\")}catch(e){}"
         }
         evaluateJavascript(js, null)
     }

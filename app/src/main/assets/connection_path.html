@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Connection Path · Cat Client</title>
 <style>
+@font-face{font-family:Vazirmatn;font-weight:400;src:url("fonts/vazirmatn_regular.ttf")}
+@font-face{font-family:Vazirmatn;font-weight:600;src:url("fonts/vazirmatn_bold.ttf")}
+@font-face{font-family:Vazirmatn;font-weight:800;src:url("fonts/vazirmatn_bold.ttf")}
 :root{--bg:#0b1020;--pn:#0d1530;--ln:#1c2f66;--tx:#c9d6ff;--mu:#7f93c9;--ac:#0a4fd6;--ac2:#4c8dff;--am:#ffb347;--go:#2fd48a;--er:#ff6b75;--f1:#12255a;--f2:#0e1c46;--f3:#183170;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
@@ -30,7 +33,7 @@ svg text{font-family:inherit}
 .lk.on{stroke:var(--ac2);stroke-width:1.8;animation:fl .8s linear infinite}
 @keyframes fl{to{stroke-dashoffset:-14}}
 @media (prefers-reduced-motion:reduce){.lk.on{animation:none}}
-#ni{padding:8px 12px 12px;font-size:11px;color:var(--mu);min-height:34px;font-family:sans-serif}
+#ni{padding:8px 12px 12px;font-size:11px;color:var(--mu);min-height:34px;font-family:Vazirmatn,sans-serif}
 .ov{border:1px solid var(--ln);margin-top:12px;background:var(--pn)}
 .ov h3{margin:0;padding:12px 14px;font-size:15px;letter-spacing:.14em;font-weight:800;border-bottom:1px solid var(--ln)}
 .bd{padding:14px}
@@ -40,7 +43,7 @@ svg text{font-family:inherit}
 .bg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;background:currentColor}
 .bg.rd{color:var(--mu)}.bg.go{color:var(--am);background:#2a2008}.bg.ok{color:var(--go);background:#0e2a1d}.bg.er{color:var(--er);background:#2a1016}
 .sb{color:var(--tx);font-size:13px;margin:6px 0 10px}
-.fa{font-family:sans-serif;direction:rtl;text-align:right;font-size:13.5px;line-height:1.9;color:#aebde8;margin:0}
+.fa{font-family:Vazirmatn,sans-serif;direction:rtl;text-align:right;font-size:13.5px;line-height:1.9;color:#aebde8;margin:0}
 .stp{margin-top:12px;padding-top:12px;border-top:1px solid var(--ln);font-size:12px;font-weight:600;color:var(--ac2)}
 .bar{position:fixed;left:0;right:0;bottom:0;background:#0a0f20;border-top:1px solid var(--ln);padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}
 .bi{max-width:460px;margin:0 auto;display:grid;grid-template-columns:48px 44px 1fr 66px 44px;gap:8px}

@@ -11,8 +11,8 @@ class Beta268Globe3dTest {
     fun versionIsBeta268() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 368"))
-        assertTrue(gradle.contains("1.10.0-beta301"))
+        assertTrue(gradle.contains("versionCode = 369"))
+        assertTrue(gradle.contains("1.10.0-beta302"))
     }
 
     @Test
