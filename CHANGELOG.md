@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta300] — 2026-11-11 (Panel 6.89.0)
+
+Owner: on home, when connected, show where the traffic goes — your IP, the protocol, the hops — as a short animation.
+
+### Added
+- **Home connection path:** while a config is up, a strip under the location pill draws Phone → protocol → server `IP:port` → exit. Packet moves along the hops. Uses the measured IPs (never `127.0.0.1`). Not a new home button; tap refreshes the IP like the pill.
+
 ## [1.10.0-beta299] — 2026-11-11 (Panel 6.89.0)
 
 Owner: scan Cloudflare WARP endpoints on the phone (VPN off) and keep the working IP:port as WireGuard / Amnezia / MASQUE inside Cat Warp.

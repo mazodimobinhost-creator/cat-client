@@ -12,8 +12,8 @@ class Beta275CatGpPencilTest {
     fun versionIsBeta275() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 366"))
-        assertTrue(gradle.contains("1.10.0-beta299"))
+        assertTrue(gradle.contains("versionCode = 367"))
+        assertTrue(gradle.contains("1.10.0-beta300"))
     }
 
     @Test

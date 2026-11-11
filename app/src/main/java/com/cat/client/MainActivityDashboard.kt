@@ -400,6 +400,12 @@ internal fun MainActivity.buildDashboard(): View {
             true
         }
     }
+    connectionPathView = ConnectionPathView(this).apply {
+        visibility = View.GONE
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { refreshDashboardIp() }
+    }
     // Aras-style action capsule: a big 56dp pill. Filled purple gradient
     // while the tunnel is up, state-tinted while switching, quiet glass
     // otherwise (see applyConnectPillStyle). The globe stays the playful
@@ -1054,6 +1060,7 @@ internal fun MainActivity.buildDashboard(): View {
                 addView(headerBlock, contentParams(dp(12)))
                 addView(signalSection, contentParams(dp(0)))
                 addView(locationPill, contentParams(dp(14)))
+                addView(connectionPathView, contentParams(dp(8)))
                 addView(trafficRow, contentParams(dp(14)))
                 addView(activeConfigCard, contentParams(dp(8)))
                 addView(realInternetCard, contentParams(dp(8)))
@@ -1068,6 +1075,7 @@ internal fun MainActivity.buildDashboard(): View {
                 setColor(withAlpha(zedScheme.onPrimaryContainer, 24))
             }
             pixelCard?.addView(locationPill, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+            pixelCard?.addView(connectionPathView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             dashboardContent.apply {
                 addView(headerBlock, contentParams(dp(12)))
                 addView(signalSection, contentParams(dp(8)))
@@ -1080,6 +1088,7 @@ internal fun MainActivity.buildDashboard(): View {
         AppDesign.Old -> dashboardContent.apply {
             addView(headerBlock, contentParams(dp(12)))
             addView(locationPill, contentParams(dp(14)))
+            addView(connectionPathView, contentParams(dp(8)))
             addView(signalSection, contentParams(dp(4)))
             addView(trafficRow, contentParams(dp(18)))
             addView(activeConfigCard, contentParams(dp(14)))

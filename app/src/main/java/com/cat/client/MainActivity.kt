@@ -266,6 +266,7 @@ class MainActivity : Activity() {
     internal var liveSelectableConnectionFingerprints: Set<String> = emptySet()
 
     internal lateinit var connectionGlobe: ConnectionGlobeView
+    internal lateinit var connectionPathView: ConnectionPathView
     internal lateinit var connectionRealIpText: TextView
     @Volatile internal var liveGeoTunneled: Boolean = false
     private var liveGeoDirectAttempted: Boolean = false
@@ -2922,6 +2923,9 @@ class MainActivity : Activity() {
                 info.colo?.let { colo -> append(" · ").append(colo) }
             }
             connectionGlobe.setDestination(info.flag, label, info.ip)
+            if (::connectionPathView.isInitialized) {
+                renderConnectionPath(if (tunneledAtFetch) VpnState.Started else buttonModel.state)
+            }
             if (::connectionCountryText.isInitialized && liveGeo != null && tunneledAtFetch) {
                 connectionCountryText.text = if (catGp) {
                     catGpLocationLine(info)
@@ -3131,6 +3135,22 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Phone → protocol → server → exit on the home strip. Hidden when not connected. */
+    internal fun renderConnectionPath(state: VpnState) {
+        if (!::connectionPathView.isInitialized) return
+        if (state != VpnState.Started) {
+            connectionPathView.bind(null)
+            return
+        }
+        val profile = connectionProfiles.firstOrNull { it.fingerprint == activeConnectionFingerprint }
+            ?: connectionProfiles.firstOrNull { it.tag == activeConnectionTag }
+        val geo = liveGeo?.takeIf { liveGeoTunneled }
+        val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+        connectionPathView.bind(
+            ConnectionPath.snapshot(fa, profile, geo, activeChainHopCount, activeConnectionTag),
+        )
+    }
+
     /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */
     private fun renderRealIpLine(info: IpGeolocation.Info?, tunneled: Boolean) {
         if (!::connectionRealIpText.isInitialized) return
@@ -3249,6 +3269,7 @@ class MainActivity : Activity() {
         if (!presentation.showTransferSpeeds) resetTransferSpeeds()
         val accent = accentFor(presentation.tone)
         connectionGlobe.setVpnState(state)
+        renderConnectionPath(state)
         portalView?.setVpnState(state)
         pixelCore?.setVpnState(state)
         if (state != VpnState.Started) {
