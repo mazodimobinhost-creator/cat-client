@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta301] — 2026-11-11 (Panel 6.89.0)
+
+Owner: put the Drive connection-path HTML on Home and drive it from the live VPN.
+
+### Added
+- **Home connection path (HTML):** `assets/connection_path.html` in a WebView under the location pill. After the page loads, `CatPath.load` gets real fields from the connected config (`toPathJson`) and `CatPath.setState` follows VPN (`connecting` / `connected` / `failed`). No `addJavascriptInterface`. UUID / password / keys stay out of the JSON.
+
 ## [1.10.0-beta300] — 2026-11-11 (Panel 6.89.0)
 
 Owner: on home, when connected, show where the traffic goes — your IP, the protocol, the hops — as a short animation.

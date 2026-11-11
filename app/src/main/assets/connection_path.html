@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connection Path · Cat Client</title>
+<style>
+:root{--bg:#0b1020;--pn:#0d1530;--ln:#1c2f66;--tx:#c9d6ff;--mu:#7f93c9;--ac:#0a4fd6;--ac2:#4c8dff;--am:#ffb347;--go:#2fd48a;--er:#ff6b75;--f1:#12255a;--f2:#0e1c46;--f3:#183170;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:ui-monospace,Menlo,monospace}
+main{max-width:460px;margin:0 auto;padding:14px 14px 96px}
+.chips{display:none;gap:8px;overflow-x:auto;padding-bottom:10px}
+.chip,.tab,.cb{font:inherit;color:var(--tx);background:transparent;border:1px solid var(--ln);cursor:pointer}
+.chip{flex:none;padding:7px 12px;font-size:12px}
+.chip[aria-pressed=true]{border-color:var(--ac2);color:#fff;background:#0f2766}
+.panel{border:1px solid var(--ln);background:var(--pn);position:relative}
+.tabs{display:inline-flex;margin:10px;border:1px solid var(--ln);padding:3px;background:#0a1230}
+.tab{border:0;padding:9px 14px;font-size:12px;font-weight:600;letter-spacing:.08em}
+.tab[aria-selected=true]{background:var(--ac);color:#fff}
+svg{display:block;width:100%;height:auto}
+svg text{font-family:inherit}
+.nm{font-size:10px;font-weight:800;fill:var(--tx)}
+.ip{font-size:9.5px;fill:var(--mu)}
+.ic polygon,.ic path,.ic line{stroke:var(--ac2);stroke-width:1;stroke-linejoin:round;stroke-linecap:round}
+.ic{cursor:pointer}
+.ic.lit polygon,.ic.lit path{stroke:#9cc0ff}
+.ic.bad polygon,.ic.bad path,.ic.bad line{stroke:var(--er)}
+.lk{stroke:#2a4797;stroke-width:1.2;stroke-dasharray:3 4;fill:none}
+.lk.on{stroke:var(--ac2);stroke-width:1.8;animation:fl .8s linear infinite}
+@keyframes fl{to{stroke-dashoffset:-14}}
+@media (prefers-reduced-motion:reduce){.lk.on{animation:none}}
+#ni{padding:8px 12px 12px;font-size:11px;color:var(--mu);min-height:34px;font-family:sans-serif}
+.ov{border:1px solid var(--ln);margin-top:12px;background:var(--pn)}
+.ov h3{margin:0;padding:12px 14px;font-size:15px;letter-spacing:.14em;font-weight:800;border-bottom:1px solid var(--ln)}
+.bd{padding:14px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.hd h2{margin:0;font-size:24px;font-weight:800;letter-spacing:.04em}
+.bg{font-size:11px;font-weight:600;letter-spacing:.12em;padding:7px 10px;border:1px solid;white-space:nowrap}
+.bg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;background:currentColor}
+.bg.rd{color:var(--mu)}.bg.go{color:var(--am);background:#2a2008}.bg.ok{color:var(--go);background:#0e2a1d}.bg.er{color:var(--er);background:#2a1016}
+.sb{color:var(--tx);font-size:13px;margin:6px 0 10px}
+.fa{font-family:sans-serif;direction:rtl;text-align:right;font-size:13.5px;line-height:1.9;color:#aebde8;margin:0}
+.stp{margin-top:12px;padding-top:12px;border-top:1px solid var(--ln);font-size:12px;font-weight:600;color:var(--ac2)}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#0a0f20;border-top:1px solid var(--ln);padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}
+.bi{max-width:460px;margin:0 auto;display:grid;grid-template-columns:48px 44px 1fr 66px 44px;gap:8px}
+.cb{height:46px;font-size:13px;font-weight:600;letter-spacing:.08em}
+.cb.pl{background:var(--ac);border-color:var(--ac2);color:#fff}
+</style>
+</head>
+<body>
+<main>
+<div class="chips" id="chips"></div>
+<div class="panel">
+ <div class="tabs" role="tablist"><button class="tab" id="tn" role="tab" aria-selected="true">NETWORK</button><button class="tab" id="ts" role="tab" aria-selected="false">SEQUENCE</button></div>
+ <svg id="net" viewBox="0 0 340 400" role="img" aria-label="Network diagram"></svg>
+ <svg id="seq" viewBox="0 0 340 400" role="img" aria-label="Sequence diagram" hidden></svg>
+ <div id="ni">Tap a device for details.</div>
+</div>
+<div class="ov"><h3>PROTOCOL OVERVIEW</h3><div class="bd">
+ <div class="hd"><h2 id="pt"></h2><span class="bg rd" id="bg"><i></i><span id="bt">READY</span></span></div>
+ <div class="sb" id="ps"></div>
+ <p class="fa" id="pd"></p>
+ <div class="stp" id="sl"></div>
+ <p class="fa" id="sd" style="margin-top:6px"></p>
+</div></div>
+</main>
+<div class="bar"><div class="bi">
+ <button class="cb" id="sp">1×</button><button class="cb" id="pv" aria-label="Previous step">‹</button>
+ <button class="cb pl" id="pp">▶ PLAY</button><button class="cb" id="st">STEP</button><button class="cb" id="rs" aria-label="Reset">↻</button>
+</div></div>
+<script>
+(function(){
+const NS="http://www.w3.org/2000/svg",$=id=>document.getElementById(id);
+function S(t,a,p,tx){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(tx!==undefined)e.textContent=tx;if(p)p.appendChild(e);return e}
+function box(a,b,h){return `<polygon points="${-a},${-h} 0,${-h+b} 0,${b} ${-a},0" fill="var(--f2)"/><polygon points="${a},${-h} 0,${-h+b} 0,${b} ${a},0" fill="var(--f1)"/><polygon points="0,${-h-b} ${a},${-h} 0,${-h+b} ${-a},${-h}" fill="var(--f3)"/>`}
+function slits(a,b,h,n){let s="";for(let k=1;k<n;k++){const y=-h+k*h/n,d=3*b/a;s+=`<line x1="${-a+3}" y1="${y+d}" x2="-3" y2="${y+b-d}"/><line x1="${a-3}" y1="${y+d}" x2="3" y2="${y+b-d}"/>`}return `<g opacity=".6">${s}</g>`}
+const ICON={
+laptop:()=>box(22,12,3)+`<polygon points="-22,-3 0,-15 0,-41 -22,-29" fill="var(--f1)"/><line x1="-17" y1="-27" x2="-5" y2="-33" opacity=".6"/><line x1="-17" y1="-21" x2="-5" y2="-27" opacity=".6"/>`,
+router:()=>box(24,13,10)+`<line x1="0" y1="-23" x2="0" y2="-42"/><circle cx="0" cy="-44" r="2" fill="var(--ac2)"/>`,
+s1:()=>box(16,9,20)+slits(16,9,20,3),
+s2:()=>box(18,10,36)+slits(18,10,36,5),
+cloud:()=>`<path d="M-22,10 C-34,10 -34,-8 -19,-8 C-16,-24 10,-26 14,-10 C30,-12 34,10 20,10 Z" fill="var(--f2)"/><circle cx="0" cy="-2" r="8" fill="none"/><line x1="-8" y1="-2" x2="8" y2="-2"/><path d="M0,-10 C-4,-6 -4,2 0,6 C4,2 4,-6 0,-10" fill="none"/>`
+};
+const CF=[
+{k:"VLESS · WS · TLS",title:"VLESS over WebSocket",sub:"VLESS + WebSocket + TLS via Cloudflare",
+ desc:"ترافیک اپ‌ها از Cat Client رد می‌شود، با TLS رمز می‌شود و داخل یک اتصال WebSocket از پشت Cloudflare به سرور می‌رسد. از بیرون شبیه یک سایت عادی دیده می‌شود.",
+ nodes:{c:{n:"Client",ip:"192.168.1.23",i:"laptop",x:58,y:330,info:"گوشی شما روی Wi-Fi یا داده موبایل"},
+  r:{n:"Cat Client",ip:"TUN · Core",i:"router",x:150,y:232,info:"VPN محلی روی گوشی. پروتکل VLESS"},
+  d:{n:"DNS",ip:"8.8.8.8",i:"s1",x:92,y:100,info:"آدرس دامنه به IP تبدیل می‌شود"},
+  f:{n:"Cloudflare",ip:"104.21.8.5",i:"cloud",x:262,y:312,info:"CDN · SNI cdn.example.com · TLS 1.3"},
+  s:{n:"Server",ip:"203.0.113.8",i:"s2",x:272,y:150,info:"پورت 443 · Path /ws · Host cdn.example.com"}},
+ links:["cr","rd","rf","fs"],
+ steps:[
+ {p:["c","r"],t:"App request",d:"یک برنامه روی گوشی درخواست می‌فرستد و Cat Client آن را می‌گیرد."},
+ {p:["r","d"],t:"DNS query",d:"آدرس cdn.example.com از DNS پرسیده می‌شود."},
+ {p:["d","r"],t:"DNS answer",b:1,d:"جواب می‌آید: 104.21.8.5 که آدرس Cloudflare است."},
+ {p:["r","f"],t:"TCP SYN",d:"شروع اتصال TCP به پورت 443."},
+ {p:["f","r"],t:"SYN-ACK",b:1,d:"Cloudflare اتصال را می‌پذیرد."},
+ {p:["r","f"],t:"TLS ClientHello",d:"شروع رمزنگاری. SNI برابر cdn.example.com است."},
+ {p:["f","r"],t:"TLS ServerHello",b:1,d:"گواهی و کلید توافق می‌شود. از اینجا به بعد همه‌چیز رمز است."},
+ {p:["r","f","s"],t:"WebSocket Upgrade",d:"درخواست Upgrade روی مسیر /ws از Cloudflare به سرور می‌رسد."},
+ {p:["s","f","r"],t:"101 Switching Protocols",b:1,d:"سرور قبول می‌کند و اتصال WebSocket باز می‌شود."},
+ {p:["c","r","f","s"],t:"Encrypted data",f:1,d:"کانال برقرار است. داده رمزشده رفت و برگشت می‌شود."}]},
+{k:"VLESS · Reality",title:"VLESS Reality",sub:"VLESS + Reality, direct to server",
+ desc:"اتصال مستقیم به سرور بدون CDN. Reality خودش را شبیه یک اتصال TLS به سایت دیگری (مثل microsoft.com) نشان می‌دهد.",
+ nodes:{c:{n:"Client",ip:"192.168.1.23",i:"laptop",x:58,y:330,info:"گوشی شما روی داده موبایل"},
+  r:{n:"Cat Client",ip:"TUN · Core",i:"router",x:150,y:232,info:"VLESS · flow xtls-rprx-vision"},
+  d:{n:"DNS",ip:"8.8.8.8",i:"s1",x:92,y:100,info:"فقط برای دامنه‌هایی که مستقیم می‌روند"},
+  s:{n:"Server",ip:"198.51.100.7",i:"s2",x:268,y:200,info:"پورت 443 · Reality · SNI www.microsoft.com"}},
+ links:["cr","rd","rs"],
+ steps:[
+ {p:["c","r"],t:"App request",d:"برنامه درخواست می‌فرستد و Cat Client آن را می‌گیرد."},
+ {p:["r","d"],t:"DNS query",d:"دامنه مقصد پرسیده می‌شود."},
+ {p:["d","r"],t:"DNS answer",b:1,d:"IP مقصد مشخص می‌شود."},
+ {p:["r","s"],t:"TCP SYN",d:"اتصال TCP مستقیم به IP سرور."},
+ {p:["s","r"],t:"SYN-ACK",b:1,d:"سرور اتصال را می‌پذیرد."},
+ {p:["r","s"],t:"Reality ClientHello",d:"ClientHello با SNI سایت پوششی فرستاده می‌شود."},
+ {p:["s","r"],t:"ServerHello",b:1,d:"سرور احراز هویت Reality را تایید می‌کند."},
+ {p:["c","r","s"],t:"Encrypted data",f:1,d:"کانال برقرار است. داده رمزشده رفت و برگشت می‌شود."}]},
+{k:"Trojan · error",title:"Trojan TLS",sub:"Error example: TLS handshake fails",
+ desc:"نمونه‌ای از اتصال ناموفق. اپ دقیقاً نشان می‌دهد کجا و در کدام مرحله مشکل پیش آمده.",
+ err:"TLS رد شد. SNI یا گواهی سرور درست نیست. SNI کانفیگ را بررسی کن.",
+ nodes:{c:{n:"Client",ip:"192.168.1.23",i:"laptop",x:58,y:330,info:"گوشی شما"},
+  r:{n:"Cat Client",ip:"TUN · Core",i:"router",x:150,y:232,info:"پروتکل Trojan"},
+  d:{n:"DNS",ip:"8.8.8.8",i:"s1",x:92,y:100,info:"DNS معمولی"},
+  s:{n:"Server",ip:"192.0.2.44",i:"s2",x:268,y:200,info:"SNI bad.example.com · گواهی نامعتبر"}},
+ links:["cr","rd","rs"],
+ steps:[
+ {p:["c","r"],t:"App request",d:"برنامه درخواست می‌فرستد."},
+ {p:["r","d"],t:"DNS query",d:"دامنه سرور پرسیده می‌شود."},
+ {p:["d","r"],t:"DNS answer",b:1,d:"IP سرور مشخص شد."},
+ {p:["r","s"],t:"TCP SYN",d:"اتصال TCP برقرار می‌شود."},
+ {p:["r","s"],t:"TLS ClientHello",x:1,d:"سرور ClientHello را رد می‌کند و اتصال قطع می‌شود."}]}
+];
+const net=$("net"),sq=$("seq");
+let cur=0,idx=-1,u=0,run=null,fail=false,spd=1,view="net",els={},pk,hold=false;
+function build(){
+ net.innerHTML="";els={};const c=CF[cur];
+ const df=S("defs",{},net);const pt=S("pattern",{id:"gr",width:24,height:24,patternUnits:"userSpaceOnUse"},df);
+ S("path",{d:"M24 0H0V24",fill:"none",stroke:"#14224f","stroke-width":.6},pt);
+ S("rect",{x:0,y:0,width:340,height:400,fill:"url(#gr)"},net);
+ c.links.forEach(l=>{const a=c.nodes[l[0]],b=c.nodes[l[1]];els[l]=S("line",{x1:a.x,y1:a.y-8,x2:b.x,y2:b.y-8,class:"lk"},net)});
+ for(const k in c.nodes){const n=c.nodes[k],g=S("g",{transform:`translate(${n.x} ${n.y})`,tabindex:0,role:"button","aria-label":n.n,class:"ic"},net);
+  g.innerHTML=ICON[n.i]();
+  S("text",{x:0,y:28,"text-anchor":"middle",class:"nm"},g,n.n);S("text",{x:0,y:40,"text-anchor":"middle",class:"ip"},g,n.ip);
+  g.addEventListener("click",()=>{$("ni").textContent=n.n+" · "+n.ip+" · "+n.info});
+  els[k]=g}
+ pk=S("g",{},net);
+}
+function pos(path,t){const c=CF[cur],p=path.map(k=>c.nodes[k]),L=[];let tot=0;
+ for(let i=0;i<p.length-1;i++){const l=Math.hypot(p[i+1].x-p[i].x,p[i+1].y-p[i].y);L.push(l);tot+=l}
+ let d=t*tot;for(let i=0;i<L.length;i++){if(d<=L[i]||i===L.length-1){const f=Math.min(d/L[i],1);return[p[i].x+(p[i+1].x-p[i].x)*f,p[i].y-8+(p[i+1].y-p[i].y)*f]}d-=L[i]}}
+function ease(x){return x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2}
+function dot(x,y,col){S("circle",{cx:x,cy:y,r:10,fill:col,opacity:.22},pk);S("circle",{cx:x,cy:y,r:5,fill:col},pk)}
+function draw(){
+ if(!pk)return;
+ const c=CF[cur],s=c.steps[idx];pk.innerHTML="";
+ c.links.forEach(l=>els[l].classList.remove("on"));
+ for(const k in c.nodes)els[k].classList.remove("lit","bad");
+ if(!s)return;
+ for(let i=0;i<s.p.length-1;i++){const a=s.p[i]+s.p[i+1],b=s.p[i+1]+s.p[i];(els[a]||els[b]).classList.add("on")}
+ s.p.forEach(k=>els[k].classList.add("lit"));
+ if(fail)els[s.p[s.p.length-1]].classList.add("bad");
+ if(s.f){for(let j=0;j<3;j++){let q=pos(s.p,(u+j/3)%1);dot(q[0],q[1],"#4c8dff");q=pos(s.p.slice().reverse(),(u+j/3+.5)%1);dot(q[0],q[1],"#ffb347")}}
+ else if(u<1){const q=pos(s.p,ease(u));dot(q[0],q[1],s.b?"#ffb347":"#4c8dff")}
+}
+function ui(){
+ const c=CF[cur],s=c.steps[idx],n=c.steps.length;
+ $("pt").textContent=c.title;$("ps").textContent=c.sub;$("pd").textContent=c.desc;
+ let b="READY",cl="rd";if(fail){b="FAILED";cl="er"}else if(idx>=0){if(s.f){b="ACTIVE";cl="ok"}else{b="CONNECTING";cl="go"}}
+ $("bt").textContent=b;$("bg").className="bg "+cl;
+ $("sl").textContent=s?`STEP ${idx+1}/${n} · ${s.t}`:`STEP 0/${n} · press PLAY`;
+ $("sd").textContent=s?(fail?c.err:s.d):"";
+ $("pp").textContent=run==="play"?"❚❚ PAUSE":"▶ PLAY";
+ seq();
+}
+function seq(){
+ const c=CF[cur],ks=Object.keys(c.nodes),n=ks.length,H=Math.max(400,76+c.steps.length*30);
+ sq.setAttribute("viewBox",`0 0 340 ${H}`);sq.innerHTML="";
+ const X=k=>34+ks.indexOf(k)*(272/(n-1));
+ ks.forEach(k=>{const x=X(k);S("text",{x,y:22,"text-anchor":"middle",class:"nm"},sq,c.nodes[k].n);S("text",{x,y:34,"text-anchor":"middle",class:"ip"},sq,c.nodes[k].ip);S("line",{x1:x,x2:x,y1:44,y2:H-10,stroke:"#26408a","stroke-dasharray":"3 4"},sq)});
+ c.steps.forEach((s,i)=>{if(i>idx)return;const y=70+i*30,a=X(s.p[0]),b=X(s.p[s.p.length-1]),col=i===idx?(fail?"#ff6b75":"#4c8dff"):"#5a74b8",dir=b>a?1:-1;
+  S("line",{x1:a,x2:b-dir*6,y1:y,y2:y,stroke:col,"stroke-width":1.6},sq);
+  S("polygon",{points:`${b},${y} ${b-dir*7},${y-3.5} ${b-dir*7},${y+3.5}`,fill:col},sq);
+  if(s.f)S("polygon",{points:`${a},${y} ${a+dir*7},${y-3.5} ${a+dir*7},${y+3.5}`,fill:col},sq);
+  S("text",{x:(a+b)/2,y:y-6,"text-anchor":"middle",style:"font-size:8.5px",fill:i===idx?"#c9d6ff":"#7f93c9"},sq,s.t);
+  if(fail&&i===idx)S("text",{x:b+dir*10,y:y+4,"text-anchor":"middle",fill:"#ff6b75",style:"font-size:12px"},sq,"✕")});
+}
+function reset(){idx=-1;u=0;run=null;fail=false;draw();ui()}
+function tick(t0){let prev=t0;(function f(t){const dt=Math.min(t-prev,60);prev=t;const c=CF[cur],s=c.steps[idx];
+ if(run&&s){u+=dt*spd/(s.f?2600:1100);
+  if(u>=1){if(s.f){u%=1}else{u=1;
+   if(s.x){fail=true;run=null;ui()}
+   else if(run==="play"&&idx<c.steps.length-1&&!(hold&&idx===c.steps.length-2)){idx++;u=0;ui()}
+   else{run=null;ui()}}}}
+ draw();requestAnimationFrame(f)})(t0)}
+const ch=$("chips");
+CF.forEach((c,i)=>{const b=document.createElement("button");b.className="chip";b.textContent=c.k;b.setAttribute("aria-pressed",i===cur);
+ b.onclick=()=>{cur=i;[...ch.children].forEach((x,j)=>x.setAttribute("aria-pressed",j===i));$("ni").textContent="Tap a device for details.";build();reset();$("pp").click()};ch.appendChild(b)});
+/* ---- App bridge: build the scenario from a real config ----
+ Input (all optional except host or ip):
+ {name,protocol:"vless|vmess|trojan|ss|hysteria",transport:"ws|grpc|tcp|h2|quic|httpupgrade",
+  security:"tls|reality|none",host,ip,port,sni,path,cdn:true|false,cdnIp,localIp,dns,
+  fail:{at:"dns|tcp|tls|ws",msg:"..."}} */
+const TRN={ws:"WebSocket",grpc:"gRPC",tcp:"TCP",h2:"HTTP/2",quic:"QUIC",httpupgrade:"HTTPUpgrade"};
+function mk(g){
+ const px=(g.protocol||"vless").toUpperCase(),tr=(g.transport||"tcp").toLowerCase(),sec=(g.security||"none").toLowerCase();
+ const cdn=!!g.cdn,port=g.port||443,host=g.host||g.ip||"server",sip=g.ip||host,sni=g.sni||host,isIp=/^[\d.:a-f]+$/i.test(host)&&/\d/.test(host);
+ const N={c:{n:"Client",ip:g.localIp||"This phone",i:"laptop",x:58,y:330,info:"گوشی شما"},
+  r:{n:"Cat Client",ip:"TUN · Core",i:"router",x:150,y:232,info:px+" · "+(TRN[tr]||tr)+" · "+sec.toUpperCase()},
+  d:{n:"DNS",ip:g.dns||"DNS",i:"s1",x:92,y:100,info:"تبدیل دامنه به IP"}};
+ if(cdn){N.f={n:"CDN",ip:g.cdnIp||"CDN edge",i:"cloud",x:262,y:312,info:"SNI "+sni+(sec!=="none"?" · "+sec.toUpperCase():"")};
+  N.s={n:"Server",ip:sip,i:"s2",x:272,y:150,info:"پورت "+port+(g.path?" · Path "+g.path:"")+" · Host "+host}}
+ else N.s={n:"Server",ip:sip,i:"s2",x:268,y:200,info:"پورت "+port+(g.path?" · Path "+g.path:"")+(sec!=="none"?" · SNI "+sni:"")};
+ const t=cdn?"f":"s",tn=cdn?"CDN":"سرور",L=cdn?["cr","rd","rf","fs"]:["cr","rd","rs"],S=[];
+ const add=(k,p,t2,d,b)=>S.push({k,p,t:t2,d,b:b?1:0});
+ add("app",["c","r"],"App request","یک برنامه روی گوشی درخواست می‌فرستد و Cat Client آن را می‌گیرد.");
+ if(!isIp){add("dns",["r","d"],"DNS query","آدرس "+host+" از DNS پرسیده می‌شود.");add("dnsr",["d","r"],"DNS answer","IP مقصد مشخص می‌شود.",1)}
+ add("tcp",["r",t],"TCP SYN","شروع اتصال TCP به "+tn+" روی پورت "+port+".");
+ add("tcpr",[t,"r"],"SYN-ACK",tn+" اتصال را می‌پذیرد.",1);
+ if(sec==="tls"||sec==="reality"){const rl=sec==="reality";
+  add("tls",["r",t],rl?"Reality ClientHello":"TLS ClientHello","شروع رمزنگاری. SNI برابر "+sni+" است.");
+  add("tlsr",[t,"r"],"ServerHello","گواهی و کلید توافق می‌شود. از اینجا همه‌چیز رمز است.",1)}
+ if(tr==="ws"||tr==="httpupgrade"){
+  add("ws",cdn?["r","f","s"]:["r","s"],"WebSocket Upgrade","درخواست Upgrade"+(g.path?" روی مسیر "+g.path:"")+" به سرور می‌رسد.");
+  add("wsr",cdn?["s","f","r"]:["s","r"],"101 Switching Protocols","سرور قبول می‌کند و اتصال WebSocket باز می‌شود.",1)}
+ else if(tr==="grpc"||tr==="h2")add("ws",cdn?["r","f","s"]:["r","s"],"HTTP/2 stream","یک stream "+(TRN[tr])+" به سرور باز می‌شود.");
+ S.push({k:"data",p:cdn?["c","r","f","s"]:["c","r","s"],t:"Encrypted data",f:1,d:"کانال برقرار است. داده رمزشده رفت و برگشت می‌شود."});
+ let err;
+ if(g.fail){const i=S.findIndex(s=>s.k===g.fail.at);if(i>=0){S.length=i+1;S[i].x=1;S[i].f=0;err=g.fail.msg||"اتصال در این مرحله ناموفق بود."}}
+ return{k:g.name||"Config",title:px+" "+(TRN[tr]||tr),sub:(g.name||"")+(sec!=="none"?" · "+sec.toUpperCase():""),
+  desc:cdn?"ترافیک از Cat Client رد می‌شود، رمز می‌شود و از پشت CDN به سرور می‌رسد.":"ترافیک از Cat Client رد می‌شود، رمز می‌شود و مستقیم به سرور می‌رسد.",err,nodes:N,links:L,steps:S}}
+function loadCfg(g){CF.splice(0,CF.length,mk(typeof g==="string"?JSON.parse(g):g));cur=0;ch.style.display="none";
+ $("ni").textContent="Tap a device for details.";build();hold=false;reset()}
+function setState(s,m){const c=CF[cur];
+ if(s==="connecting"){hold=true;reset();$("pp").click()}
+ else if(s==="connected"){hold=false;fail=false;idx=c.steps.length-1;u=0;run="play";ui()}
+ else if(s==="failed"){let i=c.steps.findIndex(x=>x.x);if(i<0){i=Math.max(0,Math.min(idx,c.steps.length-1));c.steps[i].x=1;c.steps[i].f=0}
+  if(m)c.err=m;else if(!c.err)c.err="اتصال ناموفق بود.";hold=false;idx=i;u=1;fail=true;run=null;ui()}}
+window.CatPath={load:loadCfg,setState:setState,mk:mk};
+$("pp").onclick=()=>{const c=CF[cur];if(run==="play"){run=null}else{if(fail)reset();if(idx<0){idx=0;u=0}else if(u>=1&&idx<c.steps.length-1){idx++;u=0}run="play"}ui()};
+$("st").onclick=()=>{const c=CF[cur],s=c.steps[idx];if(fail)return;
+ if(idx<0){idx=0;u=0;run="once"}else if(u<1&&!s.f){u=1;run=null}else if(idx<c.steps.length-1){idx++;u=0;run="once"}ui()};
+$("pv").onclick=()=>{fail=false;run=null;if(idx>0){idx--;u=1}else{idx=-1;u=0}ui()};
+$("rs").onclick=reset;
+$("sp").onclick=()=>{spd=spd===1?2:spd===2?.5:1;$("sp").textContent=spd+"×"};
+function tab(v){view=v;net.hidden=v!=="net";sq.hidden=v!=="seq";$("tn").setAttribute("aria-selected",v==="net");$("ts").setAttribute("aria-selected",v==="seq")}
+$("tn").onclick=()=>tab("net");$("ts").onclick=()=>tab("seq");
+requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

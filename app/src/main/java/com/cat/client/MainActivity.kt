@@ -266,7 +266,7 @@ class MainActivity : Activity() {
     internal var liveSelectableConnectionFingerprints: Set<String> = emptySet()
 
     internal lateinit var connectionGlobe: ConnectionGlobeView
-    internal lateinit var connectionPathView: ConnectionPathView
+    internal lateinit var connectionPathWebView: ConnectionPathWebView
     internal lateinit var connectionRealIpText: TextView
     @Volatile internal var liveGeoTunneled: Boolean = false
     private var liveGeoDirectAttempted: Boolean = false
@@ -2923,7 +2923,7 @@ class MainActivity : Activity() {
                 info.colo?.let { colo -> append(" · ").append(colo) }
             }
             connectionGlobe.setDestination(info.flag, label, info.ip)
-            if (::connectionPathView.isInitialized) {
+            if (::connectionPathWebView.isInitialized) {
                 renderConnectionPath(if (tunneledAtFetch) VpnState.Started else buttonModel.state)
             }
             if (::connectionCountryText.isInitialized && liveGeo != null && tunneledAtFetch) {
@@ -3135,20 +3135,36 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Phone → protocol → server → exit on the home strip. Hidden when not connected. */
+    /** Drive HTML path on Home. CatPath.load / setState from the live VPN, not a timer. */
     internal fun renderConnectionPath(state: VpnState) {
-        if (!::connectionPathView.isInitialized) return
-        if (state != VpnState.Started) {
-            connectionPathView.bind(null)
+        if (!::connectionPathWebView.isInitialized) return
+        val hide = state == VpnState.Stopped || state == VpnState.Stopping || state == VpnState.DailyLimitReached
+        if (hide) {
+            connectionPathWebView.bind(null, "connecting", null)
             return
         }
         val profile = connectionProfiles.firstOrNull { it.fingerprint == activeConnectionFingerprint }
             ?: connectionProfiles.firstOrNull { it.tag == activeConnectionTag }
         val geo = liveGeo?.takeIf { liveGeoTunneled }
-        val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
-        connectionPathView.bind(
-            ConnectionPath.snapshot(fa, profile, geo, activeChainHopCount, activeConnectionTag),
+        val failRaw = (state as? VpnState.Error)?.message
+        val failMsg = failRaw?.let { ConnectionFaultExplainer.explain(it).title(isPersianUi()) }
+        val json = ConnectionPath.toPathJson(
+            profile = profile,
+            geo = geo,
+            tag = activeConnectionTag,
+            failAt = ConnectionPath.failStep(failRaw),
+            failMsg = failMsg,
         )
+        if (json.optString("host").isBlank() && json.optString("ip").isBlank()) {
+            connectionPathWebView.bind(null, "connecting", null)
+            return
+        }
+        val pathState = when (state) {
+            VpnState.Started -> "connected"
+            is VpnState.Error -> "failed"
+            else -> "connecting"
+        }
+        connectionPathWebView.bind(json, pathState, failMsg)
     }
 
     /** Zed ConnectionInfoPill second line: the exit (server) IP only — never the phone's own IP. */

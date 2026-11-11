@@ -14,8 +14,8 @@ class Beta273CatWindAutoAddTest {
     fun versionIsBeta273() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 367"))
-        assertTrue(gradle.contains("1.10.0-beta300"))
+        assertTrue(gradle.contains("versionCode = 368"))
+        assertTrue(gradle.contains("1.10.0-beta301"))
     }
 
     @Test

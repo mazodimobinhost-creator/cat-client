@@ -22,29 +22,29 @@
 
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
-| `MainActivity.kt` | 3807 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAmneziaSstp.kt` | 664 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 15 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAntiFilterTools.kt` | 1753 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 16 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 15 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 13 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityConnectionTesting.kt` | 1928 | Connection testing page (ping/speed lists, chain picker). | 13 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityDashboard.kt` | 1418 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 13 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 14 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 1974 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 29 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 1085 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 21 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 12 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityProtocolConnect.kt` | 136 | Dedicated TUIC / WireGuard / Cat Warp editors with a Connect button. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 11 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivitySubscriptions.kt` | 2465 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 15 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivity.kt` | 3823 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAmneziaSstp.kt` | 664 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 16 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAntiFilterTools.kt` | 1753 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 17 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 16 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 14 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityConnectionTesting.kt` | 1928 | Connection testing page (ping/speed lists, chain picker). | 14 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityDashboard.kt` | 1419 | Home tab: dashboard, traffic meter row, world map page, home ticket. | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 14 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFox.kt` | 1492 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 15 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 1974 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 30 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 1085 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 22 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityMethodFinder.kt` | 520 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityProtocolConnect.kt` | 136 | Dedicated TUIC / WireGuard / Cat Warp editors with a Connect button. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityRealInternet.kt` | 264 | Home-screen «real internet test» card (beta220) + the opt-in «📨 report to panel» dialog. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityScanner.kt` | 4019 | IP scanner tab and scanner dialogs (whitelist, SNI, UDP/TCP, inject into subscription), IP health, foreign test, scan history, results list. | 12 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivitySubscriptions.kt` | 2465 | Servers tab: subscription list, cards, add/edit dialog, free configs, optimizer, add/import/share/QR, subscription actions. | 16 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityUiKit.kt` | 516 | Shared card/tile/segment widgets (zed* look) used by many screens. | 13 JVM · 9 panel (see `affected-tests.py`) |
 
 ### VPN service, lifecycle & state
 
@@ -165,7 +165,7 @@
 |---|---:|---|---|
 | `AutoConnectionPlanner.kt` | 72 | Fail-closed selection policy for “build for this network”. | — · — |
 | `CatClientScanStateStore.kt` | 114 | — | — · — |
-| `CleanIp.kt` | 519 | — | Beta294PublicIpAndCfDnsTest, Beta300HomeConnectionPathTest, ConnectionChainTunnelTest, SmartRouteMeasurementAdapterTest · — |
+| `CleanIp.kt` | 519 | — | Beta294PublicIpAndCfDnsTest, Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest, ConnectionChainTunnelTest, SmartRouteMeasurementAdapterTest · — |
 | `CleanIpCache.kt` | 49 | — | — · — |
 | `CommunityIpLibrary.kt` | 131 | Community clean-IP library (imported from public shared lists, 2026-09). | — · — |
 | `ConnectionFaultExplainer.kt` | 194 | Turns a raw connection failure (core/engine exception text, including its cause chain) into a short, plain-language reason and a "what to do" hint,… | Beta214CatWarpListTest, Beta215AetherEngineSlotTest, Beta269CatGpCoreHealthTest, ConnectionFaultExplainerTest · — |
@@ -180,7 +180,7 @@
 | `ForeignServiceProbe.kt` | 71 | Public HTTPS endpoints used by the in-app, on-device foreign-service check. | ForeignServiceProbeTest · — |
 | `FrontingFailureMemory.kt` | 57 | beta217 (slow connect): with fronting/clean IPs saved, every connect first tried up to five of them — each try a full core start plus a health chec… | Beta217PerformanceTest · — |
 | `FrontingIp.kt` | 145 | — | FrontingMergeTest, IpHealthEntryAuthorityTest · — |
-| `IpGeolocation.kt` | 283 | IpGeolocation — what's-my-ip and country detection used on the main dashboard. | Beta286CatGpFromToIpTest, Beta300HomeConnectionPathTest · — |
+| `IpGeolocation.kt` | 283 | IpGeolocation — what's-my-ip and country detection used on the main dashboard. | Beta286CatGpFromToIpTest, Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
 | `IpHealth.kt` | 363 | One tracked clean IP: last probe state plus the failure streak used for automatic eviction. | IpHealthEntryAuthorityTest · — |
 | `IpScanner.kt` | 1658 | IpScanner — clean-IP scanner that actually finishes on Iranian networks. | AetherSelectionTest, Beta245OperatorScanAndLiveDotTest, IpScannerIpv6Test, IpScannerPanelLineTest, IpScannerSourcesTest, PingJitterMeterTest · scanner-sources |
 | `IspProtocolMatrix.kt` | 623 | 📡 1-Tap ISP Protocol Matrix — answers "which protocol is open on MY line right now?" with REAL network probes only (no simulated pings): • Baseline… | Beta212SstpTest, IspProtocolMatrixTest · — |
@@ -270,7 +270,8 @@
 | `ConnectButtonModel.kt` | 45 | — | — · — |
 | `ConnectionGlobeView.kt` | 426 | ConnectionGlobeView — a rotating 3D orthographic globe on the Cat dashboard: - Natural Earth 110m land projected onto a sphere (not a flat map), -… | — · — |
 | `ConnectionOrbView.kt` | 882 | A smooth liquid orb button with gentle morphing, layered gradients, and particle effects - matching the Cat Client design. | — · — |
-| `ConnectionPathView.kt` | 195 | Home strip shown while connected: hops on this line and a packet moving along them. | Beta300HomeConnectionPathTest · — |
+| `ConnectionPathView.kt` | 195 | Home strip shown while connected: hops on this line and a packet moving along them. | — · — |
+| `ConnectionPathWebView.kt` | 123 | Home WebView for assets/connection_path.html. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
 | `DashboardStatePresentation.kt` | 128 | — | — · — |
 | `DashboardViews.kt` | 819 | — | — · android-contrast |
 | `DebouncedTextWatcher.kt` | 38 | beta217: several boxes re-did heavy work on *every* key press — decoding every pasted config to show the «detected N configs» line, filtering and r… | — · — |
@@ -316,7 +317,7 @@
 | `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
-| `ConnectionPath.kt` | 101 | Home connection path: phone → how you connected → server → exit. | Beta300HomeConnectionPathTest · — |
+| `ConnectionPath.kt` | 255 | Home connection path: phone → how you connected → server → exit. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
 | `ConnectionPublicEndpoint.kt` | 187 | What to show and edit for a row. | Beta294PublicIpAndCfDnsTest · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
 | `CoreOptionsSettings.kt` | 72 | beta240 — three engine options that other clients show in their settings screen and Cat did not have. | Beta240CoreOptionsTest · — |
@@ -342,7 +343,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_284 Kotlin files, 119707 lines._
+_285 Kotlin files, 120001 lines._
 
 ## MainActivity screens — function index
 
@@ -351,7 +352,7 @@ for the dialog/button you want to change.
 
 ### `MainActivity.kt` (112 functions)
 
-`delayUntilNextRefresh`:108, `initializeContent`:116, `attachBaseContext`:470, `onCreate`:488, `onNewIntent`:594, `handleCatClientDeepLink`:606, `buildAppShell`:682, `setConnectionTestingPageVisible`:796, `closeConnectionTestingPage`:857, `addDockTab`:865, `glassDockBackground`:902, `setDockExpanded`:914, `dockPillBackground`:934, `renderDockSelection`:949, `layoutDockWidths`:983, `openScreen`:1029, `cloudScannerSwitch`:1046, `showAppTab`:1086, `buildHomeUsageCard`:1109, `renderHomeUsageCard`:1174, `vpnStateEqualsStarted`:1225, `renderFreeConfigs`:1228, `renderConnectionDetails`:1256, `renderDashboardLocalEndpoint`:1279, `renderDashboardConnectionMetadataVisibility`:1295, `localizedError`:1308, `onStart`:1311, `onStop`:1366, `onResume`:1385, `prewarmSubscriptionSnapshots`:1399, `onPause`:1412, `onSaveInstanceState`:1418, `onBackPressed`:1430, `onDestroy`:1439, `onTrimMemory`:1453, `onActivityResult`:1469, `onRequestPermissionsResult`:1505, `setSpeedText`:1526, `applyZedHomeState`:1549, `refreshScannerSelection`:1666, `renderScannerResults`:1673, `showPanelWizardDone`:1824, `handleAutomaticConnectionProgress`:1888, `handleStateChanged`:1901, `applyRuntimeState`:1964, `handleButtonClick`:2022, `handleRefreshClick`:2056, `refreshLocationOptions`:2088, `fetchPrivateSubscriptionOnLoad`:2117, `updateLocationOptions`:2137, `handleConnectionSelected`:2177, `renderConnectionSelection`:2255, `renderHomeConnectionRows`:2294, `showLocationSelector`:2328, `dialogLocationOptions`:2350, `handleLocationSelected`:2383, `renderLocationSelection`:2415, `automaticLocationOption`:2433, `renderRoutingModeSelection`:2436, `handleDnsPrivacySelected`:2445, `commitDnsPrivacyEndpoint`:2462, `renderDnsPrivacySelection`:2505, `commitFrontingIpInput`:2553, `renderLanSharingControls`:2596, `renderConnectionOptionsControls`:2630, `renderFrontingIpChips`:2684, `renderAdvancedControls`:2714, `beginConnectFlow`:2733, `requestNotificationPermissionIfNeeded`:2741, `requestVpnPermissionThenConnect`:2761, `startPendingConnectAction`:2787, `startVpnService`:2794, `requestActiveConnectionSwitch`:2806, `renderAlwaysOnStatus`:2816, `catGpLiveInfo`:2829, `catGpLocationLine`:2854, `beginLiveGeoCheck`:2869, `activePhysicalNetwork`:2942, `renderPingValue`:2954, `measureTunnelPingQuietly`:2965, `runTunnelPing`:2996, `appTrafficRidesVpn`:3049, `refreshDashboardIp`:3057, `runPingAll`:3067, `renderConnectionPath`:3139, `renderRealIpLine`:3155, `currentVpnStateIsStarted`:3166, `pendingGlobeCountry`:3168, `connectPillGradient`:3180, `applyConnectPillStyle`:3189, `connectHapticEnabled`:3214, `connectHaptic`:3217, `isPersianUi`:3233, `showConnectionFaultDialog`:3237, `renderState`:3264, `startTimerUpdates`:3455, `setTimerText`:3461, `toggleAppTheme`:3475, `updateTransferSpeeds`:3482, `renderTrafficBars`:3525, `fitHomeStage`:3543, `selectedRowColor`:3569, `applyHomeBackdrop`:3572, `syncShellBackdrop`:3582, `resetTransferSpeeds`:3603, `bytesPerSecond`:3620, `formatDuration`:3625, `glassSurfaceDrawable`:3633, `catClientPopupMenu`:3729, `withAlpha`:3732, `dp`:3745, `accentFor`:3747
+`delayUntilNextRefresh`:108, `initializeContent`:116, `attachBaseContext`:470, `onCreate`:488, `onNewIntent`:594, `handleCatClientDeepLink`:606, `buildAppShell`:682, `setConnectionTestingPageVisible`:796, `closeConnectionTestingPage`:857, `addDockTab`:865, `glassDockBackground`:902, `setDockExpanded`:914, `dockPillBackground`:934, `renderDockSelection`:949, `layoutDockWidths`:983, `openScreen`:1029, `cloudScannerSwitch`:1046, `showAppTab`:1086, `buildHomeUsageCard`:1109, `renderHomeUsageCard`:1174, `vpnStateEqualsStarted`:1225, `renderFreeConfigs`:1228, `renderConnectionDetails`:1256, `renderDashboardLocalEndpoint`:1279, `renderDashboardConnectionMetadataVisibility`:1295, `localizedError`:1308, `onStart`:1311, `onStop`:1366, `onResume`:1385, `prewarmSubscriptionSnapshots`:1399, `onPause`:1412, `onSaveInstanceState`:1418, `onBackPressed`:1430, `onDestroy`:1439, `onTrimMemory`:1453, `onActivityResult`:1469, `onRequestPermissionsResult`:1505, `setSpeedText`:1526, `applyZedHomeState`:1549, `refreshScannerSelection`:1666, `renderScannerResults`:1673, `showPanelWizardDone`:1824, `handleAutomaticConnectionProgress`:1888, `handleStateChanged`:1901, `applyRuntimeState`:1964, `handleButtonClick`:2022, `handleRefreshClick`:2056, `refreshLocationOptions`:2088, `fetchPrivateSubscriptionOnLoad`:2117, `updateLocationOptions`:2137, `handleConnectionSelected`:2177, `renderConnectionSelection`:2255, `renderHomeConnectionRows`:2294, `showLocationSelector`:2328, `dialogLocationOptions`:2350, `handleLocationSelected`:2383, `renderLocationSelection`:2415, `automaticLocationOption`:2433, `renderRoutingModeSelection`:2436, `handleDnsPrivacySelected`:2445, `commitDnsPrivacyEndpoint`:2462, `renderDnsPrivacySelection`:2505, `commitFrontingIpInput`:2553, `renderLanSharingControls`:2596, `renderConnectionOptionsControls`:2630, `renderFrontingIpChips`:2684, `renderAdvancedControls`:2714, `beginConnectFlow`:2733, `requestNotificationPermissionIfNeeded`:2741, `requestVpnPermissionThenConnect`:2761, `startPendingConnectAction`:2787, `startVpnService`:2794, `requestActiveConnectionSwitch`:2806, `renderAlwaysOnStatus`:2816, `catGpLiveInfo`:2829, `catGpLocationLine`:2854, `beginLiveGeoCheck`:2869, `activePhysicalNetwork`:2942, `renderPingValue`:2954, `measureTunnelPingQuietly`:2965, `runTunnelPing`:2996, `appTrafficRidesVpn`:3049, `refreshDashboardIp`:3057, `runPingAll`:3067, `renderConnectionPath`:3139, `renderRealIpLine`:3171, `currentVpnStateIsStarted`:3182, `pendingGlobeCountry`:3184, `connectPillGradient`:3196, `applyConnectPillStyle`:3205, `connectHapticEnabled`:3230, `connectHaptic`:3233, `isPersianUi`:3249, `showConnectionFaultDialog`:3253, `renderState`:3280, `startTimerUpdates`:3471, `setTimerText`:3477, `toggleAppTheme`:3491, `updateTransferSpeeds`:3498, `renderTrafficBars`:3541, `fitHomeStage`:3559, `selectedRowColor`:3585, `applyHomeBackdrop`:3588, `syncShellBackdrop`:3598, `resetTransferSpeeds`:3619, `bytesPerSecond`:3636, `formatDuration`:3641, `glassSurfaceDrawable`:3649, `catClientPopupMenu`:3745, `withAlpha`:3748, `dp`:3761, `accentFor`:3763
 
 ### `MainActivityAdvanced.kt` (59 functions)
 
@@ -383,7 +384,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityDashboard.kt` (4 functions)
 
-`buildFlowMeterRow`:110, `buildDashboard`:190, `showMapPage`:1126, `buildZedTicket`:1352
+`buildFlowMeterRow`:110, `buildDashboard`:190, `showMapPage`:1127, `buildZedTicket`:1353
 
 ### `MainActivityDiagnostics.kt` (8 functions)
 
@@ -623,6 +624,7 @@ for the dialog/button you want to change.
 | `ConnectionPathHop` | `ConnectionPath.kt` |
 | `ConnectionPathSnapshot` | `ConnectionPath.kt` |
 | `ConnectionPathView` | `ConnectionPathView.kt` |
+| `ConnectionPathWebView` | `ConnectionPathWebView.kt` |
 | `ConnectionProfile` | `CleanIp.kt` |
 | `ConnectionProfileSelectionPolicy` | `ProfileDelaySelector.kt` |
 | `ConnectionPublicEndpoint` | `ConnectionPublicEndpoint.kt` |
