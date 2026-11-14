@@ -338,6 +338,8 @@
     <string name="core_sniffing_description">Turn on if your routing rules or ad blocking miss some apps. Cat reads the real site name from the connection (TLS / HTTP / QUIC), so apps that connect by IP or use their own DNS are routed correctly too. Used for routing only; the address is never changed. Applies immediately.</string>
     <string name="core_fake_dns_title">FakeDNS (fast DNS)</string>
     <string name="core_fake_dns_description">On (recommended): faster connection setup and the most accurate routing. Turn off only if an app such as a game or banking app refuses to work inside the VPN; Cat then returns real IP addresses. Applies immediately.</string>
+    <string name="core_ipv6_title">IPv6</string>
+    <string name="core_ipv6_description">On (recommended): IPv6 sites and apps go through the VPN instead of being dropped. The tunnel already captures IPv6; this lets the core handle it. Turn off only if an app breaks on IPv6. Applies immediately.</string>
     <string name="core_http_proxy_title">System HTTP proxy</string>
     <string name="core_http_proxy_description">Browsers and apps that support the Android system proxy connect straight to Cat\'s local port (127.0.0.1:2080), which often loads pages faster. Other apps still use the VPN as usual. Turn off if an app shows a proxy error. Applies immediately.</string>
     <string name="routing_mode_iran_detail">Connect to Iranian domains and IP addresses directly. Route everything else through the VPN.</string>

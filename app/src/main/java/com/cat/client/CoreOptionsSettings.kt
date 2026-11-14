@@ -1,4 +1,4 @@
-// beta240 settings rows for core options other clients carry and Cat lacked: sniffing, FakeDNS, system HTTP proxy.
+// beta240 settings rows for core options other clients carry and Cat lacked: sniffing, FakeDNS, IPv6, system HTTP proxy.
 package com.cat.client
 
 import android.os.Build
@@ -6,11 +6,12 @@ import android.widget.LinearLayout
 import com.google.android.material.materialswitch.MaterialSwitch
 
 /**
- * beta240 — three engine options that other clients show in their settings screen and Cat did not have.
+ * beta240 — engine options that other clients show in their settings screen and Cat did not have.
  * Each one maps to a real option of the running core (nothing cosmetic):
  *
  * - «Sniffing»          → mihomo `sniffer` (route-only: `override-destination: false`), [MihomoRuntimeConfigBuilder.SNIFFER_BLOCK].
  * - «FakeDNS»           → `dns.enhanced-mode` fake-ip (default, unchanged) or redir-host (real IPs).
+ * - «IPv6»              → top-level `ipv6` + `dns.ipv6` (TUN already captures IPv6; off blackholes it).
  * - «System HTTP proxy» → `VpnService.Builder.setHttpProxy(127.0.0.1:mixed-port)`, Android 10+ only.
  *
  * A change reconnects a running tunnel at once (same path as the other connection options), so the owner sees
@@ -35,6 +36,9 @@ internal fun MainActivity.addCoreOptionRows(panel: LinearLayout) {
     }
     row(R.string.core_fake_dns_title, R.string.core_fake_dns_description, store.isFakeDnsEnabled()) { on ->
         saveCoreOption("fakeDns", store.isFakeDnsEnabled(), on) { store.saveFakeDnsEnabled(it) }
+    }
+    row(R.string.core_ipv6_title, R.string.core_ipv6_description, store.isIpv6Enabled()) { on ->
+        saveCoreOption("ipv6", store.isIpv6Enabled(), on) { store.saveIpv6Enabled(it) }
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         row(R.string.core_http_proxy_title, R.string.core_http_proxy_description, store.isSystemHttpProxyEnabled()) { on ->

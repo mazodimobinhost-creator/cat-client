@@ -359,6 +359,12 @@ internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
         "با یک ضربه روی همین خط وصل می‌شود. اگر این روش اینترنت نداد، خودش بعدی را امتحان می‌کند — پنجرهٔ رتبه‌بندی باز نمی‌شود. برای دیدن نتیجهٔ کامل «🧭 بررسی» را بزنید.",
         "Connects on this line in one tap. If this method gives no internet, it tries the next itself — no ranking dialog. Tap 🧭 Check for the full test.",
         "وصل اتصال پیشنهادی ساده کدام روش کار می‌کند بررسی connect recommended easy start which method works check") { showRecommendedOneClickConnectWizardDialog() },
+    FinderEntry("🧭 Cat Scout — کدام روش روی اینترنت من کار می‌کند؟", "🧭 Cat Scout — which method works on my internet?",
+        "همهٔ روش‌های Cat را روی همین خط واقعاً امتحان می‌کند (نه فقط پینگ) و بهترین را بالا می‌آورد. می‌توانید وسط کار توقف بزنید.",
+        "Really tests every Cat method on this line (not just a ping) and puts the best on top. You can stop mid-run.",
+        "اسکاوت scout mlm scout رادار کدام روش کار می‌کند بررسی method finder check rank") {
+        showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
+    },
     FinderEntry("🧭 DNS / کلودفلر / وی‌پی‌اس / هاست / رایگان", "🧭 DNS / Cloudflare / VPS / host / free",
         "کدام روش را بزنی: تانل DNS، ورکر کلودفلر، وی‌پی‌اس خودت، هاست رایگان، یا VPNهای رایگان داخل Cat.",
         "Which to tap: DNS tunnel, Cloudflare Worker, your VPS, a free host, or the free VPNs already in Cat.",

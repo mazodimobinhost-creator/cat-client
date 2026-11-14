@@ -166,8 +166,8 @@ internal object MlmAndNextGenVpnHub {
             howItWorksEn = "Probes all connection methods on your current ISP, highlights the fastest with a '⭐ Recommended' badge, and auto-repairs broken configs.",
             statusInIranFa = "🟢 ساده‌ترین و مطمئن‌ترین راه وصل شدن برای همه بدون نیاز به دانش فنی",
             statusInIranEn = "🟢 Easiest 1-click connection wizard for everyone",
-            actionLabelFa = "🚀 اجرای اتصال جادویی ۱-کلیکی (⭐ پیشنهادی)",
-            actionLabelEn = "🚀 Launch 1-Click Magic Connect (⭐ Recommended)",
+            actionLabelFa = "🧭 Cat Scout — بررسی همهٔ روش‌ها روی همین خط",
+            actionLabelEn = "🧭 Cat Scout — check every method on this line",
         ),
         // beta248: the free networks sit next to Cat Fox here too (they lived only in the 🎁 hub before).
         VpnEcosystemEntry(

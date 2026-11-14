@@ -4,6 +4,20 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta309] — 2026-10-09 (Panel 6.89.0)
+
+Owner: add what Cat can actually run (IPv6, FakeDNS, Cat Scout). Do not fake OpenVPN / Mami / Argo / L2TP.
+
+### Added
+- **IPv6:** settings toggle (on by default). The TUN already captured IPv6; the core now handles it (`ipv6` + `dns.ipv6`) instead of blackholing it. FakeDNS on IPv6 uses `fake-ip-range6`. Applies immediately.
+
+### Changed
+- **Cat Scout:** hub item 9 and the feature finder open the real method finder (a request through each method, not a TCP ping). One-tap «🚀 فقط می‌خواهم وصل شوم» is unchanged.
+
+### Notes
+- **FakeDNS / routing / sniffing** were already settings. Unchanged.
+- **OpenVPN, Mami, Argo, L2TP** (`ns1.rmft.tech/l2tp/sub`) are not in-app engines. OpenVPN is a VPS install script only. Mama VPN’s AmneziaWG / VLESS Reality already import as Cat configs. UAC-SNI-Spoofer overlaps Xray + Cat Warp + Cat SNI already in Cat.
+
 ## [1.10.0-beta308] — 2026-11-11 (Panel 6.89.0)
 
 Owner: Cat's own methods must actually connect on this line.

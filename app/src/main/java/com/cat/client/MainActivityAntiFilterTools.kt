@@ -681,7 +681,7 @@ internal fun MainActivity.showAllVpns2026ComparisonAndMlmHubDialog() {
                 5 -> addFreeSlipNet()
                 6 -> runSmartIranBankingShieldDialog()
                 7 -> showPaqetPatthEngineDialog()
-                8 -> showRecommendedOneClickConnectWizardDialog()
+                8 -> showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
                 else -> when (catalog.getOrNull(which)?.id) {
                     "free_proxy" -> showFreeProxyDialog()
                     "fanoos" -> showFanoosDialog()

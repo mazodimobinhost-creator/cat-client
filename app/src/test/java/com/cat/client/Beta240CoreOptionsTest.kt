@@ -25,9 +25,14 @@ class Beta240CoreOptionsTest {
           - MATCH,PROXY
     """.trimIndent()
 
-    private fun runtime(raw: String = subscription, sniffing: Boolean = false, fakeDns: Boolean = true) =
+    private fun runtime(
+        raw: String = subscription,
+        sniffing: Boolean = false,
+        fakeDns: Boolean = true,
+        ipv6: Boolean = true,
+    ) =
         MihomoRuntimeConfigBuilder.flClashRuntimeYaml(
-            rawYaml = raw, secret = "s", controlPort = 19090, sniffing = sniffing, fakeDns = fakeDns,
+            rawYaml = raw, secret = "s", controlPort = 19090, sniffing = sniffing, fakeDns = fakeDns, ipv6 = ipv6,
         )
 
     private fun topLevelCount(yaml: String, key: String) = yaml.lines().count { it == "$key:" }
@@ -37,6 +42,9 @@ class Beta240CoreOptionsTest {
         val yaml = runtime()
         assertTrue(yaml.contains("  enhanced-mode: fake-ip\n"))
         assertTrue(yaml.contains("  fake-ip-range: 198.18.0.1/16\n"))
+        assertTrue(yaml.contains("ipv6: true\n"))
+        assertTrue(yaml.contains("  ipv6: true\n"))
+        assertTrue(yaml.contains("  fake-ip-range6: fd11:208:a::/48\n"))
         assertEquals(0, topLevelCount(yaml, "sniffer"))
     }
 
@@ -69,6 +77,16 @@ class Beta240CoreOptionsTest {
     }
 
     @Test
+    fun ipv6OffDropsCoreAndDnsV6AndFakeIp6() {
+        val yaml = runtime(ipv6 = false)
+        assertTrue(yaml.contains("ipv6: false\n"))
+        assertTrue(yaml.contains("  ipv6: false\n"))
+        assertFalse(yaml.contains("ipv6: true"))
+        assertFalse(yaml.contains("fake-ip-range6"))
+        assertTrue(yaml.contains("  fake-ip-range: 198.18.0.1/16\n"))
+    }
+
+    @Test
     fun pingAddressIsAChoiceOfHttpsEndpointsOnly() {
         assertEquals(MihomoRuntimeDefaults.DELAY_TEST_URL, ConnectionTestSettings().delayTestUrl)
         val cf = "https://cp.cloudflare.com/generate_204"
@@ -89,10 +107,11 @@ class Beta240CoreOptionsTest {
     fun preferencesAndUiAreWired() {
         val main = File("src/main/java/com/cat/client")
         val store = File(main, "MihomoRuntime.kt").readText()
-        listOf("isSniffingEnabled", "isFakeDnsEnabled", "isSystemHttpProxyEnabled").forEach {
+        listOf("isSniffingEnabled", "isFakeDnsEnabled", "isIpv6Enabled", "isSystemHttpProxyEnabled").forEach {
             assertTrue(it, store.contains("fun $it()"))
         }
         assertTrue("FakeDNS stays on by default", store.contains("getBoolean(KEY_FAKE_DNS, true)"))
+        assertTrue("IPv6 stays on by default so TUN IPv6 is not blackholed", store.contains("getBoolean(KEY_IPV6, true)"))
         val vpn = File(main, "CatClientVpnService.kt").readText()
             .substringAfter("fun establishTun(").substringBefore("applySplitTunnel(builder")
         assertTrue(vpn.contains("isSystemHttpProxyEnabled()"))
@@ -100,10 +119,11 @@ class Beta240CoreOptionsTest {
         val ui = File(main, "CoreOptionsSettings.kt").readText()
         assertTrue(ui.contains("Build.VERSION_CODES.Q"))
         assertTrue(ui.contains("reconnectForConnectionOptionChange()"))
+        assertTrue(ui.contains("saveCoreOption(\"ipv6\""))
         assertTrue(File(main, "MainActivityAdvanced.kt").readText().contains("addCoreOptionRows(routingPanel)"))
         listOf("src/main/res/values/strings.xml", "src/main/res/values-fa/strings.xml").forEach { path ->
             val xml = File(path).readText()
-            listOf("core_sniffing_title", "core_fake_dns_description", "core_http_proxy_title").forEach {
+            listOf("core_sniffing_title", "core_fake_dns_description", "core_ipv6_title", "core_http_proxy_title").forEach {
                 assertTrue("$path $it", xml.contains("name=\"$it\""))
             }
         }

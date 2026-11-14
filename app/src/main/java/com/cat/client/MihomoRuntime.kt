@@ -338,6 +338,9 @@ class RoutingModePreferenceStore(context: Context) {
     fun saveAntiSanction(settings: AntiSanctionRouting.Settings) { prefs.edit().putString(KEY_ANTI_SANCTION, AntiSanctionRouting.encode(settings)).apply() }
     fun isFakeDnsEnabled(): Boolean = prefs.getBoolean(KEY_FAKE_DNS, true)
     fun saveFakeDnsEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_FAKE_DNS, enabled).apply() }
+    /** TUN already captures IPv6; the core must handle it or that traffic is blackholed. Default on (MCI). */
+    fun isIpv6Enabled(): Boolean = prefs.getBoolean(KEY_IPV6, true)
+    fun saveIpv6Enabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_IPV6, enabled).apply() }
     fun isSystemHttpProxyEnabled(): Boolean = prefs.getBoolean(KEY_SYSTEM_HTTP_PROXY, false)
     fun saveSystemHttpProxyEnabled(enabled: Boolean) { prefs.edit().putBoolean(KEY_SYSTEM_HTTP_PROXY, enabled).apply() }
 
@@ -347,6 +350,7 @@ class RoutingModePreferenceStore(context: Context) {
         const val KEY_SNIFFING = "sniffing"
         const val KEY_ANTI_SANCTION = "anti_sanction"
         const val KEY_FAKE_DNS = "fake_dns"
+        const val KEY_IPV6 = "ipv6"
         const val KEY_SYSTEM_HTTP_PROXY = "system_http_proxy"
     }
 }
@@ -754,6 +758,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 orbot = document.orbot,
                 sniffing = RoutingModePreferenceStore(context).isSniffingEnabled(),
                 fakeDns = RoutingModePreferenceStore(context).isFakeDnsEnabled(),
+                ipv6 = RoutingModePreferenceStore(context).isIpv6Enabled(),
                 antiSanction = RoutingModePreferenceStore(context).antiSanction(),
             ),
         )
@@ -913,6 +918,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
             adBlock: Boolean = false,
             sniffing: Boolean = false,
             fakeDns: Boolean = true,
+            ipv6: Boolean = true,
             antiSanction: AntiSanctionRouting.Settings = AntiSanctionRouting.Settings(),
             orbot: OrbotProxySettings? = null,
         ): String {
@@ -1053,7 +1059,7 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 }
                 append("mode: rule\n")
                 append("log-level: warning\n")
-                append("ipv6: false\n")
+                append("ipv6: $ipv6\n")
                 append("unified-delay: true\n")
                 append("global-client-fingerprint: chrome\n")
                 // Faster session bring-up: dial proxies in parallel and keep the
@@ -1069,12 +1075,13 @@ internal class MihomoRuntimeConfigBuilder(private val context: Context) {
                 // Loopback only: `allow-lan: false` gates the proxy listeners but not this one, so
                 // binding 0.0.0.0 would expose an open resolver to every peer on the same Wi-Fi.
                 append("  listen: ${MihomoRuntimeDefaults.CONTROLLER_HOST}:${MihomoRuntimeDefaults.DNS_LISTEN_PORT}\n")
-                append("  ipv6: false\n")
+                append("  ipv6: $ipv6\n")
                 append("  respect-rules: ${dnsProxyGroup != null}\n")
                 // beta240 «FakeDNS» off → real answers (redir-host); mihomo still maps IP → name for the rules.
                 if (fakeDns) {
                     append("  enhanced-mode: fake-ip\n")
                     append("  fake-ip-range: 198.18.0.1/16\n")
+                    if (ipv6) append("  fake-ip-range6: fd11:208:a::/48\n")
                 } else {
                     append("  enhanced-mode: redir-host\n")
                 }

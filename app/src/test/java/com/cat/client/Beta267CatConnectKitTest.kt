@@ -14,8 +14,8 @@ class Beta267CatConnectKitTest {
     fun versionIsBeta267() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 375"))
-        assertTrue(gradle.contains("1.10.0-beta308"))
+        assertTrue(gradle.contains("versionCode = 376"))
+        assertTrue(gradle.contains("1.10.0-beta309"))
         val worker = listOf(
             File("app/src/main/assets/panels/catclient.worker.js"),
             File("src/main/assets/panels/catclient.worker.js"),
