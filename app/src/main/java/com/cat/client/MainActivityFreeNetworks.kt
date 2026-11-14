@@ -1594,19 +1594,37 @@ internal fun MainActivity.scanCatWarpOnThisLine() {
             AetherOperations.scan(AetherMode.WireGuard, toml, "both", scanMode = "turbo").getOrNull().orEmpty()
         }
         wg.take(8).forEach { step("✅ WG ${it.peer} · ${it.rttMillis} ms") }
-        step(t("۳) اسکن MASQUE HTTP/2…", "3) MASQUE HTTP/2 scan…"))
-        val h2 = withContext(Dispatchers.IO) {
+        step(t("۳) اسکن MASQUE HTTP/2 (همراه اول)…", "3) MASQUE HTTP/2 scan (Hamrah)…"))
+        var h2 = withContext(Dispatchers.IO) {
             AetherOperations.scan(AetherMode.MasqueHttp2, toml, "v4", "h2", scanMode = "turbo").getOrNull().orEmpty()
         }
+        if (h2.isEmpty()) {
+            h2 = withContext(Dispatchers.IO) {
+                CatWarpFreePlanner.EXTRA_H2_PEERS.mapNotNull { peer ->
+                    val kept = CatWarpFreePlanner.keepExactPeer(peer) ?: return@mapNotNull null
+                    AetherOperations.confirmEndpoint(
+                        AetherMode.MasqueHttp2, toml, kept, "v4", "auto", 4_000L,
+                    ).getOrNull()
+                }
+            }
+        }
         h2.take(8).forEach { step("✅ H2 ${it.peer} · ${it.rttMillis} ms") }
+        step(t("۴) اسکن MASQUE HTTP/3…", "4) MASQUE HTTP/3 scan…"))
+        val h3 = withContext(Dispatchers.IO) {
+            AetherOperations.scan(AetherMode.MasqueHttp2, toml, "v4", "h3", scanMode = "turbo").getOrNull().orEmpty()
+        }
+        h3.take(8).forEach { step("✅ H3 ${it.peer} · ${it.rttMillis} ms") }
         val awg = CatWarpFreePlanner.awgLinksFromPeers(wg.map { it.peer })
+        val liveAwg = withContext(Dispatchers.IO) {
+            AmneziaCleanEndpoints.urisFromPeers(AmneziaCleanEndpoints.liveOrFallback(), withInitPackets = true)
+        }
         val vanilla = wg.mapNotNull { hit ->
             CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { peer ->
                 CatWarpFreePlanner.wireguardUri(peer, "Cat Warp WG $peer")
             }
         }.distinct()
-        val links = (awg + vanilla).distinct()
-        if (links.isEmpty() && wg.isEmpty() && h2.isEmpty()) {
+        val links = (awg + vanilla + liveAwg).distinct()
+        if (links.isEmpty() && wg.isEmpty() && h2.isEmpty() && h3.isEmpty()) {
             freeResult(
                 t("روی این خط اندپوینت باز پیدا نشد", "No open endpoint on this line"),
                 listOf(
@@ -1631,12 +1649,15 @@ internal fun MainActivity.scanCatWarpOnThisLine() {
         val bestH2 = h2.firstOrNull()?.let { hit ->
             CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { hit.copy(peer = it) }
         }
+        val bestH3 = h3.firstOrNull()?.let { hit ->
+            CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { hit.copy(peer = it) }
+        }
         val bestWg = wg.firstOrNull()?.let { hit ->
             CatWarpFreePlanner.keepExactPeer(hit.peer)?.let { hit.copy(peer = it) }
         }
-        val best = bestH2 ?: bestWg
+        val best = bestH2 ?: bestH3 ?: bestWg
         if (best != null) {
-            val mode = if (bestH2 != null) AetherMode.MasqueHttp2 else AetherMode.WireGuard
+            val mode = if (bestH2 != null || bestH3 != null) AetherMode.MasqueHttp2 else AetherMode.WireGuard
             val cur = aetherPreferenceStore.read()
             val ready = cur.copy(
                 enabled = true,
@@ -1644,7 +1665,11 @@ internal fun MainActivity.scanCatWarpOnThisLine() {
                 chainTarget = "none",
                 endpoint = best.peer,
                 ipScan = CatWarpFreePlanner.ipScanForPeer(best.peer),
-                masqueTransport = if (mode == AetherMode.MasqueHttp2) "h2" else cur.masqueTransport,
+                masqueTransport = when {
+                    bestH2 != null -> "h2"
+                    bestH3 != null -> "h3"
+                    else -> cur.masqueTransport
+                },
                 endpointScannedAt = System.currentTimeMillis(),
                 profileName = "Cat Warp · ${best.peer}",
             )
@@ -1655,9 +1680,10 @@ internal fun MainActivity.scanCatWarpOnThisLine() {
             withContext(Dispatchers.Main) { renderSubscriptions() }
         }
         val report = buildList {
-            add(t("✅ ${awg.size} AmneziaWG · ${vanilla.size} وایرگارد", "✅ ${awg.size} AmneziaWG · ${vanilla.size} WireGuard"))
+            add(t("✅ ${awg.size} AmneziaWG · ${vanilla.size} وایرگارد · ${liveAwg.size} تمیز", "✅ ${awg.size} AmneziaWG · ${vanilla.size} WireGuard · ${liveAwg.size} clean"))
             wg.take(5).forEach { add("WG ${it.peer}") }
-            h2.take(5).forEach { add("MASQUE ${it.peer}") }
+            h2.take(5).forEach { add("MASQUE H2 ${it.peer}") }
+            h3.take(5).forEach { add("MASQUE H3 ${it.peer}") }
             if (best != null) add("Cat Warp ${best.peer}")
         }
         withContext(Dispatchers.Main) {

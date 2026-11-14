@@ -140,4 +140,24 @@ internal object CatWarpFreePlanner {
             hintEn = "two-hop",
         ),
     )
+
+    /**
+     * Extra MASQUE HTTP/2 edges (Hamrah default is H2 on 162.159.198.1:443).
+     * Same port that answered — 443 only; never 80/1080.
+     */
+    val EXTRA_H2_PEERS = listOf(
+        "162.159.198.1:443",
+        "162.159.192.1:443",
+        "162.159.193.1:443",
+        "188.114.96.1:443",
+        "188.114.97.1:443",
+        "188.114.98.1:443",
+    )
+
+    /** HTTP/3 (QUIC) — often closed on Hamrah; try when H2 is empty. */
+    val EXTRA_H3_PEERS = listOf(
+        "162.159.198.1:443",
+        "162.159.192.1:443",
+        "188.114.96.1:443",
+    )
 }

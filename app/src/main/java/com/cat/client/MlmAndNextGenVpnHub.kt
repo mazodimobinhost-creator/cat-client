@@ -376,7 +376,7 @@ internal object MlmAndNextGenVpnHub {
         "awg://auto@162.159.192.1:1701?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%201701",
         "awg://auto@162.159.192.1:4500?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=5&wpayloadsize=40-120#🛡️%20WARP-AWG%204500",
         "awg://auto@[2606:4700:d0::a29f:c001]:2408?address=172.16.0.2/32&publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D&mtu=1280&keepalive=25&jc=5&jmin=50&jmax=1000&wnoisecount=4&wpayloadsize=40-100#🛡️%20WARP-AWG%20IPv6",
-    )
+    ) + AmneziaCleanEndpoints.urisFromPeers(AmneziaCleanEndpoints.FALLBACK, withInitPackets = false)
 
     /**
      * Converts a standard WireGuard / Proton VPN / AmneziaWG `.conf` file into an `awg://` URI
@@ -430,6 +430,8 @@ internal object MlmAndNextGenVpnHub {
     fun fetchAndScanAmneziaAndProtonConfigs(): List<VerifiedProxyNode> {
         val candidates = LinkedHashSet<String>()
         BUILTIN_AWG_AND_HY2_URIS.forEach { candidates += it }
+        AmneziaCleanEndpoints.urisFromPeers(AmneziaCleanEndpoints.liveOrFallback(), withInitPackets = true)
+            .forEach { candidates += it }
         val hy2Feeds = listOf(
             "https://cdn.jsdelivr.net/gh/barry-far/V2ray-config@main/Splitted-By-Protocol/hysteria2.txt" to
                 "https://raw.githubusercontent.com/barry-far/V2ray-config/main/Splitted-By-Protocol/hysteria2.txt",

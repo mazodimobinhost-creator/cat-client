@@ -80,6 +80,10 @@ internal object FirefoxVpnEngine {
     private const val KEY_AUTO_FAILOVER = "multi_account_auto_failover"
     private const val KEY_CACHED_COUNTRIES = "cached_remote_countries_json"
     private const val KEY_TRANSPORT = "fox_transport"
+    private const val KEY_MOZILLA_RELAY = FoxMozillaRelay.PREFS_KEY
+
+    @Volatile
+    private var mozillaRelayUrl: String = ""
 
     const val FXA_AUTH_SERVER = "https://api.accounts.firefox.com/v1"
     const val FXA_OAUTH_SERVER = "https://oauth.accounts.firefox.com/v1"
@@ -531,6 +535,7 @@ internal object FirefoxVpnEngine {
     // =========================================================================
 
     fun loadAccounts(context: Context): List<FirefoxVpnAccount> {
+        bindMozillaRelay(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_ACCOUNTS_JSON, "[]").orEmpty()
         return runCatching {
@@ -619,6 +624,42 @@ internal object FirefoxVpnEngine {
             .edit()
             .putString(KEY_CLEAN_FASTLY_IP, ip.trim())
             .apply()
+    }
+
+    fun bindMozillaRelay(context: Context) {
+        mozillaRelayUrl = readMozillaRelayUrl(context)
+    }
+
+    fun readMozillaRelayUrl(context: Context): String =
+        FoxMozillaRelay.normalize(
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_MOZILLA_RELAY, "")
+                .orEmpty(),
+        ).orEmpty()
+
+    fun saveMozillaRelayUrl(context: Context, url: String) {
+        val normalized = FoxMozillaRelay.normalize(url).orEmpty()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_MOZILLA_RELAY, normalized)
+            .apply()
+        mozillaRelayUrl = normalized
+    }
+
+    fun probeMozillaRelay(relayUrl: String): FoxMozillaRelay.Probe {
+        val health = FoxMozillaRelay.healthUrl(relayUrl)
+            ?: return FoxMozillaRelay.Probe(false, "invalid")
+        val resp = runCatching {
+            executeAntiDpiHttpRequest(
+                method = "GET",
+                urlStr = health,
+                headers = mapOf("Accept" to "application/json"),
+                followRedirects = false,
+                timeoutMs = 12_000,
+                useRelay = false,
+            )
+        }.getOrNull() ?: return FoxMozillaRelay.Probe(false, "unreachable")
+        return FoxMozillaRelay.parseHealth(resp.statusCode, resp.body)
     }
 
     fun isMultiAccountFailoverEnabled(context: Context): Boolean =
@@ -828,8 +869,11 @@ internal object FirefoxVpnEngine {
         followRedirects: Boolean = true,
         timeoutMs: Int = 18_000,
         jar: FoxCookieJar = controlCookies,
+        useRelay: Boolean = true,
     ): RawHttpResponse {
-        val reqHost = runCatching { URI(urlStr).host }.getOrNull().orEmpty()
+        val originalUrl = urlStr
+        val transportUrl = if (useRelay) FoxMozillaRelay.wrap(originalUrl, mozillaRelayUrl) ?: originalUrl else originalUrl
+        val reqHost = runCatching { URI(originalUrl).host }.getOrNull().orEmpty()
         val cookieHeader = jar.header(reqHost)
         val mergedHeaders = LinkedHashMap<String, String>()
         mergedHeaders["User-Agent"] = FIREFOX_DESKTOP_USER_AGENT
@@ -846,7 +890,7 @@ internal object FirefoxVpnEngine {
         val rawSocketResp = runCatching {
             executeOverFragmentedTlsSocket(
                 method = method,
-                urlStr = urlStr,
+                urlStr = transportUrl,
                 headers = mergedHeaders,
                 bodyBytes = bodyBytes,
                 timeoutMs = timeoutMs,
@@ -855,7 +899,7 @@ internal object FirefoxVpnEngine {
             if (!FenixPassPolicy.retryWithoutSplit(true, first)) throw first
             executeOverFragmentedTlsSocket(
                 method = method,
-                urlStr = urlStr,
+                urlStr = transportUrl,
                 headers = mergedHeaders,
                 bodyBytes = bodyBytes,
                 timeoutMs = timeoutMs,
@@ -868,7 +912,7 @@ internal object FirefoxVpnEngine {
             if (followRedirects && rawSocketResp.statusCode in listOf(301, 302, 303, 307, 308)) {
                 val loc = rawSocketResp.header("Location")
                 if (!loc.isNullOrBlank()) {
-                    val resolvedUrl = runCatching { URI(urlStr).resolve(loc).toString() }.getOrDefault(loc)
+                    val resolvedUrl = runCatching { URI(originalUrl).resolve(loc).toString() }.getOrDefault(loc)
                     return executeAntiDpiHttpRequest(
                         method = if (rawSocketResp.statusCode == 303) "GET" else method,
                         urlStr = resolvedUrl,
@@ -877,6 +921,7 @@ internal object FirefoxVpnEngine {
                         followRedirects = false,
                         timeoutMs = timeoutMs,
                         jar = jar,
+                        useRelay = useRelay,
                     )
                 }
             }
@@ -884,7 +929,7 @@ internal object FirefoxVpnEngine {
         }
 
         // 2. Fallback to standard HttpURLConnection
-        val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+        val conn = (URL(transportUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
@@ -1290,6 +1335,7 @@ internal object FirefoxVpnEngine {
         password: String,
         unblockCode: String = "",
     ): LoginOutcome {
+        bindMozillaRelay(context)
         val typedEmail = normalizeEmail(email, preserveCase = true)
         if (typedEmail.isEmpty() || !typedEmail.contains("@") || password.isEmpty()) {
             return LoginOutcome.Failure(
@@ -1591,6 +1637,7 @@ internal object FirefoxVpnEngine {
         refreshToken: String,
         sessionTokenHex: String? = null,
     ): LoginOutcome {
+        bindMozillaRelay(context)
         if (accessToken.isBlank()) {
             return LoginOutcome.Failure(
                 "توکن دسترسی (access_token) در پاسخ موزیلا نبود.",
@@ -1785,6 +1832,7 @@ internal object FirefoxVpnEngine {
         context: Context,
         account: FirefoxVpnAccount,
     ): FirefoxVpnAccount {
+        bindMozillaRelay(context)
         var currentAccess = account.accessToken
         var currentRefresh = account.refreshToken
 
@@ -3290,6 +3338,7 @@ internal object FirefoxVpnEngine {
     }
 
     fun startLocalBridge(context: Context, preferredCountryCode: String? = null): Int {
+        bindMozillaRelay(context)
         val accounts = loadAccounts(context)
         // beta237: renew a pass that has run out (or is about to) HERE, before the VPN is up and on a protected
         // socket — not later inside the first tunnel, where a fallback request would have to go through this very

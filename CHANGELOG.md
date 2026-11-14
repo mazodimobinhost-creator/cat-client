@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta307] — 2026-11-11 (Panel 6.89.0)
+
+Owner: keep the dump methods inside Cat, under Cat names.
+
+### Added
+- **Cat Fox relay:** if Mozilla sign-in is blocked, Fox can send those requests (not VPN traffic) through your own Cloudflare Worker. Paste the Worker URL with `?secret=`. workers.dev is not required.
+- **Amnezia 1.5:** live clean WARP `IP:port` rows (exact port kept) plus init packets `i1`–`i5` / `itime`. Vanilla junk (`jc`) stays on the built-in rows; `s1`/`h1` are still only used when the file has them.
+- **Cat Warp MASQUE:** scan tries HTTP/2 first (Hamrah), then HTTP/3, and extra `:443` edges when the H2 scan is empty.
+
 ## [1.10.0-beta306] — 2026-11-11 (Panel 6.89.0)
 
 Owner: the map button must open the map.

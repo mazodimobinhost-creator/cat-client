@@ -997,6 +997,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
             "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
             "🛡️ ۶) روشن/خاموش کردن برش بسته TLS در مرز SNI (ضد فیلترینگ Cat Fox VPN)",
             "🔗 ۷) پروتکل تونل: ${FoxTransport.shortFa(FirefoxVpnEngine.readTransport(this))}",
+            "🛡️ ۸) اگر ورود موزیلا بسته است: رلهٔ کلادفلر",
         )
     } else {
         arrayOf(
@@ -1007,6 +1008,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
             "🛰️ 5) Scan Clean Fastly Edge IP for Net Melli & MCI / Irancell Bypass",
             "🛡️ 6) Toggle Anti-DPI TLS ClientHello Split @ SNI",
             "🔗 7) Tunnel protocol: ${FoxTransport.shortEn(FirefoxVpnEngine.readTransport(this))}",
+            "🛡️ 8) If Mozilla sign-in is blocked: Cloudflare relay",
         )
     }
 
@@ -1117,6 +1119,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
                     ).show()
                 }
                 6 -> showFoxTransportDialog(onChanged)
+                7 -> showFoxMozillaRelayDialog(onChanged)
             }
         }
         .setNegativeButton(android.R.string.cancel, null)
@@ -1427,6 +1430,99 @@ internal fun MainActivity.showFoxTransportDialog(onChanged: () -> Unit = {}) {
             ).show()
         }
         .setNegativeButton(android.R.string.cancel, null)
+        .create()
+        .showCatClientDialog()
+}
+
+internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) {
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    fun t(fa: String, en: String) = if (isFarsi) fa else en
+    val input = EditText(this).apply {
+        hint = "https://….workers.dev/?secret=…"
+        setText(FirefoxVpnEngine.readMozillaRelayUrl(this@showFoxMozillaRelayDialog))
+        setSingleLine(true)
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
+        textDirection = View.TEXT_DIRECTION_LTR
+        textSize = 13f
+    }
+    val box = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(8), dp(20), dp(4))
+        addView(
+            TextView(this@showFoxMozillaRelayDialog).apply {
+                text = t(
+                    "فقط درخواست‌های ورود موزیلا از رله می‌روند، نه ترافیک VPN. ورکر را در کلادفلر بگذار (دامنهٔ خودت هم می‌شود؛ workers.dev لازم نیست)، رمز را در کد و در لینک یکی کن، بعد لینک را اینجا بچسبان.",
+                    "Only Mozilla sign-in goes through the relay, not VPN traffic. Paste the Worker in Cloudflare (your own domain is fine; workers.dev is not required), use the same secret in the script and the URL, then paste the URL here.",
+                )
+                textSize = 13f
+                setTextColor(TEXT_SECONDARY)
+                setLineSpacing(0f, 1.15f)
+            },
+        )
+        addView(input, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        addView(
+            MaterialButton(this@showFoxMozillaRelayDialog).apply {
+                text = t("📋 کپی اسکریپت ورکر", "📋 Copy Worker script")
+                isAllCaps = false
+                setOnClickListener {
+                    val secret = FoxMozillaRelay.newSecret()
+                    val script = FoxMozillaRelay.workerScript(secret)
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Cat Fox relay", script))
+                    if (input.text.isNullOrBlank()) {
+                        input.setText("https://YOUR-WORKER.YOUR-ACCOUNT.workers.dev/?secret=$secret")
+                    }
+                    Toast.makeText(
+                        this@showFoxMozillaRelayDialog,
+                        t("اسکریپت کپی شد — SECRET را در لینک هم بگذار", "Script copied — put the same SECRET in the URL"),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+    }
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("🛡️ رلهٔ ورود موزیلا", "🛡️ Mozilla sign-in relay"))
+        .setView(box)
+        .setNegativeButton(android.R.string.cancel, null)
+        .setNeutralButton(t("تست", "Test")) { _, _ ->
+            val typed = input.text?.toString().orEmpty()
+            Toast.makeText(this, t("⏳ تست رله…", "⏳ Testing relay…"), Toast.LENGTH_SHORT).show()
+            activityScope.launch {
+                val probe = withContext(Dispatchers.IO) { FirefoxVpnEngine.probeMozillaRelay(typed) }
+                Toast.makeText(
+                    this@showFoxMozillaRelayDialog,
+                    if (probe.ok) t("✅ رله آماده است", "✅ Relay is ready")
+                    else t("رله جواب نداد: ${probe.detail}", "Relay did not answer: ${probe.detail}"),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+        .setPositiveButton(t("ذخیره", "Save")) { _, _ ->
+            val typed = input.text?.toString().orEmpty().trim()
+            if (typed.isEmpty()) {
+                FirefoxVpnEngine.saveMozillaRelayUrl(this, "")
+                onChanged()
+                Toast.makeText(this, t("رله خاموش شد", "Relay cleared"), Toast.LENGTH_SHORT).show()
+                return@setPositiveButton
+            }
+            if (FoxMozillaRelay.normalize(typed) == null) {
+                Toast.makeText(
+                    this,
+                    t("لینک باید https باشد و ?secret= داشته باشد", "URL must be https and include ?secret="),
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@setPositiveButton
+            }
+            FirefoxVpnEngine.saveMozillaRelayUrl(this, typed)
+            onChanged()
+            Toast.makeText(
+                this,
+                t("رله ذخیره شد: ${FoxMozillaRelay.redact(typed)}", "Relay saved: ${FoxMozillaRelay.redact(typed)}"),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         .create()
         .showCatClientDialog()
 }
