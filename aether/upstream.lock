@@ -1,0 +1,9 @@
+# Reviewed Android Aether implementation; update only through a review commit.
+# beta206: WhiteAestherMobile v1.15.0 = Aether 2.4.0 (new WARP API hosts/edges, 297 gateways, BoringSSL 5.3,
+# working masqueSni/apiHost/apiSni). Reviewed: docs/AETHER_2_4_MERGE.md; JNI names unchanged.
+repository=https://github.com/WhiteDNS/WhiteAestherMobile.git
+commit=2409297365e23e3fd320a87c0da73d0656bee67c
+license=AGPL-3.0-only
+license_sha256=8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef
+android_bridge_lock_sha256=3b3ae5c85d0b87c53fee809e244bd2597d9da3094eff1455eadcc8a4fdfc8e1d
+aether_lock_sha256=e978e38567927034add8759f38dddd90017b2b1a8a7d370f1ef8c11a00975c02

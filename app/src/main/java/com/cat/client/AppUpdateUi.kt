@@ -34,6 +34,7 @@ internal class AppUpdateUi(
     private val manager = AppUpdateManager(activity)
     private var state: AppDownloadState = AppDownloadState.Idle
     private var polling: Job? = null
+    private var downloadJob: Job? = null
     private var resumed = false
     private var checking = false
     private var busy = false
@@ -73,6 +74,13 @@ internal class AppUpdateUi(
             setLineSpacing(dp(2).toFloat(), 1f)
         }
         panel.addView(securityNote, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        // Play Protect shows «App scan recommended» for every APK Google has not seen yet (each new
+        // version is a new file). It is not an error; tell the user what each button does.
+        panel.addView(label(activity.getString(R.string.update_play_protect_note)).apply {
+            textSize = 11f
+            setTextColor(palette.textSecondary)
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         status = label("")
         panel.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -89,14 +97,8 @@ internal class AppUpdateUi(
                 else -> manager.availableRelease()?.let(::download)
             }
         }
-        releaseButton = button(R.string.update_view_release) {
-            manager.availableRelease()?.let { release ->
-                try {
-                    activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.url)))
-                } catch (error: Exception) {
-                    fail("update.release.open.failed", error, R.string.update_install_failed)
-                }
-            }
+        releaseButton = button(R.string.update_download_browser) {
+            manager.availableRelease()?.let(::openMirroredApk)
         }
         listOf(checkButton, actionButton, releaseButton).forEach {
             panel.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
@@ -176,31 +178,41 @@ internal class AppUpdateUi(
 
     private fun download(release: AppRelease) {
         if (busy || !release.downloadable) return
-        busy = true
         notice = activity.getString(R.string.update_preparing)
         render()
-        scope.launch {
+        downloadJob?.cancel()
+        downloadJob = scope.launch {
             try {
                 manager.download(release)
                 notice = null
                 installWhenReady = resumed
-                busy = false
-                poll()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 state = AppDownloadState.Failed()
+                openMirroredApk(release)
                 fail("update.download.failed", error, R.string.update_download_failed)
             } finally {
-                busy = false
+                poll()
                 render()
             }
+        }
+        poll()
+    }
+
+    private fun openMirroredApk(release: AppRelease) {
+        val apk = release.apk?.url ?: return
+        try {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubReleaseClient.browserAssetUrl(apk))))
+        } catch (error: Exception) {
+            DiagnosticLogger.warn(activity, "update.browser.failed", error = error)
         }
     }
 
     private fun cancelDownload() {
         if (busy) return
         installWhenReady = false
+        downloadJob?.cancel()
         busy = true
         polling?.cancel()
         scope.launch {
@@ -226,6 +238,7 @@ internal class AppUpdateUi(
             do {
                 try {
                     state = manager.refreshDownload()
+                    if (state is AppDownloadState.Downloading) notice = null
                     render()
                     if (state is AppDownloadState.Ready && installWhenReady && resumed) {
                         installWhenReady = false
@@ -237,7 +250,8 @@ internal class AppUpdateUi(
                     state = AppDownloadState.Failed()
                     fail("update.refresh.failed", error, R.string.update_download_failed)
                 }
-                if (state !is AppDownloadState.Downloading && state !is AppDownloadState.Verifying) break
+                val transferring = downloadJob?.isActive == true
+                if (state !is AppDownloadState.Downloading && state !is AppDownloadState.Verifying && !transferring) break
                 delay(1_000)
             } while (resumed)
         }

@@ -1,0 +1,28 @@
+name: Railway panel tests
+
+on:
+  push:
+    branches: [main, 'arena/*']
+    paths: ['railway-panel/**', '.github/workflows/railway-panel.yml']
+  pull_request:
+    paths: ['railway-panel/**', '.github/workflows/railway-panel.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: npm test
+        working-directory: railway-panel
+      - run: node --check server.js
+        working-directory: railway-panel
+      - name: Build container
+        run: docker build -f railway-panel/Dockerfile railway-panel -t cat-railway-panel:${{ github.sha }}

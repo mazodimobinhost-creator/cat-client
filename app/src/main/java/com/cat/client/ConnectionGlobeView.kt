@@ -7,23 +7,22 @@ import android.graphics.DashPathEffect
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PathMeasure
+import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.view.View
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
- * ConnectionGlobeView — a real, flat world map (Natural Earth 110m land
- * silhouette) for the Cat dashboard, ProtonVPN-style:
+ * ConnectionGlobeView — a rotating 3D orthographic globe on the Cat dashboard:
  *
- *  - actual continents drawn from [WorldMapData], not a dotted sphere,
- *  - edge-location dots, an Iran marker and the live destination marker,
- *  - an animated Iran → destination route with a travelling packet,
- *  - pulsing halos + a slow light sweep so the map always feels alive,
- *  - the real country + flag + exit IP drawn under the map.
+ *  - Natural Earth 110m land projected onto a sphere (not a flat map),
+ *  - slow idle spin; when connected the globe turns toward the exit,
+ *  - Iran + destination markers, a great-circle packet, atmosphere rim,
+ *  - the real country + flag + exit IP under the globe.
  */
 class ConnectionGlobeView(context: Context) : View(context) {
     private val palette = CatClientDesignTokens.forContext(context)
@@ -33,41 +32,41 @@ class ConnectionGlobeView(context: Context) : View(context) {
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
     }
+    private val oceanPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(0.6f)
+        strokeWidth = dp(0.7f)
     }
     private val landPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
     private val landStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(0.8f)
+        strokeWidth = dp(0.7f)
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val routePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(2.4f)
+        strokeWidth = dp(2.6f)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sweepPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         typeface = Typeface.DEFAULT
     }
 
     private val rings by lazy { WorldMapData.rings() }
-    private var landPath: Path? = null
-    private var landBuiltW = 0f
-    private var landBuiltH = 0f
 
     private data class WorldDot(val code: String, val lon: Float, val lat: Float)
 
-    // Representative edge locations across every continent (Cloudflare anycast
-    // has no fixed country; the selected colo is the location we highlight).
     private val worldDots = listOf(
         WorldDot("CA", -106f, 56f), WorldDot("US", -100f, 38f), WorldDot("MX", -102f, 23f),
         WorldDot("BR", -52f, -10f), WorldDot("AR", -64f, -34f), WorldDot("CL", -71f, -33f),
@@ -94,6 +93,7 @@ class ConnectionGlobeView(context: Context) : View(context) {
     private var routeProgress = 0f
     private var routeTarget = 0f
     private var phase = 0f
+    private var yaw = -51.4f
     private var lastFrameAt = 0L
     private var frameRunning = false
 
@@ -106,6 +106,15 @@ class ConnectionGlobeView(context: Context) : View(context) {
             phase = (phase + dt) % 1f
             routeProgress = if (abs(routeTarget - routeProgress) <= dt * 1.5f) routeTarget
             else routeProgress + (if (routeTarget > routeProgress) dt * 1.5f else -dt * 2.2f)
+            val connected = state == VpnState.Started || state == VpnState.Starting
+            val targetYaw = if (connected && destinationCode.isNotEmpty()) {
+                val destLon = coordinatesForCode(destinationCode).first
+                -((51.4f + destLon) * 0.5f)
+            } else {
+                yaw + dt * 12f
+            }
+            val delta = ((targetYaw - yaw + 540f) % 360f) - 180f
+            yaw += if (connected && destinationCode.isNotEmpty()) delta * (dt * 1.15f) else dt * 12f
             invalidate()
             if (frameRunning) postOnAnimation(this)
         }
@@ -162,7 +171,6 @@ class ConnectionGlobeView(context: Context) : View(context) {
         val accent = accentColor()
         val dark = palette.isDark
 
-        // ── map panel ────────────────────────────────────────────────────
         val panelLeft = dp(10f)
         val panelRight = w - dp(10f)
         val panelTop = dp(8f)
@@ -182,118 +190,117 @@ class ConnectionGlobeView(context: Context) : View(context) {
         panelStroke.color = withAlpha(accent, if (state == VpnState.Started) 90 else 55)
         canvas.drawRoundRect(panel, dp(22f), dp(22f), panelStroke)
 
-        // ── equirectangular map area (lat 90..-85.6) ────────────────────
-        val innerPad = dp(12f)
-        var mapW = panel.width() - innerPad * 2
-        var mapH = mapW * (MAP_LAT_SPAN / 360f)
-        val maxH = panel.height() - innerPad * 2
-        if (mapH > maxH) {
-            mapH = maxH
-            mapW = mapH * (360f / MAP_LAT_SPAN)
-        }
-        val mx = panel.centerX() - mapW / 2f
-        val my = panel.centerY() - mapH / 2f
+        val r = min(panel.width(), panel.height()) * 0.42f
+        val cx = panel.centerX()
+        val cy = panel.centerY()
+        val tilt = 16f
 
-        fun px(lon: Float): Float = mx + (lon + 180f) / 360f * mapW
-        fun py(lat: Float): Float = my + (90f - lat) / MAP_LAT_SPAN * mapH
+        fun sx(v: Globe3d.Vec) = cx + v.x * r
+        fun sy(v: Globe3d.Vec) = cy - v.y * r
 
-        // graticule
-        gridPaint.color = withAlpha(palette.textPrimary, if (dark) 16 else 26)
-        var lonLine = -150f
-        while (lonLine <= 150f) {
-            canvas.drawLine(px(lonLine), my, px(lonLine), my + mapH, gridPaint)
-            lonLine += 30f
-        }
-        var latLine = 60f
-        while (latLine >= -60f) {
-            canvas.drawLine(mx, py(latLine), mx + mapW, py(latLine), gridPaint)
-            latLine -= 30f
-        }
-
-        // ── real continents ──────────────────────────────────────────────
-        if (landPath == null || landBuiltW != mapW || landBuiltH != mapH) {
-            val path = Path()
-            for (ring in rings) {
-                if (ring.size < 8) continue
-                var x = ring[0]
-                var y = ring[1]
-                path.moveTo(px(x / 10f), py(y / 10f))
-                var i = 2
-                while (i < ring.size) {
-                    x += ring[i]
-                    y += ring[i + 1]
-                    path.lineTo(px(x / 10f), py(y / 10f))
-                    i += 2
-                }
-                path.close()
-            }
-            landPath = path
-            landBuiltW = mapW
-            landBuiltH = mapH
-        }
-        landPath?.let { land ->
-            landPaint.shader = LinearGradient(
-                0f, my, 0f, my + mapH,
-                intArrayOf(
-                    withAlpha(accent, if (dark) 150 else 120),
-                    withAlpha(palette.neutral, if (dark) 105 else 85),
-                ),
-                floatArrayOf(0f, 1f),
-                Shader.TileMode.CLAMP,
-            )
-            canvas.drawPath(land, landPaint)
-            landPaint.shader = null
-            landStroke.color = withAlpha(palette.textPrimary, if (dark) 70 else 90)
-            canvas.drawPath(land, landStroke)
-        }
-
-        // slow light sweep keeps the map alive even when idle
-        val sweepX = mx + ((phase + 0.18f) % 1f) * mapW
-        sweepPaint.shader = LinearGradient(
-            sweepX - dp(46f), 0f, sweepX + dp(46f), 0f,
-            intArrayOf(Color.TRANSPARENT, withAlpha(palette.textPrimary, if (dark) 14 else 22), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.5f, 1f),
+        oceanPaint.shader = RadialGradient(
+            cx - r * 0.28f, cy - r * 0.32f, r * 1.35f,
+            intArrayOf(
+                withAlpha(accent, if (dark) 90 else 70),
+                withAlpha(palette.surfaceElevated2, if (dark) 230 else 245),
+                withAlpha(palette.neutral, if (dark) 200 else 180),
+            ),
+            floatArrayOf(0f, 0.55f, 1f),
             Shader.TileMode.CLAMP,
         )
-        canvas.save()
-        canvas.clipPath(landPath ?: Path())
-        canvas.drawRect(mx, my, mx + mapW, my + mapH, sweepPaint)
-        canvas.restore()
-        sweepPaint.shader = null
+        canvas.drawCircle(cx, cy, r, oceanPaint)
+        oceanPaint.shader = null
 
-        // ── edge-location dots ───────────────────────────────────────────
-        dotPaint.color = withAlpha(palette.textPrimary, if (dark) 90 else 120)
-        worldDots.forEach { dot ->
-            canvas.drawCircle(px(dot.lon), py(dot.lat), dp(1.7f), dotPaint)
+        rimPaint.strokeWidth = dp(3.2f)
+        rimPaint.color = withAlpha(accent, if (dark) 70 else 50)
+        canvas.drawCircle(cx, cy, r + dp(2.5f), rimPaint)
+        rimPaint.strokeWidth = dp(1.1f)
+        rimPaint.color = withAlpha(palette.textPrimary, if (dark) 40 else 55)
+        canvas.drawCircle(cx, cy, r, rimPaint)
+
+        gridPaint.color = withAlpha(palette.textPrimary, if (dark) 28 else 36)
+        var lat = -60f
+        while (lat <= 60f) {
+            drawParallel(canvas, lat, yaw, tilt, r, cx, cy)
+            lat += 30f
+        }
+        var lon = -180f
+        while (lon < 180f) {
+            drawMeridian(canvas, lon, yaw, tilt, r, cx, cy)
+            lon += 30f
         }
 
-        // ── Iran ─────────────────────────────────────────────────────────
-        val iranX = px(51.4f)
-        val iranY = py(35.7f)
-        val connected = state == VpnState.Started || state == VpnState.Starting
-        markerPaint.color = palette.red
-        canvas.drawCircle(iranX, iranY, dp(if (connected) 4.6f else 3.6f), markerPaint)
-        labelPaint.textSize = dp(10f)
-        labelPaint.color = palette.textSecondary
-        canvas.drawText(context.getString(R.string.globe_iran), iranX, iranY + dp(16f), labelPaint)
+        val land = Path()
+        val outline = Path()
+        for (ring in rings) {
+            if (ring.size < 8) continue
+            var x = ring[0].toFloat()
+            var y = ring[1].toFloat()
+            var started = false
+            var i = 0
+            while (true) {
+                val v = Globe3d.sphere(x / 10f, y / 10f, yaw, tilt)
+                if (Globe3d.front(v)) {
+                    val px = sx(v)
+                    val py = sy(v)
+                    if (!started) {
+                        land.moveTo(px, py)
+                        outline.moveTo(px, py)
+                        started = true
+                    } else {
+                        land.lineTo(px, py)
+                        outline.lineTo(px, py)
+                    }
+                } else if (started) {
+                    started = false
+                }
+                i += 2
+                if (i >= ring.size) break
+                x += ring[i]
+                y += ring[i + 1]
+            }
+        }
+        landPaint.color = withAlpha(accent, if (dark) 155 else 125)
+        canvas.drawPath(land, landPaint)
+        landStroke.color = withAlpha(palette.textPrimary, if (dark) 80 else 100)
+        canvas.drawPath(outline, landStroke)
 
-        // ── destination ──────────────────────────────────────────────────
+        worldDots.forEach { dot ->
+            val v = Globe3d.sphere(dot.lon, dot.lat, yaw, tilt)
+            if (!Globe3d.front(v, 0.12f)) return@forEach
+            val lit = Globe3d.light(v)
+            dotPaint.color = withAlpha(palette.textPrimary, (70 + 80 * lit).toInt())
+            canvas.drawCircle(sx(v), sy(v), dp(1.8f), dotPaint)
+        }
+
+        val iran = Globe3d.sphere(51.4f, 35.7f, yaw, tilt)
+        val connected = state == VpnState.Started || state == VpnState.Starting
+        if (Globe3d.front(iran, 0.02f)) {
+            markerPaint.color = palette.red
+            canvas.drawCircle(sx(iran), sy(iran), dp(if (connected) 4.8f else 3.8f), markerPaint)
+            labelPaint.textSize = dp(10f)
+            labelPaint.color = palette.textSecondary
+            canvas.drawText(context.getString(R.string.globe_iran), sx(iran), sy(iran) + dp(16f), labelPaint)
+        }
+
         if (destinationCode.isNotEmpty()) {
             val coords = coordinatesForCode(destinationCode)
-            val destX = px(coords.first)
-            val destY = py(coords.second)
+            val dest = Globe3d.sphere(coords.first, coords.second, yaw, tilt)
             if (connected) {
-                drawRoute(canvas, iranX, iranY, destX, destY, accent)
-                haloPaint.color = withAlpha(accent, 40)
-                canvas.drawCircle(destX, destY, dp(9f) + dp(3.5f) * pulse(), haloPaint)
+                drawArc(canvas, iran, dest, accent, r, cx, cy)
             }
-            markerPaint.color = if (state == VpnState.Started) palette.teal else withAlpha(accent, 220)
-            canvas.drawCircle(destX, destY, dp(if (state == VpnState.Started) 4.8f else 3.4f), markerPaint)
-            labelPaint.textSize = dp(15f)
-            canvas.drawText(destinationFlag, destX, destY - dp(10f), labelPaint)
+            if (Globe3d.front(dest, 0.02f)) {
+                if (connected) {
+                    haloPaint.color = withAlpha(accent, 45)
+                    canvas.drawCircle(sx(dest), sy(dest), dp(9f) + dp(3.5f) * pulse(), haloPaint)
+                }
+                markerPaint.color = if (state == VpnState.Started) palette.teal else withAlpha(accent, 220)
+                canvas.drawCircle(sx(dest), sy(dest), dp(if (state == VpnState.Started) 5f else 3.6f), markerPaint)
+                labelPaint.textSize = dp(15f)
+                canvas.drawText(destinationFlag, sx(dest), sy(dest) - dp(10f), labelPaint)
+            }
         }
 
-        // ── status line (country + real exit IP) ─────────────────────────
         val title = when (state) {
             VpnState.Started -> destinationLabel.ifBlank { context.getString(R.string.globe_route_active) }
             VpnState.Starting -> context.getString(R.string.globe_route_connecting)
@@ -312,31 +319,77 @@ class ConnectionGlobeView(context: Context) : View(context) {
         }
     }
 
-    private fun drawRoute(canvas: Canvas, startX: Float, startY: Float, endX: Float, endY: Float, accent: Int) {
+    private fun drawParallel(canvas: Canvas, lat: Float, yaw: Float, tilt: Float, r: Float, cx: Float, cy: Float) {
         val path = Path()
-        path.moveTo(startX, startY)
-        val controlX = (startX + endX) / 2f
-        val controlY = min(startY, endY) - dp(34f)
-        path.quadTo(controlX, controlY, endX, endY)
-        val measure = PathMeasure(path, false)
-        val length = measure.length
-        if (length <= 0f) return
+        var started = false
+        var lon = -180f
+        while (lon <= 180f) {
+            val v = Globe3d.sphere(lon, lat, yaw, tilt)
+            if (Globe3d.front(v, 0.02f)) {
+                val px = cx + v.x * r
+                val py = cy - v.y * r
+                if (!started) { path.moveTo(px, py); started = true } else path.lineTo(px, py)
+            } else started = false
+            lon += 8f
+        }
+        canvas.drawPath(path, gridPaint)
+    }
 
-        val visible = length * routeProgress.coerceIn(0f, 1f)
-        val segment = Path()
-        measure.getSegment(0f, visible, segment, true)
+    private fun drawMeridian(canvas: Canvas, lon: Float, yaw: Float, tilt: Float, r: Float, cx: Float, cy: Float) {
+        val path = Path()
+        var started = false
+        var lat = -80f
+        while (lat <= 80f) {
+            val v = Globe3d.sphere(lon, lat, yaw, tilt)
+            if (Globe3d.front(v, 0.02f)) {
+                val px = cx + v.x * r
+                val py = cy - v.y * r
+                if (!started) { path.moveTo(px, py); started = true } else path.lineTo(px, py)
+            } else started = false
+            lat += 6f
+        }
+        canvas.drawPath(path, gridPaint)
+    }
+
+    private fun drawArc(
+        canvas: Canvas,
+        start: Globe3d.Vec,
+        end: Globe3d.Vec,
+        accent: Int,
+        r: Float,
+        cx: Float,
+        cy: Float,
+    ) {
+        val path = Path()
+        var started = false
+        val steps = 36
+        val visible = (steps * routeProgress.coerceIn(0f, 1f)).toInt()
+        if (visible < 1) return
+        var last: Globe3d.Vec? = null
+        for (i in 0..visible) {
+            val v = Globe3d.lerp(start, end, i / steps.toFloat())
+            last = v
+            if (!Globe3d.front(v, 0.02f)) {
+                started = false
+                continue
+            }
+            val px = cx + v.x * r
+            val py = cy - v.y * r
+            if (!started) { path.moveTo(px, py); started = true } else path.lineTo(px, py)
+        }
         routePaint.color = withAlpha(accent, 235)
         routePaint.pathEffect = DashPathEffect(floatArrayOf(dp(8f), dp(7f)), -(phase * 260f))
-        canvas.drawPath(segment, routePaint)
+        canvas.drawPath(path, routePaint)
         routePaint.pathEffect = null
-
         if (routeProgress > 0.01f && routeProgress < 1f) {
-            val pos = FloatArray(2)
-            measure.getPosTan(visible, pos, null)
+            val packet = last ?: return
+            if (!Globe3d.front(packet, 0.02f)) return
+            val px = cx + packet.x * r
+            val py = cy - packet.y * r
             markerPaint.color = palette.onAccent
-            canvas.drawCircle(pos[0], pos[1], dp(3f), markerPaint)
+            canvas.drawCircle(px, py, dp(3f), markerPaint)
             markerPaint.color = accent
-            canvas.drawCircle(pos[0], pos[1], dp(5f), markerPaint)
+            canvas.drawCircle(px, py, dp(5f), markerPaint)
         }
     }
 
@@ -364,15 +417,10 @@ class ConnectionGlobeView(context: Context) : View(context) {
         return chars.map { (it - 0x1F1E6 + 'A'.code).toChar() }.joinToString("")
     }
 
-    private fun pulse(): Float = ((kotlin.math.sin((phase * 2f * Math.PI).toDouble()) + 1.0) / 2.0).toFloat()
+    private fun pulse(): Float = ((sin((phase * 2f * Math.PI).toDouble()) + 1.0) / 2.0).toFloat()
 
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
-
-    private companion object {
-        /** Latitudes span 90°N..-85.6°S in the Natural Earth land extract. */
-        const val MAP_LAT_SPAN = 175.6f
-    }
 }

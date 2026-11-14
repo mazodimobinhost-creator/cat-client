@@ -1,0 +1,16 @@
+{
+  "name": "cat-node-panel",
+  "version": "1.0.0",
+  "description": "Cat Panel (VLESS/Trojan over WebSocket) on any Node.js host: KataBump, Lucity, Shiprr, Railway, a VPS.",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "license": "GPL-3.0-only",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

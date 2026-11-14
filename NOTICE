@@ -1,0 +1,57 @@
+Cat Client — third-party notices
+
+The Map screen's world outline asset (app/src/main/assets/map/world.bin) and the
+visual design of the Map, Home hero and traffic indicators are derived from
+ZedSecure by CluvexStudio (https://github.com/CluvexStudio/ZedSecure), licensed
+under the GNU Affero General Public License v3.0. The ported pieces
+(WorldMap.kt, ZedWorldMapView.kt, ZedMotion.kt, ZedBlobView.kt) remain available
+under AGPL-3.0 alongside this project's GPL-3.0 licence.
+The connection-fault explanation idea (ConnectionFaultExplainer.kt) and the
+AmneziaWG H1-H4 / named-vmess import fixes follow ZedSecure 3.1.6 behaviour; the
+code and texts are written independently for Cat Client and are offered under
+AGPL-3.0 as well.
+The ZedSecure 3.1.6 Material 3 Expressive design (App design picker Pixel /
+Portal / Old, Portal home stage, Pixel home card, colour styles and contrast,
+expressive settings list and shapes) is ported to Android Views in
+ZedShapes.kt, AppDesign.kt, ZedPortalView.kt and ZedSettingsViews.kt from
+ZedSecure's PortalHome.kt, PixelHome.kt, AppDesignPicker.kt, ColorStylePicker.kt,
+Shape.kt and SettingsItem.kt / SettingsHero.kt; these files remain available under
+AGPL-3.0. Icon paths in res/drawable/ic_zed_*.xml are Material Symbols (Apache-2.0).
+
+The DNS-tunnel engine packaged as lib/<abi>/libslipnet.so is the SlipNet CLI by
+anonvector (https://github.com/anonvector/SlipNet, directory cli/), licensed under
+the GNU Affero General Public License v3.0, together with its dnstt
+(https://www.bamsoftware.com/git/dnstt.git, public domain / CC0), NoizDNS and
+VayDNS submodules. It is built unmodified from source by
+scripts/build-slipnet-cli.sh (pinned commit recorded there) and runs as a separate
+process; its complete corresponding source is available at the URLs above.
+
+Vercel XHTTP relay (VercelRelay.kt, VercelRelayController.kt, assets/vercel/*)
+-----------------------------------------------------------------------------
+The idea of relaying Xray XHTTP traffic through a Vercel function comes from the public
+projects B3hnamR/XHTTPRelayECO, alirezaparvas/vercel-xhttp-relay, SNI-XHTTP and
+Maahdima/Vercel-XHTTP (guides and YouTube walkthroughs). Those repositories publish no licence,
+so no code was copied: the relay scripts, the deployment client and the UI were written
+independently for Cat Client (GPL-3.0).
+
+Cat Panel on Vercel (VercelPanel.kt, assets/vercel/panel-adapter.mjs)
+---------------------------------------------------------------------
+The approach of serving VLESS-over-WebSocket from a Vercel Node function
+(`http.createServer` + the `ws` package, a `cloudflare:sockets`-style connect()
+shim on top of `node:net`) follows ludas114343/vercel-vless-proxy
+(https://github.com/ludas114343/vercel-vless-proxy), MIT License,
+Copyright (c) ludas114343. The adapter in Cat Client was written independently
+around the existing Cat Panel worker; the MIT notice above is kept as attribution.
+
+Cat SSTP (SstpClient.kt)
+------------------------
+The SSTP client follows the published specifications ([MS-SSTP], RFC 1661, 1332,
+1334, 1994, 2759 and 3079). The MD4 routine and the HLAK / Compound-MAC
+derivation of the SSTP crypto binding were written after Open SSTP Client by
+KOBAYASHI Ittoku (https://github.com/kittoku/Open-SSTP-Client), MIT License,
+Copyright (c) 2019 KOBAYASHI Ittoku. Permission is hereby granted, free of
+charge, to any person obtaining a copy of that software, to deal in it without
+restriction, subject to including the copyright notice and this permission
+notice; the software is provided "AS IS", without warranty of any kind.
+The public server list is read at run time from sstp.wireconf.workers.dev
+(VPN Gate servers, University of Tsukuba volunteer project); no data is bundled.

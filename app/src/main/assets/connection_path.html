@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connection Path</title>
+<style>
+:root{--card:#171a26;--ln:#2b3350;--tx:#e8ecff;--mu:#8b93b5;--cy:#6cc8ff;--vi:#a78bfa;--er:#ff6b75;--go:#6cc8ff;--f1:#1d2547;--f2:#171e3d;--f3:#26316a;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:transparent;overflow:hidden}
+body{font-family:"Vazirmatn",system-ui,"Noto Sans Arabic",sans-serif;color:var(--tx)}
+body.demo{background:#0f1220;padding:12px;overflow:auto}
+#w{height:100%;display:flex;flex-direction:column;background:var(--card);border-radius:28px;overflow:hidden;border:1px solid var(--ln)}
+body.demo #w{height:min(72vh,430px);max-width:440px;margin:8px auto}
+#chips{display:none;gap:8px;overflow-x:auto;max-width:440px;margin:0 auto;padding-bottom:4px}
+body.demo #chips{display:flex}
+.chip{flex:none;font:inherit;font-size:12px;color:var(--tx);background:transparent;border:1px solid var(--ln);border-radius:16px;padding:6px 12px}
+.chip[aria-pressed=true]{background:#1d2a5c;border-color:var(--cy)}
+.hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px 0}
+.tabs{display:flex;background:#10131e;border-radius:16px;padding:3px}
+.tab{font:inherit;font-size:12px;font-weight:600;color:var(--mu);background:transparent;border:0;border-radius:13px;padding:6px 14px}
+.tab[aria-selected=true]{color:#0b1020;background:linear-gradient(90deg,#7dd3fc,#8b8cf5)}
+.bg{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mu)}
+.bg i{width:9px;height:9px;border-radius:50%;background:var(--mu)}
+.bg.go i{background:#ffb347}.bg.ok i{background:var(--cy);box-shadow:0 0 8px var(--cy)}.bg.er i{background:var(--er)}
+.bg.ok{color:var(--cy)}.bg.er{color:var(--er)}
+svg{flex:1 1 0;min-height:0;width:100%;height:100%;display:block}
+svg[hidden]{display:none}
+svg text{font-family:inherit}
+.nm{font-size:11px;font-weight:700;fill:var(--tx)}
+.ip{font-size:9px;fill:var(--mu);font-family:ui-monospace,Menlo,monospace;direction:ltr;unicode-bidi:plaintext}
+.ic{cursor:pointer}
+.ic polygon,.ic path,.ic line{stroke:#7cc4ff;stroke-width:1;stroke-linejoin:round;stroke-linecap:round}
+.ic.lit polygon,.ic.lit path{stroke:#c3e6ff}
+.ic.bad polygon,.ic.bad path,.ic.bad line{stroke:var(--er)}
+.lk{stroke:#334071;stroke-width:1.2;stroke-dasharray:3 4;fill:none}
+.lk.on{stroke:var(--cy);stroke-width:1.8;animation:fl .8s linear infinite}
+@keyframes fl{to{stroke-dashoffset:-14}}
+@media (prefers-reduced-motion:reduce){.lk.on{animation:none}}
+.ft{display:flex;align-items:center;gap:8px;padding:8px 12px 10px;border-top:1px solid var(--ln);min-height:56px}
+.tx{flex:1;min-width:0}
+.t1{font-size:11px;font-weight:600;color:var(--cy);direction:ltr;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,Menlo,monospace}
+.t2{font-size:12px;color:#b4bce0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.7}
+.cb{flex:none;width:38px;height:38px;font:inherit;font-size:15px;color:var(--tx);background:#10131e;border:1px solid var(--ln);border-radius:50%}
+.cb.pl{background:linear-gradient(135deg,#7dd3fc,#8b8cf5);color:#0b1020;border:0}
+</style>
+</head>
+<body>
+<div id="chips"></div>
+<div id="w">
+ <div class="hd">
+  <div class="tabs" role="tablist"><button class="tab" id="tn" role="tab" aria-selected="true">شبکه</button><button class="tab" id="ts" role="tab" aria-selected="false">توالی</button></div>
+  <div class="bg" id="bg"><i></i><span id="bt">آماده</span></div>
+ </div>
+ <svg id="net" viewBox="0 0 400 290" preserveAspectRatio="xMidYMid meet" role="img" aria-label="مسیر اتصال"></svg>
+ <svg id="seq" viewBox="0 0 400 290" preserveAspectRatio="xMidYMid meet" role="img" aria-label="توالی اتصال" hidden></svg>
+ <div class="ft">
+  <div class="tx"><div class="t1" id="sl"></div><div class="t2" id="sd"></div></div>
+  <button class="cb" id="rs" aria-label="شروع دوباره">↻</button>
+  <button class="cb" id="st" aria-label="مرحله بعد">›</button>
+  <button class="cb pl" id="pp" aria-label="پخش">▶</button>
+ </div>
+</div>
+<script type="text/javascript">
+(function(){
+const NS="http://www.w3.org/2000/svg",$=id=>document.getElementById(id),W=400,H=290;
+const FW="#6cc8ff",BK="#a78bfa";
+function S(t,a,p,tx){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(tx!==undefined)e.textContent=tx;if(p)p.appendChild(e);return e}
+function box(a,b,h){return `<polygon points="${-a},${-h} 0,${-h+b} 0,${b} ${-a},0" fill="var(--f2)"/><polygon points="${a},${-h} 0,${-h+b} 0,${b} ${a},0" fill="var(--f1)"/><polygon points="0,${-h-b} ${a},${-h} 0,${-h+b} ${-a},${-h}" fill="var(--f3)"/>`}
+function slits(a,b,h,n){let s="";for(let k=1;k<n;k++){const y=-h+k*h/n,d=3*b/a;s+=`<line x1="${-a+3}" y1="${y+d}" x2="-3" y2="${y+b-d}"/><line x1="${a-3}" y1="${y+d}" x2="3" y2="${y+b-d}"/>`}return `<g opacity=".6">${s}</g>`}
+const ICON={
+laptop:()=>box(22,12,3)+`<polygon points="-22,-3 0,-15 0,-41 -22,-29" fill="var(--f1)"/><line x1="-17" y1="-27" x2="-5" y2="-33" opacity=".6"/><line x1="-17" y1="-21" x2="-5" y2="-27" opacity=".6"/>`,
+router:()=>box(24,13,10)+`<line x1="0" y1="-23" x2="0" y2="-42"/><circle cx="0" cy="-44" r="2" fill="#7cc4ff"/>`,
+s1:()=>box(16,9,20)+slits(16,9,20,3),
+s2:()=>box(18,10,36)+slits(18,10,36,5),
+cloud:()=>`<path d="M-22,10 C-34,10 -34,-8 -19,-8 C-16,-24 10,-26 14,-10 C30,-12 34,10 20,10 Z" fill="var(--f2)"/><circle cx="0" cy="-2" r="8" fill="none"/><line x1="-8" y1="-2" x2="8" y2="-2"/><path d="M0,-10 C-4,-6 -4,2 0,6 C4,2 4,-6 0,-10" fill="none"/>`};
+const TRN={ws:"WebSocket",grpc:"gRPC",tcp:"TCP",h2:"HTTP/2",quic:"QUIC",httpupgrade:"HTTPUpgrade"};
+/* ---- build the scenario from a real config ---- */
+function clip(s,n){s=String(s==null?"":s);return s.length>n?s.slice(0,n-1)+"…":s}
+function mk(g){
+ const px=(g.protocol||"vless").toUpperCase(),tr=(g.transport||"tcp").toLowerCase(),sec=(g.security||"none").toLowerCase();
+ const cdn=!!g.cdn,port=g.port||443,host=g.host||g.ip||"server",sip=g.ip||"",sni=g.sni||host;
+ const isIp=/^[\d.]+$/.test(host)||/^[0-9a-f:]+$/i.test(host)&&host.includes(":");
+ const LB=Object.assign({c:"گوشی",r:g.name||"Cat Client",d:"DNS",f:"لبه",s:"خروجی"},g.labels||{});
+ const dns=/^[\d.:a-f]+$/i.test(g.dns||"")?g.dns:"";
+ const N={c:{n:LB.c,ip:g.localIp||"",i:"laptop",x:58,y:222,info:"گوشی شما"},
+  r:{n:LB.r,ip:"Cat Client",i:"router",x:cdn?142:165,y:165,info:px+" · "+(TRN[tr]||tr)+" · "+sec.toUpperCase()},
+  d:{n:LB.d,ip:dns,i:"s1",x:cdn?118:132,y:62,info:"تبدیل دامنه به IP"}};
+ const ep=(a)=>a?clip(a+(a.includes(":")?"":":"+port),22):"";
+ if(cdn){N.f={n:LB.f,ip:ep(g.cdnIp),i:"cloud",x:250,y:222,info:"SNI "+sni+(sec!=="none"?" · "+sec.toUpperCase():"")};
+  N.s={n:LB.s,ip:clip(sip,18),i:"s2",x:335,y:122,info:"پورت "+port+(g.path?" · Path "+g.path:"")}}
+ else N.s={n:LB.s,ip:ep(sip),i:"s2",x:322,y:158,info:"پورت "+port+(g.path?" · Path "+g.path:"")+(sec!=="none"?" · SNI "+sni:"")};
+ const t=cdn?"f":"s",tn=cdn?"لبه":"خروجی",L=cdn?["cr","rd","rf","fs"]:["cr","rd","rs"],St=[];
+ const add=(k,p,t2,d,b)=>St.push({k,p,t:t2,d,b:b?1:0});
+ add("app",["c","r"],"App request","برنامه‌ای روی گوشی درخواست می‌فرستد و Cat Client آن را می‌گیرد.");
+ if(!isIp){add("dns",["r","d"],"DNS query","آدرس "+host+" از DNS پرسیده می‌شود.");add("dnsr",["d","r"],"DNS answer","IP مقصد مشخص می‌شود.",1)}
+ add("tcp",["r",t],"TCP SYN","شروع اتصال TCP به "+tn+" روی پورت "+port+".");
+ add("tcpr",[t,"r"],"SYN-ACK",tn+" اتصال را می‌پذیرد.",1);
+ if(sec==="tls"||sec==="reality"){
+  add("tls",["r",t],sec==="reality"?"Reality ClientHello":"TLS ClientHello","شروع رمزنگاری با SNI "+sni+".");
+  add("tlsr",[t,"r"],"ServerHello","کلید توافق شد. از اینجا همه‌چیز رمز است.",1)}
+ if(tr==="ws"||tr==="httpupgrade"){
+  add("ws",cdn?["r","f","s"]:["r","s"],"WebSocket Upgrade","درخواست Upgrade"+(g.path?" روی "+g.path:"")+" به سرور می‌رسد.");
+  add("wsr",cdn?["s","f","r"]:["s","r"],"101 Switching","اتصال WebSocket باز شد.",1)}
+ else if(tr==="grpc"||tr==="h2")add("ws",cdn?["r","f","s"]:["r","s"],"HTTP/2 stream","یک stream "+TRN[tr]+" به سرور باز می‌شود.");
+ St.push({k:"data",p:cdn?["c","r","f","s"]:["c","r","s"],t:"Encrypted data",f:1,d:"کانال برقرار است. داده رمزشده رفت و برگشت می‌شود."});
+ let err;
+ if(g.fail){const i=St.findIndex(s=>s.k===g.fail.at);if(i>=0){St.length=i+1;St[i].x=1;St[i].f=0;err=g.fail.msg||"اتصال در این مرحله ناموفق بود."}}
+ return{k:g.name||"Config",err,nodes:N,links:L,steps:St}}
+/* ---- engine ---- */
+const net=$("net"),sq=$("seq");
+let CF=[],cur=0,idx=-1,u=0,run=null,fail=false,hold=false,els={},pk;
+function build(){
+ net.innerHTML="";els={};const c=CF[cur];
+ const df=S("defs",{},net),pt=S("pattern",{id:"gr",width:22,height:22,patternUnits:"userSpaceOnUse"},df);
+ S("path",{d:"M22 0H0V22",fill:"none",stroke:"#1f2540","stroke-width":.6},pt);
+ S("rect",{x:0,y:0,width:W,height:H,fill:"url(#gr)"},net);
+ c.links.forEach(l=>{const a=c.nodes[l[0]],b=c.nodes[l[1]];els[l]=S("line",{x1:a.x,y1:a.y-8,x2:b.x,y2:b.y-8,class:"lk"},net)});
+ for(const k in c.nodes){const n=c.nodes[k],g=S("g",{transform:`translate(${n.x} ${n.y})`,tabindex:0,role:"button","aria-label":n.n,class:"ic"},net);
+  g.innerHTML=ICON[n.i]();
+  S("text",{x:0,y:28,"text-anchor":"middle",class:"nm"},g,n.n);
+  if(n.ip)S("text",{x:0,y:40,"text-anchor":"middle",class:"ip"},g,n.ip);
+  g.addEventListener("click",()=>{$("sd").textContent=n.n+(n.ip?" · "+n.ip:"")+" · "+n.info});
+  els[k]=g}
+ pk=S("g",{},net);
+}
+function pos(path,t){const c=CF[cur],p=path.map(k=>c.nodes[k]),L=[];let tot=0;
+ for(let i=0;i<p.length-1;i++){const l=Math.hypot(p[i+1].x-p[i].x,p[i+1].y-p[i].y);L.push(l);tot+=l}
+ let d=t*tot;for(let i=0;i<L.length;i++){if(d<=L[i]||i===L.length-1){const f=Math.min(d/L[i],1);return[p[i].x+(p[i+1].x-p[i].x)*f,p[i].y-8+(p[i+1].y-p[i].y)*f]}d-=L[i]}}
+function ease(x){return x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2}
+function dot(x,y,col){S("circle",{cx:x,cy:y,r:10,fill:col,opacity:.22},pk);S("circle",{cx:x,cy:y,r:5,fill:col},pk)}
+function draw(){
+ const c=CF[cur];if(!c)return;const s=c.steps[idx];pk.innerHTML="";
+ c.links.forEach(l=>els[l].classList.remove("on"));
+ for(const k in c.nodes)els[k].classList.remove("lit","bad");
+ if(!s)return;
+ for(let i=0;i<s.p.length-1;i++){const a=s.p[i]+s.p[i+1],b=s.p[i+1]+s.p[i];(els[a]||els[b]).classList.add("on")}
+ s.p.forEach(k=>els[k].classList.add("lit"));
+ if(fail)els[s.p[s.p.length-1]].classList.add("bad");
+ if(s.f){for(let j=0;j<3;j++){let q=pos(s.p,(u+j/3)%1);dot(q[0],q[1],FW);q=pos(s.p.slice().reverse(),(u+j/3+.5)%1);dot(q[0],q[1],BK)}}
+ else if(u<1){const q=pos(s.p,ease(u));dot(q[0],q[1],s.b?BK:FW)}
+}
+function ui(){
+ const c=CF[cur];if(!c)return;const s=c.steps[idx],n=c.steps.length;
+ let b="آماده",cl="";if(fail){b="خطا";cl="er"}else if(idx>=0){if(s.f){b="متصل";cl="ok"}else{b="در حال اتصال";cl="go"}}
+ $("bt").textContent=b;$("bg").className="bg "+cl;
+ $("sl").textContent=s?`${idx+1}/${n} · ${s.t}`:`0/${n}`;
+ $("sd").textContent=s?(fail?c.err:s.d):"برای دیدن مسیر اتصال پخش را بزن.";
+ $("pp").textContent=run==="play"?"❚❚":"▶";seq();
+}
+function seq(){
+ const c=CF[cur];if(!c)return;sq.innerHTML="";
+ const ks=Object.keys(c.nodes),n=ks.length,X=k=>40+ks.indexOf(k)*((W-80)/(n-1)),rh=Math.min(26,(H-70)/c.steps.length);
+ ks.forEach(k=>{const x=X(k);S("text",{x,y:18,"text-anchor":"middle",class:"nm"},sq,c.nodes[k].n);S("line",{x1:x,x2:x,y1:30,y2:H-6,stroke:"#2b3350","stroke-dasharray":"3 4"},sq)});
+ c.steps.forEach((s,i)=>{if(i>idx)return;const y=50+i*rh,a=X(s.p[0]),b=X(s.p[s.p.length-1]),col=i===idx?(fail?"#ff6b75":FW):"#5a6a9c",d=b>a?1:-1;
+  S("line",{x1:a,x2:b-d*6,y1:y,y2:y,stroke:col,"stroke-width":1.6},sq);
+  S("polygon",{points:`${b},${y} ${b-d*7},${y-3.5} ${b-d*7},${y+3.5}`,fill:col},sq);
+  if(s.f)S("polygon",{points:`${a},${y} ${a+d*7},${y-3.5} ${a+d*7},${y+3.5}`,fill:col},sq);
+  S("text",{x:(a+b)/2,y:y-5,"text-anchor":"middle",style:"font-size:8.5px",fill:i===idx?"#e8ecff":"#8b93b5"},sq,s.t);
+  if(fail&&i===idx)S("text",{x:b+d*10,y:y+4,"text-anchor":"middle",fill:"#ff6b75",style:"font-size:12px"},sq,"✕")});
+}
+function reset(){idx=-1;u=0;run=null;fail=false;draw();ui()}
+function frame(dt){const c=CF[cur],s=c&&c.steps[idx];
+ if(run&&s){u+=dt/(s.f?2600:1100);
+  if(u>=1){if(s.f){u%=1}else{u=1;
+   if(s.x){fail=true;run=null;ui()}
+   else if(run==="play"&&idx<c.steps.length-1&&!(hold&&idx===c.steps.length-2)){idx++;u=0;ui()}
+   else{run=null;ui()}}}}
+ draw()}
+let prev=0;function loop(t){const dt=prev?Math.min(t-prev,60):0;prev=t;if(CF.length)frame(dt);requestAnimationFrame(loop)}
+function play(){if(!CF.length)return;const c=CF[cur];
+ if(run==="play")run=null;else{if(fail)reset();if(idx<0){idx=0;u=0}else if(u>=1&&idx<c.steps.length-1&&!(hold&&idx===c.steps.length-2)){idx++;u=0}run="play"}ui()}
+$("pp").onclick=play;
+$("st").onclick=()=>{const c=CF[cur],s=c.steps[idx];if(fail)return;
+ if(idx<0){idx=0;u=0;run="once"}else if(u<1&&!s.f){u=1;run=null}else if(idx<c.steps.length-1){idx++;u=0;run="once"}ui()};
+$("rs").onclick=()=>{reset();play()};
+function tab(v){net.hidden=v!=="net";sq.hidden=v!=="seq";$("tn").setAttribute("aria-selected",v==="net");$("ts").setAttribute("aria-selected",v==="seq")}
+$("tn").onclick=()=>tab("net");$("ts").onclick=()=>tab("seq");
+/* ---- app bridge ---- */
+function load(g){CF=[mk(typeof g==="string"?JSON.parse(g):g)];cur=0;hold=false;build();reset();play()}
+function setState(s,m){const c=CF[cur];if(!c)return;
+ if(s==="connecting"){hold=true;reset();play()}
+ else if(s==="connected"){hold=false;fail=false;idx=c.steps.length-1;u=0;run="play";ui()}
+ else if(s==="failed"){let i=c.steps.findIndex(x=>x.x);if(i<0){i=Math.max(0,Math.min(idx,c.steps.length-1));c.steps[i].x=1;c.steps[i].f=0}
+  c.err=m||c.err||"اتصال ناموفق بود.";hold=false;idx=i;u=1;fail=true;run=null;ui()}
+ else if(s==="idle"){hold=false;reset()}}
+window.CatPath={load:load,setState:setState,mk:mk};
+/* ---- demo (only when opened without ?app=1) ---- */
+if(!/[?&]app=1/.test(location.search)){
+ document.body.classList.add("demo");
+ const SAMPLES=[
+ {name:"Cat GP",protocol:"vless",transport:"ws",security:"tls",host:"cdn.example.com",ip:"203.0.113.8",port:443,sni:"cdn.example.com",path:"/ws",cdn:true,cdnIp:"216.239.38.120"},
+ {name:"Reality",protocol:"vless",transport:"tcp",security:"reality",host:"198.51.100.7",ip:"198.51.100.7",port:443,sni:"www.microsoft.com"},
+ {name:"نمونه خطا",protocol:"trojan",transport:"tcp",security:"tls",host:"192.0.2.44",ip:"192.0.2.44",port:443,sni:"bad.example.com",fail:{at:"tls",msg:"TLS رد شد. SNI یا گواهی سرور درست نیست."}}];
+ const ch=$("chips");
+ SAMPLES.forEach((g,i)=>{const b=document.createElement("button");b.className="chip";b.textContent=g.name;b.setAttribute("aria-pressed",i===0);
+  b.onclick=()=>{[...ch.children].forEach((x,j)=>x.setAttribute("aria-pressed",j===i));load(g)};ch.appendChild(b)});
+ load(SAMPLES[0]);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

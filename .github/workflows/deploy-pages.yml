@@ -1,0 +1,68 @@
+name: Build and deploy panel Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to Cloudflare Pages (requires secrets)
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches: [main, 'arena/*']
+    paths:
+      - 'app/src/main/assets/panels/catclient.worker.js'
+      - 'pages/**'
+      - 'scripts/pages/**'
+      - '.github/workflows/deploy-pages.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panel-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Build independent Pages target
+        run: node scripts/pages/build.mjs
+      - name: Validate Pages target
+        run: node --test scripts/pages/pages-target.test.mjs
+      - name: Validate generated module syntax
+        run: node --check pages/dist/_worker.js
+      - name: Upload Pages artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: cat-panel-pages-${{ github.sha }}
+          path: pages/dist
+          if-no-files-found: error
+      - name: Deploy Pages
+        id: deploy
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          npx --yes wrangler@latest pages deploy pages/dist --project-name cat-panel-pages --branch preview 2>&1 | tee pages-deploy.log
+      - name: Verify deployed Pages health and version
+        if: steps.deploy.outcome == 'success'
+        run: |
+          set -euo pipefail
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.pages\.dev' pages-deploy.log | tail -1)
+          test -n "$URL"
+          HEALTH=$(curl -fsS --retry 5 --retry-delay 3 --max-time 20 "$URL/health")
+          echo "$HEALTH" | grep -q '"ok":true'
+          VERSION=$(curl -fsS --retry 5 --retry-delay 3 --max-time 20 "$URL/api/version")
+          WANT=$(grep -o "CAT_PANEL_VERSION = '[^']*" app/src/main/assets/panels/catclient.worker.js | cut -d"'" -f2)
+          node -e 'const j=JSON.parse(process.argv[1]); if(j.ok!==true||j.version!==process.argv[2]) process.exit(1)' "$VERSION" "$WANT"
+          echo "Pages verified at $URL (panel $WANT)"

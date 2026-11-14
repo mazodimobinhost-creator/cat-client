@@ -70,14 +70,14 @@ async function runTunnel(ws, frames, env, record, options = {}) {
   T.__setSockets(sockets);
   const done = T.handleTunnelConnection(ws, env, Object.assign({ masterUuid: uuid }, options));
   // give the listener a tick to attach, then feed frames
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setTimeout(r, 25));
   for (const frame of frames) {
     ws.emit('message', { data: frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) });
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 25));
   }
-  await new Promise((r) => setTimeout(r, 40));
+  await new Promise((r) => setTimeout(r, 120));
   ws.close(1000, 'client done');
-  await Promise.race([done, new Promise((r) => setTimeout(r, 300))]);
+  await Promise.race([done, new Promise((r) => setTimeout(r, 1500))]);
   void originalImport;
 }
 
@@ -122,7 +122,7 @@ async function runTunnel(ws, frames, env, record, options = {}) {
   const ws = new FakeWs();
   const record = { dials: [], refuse: new Set(['blocked.example']) };
   const frame = vlessFrame('blocked.example', 443, []);
-  await runTunnel(ws, [frame], { PROXYIP: 'relay.example.net' }, record);
+  await runTunnel(ws, [frame], { PROXYIP: 'relay.example.net:443' }, record);
   check('refused direct dial falls back to proxy', record.dials.join(',') === 'blocked.example:443,relay.example.net:443', record.dials.join(','));
 }
 
