@@ -79,6 +79,37 @@ class Beta308ConnectThisLineTest {
     }
 
     @Test
+    fun protonConfBecomesAmneziaAndTheScreenConnectsIt() {
+        val conf = """
+            [Interface]
+            PrivateKey = cIq+3tcHVT7gRMl4kIv0WE68ERiTmDtA7rhyHhLJ/mg=
+            Address = 10.2.0.2/32
+            [Peer]
+            PublicKey = jCi1I5HBTtwCblBbMzOFmOOFNG1GilYOZgst0kyq9gY=
+            Endpoint = 9.9.9.9:51820
+            AllowedIPs = 0.0.0.0/0
+        """.trimIndent()
+        val uri = MlmAndNextGenVpnHub.convertWgConfToAwgUri(conf, "Cat Proton · NL")
+        assertNotNull(uri)
+        assertTrue(uri!!.startsWith("awg://"))
+        assertTrue(uri.contains("9.9.9.9:51820"))
+        assertTrue(uri.contains("jc="))
+        assertFalse(uri.contains("s1="))
+        assertTrue(SubConvConverter.convert(uri).isNotEmpty())
+        val add = src("MainActivityFreeNetworks.kt")
+        val start = add.indexOf("private fun MainActivity.addProtonConfs")
+        assertTrue(start >= 0)
+        val body = add.substring(start, add.indexOf("// ───────────── 🛡️ Cat Voidly", start))
+        assertTrue(body.contains("convertWgConfToAwgUri"))
+        assertTrue(body.contains("connectFreeSubscription(subId, autoNext = true)"))
+        assertTrue(src("FreeNetworkEngines.kt").contains("\"wireguard\""))
+        val sig = add.substringAfter("internal fun MainActivity.connectFreeSubscription(").substringBefore("{")
+        val autoAt = sig.indexOf("autoNext")
+        val pickAt = sig.indexOf("pick:")
+        assertTrue(autoAt >= 0 && pickAt > autoAt)
+    }
+
+    @Test
     fun amneziaOneTapUsesLiveIpsAndConnects() {
         val src = src("MainActivityFreeNetworks.kt")
         val start = src.indexOf("internal fun MainActivity.addWarpAmneziaAuto()")

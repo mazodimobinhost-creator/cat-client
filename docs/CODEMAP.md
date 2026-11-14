@@ -24,7 +24,7 @@
 |---|---:|---|---|
 | `MainActivity.kt` | 3962 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 14 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAmneziaSstp.kt` | 664 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 17 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAmneziaSstp.kt` | 666 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 17 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAntiFilterTools.kt` | 1753 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 18 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 17 JVM · 9 panel (see `affected-tests.py`) |
@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1588 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 17 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 2011 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 32 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 2020 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 32 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 1084 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 23 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 592 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -103,7 +103,7 @@
 | `AetherSession.kt` | 105 | Owns one native Aether session. | Beta215AetherEngineSlotTest, Beta219TunnelTrafficTest, Beta241AetherNetworkPlanTest · — |
 | `AetherTlsFingerprint.kt` | 146 | The TLS ClientHello the native Aether core (2.4) presents to Cloudflare's MASQUE edge. | AetherRuntimeConfigTest · — |
 | `AetherTunPolicy.kt` | 51 | — | AetherTunPolicyTest, Beta219TunnelTrafficTest · — |
-| `AmneziaCleanEndpoints.kt` | 93 | Clean Cloudflare WARP `IP:port` rows for AmneziaWG. | Beta307DumpMethodsTest, Beta308ConnectThisLineTest · — |
+| `AmneziaCleanEndpoints.kt` | 93 | Clean Cloudflare WARP `IP:port` rows for AmneziaWG. | Beta289AmneziaLandsTest, Beta307DumpMethodsTest, Beta308ConnectThisLineTest · — |
 | `AmneziaHeaders.kt` | 20 | AmneziaWG H1-H4 header values. | ConnectionFaultExplainerTest · — |
 | `AmneziaVpnKey.kt` | 349 | AmneziaVPN connection keys (`vpn://…`, what the Amnezia app shares with «Share → Amnezia format» and what Amnezia-based sellers/bots hand out) → no… | AmneziaVpnKeyTest · — |
 | `ConnectionChain.kt` | 905 | — | ConnectionChainTunnelTest · chain-exit-country, chain-tunnel |
@@ -113,7 +113,7 @@
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
 | `FirefoxVpnEngine.kt` | 3368 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, Beta259FoxTransportTest, Beta260LivePingTest, Beta307DumpMethodsTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3432 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, Beta291SpoofAndSlipNetTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
-| `MlmAndNextGenVpnHub.kt` | 1315 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, Beta289AmneziaLandsTest, Beta290TelegramAmneziaConfTest, Beta307DumpMethodsTest, WhiteDnsSmartScannerTest · — |
+| `MlmAndNextGenVpnHub.kt` | 1315 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, Beta289AmneziaLandsTest, Beta290TelegramAmneziaConfTest, Beta307DumpMethodsTest, Beta308ConnectThisLineTest, WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
 | `PaqetEngine.kt` | 932 | PaqetEngine — Full engine for `paqet` and `paqetNG` (`patth` & `patth ng`, up to paqetNG v1.3.7 + paqet-ngv2). | Beta206EngineTest, WhiteDnsSmartScannerTest · — |
 | `PsiphonCarrierClient.kt` | 117 | Same-UID IPC client; no Psiphon object or Go runtime enters the VPN process. | Beta255EnginesAuditTest · — |
@@ -345,7 +345,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_287 Kotlin files, 120949 lines._
+_287 Kotlin files, 120960 lines._
 
 ## MainActivity screens — function index
 
@@ -362,7 +362,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityAmneziaSstp.kt` (11 functions)
 
-`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:193, `previewAndImportAmneziaText`:220, `saveAmneziaSubscription`:278, `selectSubscriptionAndConnect`:307, `isAmneziaListed`:319, `showMyAmneziaConfigsDialog`:328, `showCatSstpDialog`:425, `fetchAndSaveCatSstpServers`:489, `showManualCatSstpDialog`:543, `saveCatSstpSubscription`:587
+`showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:193, `previewAndImportAmneziaText`:220, `saveAmneziaSubscription`:278, `selectSubscriptionAndConnect`:307, `isAmneziaListed`:319, `showMyAmneziaConfigsDialog`:330, `showCatSstpDialog`:427, `fetchAndSaveCatSstpServers`:491, `showManualCatSstpDialog`:545, `saveCatSstpSubscription`:589
 
 ### `MainActivityAntiFilterTools.kt` (35 functions)
 
@@ -406,7 +406,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (38 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:296, `showFreeProxyDialog`:314, `buildFreeProxy`:335, `showFanoosDialog`:376, `fetchFanoos`:423, `fetchFanoosAll`:483, `showFreeAccountDialog`:621, `showProtonDialog`:766, `showProtonPaste`:770, `showProtonWebView`:794, `addProtonConfs`:1020, `showVoidlyDialog`:1090, `showVoidlyGenerate`:1144, `showVoidlyPaste`:1216, `addVoidlyConfs`:1240, `addFreeSlipNet`:1302, `addWarpAmneziaAuto`:1367, `showFreePsiphonDialog`:1414, `pickFreePsiphonCountry`:1452, `connectFreePsiphon`:1471, `showCatWarpFreeDialog`:1510, `scanCatWarpOnThisLine`:1578, `connectCatWarpFree`:1730, `showCatWindDialog`:1765, `showCatWindLogin`:1775, `connectCatWind`:1920, `jsString`:2011
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:296, `showFreeProxyDialog`:314, `buildFreeProxy`:335, `showFanoosDialog`:376, `fetchFanoos`:423, `fetchFanoosAll`:483, `showFreeAccountDialog`:621, `showProtonDialog`:766, `showProtonPaste`:770, `showProtonWebView`:794, `addProtonConfs`:1020, `showVoidlyDialog`:1099, `showVoidlyGenerate`:1153, `showVoidlyPaste`:1225, `addVoidlyConfs`:1249, `addFreeSlipNet`:1311, `addWarpAmneziaAuto`:1376, `showFreePsiphonDialog`:1423, `pickFreePsiphonCountry`:1461, `connectFreePsiphon`:1480, `showCatWarpFreeDialog`:1519, `scanCatWarpOnThisLine`:1587, `connectCatWarpFree`:1739, `showCatWindDialog`:1774, `showCatWindLogin`:1784, `connectCatWind`:1929, `jsString`:2020
 
 ### `MainActivityGuides.kt` (11 functions)
 

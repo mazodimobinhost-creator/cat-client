@@ -319,6 +319,8 @@ internal fun MainActivity.selectSubscriptionAndConnect(subscriptionId: String) {
 internal fun isAmneziaListed(name: String, input: String): Boolean {
     val n = name.lowercase()
     val body = input
+    // Proton uses AmneziaWG junk on the same core, but it is not an Amnezia config.
+    if (n.contains("proton") || "پروتون" in name) return false
     if (n.contains("amnezia") || "آمنزیا" in name || "امنزیا" in name || "امیزا" in name) return true
     if (body.contains("awg://", ignoreCase = true) || body.contains("amneziawg://", ignoreCase = true)) return true
     if (AmneziaVpnKey.looksLikeKey(body)) return true

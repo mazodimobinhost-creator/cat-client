@@ -174,8 +174,8 @@ internal fun MainActivity.showFreeNetworksHub() {
     ) { showFanoosDialog() }
     entry(
         t("🟢 Cat Proton (حساب رایگان، چند کشور)", "🟢 Cat Proton (free account, several countries)"),
-        t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat خودش همهٔ کانفیگ‌های وایرگارد مجاز را می‌گیرد و اضافه می‌کند — پلن پولی جعل نمی‌شود. اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود.",
-            "Tap: sign in or create the free account (the human check stays yours). Cat then fetches every allowed WireGuard config and adds it — Plus is not faked. Proton OpenVPN is not run."),
+        t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat کانفیگ وایرگارد مجاز را می‌گیرد، به AmneziaWG ضدفیلتر تبدیل می‌کند و وصل می‌شود — پلن پولی جعل نمی‌شود. اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود.",
+            "Tap: sign in or create the free account (the human check stays yours). Cat then fetches allowed WireGuard, turns it into anti-filter AmneziaWG, and connects — Plus is not faked. Proton OpenVPN is not run."),
         accent = true,
     ) { showProtonDialog() }
     entry(
@@ -257,11 +257,12 @@ internal suspend fun MainActivity.saveFreeSubscription(storedId: String, name: S
  * Select the subscription and connect its first profile (or the one [pick] chooses), disconnecting first when needed.
  * beta250: a subscription with several rows (every Fox / Fanoos country) is then pinged row by row through the live
  * connection, so the list shows each country's real ping right away.
+ * [pick] stays last so `connectFreeSubscription(id) { … }` is the country picker, not `autoNext`.
  */
 internal fun MainActivity.connectFreeSubscription(
     subId: String,
-    pick: (List<ConnectionProfile>) -> ConnectionProfile? = { it.firstOrNull() },
     autoNext: Boolean = true,
+    pick: (List<ConnectionProfile>) -> ConnectionProfile? = { it.firstOrNull() },
 ) {
     val fa = freeFa()
     activityScope.launch {
@@ -801,8 +802,8 @@ private fun MainActivity.showProtonWebView(want: Set<String>) {
 
     val box = freeBox()
     box.addView(freeText(t(
-        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat وایرگارد رایگان را می‌گیرد و اضافه می‌کند. اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود.",
-        "Sign in or create a free account. The human check stays yours. After that Cat fetches free WireGuard and adds it. Proton OpenVPN is not run.",
+        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat وایرگارد رایگان را می‌گیرد، به AmneziaWG ضدفیلتر تبدیل می‌کند و وصل می‌شود. اپن‌وی‌پی‌ان پروتون در Cat اجرا نمی‌شود.",
+        "Sign in or create a free account. The human check stays yours. After that Cat fetches free WireGuard, turns it into anti-filter AmneziaWG, and connects. Proton OpenVPN is not run.",
     ), 12f))
     val status = freeText(t("⏳ حساب را بساز یا وارد شو…", "⏳ Sign in or create the account…"), 12.5f, TEAL, bold = true)
 
@@ -1036,17 +1037,25 @@ private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want:
                 continue
             }
             val label = ProtonFreePlanner.rowLabel(text, filename, fa)
-            val rows = WireGuardConfText.toUris(text).map { link ->
-                val base = link.substringBefore('#')
-                val tag = java.net.URLEncoder.encode("🟢 Cat Proton · $label", "UTF-8").replace("+", "%20")
-                "$base#$tag"
+            val rawRows = WireGuardConfText.toUris(text)
+            if (rawRows.any { it.startsWith("awg://") || it.startsWith("amneziawg://") }) {
+                report += "⚠️ $filename: " + t("این فایل Amnezia است نه پروتون؛ از بخش آمنزیا اضافه کنید", "this file is Amnezia, not Proton; add it in the Amnezia section")
+                continue
+            }
+            // Vanilla WireGuard is blocked on many Iranian lines. Same keys/endpoint, Amnezia junk
+            // (jc only — s1/h1 would break Proton's server). Then Cat connects it.
+            val awg = MlmAndNextGenVpnHub.convertWgConfToAwgUri(text, "Cat Proton · $label")
+            val rows = if (awg != null) {
+                listOf(awg)
+            } else {
+                rawRows.map { link ->
+                    val base = link.substringBefore('#')
+                    val tag = java.net.URLEncoder.encode("🟢 Cat Proton · $label", "UTF-8").replace("+", "%20")
+                    "$base#$tag"
+                }
             }
             if (rows.isEmpty()) {
                 report += "⚠️ $filename: " + t("لینک ساخته نشد", "no link built")
-                continue
-            }
-            if (rows.any { it.startsWith("awg://") }) {
-                report += "⚠️ $filename: " + t("این فایل Amnezia است نه پروتون؛ از بخش آمنزیا اضافه کنید", "this file is Amnezia, not Proton; add it in the Amnezia section")
                 continue
             }
             links += rows
@@ -1076,12 +1085,13 @@ private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want:
         val countries = codes.distinct()
         report += t("کشورها: ", "Countries: ") + countries.joinToString(" ") { ProtonFreePlanner.flagOf(it) + it }
         freeResult(
-            t("✅ ${links.size} سرور پروتون از ${countries.size.coerceAtLeast(1)} کشور", "✅ ${links.size} Proton servers from ${countries.size.coerceAtLeast(1)} countries"),
+            t("✅ ${links.size} سرور پروتون از ${countries.size.coerceAtLeast(1)} کشور — در حال وصل", "✅ ${links.size} Proton servers from ${countries.size.coerceAtLeast(1)} countries — connecting"),
             report,
             subId,
-            t("وایرگارد خام روی بعضی اپراتورهای ایران بسته است. اگر وصل نشد، «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کنید. این کانفیگ‌ها مال حساب خودتان است، نه کلید مشترک.",
-                "Plain WireGuard is blocked on some Iranian operators. If it does not connect, try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”. These configs belong to your account, not a shared key."),
+            t("وایرگارد پروتون با نویز Amnezia روی همین خط وصل می‌شود (کلید مال حساب خودتان است). اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند.",
+                "Proton WireGuard connects with Amnezia junk on this line (the key is your account’s). If this one fails, Cat tries the next itself."),
         )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 

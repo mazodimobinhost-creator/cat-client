@@ -328,7 +328,7 @@ internal object LanternPlanner {
     fun isEdgeBlock(code: Int, body: String): Boolean =
         code !in 200..299 && code != 304 && code != 204 && body.trimStart().let { it.startsWith("<") || it.isEmpty() }
     const val VERSION = "10.0.5"
-    val PROTOCOLS = listOf("shadowsocks", "vless", "trojan", "hysteria2", "vmess", "tuic")
+    val PROTOCOLS = listOf("shadowsocks", "vless", "trojan", "hysteria2", "vmess", "tuic", "wireguard")
 
     fun timeZone(): String = TimeZone.getDefault().id
 

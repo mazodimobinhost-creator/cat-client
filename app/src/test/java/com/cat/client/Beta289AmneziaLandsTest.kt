@@ -46,6 +46,7 @@ class Beta289AmneziaLandsTest {
         assertTrue(isAmneziaListed("🛡️ Cat Warp Amnezia", "# comment\nawg://auto@host:500"))
         assertTrue(isAmneziaListed("امیزا", "vless://nope"))
         assertFalse(isAmneziaListed("🟢 Cat Proton", "wireguard://abc@1.1.1.1:51820"))
+        assertFalse(isAmneziaListed("🟢 Cat Proton", "awg://key@1.1.1.1:51820?jc=5"))
         val section = src("MainActivityAmneziaSstp.kt")
         val actionBuild = section.indexOf("🚀 بساز و بیاور داخل اپ")
         val actionKey = section.indexOf("📋 کلید vpn:// دارم")
