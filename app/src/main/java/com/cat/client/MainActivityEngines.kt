@@ -1993,7 +1993,7 @@ internal fun MainActivity.showOutlineFreeHubDialog() {
                         if (currentVpnServiceState == VpnState.Started) {
                             reconnectForConnectionOptionChange()
                         } else {
-                            beginConnectFlow(Actions.CONNECT)
+                            beginConnectFlow(Actions.CONNECT, autoNext = true)
                         }
                     }
                 }
@@ -2048,7 +2048,7 @@ internal fun MainActivity.showOutlineFreeHubDialog() {
                                 if (currentVpnServiceState == VpnState.Started) {
                                     reconnectForConnectionOptionChange()
                                 } else {
-                                    beginConnectFlow(Actions.CONNECT)
+                                    beginConnectFlow(Actions.CONNECT, autoNext = true)
                                 }
                             }
                         }
@@ -2078,7 +2078,7 @@ internal fun MainActivity.showOutlineFreeHubDialog() {
                         if (currentVpnServiceState == VpnState.Started) {
                             reconnectForConnectionOptionChange()
                         } else {
-                            beginConnectFlow(Actions.CONNECT)
+                            beginConnectFlow(Actions.CONNECT, autoNext = true)
                         }
                     }
                 }

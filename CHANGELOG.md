@@ -14,6 +14,7 @@ Owner: Cat's own methods must actually connect on this line.
 - **One tap:** «🚀 فقط می‌خواهم وصل شوم» connects on this line with no ranking dialog. A failed method is not the end — the service starts the next profile (and hops after connect when there is no internet).
 - **Proton:** after sign-in, Cat turns the account’s WireGuard into AmneziaWG (junk only — Proton’s server stays vanilla) and connects; next row on fail. Plus is not faked.
 - **Compile:** `connectFreeSubscription` keeps the country-pick lambda last so Fox still builds.
+- **Easy connect:** after Cat builds a config it connects — Free Proxy, Voidly, Wind, SlipNet, Outline, Warp scan, 50 GB. Vanilla WireGuard becomes Amnezia junk-only first. One tap also uses configs already in the list; a failed row is not the end.
 
 ## [1.10.0-beta307] — 2026-11-11 (Panel 6.89.0)
 

@@ -377,7 +377,10 @@ internal object CatWindPlanner {
         fa: Boolean,
     ): String? {
         if (!loc.canWireGuard() || address.isBlank()) return null
-        return WireGuardConfText.toUris(wireguardConf(privateKey, loc, address, dns, psk, allowedIps, fa)).firstOrNull()
+        val conf = wireguardConf(privateKey, loc, address, dns, psk, allowedIps, fa)
+        val title = "$NAME · WG · ${loc.names().flag}"
+        return MlmAndNextGenVpnHub.convertWgConfToAwgUri(conf, title)
+            ?: WireGuardConfText.toUris(conf).firstOrNull()
     }
 
     fun subscriptionText(links: List<String>): String =

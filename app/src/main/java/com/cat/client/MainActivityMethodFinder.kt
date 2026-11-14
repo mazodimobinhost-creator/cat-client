@@ -535,39 +535,40 @@ internal fun MainActivity.oneTapConnectThisLine() {
     activityScope.launch {
         try {
             val subName = MethodFinderPlan.SUBSCRIPTION_NAME
-            val existing = withContext(Dispatchers.IO) {
-                userSubscriptionManager.list().firstOrNull { it.name == subName }
+            val links = withContext(Dispatchers.IO) {
+                val saved = userSubscriptionManager.list().flatMap { sub ->
+                    userSubscriptionManager.cachedSnapshot(sub.id)?.catalog?.profiles.orEmpty()
+                        .mapNotNull { it.shareLink?.takeIf(String::isNotBlank) }
+                        .take(4)
+                }
+                val gathered = MethodFinderSources.gather(
+                    this@oneTapConnectThisLine,
+                    setOf(FinderFamily.CAT_WARP, FinderFamily.MINE),
+                    fa,
+                )
+                val amnezia = AmneziaCleanEndpoints.urisFromPeers(
+                    AmneziaCleanEndpoints.liveOrFallback(),
+                    withInitPackets = true,
+                )
+                (amnezia + gathered.candidates.map { it.link } + saved)
+                    .filter { it.isNotBlank() }
+                    .distinct()
             }
-            val existingProfiles = existing?.let {
-                withContext(Dispatchers.IO) { userSubscriptionManager.cachedSnapshot(it.id)?.catalog?.profiles.orEmpty() }
-            }.orEmpty()
-            val subId: String
-            if (existingProfiles.isNotEmpty()) {
-                subId = existing!!.id
-            } else {
-                val gathered = withContext(Dispatchers.IO) {
-                    MethodFinderSources.gather(this@oneTapConnectThisLine, setOf(FinderFamily.CAT_WARP, FinderFamily.MINE), fa)
-                }
-                val amnezia = withContext(Dispatchers.IO) {
-                    AmneziaCleanEndpoints.urisFromPeers(AmneziaCleanEndpoints.liveOrFallback(), withInitPackets = true)
-                }
-                val links = (gathered.candidates.map { it.link } + amnezia).filter { it.isNotBlank() }.distinct()
-                if (links.isEmpty()) {
-                    Toast.makeText(
-                        this@oneTapConnectThisLine,
-                        t("چیزی برای وصل نبود. «بررسی» را بزنید تا روش‌ها روی همین خط امتحان شوند.", "Nothing to connect. Tap Check so methods are tried on this line."),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
-                    return@launch
-                }
-                subId = withContext(Dispatchers.IO) {
-                    val named = userSubscriptionManager.list().firstOrNull { it.name == subName }
-                    (if (named != null) userSubscriptionManager.update(named.id, subName, links.joinToString("\n"))
-                    else userSubscriptionManager.add(subName, links.joinToString("\n"))).id
-                }
-                withContext(Dispatchers.Main) { renderSubscriptions() }
+            if (links.isEmpty()) {
+                Toast.makeText(
+                    this@oneTapConnectThisLine,
+                    t("چیزی برای وصل نبود. «بررسی» را بزنید تا روش‌ها روی همین خط امتحان شوند.", "Nothing to connect. Tap Check so methods are tried on this line."),
+                    Toast.LENGTH_LONG,
+                ).show()
+                showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
+                return@launch
             }
+            val subId = withContext(Dispatchers.IO) {
+                val named = userSubscriptionManager.list().firstOrNull { it.name == subName }
+                (if (named != null) userSubscriptionManager.update(named.id, subName, links.joinToString("\n"))
+                else userSubscriptionManager.add(subName, links.joinToString("\n"))).id
+            }
+            withContext(Dispatchers.Main) { renderSubscriptions() }
             if (buttonModel.state != VpnState.Stopped) {
                 startVpnService(Actions.DISCONNECT)
                 val until = SystemClock.elapsedRealtime() + 15_000L

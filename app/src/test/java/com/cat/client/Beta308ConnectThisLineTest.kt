@@ -100,7 +100,8 @@ class Beta308ConnectThisLineTest {
         val start = add.indexOf("private fun MainActivity.addProtonConfs")
         assertTrue(start >= 0)
         val body = add.substring(start, add.indexOf("// ───────────── 🛡️ Cat Voidly", start))
-        assertTrue(body.contains("convertWgConfToAwgUri"))
+        assertTrue(body.contains("connectableWgUris"))
+        assertTrue(add.contains("convertWgConfToAwgUri"))
         assertTrue(body.contains("connectFreeSubscription(subId, autoNext = true)"))
         assertTrue(src("FreeNetworkEngines.kt").contains("\"wireguard\""))
         val sig = add.substringAfter("internal fun MainActivity.connectFreeSubscription(").substringBefore("{")
@@ -137,6 +138,7 @@ class Beta308ConnectThisLineTest {
         assertTrue(finder.contains("handleConnectionSelected(null, emptySet())"))
         assertTrue(finder.contains("beginConnectFlow(Actions.CONNECT, autoNext = true)"))
         assertTrue(finder.contains("AmneziaCleanEndpoints.liveOrFallback"))
+        assertTrue(finder.contains("userSubscriptionManager.list()"))
 
         val actions = src("Actions.kt")
         assertTrue(actions.contains("EXTRA_AUTO_NEXT"))
@@ -154,6 +156,29 @@ class Beta308ConnectThisLineTest {
         assertTrue(real.contains("autoNextOnFail || !connectionSelectionPreferenceStore.hasSelectedProfile"))
         assertTrue(real.contains("nextStartupProfile"))
         assertTrue(real.contains("autoNextHopLimit()"))
+    }
+
+    @Test
+    fun everySavedFreeConfigConnectsWithoutAnExtraTap() {
+        val src = src("MainActivityFreeNetworks.kt")
+        fun body(startMark: String, endMark: String): String {
+            val start = src.indexOf(startMark)
+            assertTrue(startMark, start >= 0)
+            val end = src.indexOf(endMark, start + startMark.length)
+            assertTrue(endMark, end > start)
+            return src.substring(start, end)
+        }
+        assertTrue(body("private fun MainActivity.buildFreeProxy", "internal fun MainActivity.showFanoosDialog").contains("connectFreeSubscription(subId, autoNext = true)"))
+        assertTrue(body("private fun MainActivity.addVoidlyConfs", "internal fun MainActivity.addFreeSlipNet").contains("connectableWgUris"))
+        assertTrue(body("private fun MainActivity.addVoidlyConfs", "internal fun MainActivity.addFreeSlipNet").contains("connectFreeSubscription(subId, autoNext = true)"))
+        assertTrue(body("private fun MainActivity.connectCatWind", "private fun jsString").contains("connectFreeSubscription(subId, autoNext = true)"))
+        val wind = src("CatWindEngine.kt")
+        assertTrue(wind.contains("convertWgConfToAwgUri"))
+        val outline = src("MainActivityEngines.kt")
+        val hub = outline.substringAfter("internal fun MainActivity.showOutlineFreeHubDialog()")
+            .substringBefore("internal fun MainActivity.")
+        assertTrue(hub.contains("beginConnectFlow(Actions.CONNECT, autoNext = true)"))
+        assertFalse(hub.contains("beginConnectFlow(Actions.CONNECT)\n") || hub.contains("beginConnectFlow(Actions.CONNECT)}"))
     }
 
     @Test

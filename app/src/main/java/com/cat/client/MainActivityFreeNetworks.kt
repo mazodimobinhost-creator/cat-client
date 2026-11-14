@@ -222,6 +222,19 @@ private suspend fun MainActivity.rankLinksByLivePing(
     return ranked.map { it.link } to lines
 }
 
+/**
+ * A vanilla WireGuard `.conf` as a share Cat can actually connect: Amnezia junk only (`jc`).
+ * `s1`/`h1` stay off so a normal WireGuard server still answers. Empty if the file is already Amnezia.
+ */
+private fun connectableWgUris(text: String, label: String): List<String> {
+    val raw = WireGuardConfText.toUris(text)
+    if (raw.any { it.startsWith("awg://", ignoreCase = true) || it.startsWith("amneziawg://", ignoreCase = true) }) {
+        return emptyList()
+    }
+    val awg = MlmAndNextGenVpnHub.convertWgConfToAwgUri(text, label)
+    return if (awg != null) listOf(awg) else raw
+}
+
 /** Progress dialog with a live log; [work] runs on IO and returns the lines of its report. */
 private fun MainActivity.freeProgress(title: String, work: suspend (step: (String) -> Unit) -> Unit): Job {
     val fa = freeFa()
@@ -365,10 +378,11 @@ private fun MainActivity.buildFreeProxy(regions: List<String>) {
         store.freeProxySubId = subId
         renderSubscriptions()
         freeResult(
-            t("✅ ${ordered.size} سرور رایگان آماده است", "✅ ${ordered.size} free servers ready"), result.report + pingLines, subId,
-            t("«⚡ اتصال» را بزنید. فقط TCP است (وب، تلگرام، اینستاگرام…)؛ تماس صوتی/بازی UDP کار نمی‌کند. اگر یکی وصل نشد، از فهرست کانفیگ‌ها بعدی را بزنید. رمزها خودکار نو می‌شوند.",
-                "Tap “⚡ Connect”. TCP only (web, Telegram, Instagram…); UDP voice/games do not work. If one fails, pick the next in the config list. Passwords renew by themselves."),
+            t("✅ ${ordered.size} سرور رایگان — در حال وصل", "✅ ${ordered.size} free servers — connecting"), result.report + pingLines, subId,
+            t("فقط TCP است (وب، تلگرام، اینستاگرام…). اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند. رمزها خودکار نو می‌شوند.",
+                "TCP only (web, Telegram, Instagram…). If this one fails, Cat tries the next itself. Passwords renew by themselves."),
         )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 
@@ -737,7 +751,7 @@ internal fun MainActivity.showFreeAccountDialog() {
             }
             store.freeAccountSubId = subId
             renderSubscriptions()
-            connectFreeSubscription(subId)
+            connectFreeSubscription(subId, autoNext = true)
         }
     }
 
@@ -1037,25 +1051,16 @@ private fun MainActivity.addProtonConfs(files: List<Pair<String, String>>, want:
                 continue
             }
             val label = ProtonFreePlanner.rowLabel(text, filename, fa)
-            val rawRows = WireGuardConfText.toUris(text)
-            if (rawRows.any { it.startsWith("awg://") || it.startsWith("amneziawg://") }) {
-                report += "⚠️ $filename: " + t("این فایل Amnezia است نه پروتون؛ از بخش آمنزیا اضافه کنید", "this file is Amnezia, not Proton; add it in the Amnezia section")
-                continue
-            }
-            // Vanilla WireGuard is blocked on many Iranian lines. Same keys/endpoint, Amnezia junk
-            // (jc only — s1/h1 would break Proton's server). Then Cat connects it.
-            val awg = MlmAndNextGenVpnHub.convertWgConfToAwgUri(text, "Cat Proton · $label")
-            val rows = if (awg != null) {
-                listOf(awg)
-            } else {
-                rawRows.map { link ->
-                    val base = link.substringBefore('#')
-                    val tag = java.net.URLEncoder.encode("🟢 Cat Proton · $label", "UTF-8").replace("+", "%20")
-                    "$base#$tag"
-                }
-            }
+            val rows = connectableWgUris(text, "Cat Proton · $label")
             if (rows.isEmpty()) {
-                report += "⚠️ $filename: " + t("لینک ساخته نشد", "no link built")
+                report += "⚠️ $filename: " + t(
+                    if (WireGuardConfText.toUris(text).any { it.startsWith("awg://") })
+                        "این فایل Amnezia است نه پروتون؛ از بخش آمنزیا اضافه کنید"
+                    else "لینک ساخته نشد",
+                    if (WireGuardConfText.toUris(text).any { it.startsWith("awg://") })
+                        "this file is Amnezia, not Proton; add it in the Amnezia section"
+                    else "no link built",
+                )
                 continue
             }
             links += rows
@@ -1260,17 +1265,16 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>, regio
                 continue
             }
             val label = VoidlyPlanner.rowLabel(text, region)
-            val rows = WireGuardConfText.toUris(text).map { link ->
-                val base = link.substringBefore('#')
-                val tag = java.net.URLEncoder.encode("$name · $label", "UTF-8").replace("+", "%20")
-                "$base#$tag"
-            }
+            val rows = connectableWgUris(text, "$name · $label")
             if (rows.isEmpty()) {
-                report += "⚠️ $filename: " + t("لینک ساخته نشد", "no link built")
-                continue
-            }
-            if (rows.any { it.startsWith("awg://") }) {
-                report += "⚠️ $filename: " + t("این فایل Amnezia است؛ از بخش آمنزیا اضافه کنید", "this file is Amnezia; add it in the Amnezia section")
+                report += "⚠️ $filename: " + t(
+                    if (WireGuardConfText.toUris(text).any { it.startsWith("awg://") })
+                        "این فایل Amnezia است؛ از بخش آمنزیا اضافه کنید"
+                    else "لینک ساخته نشد",
+                    if (WireGuardConfText.toUris(text).any { it.startsWith("awg://") })
+                        "this file is Amnezia; add it in the Amnezia section"
+                    else "no link built",
+                )
                 continue
             }
             links += rows
@@ -1300,12 +1304,13 @@ private fun MainActivity.addVoidlyConfs(files: List<Pair<String, String>>, regio
         store.voidlySubId = subId
         renderSubscriptions()
         freeResult(
-            t("✅ ${links.size} سرور Voidly", "✅ ${links.size} Voidly servers"),
+            t("✅ ${links.size} سرور Voidly — در حال وصل", "✅ ${links.size} Voidly servers — connecting"),
             report,
             subId,
-            t("فقط UDP است. اگر وصل نشد، اپراتور UDP را بسته؛ «🦊 Cat Fox VPN» یا «🆓 Cat Free Proxy» را امتحان کن.",
-                "UDP only. If it does not connect, the operator is blocking UDP; try “🦊 Cat Fox VPN” or “🆓 Cat Free Proxy”."),
+            t("وایرگارد با نویز Amnezia. اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند.",
+                "WireGuard with Amnezia junk. If this one fails, Cat tries the next itself."),
         )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 
@@ -1370,7 +1375,7 @@ internal fun MainActivity.addFreeSlipNet() {
             t("کند است. اگر وصل نشد، MASQUE را از Cat Warp بزن.",
                 "Slow. If it does not connect, use MASQUE from Cat Warp."),
         )
-        withContext(Dispatchers.Main) { connectFreeSubscription(subId) }
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 
@@ -1730,9 +1735,11 @@ internal fun MainActivity.scanCatWarpOnThisLine() {
             if (best != null) {
                 builder.setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ -> connectCatWarpAfterSave() }
             } else if (connectSubId != null) {
-                builder.setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ -> connectFreeSubscription(connectSubId) }
+                builder.setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ -> connectFreeSubscription(connectSubId, autoNext = true) }
             }
             builder.create().showCatClientDialog()
+            if (best != null) connectCatWarpAfterSave()
+            else if (connectSubId != null) connectFreeSubscription(connectSubId, autoNext = true)
         }
     }
 }
@@ -1791,8 +1798,8 @@ private fun MainActivity.showCatWindLogin(after: () -> Unit) {
 
     val box = freeBox()
     box.addView(freeText(t(
-        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat خودش همهٔ کانفیگ‌ها را می‌گیرد و اضافه می‌کند.",
-        "Sign in or create a free account. The human check stays yours. After that Cat fetches every allowed config and adds it.",
+        "وارد شو یا حساب رایگان بساز. تیک ربات با توست. بعد از ورود Cat کانفیگ‌ها را می‌گیرد و وصل می‌شود.",
+        "Sign in or create a free account. The human check stays yours. After that Cat fetches the configs and connects.",
     ), 12f))
     val status = freeText(t("⏳ حساب را بساز یا وارد شو…", "⏳ Sign in or create the account…"), 12.5f, TEAL, bold = true)
 
@@ -2008,12 +2015,13 @@ private fun MainActivity.connectCatWind(codes: Set<String> = emptySet()) {
         report += pingLines
         report += errors
         freeResult(
-            t("✅ ${ordered.size} سرور Cat Wind آماده است", "✅ ${ordered.size} Cat Wind servers ready"),
+            t("✅ ${ordered.size} سرور Cat Wind — در حال وصل", "✅ ${ordered.size} Cat Wind servers — connecting"),
             report,
             subId,
-            t("«⚡ اتصال» را بزن. Stealth روی TCP ۴۴۳ و WireGuard روی UDP ۴۴۳ است. اگر یکی وصل نشد بعدی را از فهرست بزن.",
-                "Tap “⚡ Connect”. Stealth is TCP 443 and WireGuard is UDP 443. If one fails, pick the next in the list."),
+            t("Stealth روی TCP ۴۴۳ و WireGuard با نویز Amnezia روی UDP ۴۴۳. اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند.",
+                "Stealth is TCP 443 and WireGuard with Amnezia junk is UDP 443. If this one fails, Cat tries the next itself."),
         )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 

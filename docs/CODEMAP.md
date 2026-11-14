@@ -35,9 +35,9 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1588 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 17 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 2020 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 32 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 2029 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 32 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 1084 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 23 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityMethodFinder.kt` | 592 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityMethodFinder.kt` | 593 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityProtocolConnect.kt` | 136 | Dedicated TUIC / WireGuard / Cat Warp editors with a Connect button. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -315,7 +315,7 @@
 | `CatVpsSh.kt` | 63 | Shared bash the VPS scripts actually run (install, persist, start). | — · — |
 | `CatVpsTunnels.kt` | 183 | Cat VPS tunnels: WireGuard and OpenVPN on the owner's VPS. | Beta297VpsWgOpenVpnTest, Beta298VpsScriptsRunTest, Beta308ConnectThisLineTest · — |
 | `CatWarpFree.kt` | 163 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest, Beta299WarpEndpointScanTest, Beta307DumpMethodsTest · — |
-| `CatWindEngine.kt` | 625 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest · — |
+| `CatWindEngine.kt` | 628 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest, Beta308ConnectThisLineTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
 | `ConnectionMode.kt` | 33 | — | — · — |
 | `ConnectionPath.kt` | 293 | Home connection path: phone → how you connected → server → exit. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
@@ -345,7 +345,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_287 Kotlin files, 120960 lines._
+_287 Kotlin files, 120973 lines._
 
 ## MainActivity screens — function index
 
@@ -404,9 +404,9 @@ for the dialog/button you want to change.
 
 `buildFirefoxVpnFenixCard`:114, `showFirefoxAccountManagerDialog`:285, `showFirefoxEmailLoginDialog`:809, `showFirefoxVpnFenixHubDialog`:989, `connectFirefoxVpnDirectly`:1137, `showFirefoxCountryPickerDialog`:1283, `showFoxTransportDialog`:1412, `showFoxMozillaRelayDialog`:1437, `showFirefoxTokenImportDialog`:1530
 
-### `MainActivityFreeNetworks.kt` (38 functions)
+### `MainActivityFreeNetworks.kt` (39 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `freeProgress`:226, `saveFreeSubscription`:251, `connectFreeSubscription`:261, `freeResult`:296, `showFreeProxyDialog`:314, `buildFreeProxy`:335, `showFanoosDialog`:376, `fetchFanoos`:423, `fetchFanoosAll`:483, `showFreeAccountDialog`:621, `showProtonDialog`:766, `showProtonPaste`:770, `showProtonWebView`:794, `addProtonConfs`:1020, `showVoidlyDialog`:1099, `showVoidlyGenerate`:1153, `showVoidlyPaste`:1225, `addVoidlyConfs`:1249, `addFreeSlipNet`:1311, `addWarpAmneziaAuto`:1376, `showFreePsiphonDialog`:1423, `pickFreePsiphonCountry`:1461, `connectFreePsiphon`:1480, `showCatWarpFreeDialog`:1519, `scanCatWarpOnThisLine`:1587, `connectCatWarpFree`:1739, `showCatWindDialog`:1774, `showCatWindLogin`:1784, `connectCatWind`:1929, `jsString`:2020
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:210, `connectableWgUris`:229, `freeProgress`:239, `saveFreeSubscription`:264, `connectFreeSubscription`:275, `freeResult`:310, `showFreeProxyDialog`:328, `buildFreeProxy`:349, `showFanoosDialog`:391, `fetchFanoos`:438, `fetchFanoosAll`:498, `showFreeAccountDialog`:636, `showProtonDialog`:781, `showProtonPaste`:785, `showProtonWebView`:809, `addProtonConfs`:1035, `showVoidlyDialog`:1105, `showVoidlyGenerate`:1159, `showVoidlyPaste`:1231, `addVoidlyConfs`:1255, `addFreeSlipNet`:1317, `addWarpAmneziaAuto`:1382, `showFreePsiphonDialog`:1429, `pickFreePsiphonCountry`:1467, `connectFreePsiphon`:1486, `showCatWarpFreeDialog`:1525, `scanCatWarpOnThisLine`:1593, `connectCatWarpFree`:1747, `showCatWindDialog`:1782, `showCatWindLogin`:1792, `connectCatWind`:1937, `jsString`:2029
 
 ### `MainActivityGuides.kt` (11 functions)
 
