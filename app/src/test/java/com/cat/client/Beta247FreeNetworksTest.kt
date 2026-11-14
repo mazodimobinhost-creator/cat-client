@@ -128,15 +128,16 @@ class Beta247FreeNetworksTest {
             {"type":"vless","server":"q.example.com","server_port":443,"uuid":"u","transport":{"type":"quic"}}
         ]}}"""
         val tr = LanternPlanner.translate(cfg)
-        assertEquals(4, tr.links.size)
-        assertEquals(mapOf("shadowsocks" to 1, "vless" to 2, "hysteria2" to 1), tr.byType)
-        assertEquals(mapOf("shadowsocks" to 1, "trojan" to 2, "samizdat" to 1, "vless" to 1), tr.skipped)
+        assertEquals(5, tr.links.size)
+        assertEquals(mapOf("shadowsocks" to 2, "vless" to 2, "hysteria2" to 1), tr.byType)
+        assertEquals(mapOf("trojan" to 2, "samizdat" to 1, "vless" to 1), tr.skipped)
         val ss = tr.links[0]
         assertTrue(ss, ss.startsWith("ss://"))
         assertEquals("chacha20-ietf-poly1305:pw", String(Base64.getUrlDecoder().decode(ss.removePrefix("ss://").substringBefore('@'))))
-        assertTrue(tr.links[1], tr.links[1].startsWith("vless://11111111-2222-3333-4444-555555555555@v.example.com:443?encryption=none&security=tls&sni=v.example.com&fp=chrome&type=ws&path=%2Fx&host=v.example.com#"))
-        assertTrue(tr.links[2], tr.links[2].contains("security=reality&pbk=PBK&sid=ab&sni=www.microsoft.com"))
-        assertTrue(tr.links[3], tr.links[3].startsWith("hysteria2://hp@h.example.com:443?sni=h.example.com#"))
+        assertTrue(tr.links[1], tr.links[1].startsWith("ss://") && tr.links[1].contains("plugin="))
+        assertTrue(tr.links[2], tr.links[2].startsWith("vless://11111111-2222-3333-4444-555555555555@v.example.com:443?encryption=none&security=tls&sni=v.example.com&fp=chrome&type=ws&path=%2Fx&host=v.example.com#"))
+        assertTrue(tr.links[3], tr.links[3].contains("security=reality&pbk=PBK&sid=ab&sni=www.microsoft.com"))
+        assertTrue(tr.links[4], tr.links[4].startsWith("hysteria2://hp@h.example.com:443?sni=h.example.com#"))
         assertTrue(tr.links.all { it.contains("Cat%20Fanoos") })
         assertTrue(LanternPlanner.translate("garbage").links.isEmpty())
     }

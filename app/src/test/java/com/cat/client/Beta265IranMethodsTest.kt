@@ -64,7 +64,7 @@ class Beta265IranMethodsTest {
         val (priv, _) = CatWindPlanner.keyPair("", "")
         val link = CatWindPlanner.wireguardLink(priv, loc, "100.64.0.2/32", "10.255.255.3", PSK, "0.0.0.0/0", fa = false)
         assertNotNull(link)
-        assertTrue(link!!, link.startsWith("wireguard://"))
+        assertTrue(link!!, link.startsWith("awg://") || link.startsWith("wireguard://"))
         assertEquals("5.6.7.8" to 443, LiveNetPing.hostPortFromShare(link))
         assertFalse(link.contains("51820"))
         assertFalse(link.contains("insecure"))

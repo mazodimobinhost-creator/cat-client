@@ -541,9 +541,18 @@ class WhiteDnsSmartScannerTest {
     }
 
     @Test fun mlmAndNextGenVpnHubOutlineAmneziaProtonIpv6AndBankShieldWork() {
-        // beta248: + 🆓 Free Proxy, 🏮 Fanoos, 🎫 Free 50GB next to Cat Fox (launched by id, not by index).
-        assertEquals(12, MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.size)
-        assertEquals(listOf("free_proxy", "fanoos", "free_50gb"), MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.drop(9).map { it.id })
+        // beta248: + 🆓 Free Proxy, 🏮 Fanoos, 🎫 Free 50GB. beta311: Wind/Voidly/SSTP/GP/… (launched by id).
+        val hubIds = MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.map { it.id }
+        assertEquals(23, hubIds.size)
+        assertEquals(listOf("free_proxy", "fanoos", "free_50gb"), hubIds.subList(9, 12))
+        assertTrue(
+            hubIds.containsAll(
+                listOf(
+                    "cat_wind", "voidly", "sstp_vpngate", "cat_gp", "telegram_mtproto",
+                    "warp_gool", "flux_doctor", "cat_feed", "free_github_configs", "psiphon_free", "sni_lab",
+                ),
+            ),
+        )
 
         // 1. Outline JSON -> ss:// -> SubConvConverter
         val outlineJson = """{"server":"188.114.98.0","server_port":443,"password":"secretOutlinePassword","method":"chacha20-ietf-poly1305"}"""
