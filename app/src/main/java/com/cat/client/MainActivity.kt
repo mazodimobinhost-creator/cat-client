@@ -3264,8 +3264,7 @@ class MainActivity : Activity() {
                 connectionBlob.visibility = if (show) View.INVISIBLE else View.VISIBLE
             }
         }
-        homeHeroCluster?.visibility = if (show) View.INVISIBLE else View.VISIBLE
-        if (!show && ::heroPingAction.isInitialized) {
+        if (::heroPingAction.isInitialized) {
             heroPingAction.visibility = if (buttonModel.state == VpnState.Started) View.VISIBLE else View.GONE
         }
     }

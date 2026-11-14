@@ -404,7 +404,7 @@ internal fun MainActivity.buildDashboard(): View {
         visibility = View.GONE
         isClickable = true
         isFocusable = true
-        setOnClickListener { refreshDashboardIp() }
+        setOnClickListener { toggleConnectionPathDiagram() }
     }
     // Aras-style action capsule: a big 56dp pill. Filled purple gradient
     // while the tunnel is up, state-tinted while switching, quiet glass
@@ -621,12 +621,10 @@ internal fun MainActivity.buildDashboard(): View {
     }
     val heroCluster = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        val mapAction = roundAction(R.drawable.ic_map, R.string.connection_path_title) { toggleConnectionPathDiagram() }
-        mapAction.setOnLongClickListener {
-            showMapPage()
-            true
-        }
-        addView(mapAction, LinearLayout.LayoutParams(dp(54), dp(54)))
+        addView(
+            roundAction(R.drawable.ic_map, R.string.map_title) { showMapPage() },
+            LinearLayout.LayoutParams(dp(54), dp(54)),
+        )
         heroPingAction = roundAction(R.drawable.ic_speedometer, R.string.speedtest_title) { showSpeedTestPage() }
         addView(heroPingAction, LinearLayout.LayoutParams(dp(54), dp(54)).apply { topMargin = dp(10) })
         refreshActionButton.visibility = View.GONE
@@ -1178,6 +1176,7 @@ internal fun MainActivity.buildDashboard(): View {
 }
 
 internal fun MainActivity.showMapPage() {
+    closeConnectionPathDiagram()
     val connected = buttonModel.state == VpnState.Started
     val live = liveGeo
     val vpnOn = connected || deviceVpnActive()

@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta306] — 2026-11-11 (Panel 6.89.0)
+
+Owner: the map button must open the map.
+
+### Fixed
+- **Map:** the round map control on Home opens the world map again. The path diagram no longer steals that button or hides it. Tap the hop strip to reopen the diagram; ✕ still closes it.
+
 ## [1.10.0-beta305] — 2026-11-11 (Panel 6.89.0)
 
 Owner: Home stays native; the Drive diagram only replaces the circle while connecting.

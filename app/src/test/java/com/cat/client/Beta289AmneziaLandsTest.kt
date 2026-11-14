@@ -12,8 +12,8 @@ class Beta289AmneziaLandsTest {
     fun versionIsBeta289() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 372"))
-        assertTrue(gradle.contains("1.10.0-beta305"))
+        assertTrue(gradle.contains("versionCode = 373"))
+        assertTrue(gradle.contains("1.10.0-beta306"))
     }
 
     @Test
