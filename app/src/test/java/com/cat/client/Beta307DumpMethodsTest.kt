@@ -16,8 +16,8 @@ class Beta307DumpMethodsTest {
     fun versionIsBeta307() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 377"))
-        assertTrue(gradle.contains("1.10.0-beta310"))
+        assertTrue(gradle.contains("versionCode = 378"))
+        assertTrue(gradle.contains("1.10.0-beta311"))
     }
 
     @Test

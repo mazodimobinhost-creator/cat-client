@@ -651,6 +651,34 @@ internal fun MainActivity.runSlipNetSixPointScoreDialog() {
  * `AmneziaWG 2.0 / Proton`, `SlipNet / MasterDNS`, `WhiteDNS`, `Defyx / Oblivion`,
  * `PaqetNG (patth / patth ng)`, and `3-Layer Smart Iran Banking Shield`) does in plain language and launches each engine directly.
  */
+internal fun MainActivity.launchMlmHubEntry(id: String?) {
+    when (id) {
+        "fenix_firefox" -> showFirefoxVpnFenixHubDialog()
+        "outline_ss" -> showOutlineFreeHubDialog()
+        "amnezia_proton" -> showAmneziaAndProtonWgHubDialog()
+        "cf_ipv6_healer" -> runCloudflareZeroByteAndIpv6HealerDialog()
+        "aether_oblivion_defyx" -> showAetherAutoScanAndBuildWizard { renderAdvancedControls() }
+        "slipnet_masterdns_whitedns" -> addFreeSlipNet()
+        "iran_bank_shield" -> runSmartIranBankingShieldDialog()
+        "paqet_patth_ng" -> showPaqetPatthEngineDialog()
+        "mlm_scout_flux" -> showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
+        "free_proxy" -> showFreeProxyDialog()
+        "fanoos" -> showFanoosDialog()
+        "free_50gb" -> showFreeAccountDialog()
+        "cat_wind" -> showCatWindDialog()
+        "voidly" -> showVoidlyDialog()
+        "sstp_vpngate" -> showCatSstpDialog()
+        "cat_gp" -> showCatGpDialog()
+        "telegram_mtproto" -> appTools.showTelegramProxyFinder()
+        "warp_gool" -> showCatWarpFreeDialog()
+        "flux_doctor" -> showSmartConfigDoctorAndFluxDialog()
+        "cat_feed" -> showDeltaKroneckerHubDialog()
+        "free_github_configs" -> runFetchSevenGitHubFreeConfigSourcesDialog()
+        "psiphon_free" -> showFreePsiphonDialog()
+        "sni_lab" -> showNetMelli2026BypassLabDialog()
+    }
+}
+
 internal fun MainActivity.showAllVpns2026ComparisonAndMlmHubDialog() {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
     val catalog = MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG
@@ -668,26 +696,7 @@ internal fun MainActivity.showAllVpns2026ComparisonAndMlmHubDialog() {
             else "🌐 2026 Multi-VPN Hub & Cat Capabilities (Tap Any Engine to Launch)",
         )
         .setItems(items) { _, which ->
-            when (which) {
-                0 -> showFirefoxVpnFenixHubDialog()
-                1 -> showOutlineFreeHubDialog()
-                2 -> showAmneziaAndProtonWgHubDialog()
-                3 -> runCloudflareZeroByteAndIpv6HealerDialog()
-                4 -> {
-                    showAetherAutoScanAndBuildWizard {
-                        renderAdvancedControls()
-                    }
-                }
-                5 -> addFreeSlipNet()
-                6 -> runSmartIranBankingShieldDialog()
-                7 -> showPaqetPatthEngineDialog()
-                8 -> showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
-                else -> when (catalog.getOrNull(which)?.id) {
-                    "free_proxy" -> showFreeProxyDialog()
-                    "fanoos" -> showFanoosDialog()
-                    "free_50gb" -> showFreeAccountDialog()
-                }
-            }
+            launchMlmHubEntry(catalog.getOrNull(which)?.id)
         }
         .setNegativeButton(android.R.string.cancel, null)
         .setNeutralButton(if (isFarsi) "📦 PaqetNG / patth" else "📦 PaqetNG / patth") { _, _ ->

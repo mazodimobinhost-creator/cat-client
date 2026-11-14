@@ -18,8 +18,8 @@ class Beta309Ipv6ScoutTest {
     fun versionIsBeta309() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 377"))
-        assertTrue(gradle.contains("1.10.0-beta310"))
+        assertTrue(gradle.contains("versionCode = 378"))
+        assertTrue(gradle.contains("1.10.0-beta311"))
     }
 
     @Test
@@ -52,9 +52,9 @@ class Beta309Ipv6ScoutTest {
         assertTrue(guides.contains("showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)"))
         assertFalse(guides.contains("runMlmScoutRecommendations("))
         val hub = src("MainActivityAntiFilterTools.kt")
-        val items = hub.substringAfter("setItems(items)").substringBefore("setNegativeButton")
-        assertTrue(items.contains("8 -> showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)"))
-        assertFalse(items.contains("8 -> showRecommendedOneClickConnectWizardDialog()"))
+        assertTrue(hub.contains("launchMlmHubEntry(catalog.getOrNull(which)?.id)"))
+        assertTrue(hub.contains("\"mlm_scout_flux\" -> showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)"))
+        assertFalse(hub.contains("8 -> showRecommendedOneClickConnectWizardDialog()"))
         val catalog = src("MlmAndNextGenVpnHub.kt")
         assertTrue(catalog.contains("id = \"mlm_scout_flux\""))
         assertTrue(catalog.contains("Cat Scout"))

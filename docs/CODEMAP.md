@@ -25,7 +25,7 @@
 | `MainActivity.kt` | 3962 | App shell: lifecycle, shared screen state, dock/tabs, connect button, small UI helpers. Big screens/dialogs live in MainActivity<Area>.kt. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAdvanced.kt` | 4071 | Settings tab: advanced screen, appearance block, chain settings, split tunnel, theme/language/DNS/routing selectors, LAN sharing, Amnezia noise, fronting IPs. | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityAmneziaSstp.kt` | 666 | Amnezia / WireGuard config dialogs and Cat SSTP (VPN Gate) dialogs. | 17 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityAntiFilterTools.kt` | 1753 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 13 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityAntiFilterTools.kt` | 1762 | Anti-filter tool dialogs (fronting, relays, NetMelli, DNS tunnels, fusion, labs). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatGp.kt` | 441 | beta249 🌐 Cat GP (UI). | 18 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCatWarp.kt` | 3362 | Cat Warp tab: add/edit Cat Warp configs, WARP keys, exit picker, auto scan & build, exit-IP probe, identity export/import. | 17 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityCloud.kt` | 2834 | Cloud tab: panel deployment, history, secrets, installers, panel status/manage/recovery, panel update + wizard, panel probe. | 15 JVM · 9 panel (see `affected-tests.py`) |
@@ -36,7 +36,7 @@
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1588 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 17 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFreeNetworks.kt` | 2029 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 32 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 1084 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 23 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 1090 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 24 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 593 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -51,7 +51,7 @@
 | File | Lines | Purpose | Guards (JVM · panel) |
 |---|---:|---|---|
 | `CatClientTileService.kt` | 138 | — | — · — |
-| `CatClientVpnService.kt` | 4455 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 15 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnService.kt` | 4455 | The VPN service: starts/stops every engine, owns the TUN, health checks, notification, real-internet check after connect. | 16 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatGp.kt` | 85 | beta269 🌐 Cat GP connect + dummy TUN (system HTTP proxy). | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceCatWarp.kt` | 407 | Cat Warp engine (Aether): start, Psiphon/Tor chains, exit record, session. | 13 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceConnectionTests.kt` | 877 | Connection ping/speed tests run by the service (list ping, speed, pause/cancel, publish). | 14 JVM · 4 panel (see `affected-tests.py`) |
@@ -59,7 +59,7 @@
 | `CatClientVpnServiceNetworkChange.kt` | 242 | Default-network changes: quick-speed pin restore, DNS replay. | 12 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceNotifications.kt` | 193 | Foreground notification: channel, content, traffic updates, actions. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceQuickSpeed.kt` | 416 | Quick «fastest» reconnect: shortlist, pin and restore of the fastest route. | 11 JVM · 4 panel (see `affected-tests.py`) |
-| `CatClientVpnServiceRealInternet.kt` | 261 | Real internet check after connect, route memory and automatic next route. | 12 JVM · 4 panel (see `affected-tests.py`) |
+| `CatClientVpnServiceRealInternet.kt` | 306 | Real internet check after connect, route memory and automatic next route. | 13 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceSstp.kt` | 172 | Cat SSTP engine: start, delay test, close. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `CatClientVpnServiceXray.kt` | 34 | Xray engine start/stop for the Cat core (beta223): F&F / finalMask proxies on the real Xray-core. | 11 JVM · 4 panel (see `affected-tests.py`) |
 | `ConnectionDelayTestState.kt` | 114 | — | — · — |
@@ -72,11 +72,11 @@
 | `EarlyCrashProvider.kt` | 43 | The earliest app code Android runs. | — · — |
 | `MihomoConfig.kt` | 383 | Parses mihomo YAML catalogs into profiles. | Beta220FinalMaskTest, Beta223XrayEngineTest, Beta247FreeNetworksImportTest, ConnectionChainTunnelTest, WhiteDnsSmartScannerTest · — |
 | `MihomoCoreLifecycle.kt` | 85 | Serializes setup and cleanup of the process-wide Mihomo core. | — · — |
-| `MihomoRuntime.kt` | 2861 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | 12 JVM · 1 panel (see `affected-tests.py`) |
+| `MihomoRuntime.kt` | 2868 | Cat core (mihomo) runtime: builds the YAML for the selected profile, DNS/TUN/rules. | 13 JVM · 1 panel (see `affected-tests.py`) |
 | `MihomoShareLink.kt` | 563 | Rebuilds a v2rayNG / V2Box / Streisand compatible share link from a Mihomo proxy entry, so a single connection can be copied out of Cat Client into… | AetherSelectionTest, Beta212SstpTest, Beta223XrayEngineTest, Beta239ProtocolsTelegramTest, WhiteDnsSmartScannerTest · — |
 | `PathWatchdog.kt` | 178 | The multi-path watchdog: the tiny state machine that decides *when* the app stops insisting on the normal path and takes the Tor one instead — and… | PathWatchdogTest · orbot-engine |
 | `QuickSettingsTileState.kt` | 50 | — | — · — |
-| `RealInternetCheck.kt` | 218 | beta220 «real internet test»: «connected» only means the tunnel came up (Session Readiness in CONTEXT.md); it does not prove pages load. | Beta220RealInternetJsonTest, Beta220RealInternetTest, Beta220WiringTest · — |
+| `RealInternetCheck.kt` | 243 | beta220 «real internet test»: «connected» only means the tunnel came up (Session Readiness in CONTEXT.md); it does not prove pages load. | Beta220RealInternetJsonTest, Beta220RealInternetTest, Beta220WiringTest, Beta310QualityWatchdogTest · — |
 | `RouteMemory.kt` | 137 | beta220 «route memory per network»: which route (connection fingerprint) really carried internet — by the [RealInternetCheck], not by a ping — on T… | Beta220RealInternetJsonTest, Beta220RealInternetTest · — |
 | `SessionPlan.kt` | 195 | Per-connection plan: DNS mode, QUIC handling, TUN options chosen before start. | Beta223XrayEngineTest · orbot-engine |
 | `UiStallWatchdog.kt` | 118 | beta217: «the app is slow when I type or pick a config» cannot be fixed from guesses alone, so the app now notices its own freezes. | — · — |
@@ -105,7 +105,7 @@
 | `AetherTunPolicy.kt` | 51 | — | AetherTunPolicyTest, Beta219TunnelTrafficTest · — |
 | `AmneziaCleanEndpoints.kt` | 93 | Clean Cloudflare WARP `IP:port` rows for AmneziaWG. | Beta289AmneziaLandsTest, Beta307DumpMethodsTest, Beta308ConnectThisLineTest · — |
 | `AmneziaHeaders.kt` | 20 | AmneziaWG H1-H4 header values. | ConnectionFaultExplainerTest · — |
-| `AmneziaVpnKey.kt` | 349 | AmneziaVPN connection keys (`vpn://…`, what the Amnezia app shares with «Share → Amnezia format» and what Amnezia-based sellers/bots hand out) → no… | AmneziaVpnKeyTest · — |
+| `AmneziaVpnKey.kt` | 349 | AmneziaVPN connection keys (`vpn://…`, what the Amnezia app shares with «Share → Amnezia format» and what Amnezia-based sellers/bots hand out) → no… | AmneziaVpnKeyTest, Beta309Ipv6ScoutTest · — |
 | `ConnectionChain.kt` | 905 | — | ConnectionChainTunnelTest · chain-exit-country, chain-tunnel |
 | `DpiBypass.kt` | 140 | — | PanelTuneTest · tune |
 | `FenixHttp2.kt` | 925 | beta211: a small, dependency-free HTTP/2 client for Cat Fox VPN (RFC 9113 + HPACK RFC 7541). | Beta211FenixHttp2Test · — |
@@ -113,7 +113,7 @@
 | `FenixTunnelSlots.kt` | 80 | beta219: slots for Cat Fox VPN tunnels (one per app TCP connection). | Beta219TunnelTrafficTest · — |
 | `FirefoxVpnEngine.kt` | 3368 | Native Firefox Browser VPN (`FENIX` / Mozilla IP Protection / Guardian over Fastly Edge) engine for Cat Client — matching and extending the FENIX e… | Beta206EngineTest, Beta211FenixHttp2Test, Beta219TunnelTrafficTest, Beta224HostFoxCrashTest, Beta237FoxPassTest, Beta238FoxWebChannelTest, Beta239FoxFastlyTest, Beta259FoxTransportTest, Beta260LivePingTest, Beta307DumpMethodsTest, WhiteDnsSmartScannerTest · — |
 | `LocalSniSpoofProxy.kt` | 3432 | 2026 Anti-DPI SNI Spoofing, Non-Cloudflare National Intranet (Net Melli) Whitelist Scanner, Fact-A DNS Non-Hijack Oracle (`XTLS/BBS#10`), and Hybri… | AetherSelectionTest, Beta291SpoofAndSlipNetTest, CleanIpInjectTest, IspProtocolMatrixTest, LocalSniSpoofSplitTest, WhiteDnsSmartScannerTest · — |
-| `MlmAndNextGenVpnHub.kt` | 1315 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, Beta289AmneziaLandsTest, Beta290TelegramAmneziaConfTest, Beta307DumpMethodsTest, Beta308ConnectThisLineTest, WhiteDnsSmartScannerTest · — |
+| `MlmAndNextGenVpnHub.kt` | 1447 | Unified 2026 Multi-VPN Hub & MLM v1.2.40–v1.2.42 Capabilities Engine: 1. | Beta246MethodFinderTest, Beta289AmneziaLandsTest, Beta290TelegramAmneziaConfTest, Beta307DumpMethodsTest, Beta308ConnectThisLineTest, Beta309Ipv6ScoutTest, Beta311MlmHubRemainderTest, WhiteDnsSmartScannerTest · — |
 | `OrbotEngine.kt` | 210 | The Orbot / Tor engine: a third path that does not depend on any of our own infrastructure. | OrbotEngineTest · orbot-engine |
 | `PaqetEngine.kt` | 932 | PaqetEngine — Full engine for `paqet` and `paqetNG` (`patth` & `patth ng`, up to paqetNG v1.3.7 + paqet-ngv2). | Beta206EngineTest, WhiteDnsSmartScannerTest · — |
 | `PsiphonCarrierClient.kt` | 117 | Same-UID IPC client; no Psiphon object or Go runtime enters the VPN process. | Beta255EnginesAuditTest · — |
@@ -313,7 +313,7 @@
 | `CatPanelPair.kt` | 114 | Panel ↔ app pairing. | Beta267CatConnectKitTest · — |
 | `CatVpsRelay.kt` | 187 | Cat VPS workshop — Iran middlebox → foreign exits. | Beta295VpsRelayAndUsageTest, Beta296VpsXrayRoutingTest, Beta297VpsWgOpenVpnTest, Beta298VpsScriptsRunTest · — |
 | `CatVpsSh.kt` | 63 | Shared bash the VPS scripts actually run (install, persist, start). | — · — |
-| `CatVpsTunnels.kt` | 183 | Cat VPS tunnels: WireGuard and OpenVPN on the owner's VPS. | Beta297VpsWgOpenVpnTest, Beta298VpsScriptsRunTest, Beta308ConnectThisLineTest · — |
+| `CatVpsTunnels.kt` | 183 | Cat VPS tunnels: WireGuard and OpenVPN on the owner's VPS. | Beta297VpsWgOpenVpnTest, Beta298VpsScriptsRunTest, Beta308ConnectThisLineTest, Beta309Ipv6ScoutTest · — |
 | `CatWarpFree.kt` | 163 | beta265 — 🚀 Cat Warp in the free-networks hub, Fox-style: pick a Cloudflare transport, time the listed `IP:port` on THIS network (never rewritten),… | Beta265IranMethodsTest, Beta299WarpEndpointScanTest, Beta307DumpMethodsTest · — |
 | `CatWindEngine.kt` | 628 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest, Beta308ConnectThisLineTest · — |
 | `ConnectionLocationPreferenceStore.kt` | 30 | — | — · — |
@@ -321,7 +321,7 @@
 | `ConnectionPath.kt` | 293 | Home connection path: phone → how you connected → server → exit. | Beta300HomeConnectionPathTest, Beta301ConnectionPathHtmlTest · — |
 | `ConnectionPublicEndpoint.kt` | 187 | What to show and edit for a row. | Beta294PublicIpAndCfDnsTest · — |
 | `ConnectionSelectionPreferenceStore.kt` | 163 | — | — · — |
-| `CoreOptionsSettings.kt` | 72 | beta240 — three engine options that other clients show in their settings screen and Cat did not have. | Beta240CoreOptionsTest · — |
+| `CoreOptionsSettings.kt` | 76 | beta240 — engine options that other clients show in their settings screen and Cat did not have. | Beta240CoreOptionsTest, Beta309Ipv6ScoutTest · — |
 | `DiagnosticLogger.kt` | 229 | — | — · — |
 | `DpiPresetTester.kt` | 132 | beta247 🧪 «Which fragmenting method works on my internet?» — the per-network automatic method choice idea (Shroudly-style: try each way of splittin… | Beta247DpiPresetTest · — |
 | `FoxCountryNames.kt` | 175 | Names and flags for Cat Fox VPN country codes. | Beta259FoxTransportTest · — |
@@ -336,7 +336,7 @@
 | `Globe3d.kt` | 39 | Orthographic 3D globe math for the home connection sphere. | Beta268Globe3dTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
 | `LiveNetPing.kt` | 89 | TCP connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest, Beta265IranMethodsTest · — |
-| `MethodFinderPlan.kt` | 302 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest, Beta292DnsCfHostMethodsTest · — |
+| `MethodFinderPlan.kt` | 302 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest, Beta292DnsCfHostMethodsTest, Beta309Ipv6ScoutTest · — |
 | `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `ProtocolConnect.kt` | 191 | Dedicated Cat editors for TUIC, WireGuard and Cat Warp (Aether). | Beta267CatConnectKitTest · — |
@@ -345,7 +345,7 @@
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 
-_287 Kotlin files, 120973 lines._
+_287 Kotlin files, 121201 lines._
 
 ## MainActivity screens — function index
 
@@ -364,9 +364,9 @@ for the dialog/button you want to change.
 
 `showAmneziaSectionDialog`:110, `showAmneziaPasteDialog`:193, `previewAndImportAmneziaText`:220, `saveAmneziaSubscription`:278, `selectSubscriptionAndConnect`:307, `isAmneziaListed`:319, `showMyAmneziaConfigsDialog`:330, `showCatSstpDialog`:427, `fetchAndSaveCatSstpServers`:491, `showManualCatSstpDialog`:545, `saveCatSstpSubscription`:589
 
-### `MainActivityAntiFilterTools.kt` (35 functions)
+### `MainActivityAntiFilterTools.kt` (36 functions)
 
-`showWireGuardRowsFailedHelp`:111, `probeEndpointReachabilityMs`:136, `runMidStreamFreezeDetectorDialog`:172, `showDomainFrontingAndUnpoisonResolverDialog`:203, `showGoogleAppsScriptRelayDialog`:284, `showLiteWorkerGeneratorDialog`:286, `showConnectionResilienceAndKillSwitchDialog`:320, `runAiAndGeminiUnblockTesterDialog`:368, `runNetMelliDetectorDialog`:417, `showNineAntiFilterPresetsDialog`:447, `detectLocalLanIpv4Address`:487, `connectWhiteDnsTunnelDirectly`:508, `runSlipNetSixPointScoreDialog`:586, `showAllVpns2026ComparisonAndMlmHubDialog`:654, `showDeltaKroneckerHubDialog`:711, `openDeltaKroneckerFeed`:770, `fetchDeltaKroneckerTorBridges`:782, `runSmartIranBankingShieldDialog`:848, `isFusedSubscriptionName`:893, `readClipboardConfigText`:898, `collectFusionRawTexts`:905, `showMultiConfigSpeedFusionDialog`:918, `activateFusedBundle`:988, `showCatFusionShareDialog`:1034, `runDirectCdnDomainFrontingV23Dialog`:1108, `resolveUserRealConfigTemplate`:1173, `showNetMelli2026BypassLabDialog`:1217, `runNonCloudflareWhitelistScannerDialog`:1271, `runFactADnsSniOracleDialog`:1339, `showLocalFakeClientHelloProxyDialog`:1392, `generateAndAddHybridNetMelliTunnelsDialog`:1427, `runRegionalFirewallFingerprinterDialog`:1494, `runWhiteDnsAutoMtuAndCarrierDialog`:1570, `runCloudflareSixPortsAndSniScanDialog`:1644, `runFetchMoatTorBridgesDialog`:1711
+`showWireGuardRowsFailedHelp`:111, `probeEndpointReachabilityMs`:136, `runMidStreamFreezeDetectorDialog`:172, `showDomainFrontingAndUnpoisonResolverDialog`:203, `showGoogleAppsScriptRelayDialog`:284, `showLiteWorkerGeneratorDialog`:286, `showConnectionResilienceAndKillSwitchDialog`:320, `runAiAndGeminiUnblockTesterDialog`:368, `runNetMelliDetectorDialog`:417, `showNineAntiFilterPresetsDialog`:447, `detectLocalLanIpv4Address`:487, `connectWhiteDnsTunnelDirectly`:508, `runSlipNetSixPointScoreDialog`:586, `launchMlmHubEntry`:654, `showAllVpns2026ComparisonAndMlmHubDialog`:682, `showDeltaKroneckerHubDialog`:720, `openDeltaKroneckerFeed`:779, `fetchDeltaKroneckerTorBridges`:791, `runSmartIranBankingShieldDialog`:857, `isFusedSubscriptionName`:902, `readClipboardConfigText`:907, `collectFusionRawTexts`:914, `showMultiConfigSpeedFusionDialog`:927, `activateFusedBundle`:997, `showCatFusionShareDialog`:1043, `runDirectCdnDomainFrontingV23Dialog`:1117, `resolveUserRealConfigTemplate`:1182, `showNetMelli2026BypassLabDialog`:1226, `runNonCloudflareWhitelistScannerDialog`:1280, `runFactADnsSniOracleDialog`:1348, `showLocalFakeClientHelloProxyDialog`:1401, `generateAndAddHybridNetMelliTunnelsDialog`:1436, `runRegionalFirewallFingerprinterDialog`:1503, `runWhiteDnsAutoMtuAndCarrierDialog`:1579, `runCloudflareSixPortsAndSniScanDialog`:1653, `runFetchMoatTorBridgesDialog`:1720
 
 ### `MainActivityCatGp.kt` (6 functions)
 
@@ -410,7 +410,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityGuides.kt` (11 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:353, `finderEntries`:357, `showFeatureFinderDialog`:506, `normalizeFinderText`:741, `featureFinderBar`:745, `showDnsCfHostFreeMethodsDialog`:780, `showCatVpsWorkshopDialog`:825, `showFirewallConnectionGuideDialog`:947, `showPrivacyPolicyIfNeeded`:1003, `showPrivacyPolicyDialog`:1009
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:353, `finderEntries`:357, `showFeatureFinderDialog`:512, `normalizeFinderText`:747, `featureFinderBar`:751, `showDnsCfHostFreeMethodsDialog`:786, `showCatVpsWorkshopDialog`:831, `showFirewallConnectionGuideDialog`:953, `showPrivacyPolicyIfNeeded`:1009, `showPrivacyPolicyDialog`:1015
 
 ### `MainActivityMethodFinder.kt` (8 functions)
 

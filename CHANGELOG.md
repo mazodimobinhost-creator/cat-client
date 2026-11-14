@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta311] — 2026-10-09 (Panel 6.89.0)
+
+Owner: remaining MLM CONNECT methods Cat already runs, on the hub, each tap launches that engine.
+
+### Added
+- **Hub:** Cat Wind, Voidly, SSTP (VPN Gate), Cat GP, Telegram MTProto, Cat Warp (MASQUE/WG/Gool/Psiphon/Tor), FLUX/doctor, Cat Feed, 7 GitHub free-config lists, Psiphon, SNI lab. Dispatch is by id, not a fragile index.
+
+### Notes
+- Still not in Cat (need their own core): OpenVPN, Geph, Lantern 10 (`liblantern`), URnetwork SDK, GitHub Tunnel broker, Gereh chat, native NPV Tunnel files, Mami/Argo/L2TP.
+
 ## [1.10.0-beta310] — 2026-10-09 (Panel 6.89.0)
 
 Owner: keep checking internet after connect; hop if it dies. Do not clone Ninety / UAC.
