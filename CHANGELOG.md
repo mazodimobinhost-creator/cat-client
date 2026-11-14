@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta310] — 2026-10-09 (Panel 6.89.0)
+
+Owner: keep checking internet after connect; hop if it dies. Do not clone Ninety / UAC.
+
+### Added
+- **Quality watchdog:** after a successful connect, Cat keeps a real HTTPS 204 probe going (once a minute). Two light failures, then a full download check; if there is still no internet it hops to the next route — same Automatic / hop-limit rules as the first check. Not ping-only.
+
+### Notes
+- **Ninety** (Windows sing-box) and **UAC-SNI-Spoofer** are not cloned. NaiveProxy / TrustTunnel / AnyTLS sidecars, Windows DPI drivers, and WFP kill-switch are not in Cat. Kill switch, FakeDNS, IPv6, Scout, throughput tests, and routing were already here.
+
 ## [1.10.0-beta309] — 2026-10-09 (Panel 6.89.0)
 
 Owner: add what Cat can actually run (IPv6, FakeDNS, Cat Scout). Do not fake OpenVPN / Mami / Argo / L2TP.

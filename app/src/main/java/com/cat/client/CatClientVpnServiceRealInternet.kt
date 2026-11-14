@@ -141,6 +141,51 @@ internal fun CatClientVpnService.scheduleRealInternetCheck(fingerprint: String) 
             withContext(Dispatchers.Main) {
                 if (realCheckStillOn(fingerprint)) hopToRoute(subscriptionId, next, automatic = true)
             }
+            return@launch
+        }
+        // Keep probing while this session is up: a route that worked at connect can die later.
+        // Light 204 first; a full download only after two light failures. Hop rules unchanged.
+        while (isActive && realCheckStillOn(fingerprint)) {
+            delay(RealInternetCheck.WATCHDOG_INTERVAL_MS)
+            if (!realCheckStillOn(fingerprint) || childProcessEngineActive) return@launch
+            var light = RealInternetCheck.runLight()
+            if (light.status == RealInternetStatus.NoInternet && realCheckStillOn(fingerprint)) {
+                delay(RealInternetCheck.RECHECK_DELAY_MS)
+                if (!realCheckStillOn(fingerprint)) return@launch
+                light = RealInternetCheck.runLight()
+            }
+            if (!realCheckStillOn(fingerprint) || light.status != RealInternetStatus.NoInternet) continue
+            val confirmed = RealInternetCheck.run()
+            if (!realCheckStillOn(fingerprint)) return@launch
+            val watchKey = routeNetworkKey()
+            if (confirmed.status != RealInternetStatus.NoInternet) {
+                if (confirmed.status == RealInternetStatus.Works) {
+                    routeMemoryStore.record(watchKey, fingerprint, ok = true)
+                    publishRealInternetResult(stamp(confirmed))
+                }
+                continue
+            }
+            routeMemoryStore.record(watchKey, fingerprint, ok = false)
+            val watchNext = runCatching { nextRouteCandidate(fingerprint, watchKey) }.getOrNull()
+            val watchHop = realCheckSessionAutomatic && realCheckHops < autoNextHopLimit() && watchNext != null
+            DiagnosticLogger.info(
+                this@scheduleRealInternetCheck,
+                "realCheck.watchdog",
+                "status=${confirmed.status.wire} hops=$realCheckHops automatic=$realCheckSessionAutomatic " +
+                    "next=${watchNext != null} autoHop=$watchHop detail=${confirmed.detail}",
+            )
+            publishRealInternetResult(
+                stamp(confirmed).copy(
+                    canTryNext = watchNext != null || state == VpnState.Started,
+                    autoHopping = watchHop,
+                ),
+            )
+            if (watchHop && watchNext != null) {
+                withContext(Dispatchers.Main) {
+                    if (realCheckStillOn(fingerprint)) hopToRoute(subscriptionId, watchNext, automatic = true)
+                }
+                return@launch
+            }
         }
     }
     realCheckJob = job

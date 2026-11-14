@@ -66,6 +66,20 @@ class Beta220RealInternetTest {
         assertTrue(RealInternetCheck.DOWNLOAD_URLS.all { it.startsWith("https://") })
         assertEquals(3, RealInternetCheck.MAX_AUTO_HOPS)
         assertEquals(-1, RealInternetCheck.kbps(1000, 0))
+        assertTrue(RealInternetCheck.WATCHDOG_INTERVAL_MS >= 30_000L)
+    }
+
+    @Test fun lightProbeIsWorksOrNoInternetNeverSlow() {
+        val ok = RealInternetCheck.fromLightProbe(RealInternetCheck.Probe(true, 140))
+        assertEquals(RealInternetStatus.Works, ok.status)
+        assertEquals(140L, ok.latencyMs)
+        assertEquals(-1, ok.kbps)
+        val dead = RealInternetCheck.fromLightProbe(RealInternetCheck.Probe(false, 6_000, "connect timed out"))
+        assertEquals(RealInternetStatus.NoInternet, dead.status)
+        assertTrue(dead.detail.contains("connect timed out"))
+        val empty = RealInternetCheck.fromLightProbe(null)
+        assertEquals(RealInternetStatus.NoInternet, empty.status)
+        assertFalse(empty.detail.isBlank())
     }
 
     @Test fun statusWireNamesMatchThePanelEndpoint() {

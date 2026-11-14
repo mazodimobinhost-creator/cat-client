@@ -18,6 +18,9 @@ import org.json.JSONObject
  *  * [RealInternetStatus.NotMeasurable] the app itself bypasses the VPN (DNS-tunnel engine), so its own requests
  *                                    would only test the plain line.
  *
+ * After the first check the service keeps a light HTTPS probe going ([runLight]) so a route that dies later
+ * is noticed; hopping still uses the same Automatic / hop-limit rules as the first check.
+ *
  * Only real measurements: no figure is ever made up; failures carry the actual error.
  */
 internal enum class RealInternetStatus(val wire: String) {
@@ -100,6 +103,8 @@ internal object RealInternetCheck {
     const val SLOW_KBPS = 150
     /** At most this many automatic hops per connection (the user can always press the button again). */
     const val MAX_AUTO_HOPS = 3
+    /** While connected, re-probe this often. Light 204 only — not the 200 KB download. */
+    const val WATCHDOG_INTERVAL_MS = 60_000L
 
     /** HTTPS only (cleartext is disabled app-wide); all of them answer 204 with an empty body. */
     val PROBE_URLS = listOf(
@@ -140,6 +145,26 @@ internal object RealInternetCheck {
 
     fun kbps(bytes: Int, elapsedMs: Long): Int =
         if (elapsedMs <= 0) -1 else ((bytes.toLong() * 8L) / elapsedMs).toInt().coerceAtLeast(0)
+
+    /** Light probe (HTTPS 204 only) for the in-session watchdog. Probe-ok is Works; no download, so not Slow. */
+    fun fromLightProbe(probe: Probe?): RealInternetResult =
+        if (probe?.ok == true) {
+            RealInternetResult(RealInternetStatus.Works, latencyMs = probe.latencyMs, kbps = -1)
+        } else {
+            RealInternetResult(
+                RealInternetStatus.NoInternet,
+                detail = probe?.error?.takeIf(String::isNotBlank) ?: "no answer through the tunnel",
+            )
+        }
+
+    fun runLight(): RealInternetResult {
+        var probe: Probe? = null
+        for (url in PROBE_URLS) {
+            probe = probeOnce(url)
+            if (probe.ok) break
+        }
+        return fromLightProbe(probe)
+    }
 
     /** Real measurement through whatever route the app's own sockets take (the VPN when connected). */
     fun run(): RealInternetResult {

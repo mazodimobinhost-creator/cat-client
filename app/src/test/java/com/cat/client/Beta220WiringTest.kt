@@ -27,6 +27,9 @@ class Beta220WiringTest {
         assertTrue(block.contains("realCheckHops < autoNextHopLimit()"))
         // a single failure is re-checked before a route is blamed
         assertTrue(block.contains("RealInternetCheck.RECHECK_DELAY_MS"))
+        assertTrue("in-session quality watchdog stays on the same job", block.contains("RealInternetCheck.runLight()"))
+        assertTrue(block.contains("RealInternetCheck.WATCHDOG_INTERVAL_MS"))
+        assertTrue(block.contains("realCheck.watchdog"))
         // the user's own pick is never saved over by an automatic hop
         assertTrue(service.contains("switchActiveConnection(subscriptionId, fingerprint, persistSelection = false)"))
     }
