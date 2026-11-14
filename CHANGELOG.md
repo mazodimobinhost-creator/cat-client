@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta308] — 2026-11-11 (Panel 6.89.0)
+
+Owner: Cat's own methods must actually connect on this line.
+
+### Fixed
+- **Amnezia:** «بساز و بیاور» now takes live clean `IP:port` on this internet (exact port kept), ranks by ping, saves, and connects. If that row gives no internet, Cat tries the next itself.
+- **Fanoos:** sing-box rows Cat can run are no longer skipped: Shadowsocks with `obfs` / `v2ray-plugin`, VLESS `xhttp`/`splithttp`, and WireGuard. After fetch it connects; if one fails it tries the next.
+- **One tap:** «🚀 فقط می‌خواهم وصل شوم» connects on this line with no ranking dialog. A failed method is not the end — the service starts the next profile (and hops after connect when there is no internet).
+
 ## [1.10.0-beta307] — 2026-11-11 (Panel 6.89.0)
 
 Owner: keep the dump methods inside Cat, under Cat names.

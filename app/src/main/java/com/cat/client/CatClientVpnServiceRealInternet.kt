@@ -79,8 +79,8 @@ internal fun CatClientVpnService.onRealInternetCheckState(previous: VpnState, no
         // A new connection (not one of our own hops): may we hop by ourselves? Only when the user left it on
         // Automatic — a route the user picked is never replaced behind their back.
         realCheckSessionAutomatic = activeSubscriptionId.isNotBlank() &&
-            !connectionSelectionPreferenceStore.hasSelectedProfile(activeSubscriptionId) &&
-            !activeConnectionChained
+            !activeConnectionChained &&
+            (autoNextOnFail || !connectionSelectionPreferenceStore.hasSelectedProfile(activeSubscriptionId))
     }
     scheduleRealInternetCheck(fingerprint)
 }
@@ -124,7 +124,7 @@ internal fun CatClientVpnService.scheduleRealInternetCheck(fingerprint: String) 
         }
         val next = if (result.status.isProblem) runCatching { nextRouteCandidate(fingerprint, networkKey) }.getOrNull() else null
         val autoHop = result.status == RealInternetStatus.NoInternet && realCheckSessionAutomatic &&
-            realCheckHops < RealInternetCheck.MAX_AUTO_HOPS && next != null
+            realCheckHops < autoNextHopLimit() && next != null
         DiagnosticLogger.info(
             this@scheduleRealInternetCheck,
             "realCheck.result",
@@ -189,6 +189,32 @@ internal fun CatClientVpnService.nextRouteCandidate(current: String, networkKey:
         bad = RouteMemoryPolicy.bad(entries, now),
         delayMs = delays,
     )
+}
+
+/** Next profile of the selected subscription when start never reached Started (no live selector yet). */
+internal suspend fun CatClientVpnService.nextStartupProfile(current: String): ConnectionProfile? {
+    val subscriptionId = subscriptionStore.readSelectedSubscriptionId()
+    if (subscriptionId.isBlank()) return null
+    val snapshot = runCatching { configRepository.fetchOrCachedMihomoConfig(subscriptionId) }.getOrNull() ?: return null
+    val profiles = snapshot.catalog.profiles
+    if (profiles.size < 2) return null
+    val now = System.currentTimeMillis()
+    val networkKey = routeNetworkKey()
+    val entries = routeMemoryStore.entries(networkKey)
+    val delays = runCatching {
+        subscriptionStore.readConnectionDelayRecords(subscriptionId = subscriptionId, profiles = profiles)
+    }.getOrDefault(emptyList())
+        .filter { it.status == ConnectionDelayStatus.Success && it.delayMs != null }
+        .associate { it.fingerprint to it.delayMs!!.toLong() }
+    val next = RouteMemoryPolicy.nextCandidate(
+        candidates = profiles.map(ConnectionProfile::fingerprint),
+        current = current,
+        tried = realCheckTried + current,
+        good = RouteMemoryPolicy.good(entries, now),
+        bad = RouteMemoryPolicy.bad(entries, now),
+        delayMs = delays,
+    ) ?: return null
+    return profiles.firstOrNull { it.fingerprint == next }
 }
 
 internal fun CatClientVpnService.hopToRoute(subscriptionId: String, fingerprint: String, automatic: Boolean) {

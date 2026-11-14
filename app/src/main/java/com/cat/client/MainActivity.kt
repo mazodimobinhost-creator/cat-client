@@ -255,6 +255,7 @@ class MainActivity : Activity() {
     private var sessionStartedAtElapsedMs: Long = 0L
     private var connectFlowPending: Boolean = false
     private var connectFlowAction: String = Actions.CONNECT
+    private var connectFlowAutoNext: Boolean = false
     private var disconnectAnalyticsPending: Boolean = false
     private var locationOptions: List<LocationSelectorOption> = emptyList()
     internal var connectionProfiles: List<ConnectionProfile> = emptyList()
@@ -532,6 +533,7 @@ class MainActivity : Activity() {
         userSubscriptionManager = UserSubscriptionManager(this)
         connectFlowPending = savedInstanceState?.getBoolean(STATE_CONNECT_FLOW_PENDING) == true
         connectFlowAction = savedInstanceState?.getString(STATE_CONNECT_FLOW_ACTION) ?: Actions.CONNECT
+        connectFlowAutoNext = savedInstanceState?.getBoolean(STATE_CONNECT_FLOW_AUTO_NEXT) == true
         DiagnosticLogger.info(
             this,
             "activity.onCreate",
@@ -1433,6 +1435,7 @@ class MainActivity : Activity() {
         outState.putString(STATE_CHAIN_PICKER_SUBSCRIPTION, activeChainPickerSubscriptionId)
         outState.putBoolean(STATE_CONNECT_FLOW_PENDING, connectFlowPending)
         outState.putString(STATE_CONNECT_FLOW_ACTION, connectFlowAction)
+        outState.putBoolean(STATE_CONNECT_FLOW_AUTO_NEXT, connectFlowAutoNext)
         super.onSaveInstanceState(outState)
     }
 
@@ -2056,6 +2059,7 @@ class MainActivity : Activity() {
             }
             Actions.DISCONNECT -> {
                 connectFlowPending = false
+                connectFlowAutoNext = false
                 buttonModel.onStateChanged(VpnState.Stopping)
                 renderState(VpnState.Stopping)
                 startVpnService(Actions.DISCONNECT)
@@ -2741,9 +2745,10 @@ class MainActivity : Activity() {
         refreshAetherEngineSummary?.invoke()
     }
 
-    internal fun beginConnectFlow(action: String = Actions.CONNECT) {
+    internal fun beginConnectFlow(action: String = Actions.CONNECT, autoNext: Boolean = false) {
         connectFlowPending = true
         connectFlowAction = action
+        connectFlowAutoNext = autoNext
         buttonModel.onStateChanged(VpnState.Starting)
         renderState(VpnState.Starting)
         requestNotificationPermissionIfNeeded()
@@ -2803,10 +2808,11 @@ class MainActivity : Activity() {
     }
 
     internal fun startVpnService(action: String) {
-        DiagnosticLogger.info(this, "service.intent", "action=$action")
+        DiagnosticLogger.info(this, "service.intent", "action=$action autoNext=$connectFlowAutoNext")
         val intent = Intent(this, CatClientVpnService::class.java)
             .setAction(action)
             .putExtra(Actions.EXTRA_APP_INITIATED, true)
+            .putExtra(Actions.EXTRA_AUTO_NEXT, connectFlowAutoNext)
         if (action == Actions.CONNECT && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -3925,6 +3931,7 @@ class MainActivity : Activity() {
         const val STATE_CHAIN_PICKER_SUBSCRIPTION = "chain_picker_subscription"
         const val STATE_CONNECT_FLOW_PENDING = "connect_flow_pending"
         const val STATE_CONNECT_FLOW_ACTION = "connect_flow_action"
+        const val STATE_CONNECT_FLOW_AUTO_NEXT = "connect_flow_auto_next"
         const val SUBSCRIPTION_ITEM_ID_BASE = 200
 
         /* IP scanner */

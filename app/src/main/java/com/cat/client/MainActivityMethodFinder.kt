@@ -515,6 +515,78 @@ internal fun MainActivity.connectFinderCandidate(subscriptionId: String, index: 
         onSubscriptionSelected()
         handleConnectionSelected(profile, emptySet())
         openScreen(SCREEN_HOME)
-        if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT)
+        if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT, autoNext = true)
+    }
+}
+
+/**
+ * One tap on this line: connect now, no ranking dialog. If this method gives no internet, Cat tries the next.
+ * Uses the last finder list when it exists; otherwise Cat Warp + live Amnezia + your own configs.
+ */
+internal fun MainActivity.oneTapConnectThisLine() {
+    val fa = finderFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    if (buttonModel.state == VpnState.Starting || buttonModel.state == VpnState.Stopping) return
+    Toast.makeText(
+        this,
+        t("⏳ وصل می‌شوم؛ اگر نداد خودش روش بعدی را امتحان می‌کند.", "⏳ Connecting; if it fails it tries the next method itself."),
+        Toast.LENGTH_LONG,
+    ).show()
+    activityScope.launch {
+        try {
+            val subName = MethodFinderPlan.SUBSCRIPTION_NAME
+            val existing = withContext(Dispatchers.IO) {
+                userSubscriptionManager.list().firstOrNull { it.name == subName }
+            }
+            val existingProfiles = existing?.let {
+                withContext(Dispatchers.IO) { userSubscriptionManager.cachedSnapshot(it.id)?.catalog?.profiles.orEmpty() }
+            }.orEmpty()
+            val subId: String
+            if (existingProfiles.isNotEmpty()) {
+                subId = existing!!.id
+            } else {
+                val gathered = withContext(Dispatchers.IO) {
+                    MethodFinderSources.gather(this@oneTapConnectThisLine, setOf(FinderFamily.CAT_WARP, FinderFamily.MINE), fa)
+                }
+                val amnezia = withContext(Dispatchers.IO) {
+                    AmneziaCleanEndpoints.urisFromPeers(AmneziaCleanEndpoints.liveOrFallback(), withInitPackets = true)
+                }
+                val links = (gathered.candidates.map { it.link } + amnezia).filter { it.isNotBlank() }.distinct()
+                if (links.isEmpty()) {
+                    Toast.makeText(
+                        this@oneTapConnectThisLine,
+                        t("چیزی برای وصل نبود. «بررسی» را بزنید تا روش‌ها روی همین خط امتحان شوند.", "Nothing to connect. Tap Check so methods are tried on this line."),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
+                    return@launch
+                }
+                subId = withContext(Dispatchers.IO) {
+                    val named = userSubscriptionManager.list().firstOrNull { it.name == subName }
+                    (if (named != null) userSubscriptionManager.update(named.id, subName, links.joinToString("\n"))
+                    else userSubscriptionManager.add(subName, links.joinToString("\n"))).id
+                }
+                withContext(Dispatchers.Main) { renderSubscriptions() }
+            }
+            if (buttonModel.state != VpnState.Stopped) {
+                startVpnService(Actions.DISCONNECT)
+                val until = SystemClock.elapsedRealtime() + 15_000L
+                while (buttonModel.state != VpnState.Stopped && SystemClock.elapsedRealtime() < until) delay(300)
+            }
+            userSubscriptionManager.select(subId)
+            orbotEnginePreferenceStore.setEnabled(false)
+            onSubscriptionSelected()
+            handleConnectionSelected(null, emptySet())
+            openScreen(SCREEN_HOME)
+            if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT, autoNext = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Toast.makeText(
+                this@oneTapConnectThisLine,
+                t("⚠️ ", "⚠️ ") + (e.message ?: e.javaClass.simpleName),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 }

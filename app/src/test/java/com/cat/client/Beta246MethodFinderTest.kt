@@ -169,8 +169,9 @@ class Beta246MethodFinderTest {
     @Test
     fun entryPointsUseTheRealTestAndNoLongerTheTcpOnlyScout() {
         val guides = src("MainActivityGuides.kt")
-        assertTrue("«🚀 I just want to connect» opens the real finder", guides.contains("showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)"))
+        assertTrue("«🚀 I just want to connect» connects on this line, no ranking dialog", guides.contains("oneTapConnectThisLine()"))
         assertFalse("the TCP-only scout is no longer what the user sees", guides.contains("runMlmScoutRecommendations("))
+        assertTrue("the finder dialog remains for «🧭 Check»", src("MainActivityMethodFinder.kt").contains("showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)"))
         val engines = src("MainActivityEngines.kt")
         assertFalse(engines.contains("fetchAndScanAmneziaAndProtonConfigs()"))
         assertTrue(engines.contains("0 -> showMethodFinderDialog(FinderFamily.FREE_SERVERS, freeOnly = true)"))

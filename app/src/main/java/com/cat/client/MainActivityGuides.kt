@@ -347,18 +347,17 @@ internal fun MainActivity.buildPlainLanguageQuickGuideCard(): View {
  * on the user's current network, highlights the best working option with "⭐ پیشنهادی", and connects in 1 tap.
  */
 /**
- * «🚀 I just want to connect». beta246: this used to rank methods by a TCP connect to their servers, which says
- * nothing about whether a method gives internet. It now opens the 🧭 method finder: every method is really tried
- * on this internet (best first, stop any time) and «⭐ connect to the best» connects with one tap.
+ * «🚀 I just want to connect». No ranking dialog: connect on this line now. If the method gives no internet,
+ * Cat tries the next (Amnezia / Cat Warp / your configs). «🧭 Check» still opens the finder for a full test.
  */
 internal fun MainActivity.showRecommendedOneClickConnectWizardDialog() {
-    showMethodFinderDialog(FinderFamily.entries.toSet(), freeOnly = false)
+    oneTapConnectThisLine()
 }
 
 internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
     FinderEntry("🚀 فقط می‌خواهم وصل شوم", "🚀 I just want to connect",
-        "همهٔ روش‌های برنامه را واقعاً روی اینترنت شما امتحان می‌کند، بهترین را بالا می‌آورد و «⭐ اتصال به بهترین» با یک دکمه وصل می‌کند. اگر نمی‌دانید چه بزنید، همین را بزنید.",
-        "Really tries every method on your internet, puts the best on top, and “⭐ Connect with the best” connects in one tap. If unsure, tap this.",
+        "با یک ضربه روی همین خط وصل می‌شود. اگر این روش اینترنت نداد، خودش بعدی را امتحان می‌کند — پنجرهٔ رتبه‌بندی باز نمی‌شود. برای دیدن نتیجهٔ کامل «🧭 بررسی» را بزنید.",
+        "Connects on this line in one tap. If this method gives no internet, it tries the next itself — no ranking dialog. Tap 🧭 Check for the full test.",
         "وصل اتصال پیشنهادی ساده کدام روش کار می‌کند بررسی connect recommended easy start which method works check") { showRecommendedOneClickConnectWizardDialog() },
     FinderEntry("🧭 DNS / کلودفلر / وی‌پی‌اس / هاست / رایگان", "🧭 DNS / Cloudflare / VPS / host / free",
         "کدام روش را بزنی: تانل DNS، ورکر کلودفلر، وی‌پی‌اس خودت، هاست رایگان، یا VPNهای رایگان داخل Cat.",

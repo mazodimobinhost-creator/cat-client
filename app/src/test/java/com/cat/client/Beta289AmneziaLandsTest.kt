@@ -12,8 +12,8 @@ class Beta289AmneziaLandsTest {
     fun versionIsBeta289() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 374"))
-        assertTrue(gradle.contains("1.10.0-beta307"))
+        assertTrue(gradle.contains("versionCode = 375"))
+        assertTrue(gradle.contains("1.10.0-beta308"))
     }
 
     @Test
@@ -23,11 +23,13 @@ class Beta289AmneziaLandsTest {
         assertTrue(start >= 0)
         val body = hub.substring(start, hub.indexOf("internal fun MainActivity.showFreePsiphonDialog", start))
         assertTrue(body.contains("BUILTIN_AWG_AND_HY2_URIS"))
+        assertTrue(body.contains("AmneziaCleanEndpoints.liveOrFallback"))
+        assertTrue(body.contains("rankLinksByLivePing"))
+        assertTrue(body.contains("connectFreeSubscription(subId, autoNext = true)"))
         assertTrue(body.contains("saveFreeSubscription"))
         assertTrue(body.contains("amneziaSubscriptionPrefix"))
         assertFalse(body.contains("ensureAccountDetailed"))
         assertFalse(body.contains("if (outcome?.account == null)"))
-        assertFalse(body.contains("rankLinksByLivePing"))
         assertTrue(body.contains("freeResult"))
         val pool = src("MlmAndNextGenVpnHub.kt")
         val listStart = pool.indexOf("val BUILTIN_AWG_AND_HY2_URIS")

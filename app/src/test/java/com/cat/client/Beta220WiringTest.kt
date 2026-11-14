@@ -24,7 +24,7 @@ class Beta220WiringTest {
     @Test fun automaticHopsAreBoundedAndOnlyInAutomaticMode() {
         val block = service.substringAfter("private fun scheduleRealInternetCheck(").substringBefore("private fun routeNetworkKey(")
         assertTrue(block.contains("realCheckSessionAutomatic"))
-        assertTrue(block.contains("realCheckHops < RealInternetCheck.MAX_AUTO_HOPS"))
+        assertTrue(block.contains("realCheckHops < autoNextHopLimit()"))
         // a single failure is re-checked before a route is blamed
         assertTrue(block.contains("RealInternetCheck.RECHECK_DELAY_MS"))
         // the user's own pick is never saved over by an automatic hop

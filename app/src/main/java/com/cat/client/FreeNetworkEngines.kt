@@ -634,11 +634,40 @@ internal object SingBoxOutboundLinks {
                 tr.optString("path").takeIf { it.isNotBlank() }?.let { out += "path" to it }
                 tr.optString("host").takeIf { it.isNotBlank() }?.let { out += "host" to it }
             }
+            "xhttp", "splithttp" -> {
+                // Mihomo runs xhttp; lantern/sing-box often name it splithttp. Cat does not skip verification.
+                out += "type" to "xhttp"
+                tr.optString("path").takeIf { it.isNotBlank() }?.let { out += "path" to it }
+                val host = tr.optString("host").ifBlank { tr.optJSONObject("headers")?.optString("Host").orEmpty() }
+                host.takeIf { it.isNotBlank() }?.let { out += "host" to it }
+                tr.optString("mode").takeIf { it.isNotBlank() }?.let { out += "mode" to it }
+            }
             else -> throw IllegalArgumentException("transport $t")
         }
     }
 
     private fun query(params: List<Pair<String, String>>) = params.filter { it.second.isNotBlank() }.joinToString("&") { it.first + "=" + enc(it.second) }
+
+    /** Plugins Mihomo actually runs (`obfs` / `v2ray-plugin`). Anything else is skipped, not faked. */
+    internal fun shadowsocksPluginRunnable(name: String): Boolean {
+        val n = name.trim().lowercase(Locale.US)
+        if (n.isEmpty()) return true
+        return n == "obfs" || n == "obfs-local" || n == "simple-obfs" || n == "v2ray-plugin" || n == "v2rayplugin"
+    }
+
+    private fun localAddresses(ob: JSONObject): List<String> {
+        val arr = ob.optJSONArray("local_address") ?: ob.optJSONArray("local-address")
+        if (arr != null) return (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotBlank() }
+        return ob.optString("local_address").ifBlank { ob.optString("local-address") }
+            .split(',').map { it.trim() }.filter { it.isNotBlank() }
+    }
+
+    private fun reservedCsv(ob: JSONObject): String? {
+        val arr = ob.optJSONArray("reserved") ?: return ob.optString("reserved").takeIf { it.isNotBlank() }
+        val bytes = (0 until arr.length()).map { arr.optInt(it, -1) }
+        if (bytes.size != 3 || bytes.any { it !in 0..255 }) return null
+        return bytes.joinToString(",")
+    }
 
     fun link(ob: JSONObject, name: String): String? {
         val hp = hostPort(ob) ?: return null
@@ -647,8 +676,17 @@ internal object SingBoxOutboundLinks {
             "shadowsocks" -> {
                 val method = ob.optString("method")
                 val password = ob.optString("password")
-                if (method.isBlank() || password.isBlank() || ob.has("plugin") && ob.optString("plugin").isNotBlank()) return null
-                "ss://" + Base64.getUrlEncoder().withoutPadding().encodeToString("$method:$password".toByteArray()) + "@" + hp + tag
+                if (method.isBlank() || password.isBlank()) return null
+                val pluginName = ob.optString("plugin").trim()
+                val pluginOpts = ob.optString("plugin_opts").ifBlank { ob.optString("plugin-opts") }.trim()
+                if (pluginName.isNotBlank() && !shadowsocksPluginRunnable(pluginName)) return null
+                val user = Base64.getUrlEncoder().withoutPadding().encodeToString("$method:$password".toByteArray())
+                val q = mutableListOf<Pair<String, String>>()
+                if (pluginName.isNotBlank()) {
+                    val combined = if (pluginOpts.isNotBlank()) "$pluginName;$pluginOpts" else pluginName
+                    q += "plugin" to combined
+                }
+                "ss://$user@$hp" + (if (q.isEmpty()) "" else "?" + query(q)) + tag
             }
             "vless" -> {
                 val uuid = ob.optString("uuid").ifBlank { return null }
@@ -682,6 +720,18 @@ internal object SingBoxOutboundLinks {
                 tls?.optString("server_name")?.takeIf { it.isNotBlank() }?.let { p += "sni" to it }
                 ob.optString("congestion_control").takeIf { it.isNotBlank() }?.let { p += "congestion_control" to it }
                 "tuic://$uuid:" + enc(ob.optString("password")) + "@$hp" + (if (p.isEmpty()) "" else "?" + query(p)) + tag
+            }
+            "wireguard" -> {
+                val priv = ob.optString("private_key").ifBlank { ob.optString("private-key") }
+                val pub = ob.optString("peer_public_key").ifBlank { ob.optString("public_key") }.ifBlank { ob.optString("public-key") }
+                if (priv.isBlank() || pub.isBlank()) return null
+                val addrs = localAddresses(ob)
+                val joined = addrs.joinToString(",").ifBlank { "172.16.0.2/32" }
+                val p = mutableListOf("publickey" to pub, "address" to joined)
+                ob.optInt("mtu", 0).takeIf { it > 0 }?.let { p += "mtu" to it.toString() }
+                reservedCsv(ob)?.let { p += "reserved" to it }
+                ob.optString("pre_shared_key").ifBlank { ob.optString("pre-shared-key") }.takeIf { it.isNotBlank() }?.let { p += "presharedkey" to it }
+                "wireguard://" + enc(priv) + "@$hp?" + query(p) + tag
             }
             "vmess" -> {
                 val uuid = ob.optString("uuid").ifBlank { return null }

@@ -340,6 +340,8 @@ class CatClientVpnService : VpnService() {
     internal var realCheckFingerprint: String = ""
     internal var realCheckHops: Int = 0
     internal var realCheckSessionAutomatic: Boolean = false
+    internal var autoNextOnFail: Boolean = false
+    internal var startupAutoHops: Int = 0
     internal val realCheckTried = linkedSetOf<String>()
     internal var realCheckHopPending: Boolean = false
     internal var realCheckLastAtElapsedMs: Long = 0L
@@ -541,8 +543,22 @@ class CatClientVpnService : VpnService() {
             }
         }
         when (action) {
-            Actions.CONNECT -> startVpn()
-            Actions.DISCONNECT -> stopVpn()
+            Actions.CONNECT -> {
+                autoNextOnFail = intent?.getBooleanExtra(Actions.EXTRA_AUTO_NEXT, false) == true
+                if (!autoNextOnFail) {
+                    val sid = runCatching { subscriptionStore.readSelectedSubscriptionId() }.getOrDefault("")
+                    if (sid.isNotBlank() && !connectionSelectionPreferenceStore.hasSelectedProfile(sid)) {
+                        autoNextOnFail = true
+                    }
+                }
+                startupAutoHops = 0
+                startVpn()
+            }
+            Actions.DISCONNECT -> {
+                autoNextOnFail = false
+                startupAutoHops = 0
+                stopVpn()
+            }
             Actions.RECONNECT -> reconnectVpn()
             Actions.REFRESH -> refreshVpn(quickSpeedRequested = true)
             Actions.TRY_NEXT_ROUTE -> tryNextRoute()
@@ -889,6 +905,58 @@ class CatClientVpnService : VpnService() {
 
     internal val fenixTestLock = Any()
 
+    internal fun autoNextHopLimit(): Int = if (autoNextOnFail) 7 else RealInternetCheck.MAX_AUTO_HOPS
+
+    /**
+     * After a start that never came up, pick the next profile of this subscription and try it
+     * without showing Error. Returns false when there is nothing left to try.
+     */
+    private suspend fun tryAutoNextAfterStartupFailure(eventPrefix: String, error: Throwable): Boolean {
+        if (!autoNextOnFail) return false
+        if (startupAutoHops >= autoNextHopLimit()) return false
+        val current = activeConnectionFingerprint.ifBlank {
+            val sid = runCatching { subscriptionStore.readSelectedSubscriptionId() }.getOrDefault("")
+            if (sid.isBlank()) {
+                ""
+            } else {
+                runCatching {
+                    val snap = configRepository.fetchOrCachedMihomoConfig(sid)
+                    connectionSelectionPreferenceStore.readSelectedProfile(sid, snap.catalog.profiles)?.fingerprint
+                        ?: snap.catalog.profiles.firstOrNull()?.fingerprint.orEmpty()
+                }.getOrDefault("")
+            }
+        }
+        if (current.isNotBlank()) {
+            realCheckTried += current
+            runCatching { routeMemoryStore.record(routeNetworkKey(), current, ok = false) }
+        }
+        val next = withContext(Dispatchers.IO) { nextStartupProfile(current) } ?: return false
+        val sid = subscriptionStore.readSelectedSubscriptionId()
+        if (sid.isBlank()) return false
+        connectionSelectionPreferenceStore.saveSelectedProfile(sid, next, userPick = false)
+        startupAutoHops += 1
+        DiagnosticLogger.warn(
+            this,
+            "$eventPrefix.autoNext",
+            "hop=$startupAutoHops next=${next.tag} err=${error.message.orEmpty().take(120)}",
+        )
+        publishState(VpnState.Starting)
+        runCatching { startForeground(NOTIFICATION_ID, serviceNotification(getString(R.string.notification_starting))) }
+        runCatching { aetherSession?.close() }
+        aetherSession = null
+        runCatching { aetherPsiphonChain?.close() }
+        aetherPsiphonChain = null
+        runCatching { aetherTorCarrier?.close() }
+        aetherTorCarrier = null
+        closeSstp("autoNext")
+        closeCatGp("autoNext")
+        runCatching { stopCoreService() }
+        activeRuntimePaths = null
+        activeNativeAutomaticStart = false
+        clearActiveSelectorState()
+        return true
+    }
+
     private fun launchConnectionStartup(
         eventPrefix: String,
         exclusion: ConnectionStartupExclusion = ConnectionStartupExclusion(),
@@ -904,24 +972,33 @@ class CatClientVpnService : VpnService() {
                 connectionSwitchJob?.cancelAndJoin()
                 cancelConnectionTestsAndWait()
                 beforeStartup()
-                runConnectionStartup(eventPrefix, exclusion, quickSpeedRequested)
+                while (true) {
+                    try {
+                        runConnectionStartup(eventPrefix, exclusion, quickSpeedRequested)
+                        return@launch
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        if (!shouldPublishStartupError(isActive, state)) {
+                            DiagnosticLogger.info(
+                                this@CatClientVpnService,
+                                "$eventPrefix.failure.ignored",
+                                "reason=startupCanceled state=${state.wireName}",
+                            )
+                            return@launch
+                        }
+                        if (tryAutoNextAfterStartupFailure(eventPrefix, error)) continue
+                        if (preserveRuntimeOnFailure != null && activeRuntimePaths == preserveRuntimeOnFailure) {
+                            keepActiveRuntimeAfterStartupFailure(eventPrefix, error)
+                        } else {
+                            DiagnosticLogger.error(this@CatClientVpnService, "$eventPrefix.failed", error = error)
+                            stopAfterFailure(error)
+                        }
+                        return@launch
+                    }
+                }
             } catch (error: CancellationException) {
                 DiagnosticLogger.info(this@CatClientVpnService, "$eventPrefix.canceled", error.message.orEmpty())
-            } catch (error: Throwable) {
-                if (!shouldPublishStartupError(isActive, state)) {
-                    DiagnosticLogger.info(
-                        this@CatClientVpnService,
-                        "$eventPrefix.failure.ignored",
-                        "reason=startupCanceled state=${state.wireName}",
-                    )
-                    return@launch
-                }
-                if (preserveRuntimeOnFailure != null && activeRuntimePaths == preserveRuntimeOnFailure) {
-                    keepActiveRuntimeAfterStartupFailure(eventPrefix, error)
-                } else {
-                    DiagnosticLogger.error(this@CatClientVpnService, "$eventPrefix.failed", error = error)
-                    stopAfterFailure(error)
-                }
             }
         }
         startupJob = job

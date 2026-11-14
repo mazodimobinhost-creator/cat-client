@@ -261,6 +261,7 @@ internal suspend fun MainActivity.saveFreeSubscription(storedId: String, name: S
 internal fun MainActivity.connectFreeSubscription(
     subId: String,
     pick: (List<ConnectionProfile>) -> ConnectionProfile? = { it.firstOrNull() },
+    autoNext: Boolean = true,
 ) {
     val fa = freeFa()
     activityScope.launch {
@@ -280,7 +281,7 @@ internal fun MainActivity.connectFreeSubscription(
         onSubscriptionSelected()
         handleConnectionSelected(profile, emptySet())
         openScreen(SCREEN_HOME)
-        if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT)
+        if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT, autoNext = autoNext)
         if (profiles.size > 1) {
             val until = SystemClock.elapsedRealtime() + 60_000L
             while (buttonModel.state != VpnState.Started && SystemClock.elapsedRealtime() < until) delay(500)
@@ -472,8 +473,9 @@ private fun MainActivity.fetchFanoos(preferred: LanternPlanner.Location?) {
                 "🌍 The service offers ${tr.offered.size} locations; tap “🏮 Fanoos” again and choose “🌍 Every country” to get them all, with pings, in this subscription (current servers stay).")
             else -> t("سرویس فقط همین مکان را برای این حساب داد.", "The service only offered this location to this account.")
         }
-        freeResult(t("✅ ${result.links.size} سرور فانوس اضافه شد", "✅ ${result.links.size} Fanoos servers added"), report, subId,
-            countryNote + "\n" + t("آزمایشی است: اگر یکی وصل نشد بعدی را امتحان کنید.", "Experimental: if one fails try the next."))
+        freeResult(t("✅ ${result.links.size} سرور فانوس اضافه شد — در حال وصل", "✅ ${result.links.size} Fanoos servers added — connecting"), report, subId,
+            countryNote + "\n" + t("اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند.", "If this one fails, Cat tries the next itself."))
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 
@@ -603,12 +605,13 @@ private fun MainActivity.fetchFanoosAll(offered: List<LanternPlanner.Location>) 
         if (notGiven.isNotEmpty()) report += t("خواسته شد ولی داده نشد: ", "Asked for but not given: ") + notGiven.map { it.substringBefore(' ') }.distinct().joinToString(" ")
         if (countries.size <= 2) report += t("برای کشورهای بیشتر: «🦊 Cat Fox VPN» (چند کشور با حساب رایگان فایرفاکس) یا «🆓 Cat Free Proxy».", "For more countries: “🦊 Cat Fox VPN” (several countries with a free Firefox account) or “🆓 Cat Free Proxy”.")
         freeResult(
-            t("✅ ${merged.size} سرور از ${countries.size} کشور در «$name»", "✅ ${merged.size} servers from ${countries.size} countries in “$name”"),
+            t("✅ ${merged.size} سرور از ${countries.size} کشور در «$name» — در حال وصل", "✅ ${merged.size} servers from ${countries.size} countries in “$name” — connecting"),
             report,
             subId,
-            t("همه در همین یک اشتراک‌اند (هر ردیف با نام کشورش). پینگ بالا روی همین اینترنت است. «⚡ اتصال» را بزنید.",
-                "All are in this one subscription (each row named by its country). Pings above are on this network. Tap “⚡ Connect”."),
+            t("همه در همین یک اشتراک‌اند (هر ردیف با نام کشورش). پینگ بالا روی همین اینترنت است. اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند.",
+                "All are in this one subscription (each row named by its country). Pings above are on this network. If this one fails, Cat tries the next itself."),
         )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 
@@ -1365,15 +1368,22 @@ internal fun MainActivity.addWarpAmneziaAuto() {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
     val name = "$amneziaSubscriptionPrefix · Cat Warp"
-    freeProgress(t("⏳ ساخت Amnezia و آوردن داخل اپ…", "⏳ Building Amnezia and bringing it in…")) { step ->
-        val links = MlmAndNextGenVpnHub.BUILTIN_AWG_AND_HY2_URIS
+    freeProgress(t("⏳ ساخت Amnezia روی همین خط و وصل…", "⏳ Building Amnezia on this line and connecting…")) { step ->
+        step(t("۱) گرفتن IP:port تمیز روی همین اینترنت…", "1) Getting clean IP:port on this internet…"))
+        val live = withContext(Dispatchers.IO) { AmneziaCleanEndpoints.liveOrFallback() }
+        val liveUris = AmneziaCleanEndpoints.urisFromPeers(live, withInitPackets = true)
+        val builtin = MlmAndNextGenVpnHub.BUILTIN_AWG_AND_HY2_URIS.filter {
+            it.startsWith("awg://", ignoreCase = true) || it.startsWith("amneziawg://", ignoreCase = true)
+        }
+        val links = (liveUris + builtin).distinct()
         if (links.isEmpty()) {
             freeResult(t("⚠️ کانفیگ Amnezia داخل برنامه نیست", "⚠️ No Amnezia config in the app"), emptyList(), null, "")
             return@freeProgress
         }
-        step(t("ذخیره در فهرست…", "Saving to the list…"))
+        val (ranked, pingLines) = rankLinksByLivePing(links, step, fa)
+        step(t("۲) ذخیره و وصل…", "2) Saving and connecting…"))
         val store = FreeNetworkStore(this@addWarpAmneziaAuto)
-        val text = links.joinToString("\n")
+        val text = ranked.joinToString("\n")
         val subId = try {
             saveFreeSubscription(store.warpAwgSubId, name, text)
         } catch (e: Exception) {
@@ -1384,15 +1394,16 @@ internal fun MainActivity.addWarpAmneziaAuto() {
         store.warpAwgSubId = subId
         withContext(Dispatchers.Main) { renderSubscriptions() }
         freeResult(
-            t("✅ Amnezia آمد — ${links.size} سرور", "✅ Amnezia is in — ${links.size} servers"),
+            t("✅ Amnezia آمد — ${ranked.size} سرور — در حال وصل", "✅ Amnezia is in — ${ranked.size} servers — connecting"),
             listOf(
-                t("✅ ${links.size} کانفیگ در فهرست آمد", "✅ ${links.size} configs are in the list"),
+                t("✅ ${ranked.size} کانفیگ در فهرست آمد (پینگ همین خط)", "✅ ${ranked.size} configs are in the list (ping on this line)"),
                 t("کلید WARP سر وصل ساخته می‌شود", "The WARP key is made at connect"),
-            ),
+            ) + pingLines,
             subId,
-            t("خروجی آی‌پی کلودفلر است نه کشور. اگر وصل نشد، MASQUE را از Cat Warp بزن.",
-                "Exit is a Cloudflare IP, not a country. If it does not connect, use MASQUE from Cat Warp."),
+            t("اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند. خروجی آی‌پی کلودفلر است نه کشور.",
+                "If this one fails, Cat tries the next itself. Exit is a Cloudflare IP, not a country."),
         )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
     }
 }
 

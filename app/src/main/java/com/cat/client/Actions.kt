@@ -39,6 +39,8 @@ object Actions {
     const val EXTRA_LIVE_SELECTOR_READY = "extra_live_selector_ready"
     const val EXTRA_SELECTABLE_CONNECTION_FINGERPRINTS = "extra_selectable_connection_fingerprints"
     const val EXTRA_APP_INITIATED = "extra_app_initiated"
+    /** When true, a failed method is not the end: the service tries the next profile on this line. */
+    const val EXTRA_AUTO_NEXT = "extra_auto_next"
     const val EXTRA_ALWAYS_ON = "extra_always_on"
     const val EXTRA_LOCKDOWN = "extra_lockdown"
     const val EXTRA_CONNECTION_TYPES = "extra_connection_types"
