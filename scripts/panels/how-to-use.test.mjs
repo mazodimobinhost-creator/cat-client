@@ -55,8 +55,11 @@ console.log('\nHow-to-use — scan, then country, then ProxyIP/SOCKS\n');
   ok('admin / admin still signs in', tap.status === 200 && /cat_session=/.test(cookie), tap.status);
   const page = await get(env, '/panel', { headers: { cookie } });
   const html = await page.text();
-  ok('home how-to card is first on the home tab',
+  ok('how-to card is first on the dashboard (before marquee / PWA / stats)',
     html.includes('id="howUse"') && html.includes('id="howScan"') && html.includes('id="howCc"') && html.includes('id="howPx"')
+    && html.indexOf('id="v-dash"') < html.indexOf('id="howUse"')
+    && html.indexOf('id="howUse"') < html.indexOf('class="marq"')
+    && html.indexOf('id="howUse"') < html.indexOf('id="pwaBanner"')
     && html.indexOf('id="howUse"') < html.indexOf('id="hmKv"'));
   ok('three numbered steps are scan → country → ProxyIP/SOCKS',
     html.includes("how_1:'اسکن آی‌پی تمیز'") && html.includes("how_2:'کشور خروجی را انتخاب کن'")
@@ -75,6 +78,17 @@ console.log('\nHow-to-use — scan, then country, then ProxyIP/SOCKS\n');
     html.includes('id="howSet"') && /اسکن آی‌پی/.test(html) && /ProxyIP و SOCKS/.test(html));
   ok('home tab still has status / errors / usage under the how-to',
     html.includes('id="v-home"') && html.includes('data-i="hm_status"') && html.includes('id="errRows"'));
+  ok('IP list is in the sidebar and the hamburger menu (opens the panel IPs tab)',
+    /id="sideNav"[\s\S]*?data-view="nodes"/.test(html)
+    && /id="menu"[\s\S]*?data-view="nodes"/.test(html)
+    && !html.includes('data-view="spoof"'));
+  ok('MITM / Patterniha free-preset are off the owner path',
+    !html.includes('MITM-DomainFronting') && !html.includes('id="btnExtPresetFree"')
+    && !html.includes('patterniha/Free-Configs/main/configs.txt'));
+  ok('SNI spoofing is behind a closed details, switch still in the page',
+    html.includes('id="swSniRot"') && html.includes('id="sniSpoofAdv"') && html.includes('id="sniSpoofExtra"')
+    && html.indexOf('id="sniSpoofAdv"') < html.indexOf('id="swSniRot"')
+    && html.indexOf('id="sniSpoofExtra"') < html.indexOf('name="extraSnis"'));
   ok('user names in the list are prefixed with 🐈‍⬛',
     html.includes('<div class="b">🐈‍⬛ \'+esc(u.name)') && html.includes('<span class="nm">🐈‍⬛ \'+esc(u.name)'));
 }

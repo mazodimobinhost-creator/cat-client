@@ -191,7 +191,8 @@ check('1101 guidance points to runtime logs without calling it a ban or suggesti
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
 check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
-check('menu has 12 labeled items (beta201: nodes → Clean IP tab, spoof → Locations tab; 6.76.0: + 🔗 link panels; 6.86.0: + تغییر ریجن)', document.querySelectorAll('#menu .mlist > button').length === 12 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('menu has 13 labeled items (6.91.0: + IP list / nodes)', document.querySelectorAll('#menu .mlist > button').length === 13 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('hamburger lists the IP list', !!document.querySelector('#menu [data-view="nodes"]') && !document.querySelector('#menu [data-view="spoof"]'));
 check('hamburger has تغییر ریجن', /تغییر ریجن/.test((document.querySelector('#menu [data-view="region"]') || {}).textContent || ''));
 document.querySelector('#menu [data-view="region"]').click(); await sleep(80);
 check('تغییر ریجن opens #v-region (card on that page) and closes the drawer', document.querySelector('#v-region') && document.querySelector('#v-region').classList.contains('on') && document.querySelector('#v-region').contains(document.querySelector('#plcCard')) && !document.querySelector('#menu').classList.contains('show'));
@@ -229,7 +230,7 @@ check('service-proof card present', !!document.querySelector('#btnAiTest') && do
   check('loc page tabs exist and spoof cards moved into it', document.querySelectorAll('#v-loc .ptabs [data-pt^="loc:"]').length === 5 && document.getElementById('v-loc').contains(document.getElementById('fSpoof')));
   check('tools page holds the survival pack + DNS lab as tabs', document.getElementById('v-tools').contains(document.getElementById('survCard')) && document.getElementById('v-tools').contains(document.getElementById('wdnsCard')));
   check('builder: numbered steps + optional firewall section', document.querySelectorAll('#v-build .bstep').length === 3 && !!document.querySelector('#v-build details.bmore #bFw'));
-  check('sidebar has no separate nodes/spoof pages', !document.querySelector('#sideNav [data-view="nodes"]') && !document.querySelector('#sideNav [data-view="spoof"]'));
+  check('sidebar lists the IP list (nodes → panel IPs tab) and has no spoof page', !!document.querySelector('#sideNav [data-view="nodes"]') && !document.querySelector('#sideNav [data-view="spoof"]'));
 }
 // keep the old flow: the service-proof card is reachable (it lives in Locations → Exit tests now)
 document.querySelector('[data-view="nodes"]').click();
