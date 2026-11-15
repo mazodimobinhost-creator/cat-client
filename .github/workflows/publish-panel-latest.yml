@@ -26,29 +26,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           test -f dist-panel/catpanel.min.js
-          grep -q "CAT_PANEL_VERSION = '6.90.0'" dist-panel/catpanel.min.js
+          head -n 1 dist-panel/catpanel.min.js | grep -F "CAT_PANEL_VERSION = '6.90.0'"
           cp dist-panel/catpanel.min.js catclient.worker.js
-          gh release download v1.10.0-beta317 --pattern SHA256SUMS --clobber
           python3 - <<'PY'
           from hashlib import sha256
           from pathlib import Path
           digest = sha256(Path('catclient.worker.js').read_bytes()).hexdigest()
-          p = Path('SHA256SUMS')
-          lines = p.read_text().splitlines()
-          out, found = [], False
-          for line in lines:
-              name = line[66:].lstrip(' *') if len(line) > 66 else ''
-              if name == 'catclient.worker.js':
-                  out.append(f'{digest}  catclient.worker.js')
-                  found = True
-              else:
-                  out.append(line)
-          if not found:
-              out.append(f'{digest}  catclient.worker.js')
-          p.write_text('\n'.join(out) + '\n')
-          print('worker', digest)
+          Path('SHA256SUMS').write_text(
+              '7a0305a706b2679cbf7b8c078857bfba8719911784f2bbc842bfdc7248c87d2f  CatClient-V1.10.0-beta317-arm64-v8a.apk\n'
+              '2dd7452816a410256dc5121feb0b225911ffecf965c73b045cf5a475e6a08343  CatClient-V1.10.0-beta317-armeabi-v7a.apk\n'
+              '7716fab32a494abc276ce3a2adfd3ea13658416d87e17608061cc292921cb792  CatClient-V1.10.0-beta317-universal.apk\n'
+              '65b359947c4ed114cbfa6f67cbfa3bcde04263d717d1665a9f0f5db74672864f  CatClient-V1.10.0-beta317-x86.apk\n'
+              '35747a002069cc96823d1ff9d12b27fb8388586905c83ccf70f4965fe5e75145  CatClient-V1.10.0-beta317-x86_64.apk\n'
+              f'{digest}  catclient.worker.js\n'
+          )
+          print('worker', digest, 'bytes', Path('catclient.worker.js').stat().st_size)
           PY
-          gh release upload v1.10.0-beta317 catclient.worker.js SHA256SUMS --clobber
+          gh release upload v1.10.0-beta317 catclient.worker.js SHA256SUMS --clobber --repo mazodimobinhost-creator/cat-client
           echo "uploaded panel 6.90.0 to v1.10.0-beta317"
