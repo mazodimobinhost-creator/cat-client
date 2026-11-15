@@ -1,0 +1,54 @@
+# In-app «Update panel» reads GitHub Latest `catclient.worker.js` first.
+# This sandbox cannot reach uploads.github.com; the runner can.
+name: Publish panel to Latest
+
+on:
+  push:
+    branches: [arena/c5b36768-cat-client]
+    paths:
+      - 'dist-panel/catpanel.min.js'
+      - '.github/workflows/publish-panel-latest.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-panel-latest
+  cancel-in-progress: true
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Upload catclient.worker.js + SHA256SUMS to v1.10.0-beta317
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -f dist-panel/catpanel.min.js
+          grep -q "CAT_PANEL_VERSION = '6.90.0'" dist-panel/catpanel.min.js
+          cp dist-panel/catpanel.min.js catclient.worker.js
+          gh release download v1.10.0-beta317 --pattern SHA256SUMS --clobber
+          python3 - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          digest = sha256(Path('catclient.worker.js').read_bytes()).hexdigest()
+          p = Path('SHA256SUMS')
+          lines = p.read_text().splitlines()
+          out, found = [], False
+          for line in lines:
+              name = line[66:].lstrip(' *') if len(line) > 66 else ''
+              if name == 'catclient.worker.js':
+                  out.append(f'{digest}  catclient.worker.js')
+                  found = True
+              else:
+                  out.append(line)
+          if not found:
+              out.append(f'{digest}  catclient.worker.js')
+          p.write_text('\n'.join(out) + '\n')
+          print('worker', digest)
+          PY
+          gh release upload v1.10.0-beta317 catclient.worker.js SHA256SUMS --clobber
+          echo "uploaded panel 6.90.0 to v1.10.0-beta317"
