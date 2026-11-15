@@ -997,7 +997,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
             "🛰️ ۵) اسکن آی‌پی تمیز Fastly برای عبور از نت ملی و فایروال همراه اول / ایرانسل",
             "🛡️ ۶) روشن/خاموش کردن برش بسته TLS در مرز SNI (ضد فیلترینگ Cat Fox VPN)",
             "🔗 ۷) پروتکل تونل: ${FoxTransport.shortFa(FirefoxVpnEngine.readTransport(this))}",
-            "🛡️ ۸) اگر ورود موزیلا بسته است: رلهٔ کلادفلر",
+            "☁️ ۸) ترکیب با رلهٔ کلادفلر (اگر موزیلا ۴۵۱ / بسته است)",
         )
     } else {
         arrayOf(
@@ -1008,7 +1008,7 @@ internal fun MainActivity.showFirefoxVpnFenixHubDialog(onChanged: () -> Unit = {
             "🛰️ 5) Scan Clean Fastly Edge IP for Net Melli & MCI / Irancell Bypass",
             "🛡️ 6) Toggle Anti-DPI TLS ClientHello Split @ SNI",
             "🔗 7) Tunnel protocol: ${FoxTransport.shortEn(FirefoxVpnEngine.readTransport(this))}",
-            "🛡️ 8) If Mozilla sign-in is blocked: Cloudflare relay",
+            "☁️ 8) Combine with a Cloudflare relay (if Mozilla is 451 / blocked)",
         )
     }
 

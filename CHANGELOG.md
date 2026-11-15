@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta313] — 2026-10-09 (Panel 6.89.0)
+
+Owner: Cat Fox + Cloudflare Worker relay when Mozilla sign-in is 451/blocked. VPN traffic stays on Fastly.
+
+### Changed
+- **Cat Fox relay:** Worker script and wrap list include GitHub / jsDelivr (geo), same as the public control-plane relay. Paste `https://….workers.dev/?secret=…`. Health JSON with `ready: true` is enough. Hub row: combine with Cloudflare relay.
+- Sign-in/Guardian only go through the Worker. The phone tunnel is still Mozilla Fastly. No extra-account farming, no temp-mail automation.
+
 ## [1.10.0-beta312] — 2026-10-09 (Panel 6.89.0)
 
 Owner: Cat Edge — signed public list, real session, VMess on Cat's core. Bridges and domains paste in. Not a UI clone.

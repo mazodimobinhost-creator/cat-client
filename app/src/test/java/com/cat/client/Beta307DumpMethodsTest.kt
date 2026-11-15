@@ -16,8 +16,8 @@ class Beta307DumpMethodsTest {
     fun versionIsBeta307() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 379"))
-        assertTrue(gradle.contains("1.10.0-beta312"))
+        assertTrue(gradle.contains("versionCode = 380"))
+        assertTrue(gradle.contains("1.10.0-beta313"))
     }
 
     @Test
@@ -38,8 +38,10 @@ class Beta307DumpMethodsTest {
 
         assertTrue(FoxMozillaRelay.allowedHost("accounts.firefox.com"))
         assertTrue(FoxMozillaRelay.allowedHost("oauth.accounts.firefox.com"))
-        assertFalse(FoxMozillaRelay.allowedHost("github.com"))
-        assertNull(FoxMozillaRelay.wrap("https://github.com/foo", relay))
+        assertTrue(FoxMozillaRelay.allowedHost("github.com"))
+        assertTrue(FoxMozillaRelay.allowedHost("cdn.jsdelivr.net"))
+        assertNotNull(FoxMozillaRelay.wrap("https://github.com/foo", relay))
+        assertNull(FoxMozillaRelay.wrap("https://evil.example", relay))
         assertNull(FoxMozillaRelay.wrap("https://relay.example.com/api", relay))
 
         val health = FoxMozillaRelay.healthUrl(relay)
@@ -60,14 +62,16 @@ class Beta307DumpMethodsTest {
         assertTrue(js.contains("cat-fox"))
         assertTrue(js.contains("mozilla.org"))
         assertTrue(js.contains("firefox.com"))
+        assertTrue(js.contains("github.com"))
+        assertTrue(js.contains("jsdelivr.net"))
         assertTrue(js.contains("health"))
         assertFalse(js.contains("Arman"))
         assertFalse(js.contains("Spider"))
         assertFalse(js.contains("arman-vpn"))
         val fox = src("MainActivityFox.kt")
         assertTrue(fox.contains("showFoxMozillaRelayDialog"))
-        assertTrue(fox.contains("اگر ورود موزیلا بسته است"))
-        assertTrue(fox.contains("If Mozilla sign-in is blocked"))
+        assertTrue(fox.contains("ترکیب با رلهٔ کلادفلر") || fox.contains("رلهٔ کلادفلر"))
+        assertTrue(fox.contains("Combine with a Cloudflare relay") || fox.contains("Cloudflare relay"))
         assertTrue(fox.contains("workers.dev is not required") || fox.contains("workers.dev لازم نیست"))
         assertFalse(fox.contains("Spider"))
         assertFalse(fox.contains("Arman"))

@@ -18,8 +18,8 @@ class Beta310QualityWatchdogTest {
     fun versionIsBeta310() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 379"))
-        assertTrue(gradle.contains("1.10.0-beta312"))
+        assertTrue(gradle.contains("versionCode = 380"))
+        assertTrue(gradle.contains("1.10.0-beta313"))
     }
 
     @Test

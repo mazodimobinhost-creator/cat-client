@@ -34,7 +34,7 @@
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFox.kt` | 1588 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 17 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFox.kt` | 1588 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 18 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFreeNetworks.kt` | 2176 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 33 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 1094 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 24 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 593 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
@@ -106,7 +106,7 @@
 | `AmneziaCleanEndpoints.kt` | 93 | Clean Cloudflare WARP `IP:port` rows for AmneziaWG. | Beta289AmneziaLandsTest, Beta307DumpMethodsTest, Beta308ConnectThisLineTest · — |
 | `AmneziaHeaders.kt` | 20 | AmneziaWG H1-H4 header values. | ConnectionFaultExplainerTest · — |
 | `AmneziaVpnKey.kt` | 349 | AmneziaVPN connection keys (`vpn://…`, what the Amnezia app shares with «Share → Amnezia format» and what Amnezia-based sellers/bots hand out) → no… | AmneziaVpnKeyTest, Beta309Ipv6ScoutTest · — |
-| `CatEdgePlanner.kt` | 439 | beta312 — 🌉 Cat Edge: signed public-server list, RSA-OAEP session, then VMess+WS+TLS that Cat's core already runs. | Beta312CatEdgeTest · — |
+| `CatEdgePlanner.kt` | 445 | beta312 — 🌉 Cat Edge: signed public-server list, RSA-OAEP session, then VMess+WS+TLS that Cat's core already runs. | Beta312CatEdgeTest · — |
 | `CatWindEngine.kt` | 628 | beta263/265 — 🌬️ Cat Wind: the service's own **free** plan (10 GB/month, a handful of cities), used the same way Cat Fox uses a free Firefox accoun… | Beta263CatWindTest, Beta265IranMethodsTest, Beta273CatWindAutoAddTest, Beta308ConnectThisLineTest · — |
 | `ConnectionChain.kt` | 905 | — | ConnectionChainTunnelTest · chain-exit-country, chain-tunnel |
 | `DpiBypass.kt` | 140 | — | PanelTuneTest · tune |
@@ -329,7 +329,7 @@
 | `FoxCountryNames.kt` | 175 | Names and flags for Cat Fox VPN country codes. | Beta259FoxTransportTest · — |
 | `FoxCountryRouting.kt` | 93 | beta250: ONE «🦊 Cat Fox VPN» subscription with every country as its own row. | Beta250FoxOneSubscriptionTest · — |
 | `FoxFastlyChallenge.kt` | 205 | beta239: Mozilla's sign-in (accounts.firefox.com) and VPN (vpn.mozilla.org) servers sit behind Fastly's bot check. | Beta239FoxFastlyTest · — |
-| `FoxMozillaRelay.kt` | 177 | Cat Fox control-plane relay: when Mozilla sign-in / Guardian cannot be reached, those HTTPS calls (never the VPN traffic) go through the user's own… | Beta307DumpMethodsTest · — |
+| `FoxMozillaRelay.kt` | 184 | Cat Fox control-plane relay: when Mozilla sign-in / Guardian cannot be reached, those HTTPS calls (never the VPN traffic) go through the user's own… | Beta307DumpMethodsTest, Beta313FoxCfRelayTest · — |
 | `FoxPortPolicy.kt` | 113 | Mozilla's proxy (the Fastly MASQUE nodes behind Cat Fox VPN) only opens TCP to the web ports 80, 443, 8080 and 8443; a CONNECT to any other port an… | Beta211FenixHttp2Test, Beta224HostFoxCrashTest, Beta237FoxPassTest · — |
 | `FoxTransport.kt` | 161 | Cat Fox VPN tunnel protocol (independent of other clients). | Beta211FenixHttp2Test, Beta259FoxTransportTest · — |
 | `FoxWebChannel.kt` | 224 | The official sign-in page (`accounts.firefox.com`, context `fx_desktop_v3`) talks to Firefox through the «WebChannel»: it asks `fxaccounts:fxa_stat… | Beta238FoxWebChannelTest, Beta239FoxFastlyTest · — |
@@ -346,7 +346,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_288 Kotlin files, 121807 lines._
+_288 Kotlin files, 121820 lines._
 
 ## MainActivity screens — function index
 

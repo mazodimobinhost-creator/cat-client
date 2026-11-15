@@ -15,7 +15,14 @@ internal object FoxMozillaRelay {
     const val PREFS_KEY = "mozilla_relay_url"
     const val HEALTH_RELAY_NAME = "cat-fox"
 
-    private val ALLOWED_SUFFIXES = listOf("mozilla.org", "mozilla.com", "firefox.com")
+    private val ALLOWED_SUFFIXES = listOf(
+        "mozilla.org",
+        "mozilla.com",
+        "firefox.com",
+        "github.com",
+        "githubusercontent.com",
+        "jsdelivr.net",
+    )
 
     data class Probe(val ok: Boolean, val detail: String)
 
@@ -118,7 +125,7 @@ internal object FoxMozillaRelay {
     const val WORKER_JS = """
 // Cat Fox Mozilla relay — control-plane only. VPN traffic does not go through this Worker.
 const SECRET = "";
-const ALLOWED = ["mozilla.org", "mozilla.com", "firefox.com"];
+const ALLOWED = ["mozilla.org", "mozilla.com", "firefox.com", "github.com", "githubusercontent.com", "jsdelivr.net"];
 const DROP = ["host", "connection", "content-length", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "true-client-ip"];
 
 function fail(status, why) {
