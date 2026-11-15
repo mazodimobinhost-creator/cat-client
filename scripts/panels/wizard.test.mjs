@@ -157,6 +157,19 @@ async function installEvents(body, env = {}) {
   check('template scoped to all accounts + zones', T.TOKEN_TEMPLATE_URL.includes('accountId=*') && T.TOKEN_TEMPLATE_URL.includes('zoneId=all'));
   const r = await req('/token');
   check('/token redirects to the template', r.status === 302 && r.headers.get('location') === T.TOKEN_TEMPLATE_URL);
+  check('signup/login/tokens URLs have no query (safe while signed out)',
+    !T.CF_SIGNUP.includes('?') && !T.CF_LOGIN.includes('?') && !T.CF_TOKENS.includes('?'));
+  check('signup/login/tokens are dash.cloudflare.com',
+    T.CF_SIGNUP === 'https://dash.cloudflare.com/sign-up' &&
+    T.CF_LOGIN === 'https://dash.cloudflare.com/login' &&
+    T.CF_TOKENS === 'https://dash.cloudflare.com/profile/api-tokens');
+  const su = await req('/signup');
+  const li = await req('/login');
+  const tk = await req('/tokens');
+  check('/signup /login /tokens redirect to parameter-free dashboards',
+    su.status === 302 && su.headers.get('location') === T.CF_SIGNUP &&
+    li.status === 302 && li.headers.get('location') === T.CF_LOGIN &&
+    tk.status === 302 && tk.headers.get('location') === T.CF_TOKENS);
 }
 
 /* 2. page + health */
@@ -165,6 +178,12 @@ async function installEvents(body, env = {}) {
   const html = await r.text();
   check('/ serves the wizard page', r.status === 200 && html.includes('Cat Wizard') && html.includes('id="installBtn"'));
   check('page embeds the token button with template URL', html.includes('id="tokenBtn"') && html.includes('permissionGroupKeys='));
+  check('page has signup / login / plain-tokens buttons like the app',
+    html.includes('id="signupBtn"') && html.includes(T.CF_SIGNUP) &&
+    html.includes('id="loginBtn"') && html.includes(T.CF_LOGIN) &&
+    html.includes('id="tokensBtn"') && html.includes('id="tokensBtn"') && html.includes(T.CF_TOKENS));
+  check('signup/login hrefs stay parameter-free in HTML',
+    html.includes('href="' + T.CF_SIGNUP + '"') && html.includes('href="' + T.CF_LOGIN + '"'));
   check('page is Persian by default with EN toggle', html.includes('lang="fa"') && html.includes('id="langBtn"'));
   check('page has no invite field without WIZARD_PASSWORD', !html.includes('id="invite"'));
   const locked = await (await req('/', { env: { WIZARD_PASSWORD: 'secret' } })).text();

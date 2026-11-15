@@ -76,6 +76,12 @@ const TOKEN_PERMISSIONS = [
 ];
 const TOKEN_TEMPLATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
   encodeURIComponent(JSON.stringify(TOKEN_PERMISSIONS)) + '&accountId=*&zoneId=all&name=Cat%20Panel';
+/* Parameter-free dashboard URLs — safe while signed out. The template URL
+ * above carries query params; opened without a session, Cloudflare treats it
+ * as redirect_uri and answers «Invalid redirect_uri». Same split as the app. */
+const CF_SIGNUP = 'https://dash.cloudflare.com/sign-up';
+const CF_LOGIN = 'https://dash.cloudflare.com/login';
+const CF_TOKENS = 'https://dash.cloudflare.com/profile/api-tokens';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -563,7 +569,9 @@ function css() {
     '.muted{color:var(--muted);font-size:13px}p{margin:6px 0}',
     '.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:14px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 10px 30px rgba(124,58,237,.35);text-decoration:none;transition:transform .12s}',
     '.btn:hover{transform:translateY(-1px)}.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}',
-    '.btn.ghost{background:var(--card2);box-shadow:none;border:1px solid var(--line)}.btn.block{width:100%}.btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}',
+    '.btn.ghost{background:var(--card2);box-shadow:none;border:1px solid var(--line);color:var(--text)}.btn.block{width:100%}.btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}',
+    '.actions{display:grid;gap:8px;margin:12px 0 4px}.actions .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
+    '@media (max-width:560px){.actions .pair{grid-template-columns:1fr}}',
     '.field{display:block;margin:12px 0}.field span{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}',
     '.field input{width:100%;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--text);border-radius:12px;padding:12px 14px;font:inherit;font-size:14px;direction:ltr;text-align:left}',
     '.field input:focus{outline:2px solid var(--accent);outline-offset:1px}',
@@ -588,11 +596,15 @@ function i18n() {
     fa: {
       sub: 'نصب پنل کلودفلر شخصی در یک دقیقه',
       s1: 'دریافت توکن کلودفلر',
-      s1p: 'دکمهٔ زیر صفحهٔ API Token کلودفلر را با دسترسی‌های لازم باز می‌کند. فقط کافی است Continue to summary → Create Token را بزنی و توکن را کپی کنی.',
-      s1b: 'دریافت توکن از کلودفلر',
-      s1h1: 'اگر حساب کلودفلر نداری، همان‌جا با ایمیل رایگان بساز.',
-      s1h2: 'در صفحهٔ باز شده چیزی را تغییر نده؛ پایین صفحه Continue to summary و بعد Create Token.',
-      s1h3: 'توکن فقط یک بار نمایش داده می‌شود — Copy را بزن.',
+      s1p: 'ترتیب مهم است: اول اکانت بساز یا وارد شو (دو دکمهٔ ساده)، بعد «دریافت توکن» را بزن. اگر بدون ورود مستقیم روی توکن بروی، کلادفلر خطای Invalid redirect_uri می‌دهد.',
+      s1b: 'دریافت توکن از کلودفلر (دسترسی‌ها آماده)',
+      signup: 'ساخت اکانت رایگان کلودفلر',
+      login: 'ورود به اکانت کلودفلر',
+      tokensPlain: 'صفحهٔ توکن‌ها بدون پیش‌انتخاب',
+      accountHint: 'هنوز اکانت نداری یا Invalid redirect_uri دیدی؟ اول ساخت اکانت / ورود (این دو لینک پارامتری ندارند). بعد از ورود، دکمهٔ بنفش توکن را بزن.',
+      s1h1: 'اگر حساب نداری: ساخت اکانت رایگان. اگر داری: ورود.',
+      s1h2: 'بعد از ورود، «دریافت توکن» را بزن. چیزی را تغییر نده؛ Continue to summary → Create Token.',
+      s1h3: 'توکن فقط یک بار نمایش داده می‌شود — Copy را بزن و در مرحلهٔ ۲ بچسبان.',
       s2: 'توکن را اینجا بچسبان',
       s2p: 'توکن فقط برای همین نصب استفاده می‌شود و هیچ‌جا ذخیره نمی‌شود. بعد از نصب می‌توانی آن را از کلودفلر حذف کنی.',
       token: 'Cloudflare API Token',
@@ -630,11 +642,15 @@ function i18n() {
     en: {
       sub: 'Your own Cloudflare panel in one minute',
       s1: 'Get a Cloudflare token',
-      s1p: 'The button opens the Cloudflare API-token page with the right permissions pre-selected. Just hit Continue to summary → Create Token and copy it.',
-      s1b: 'Get token from Cloudflare',
-      s1h1: 'No Cloudflare account? Create a free one right there.',
-      s1h2: 'Do not change anything on that page; scroll down, Continue to summary, then Create Token.',
-      s1h3: 'The token is shown once — press Copy.',
+      s1p: 'Order matters: create an account or sign in first (the two plain buttons), then tap Get token. Opening the token page while signed out makes Cloudflare answer Invalid redirect_uri.',
+      s1b: 'Get token from Cloudflare (permissions filled)',
+      signup: 'Create a free Cloudflare account',
+      login: 'Sign in to Cloudflare',
+      tokensPlain: 'Plain tokens page (fallback)',
+      accountHint: 'No account yet, or Invalid redirect_uri? Use Create account / Sign in first (those two links have no parameters). After you are in, tap the purple token button.',
+      s1h1: 'No account: create a free one. Already have one: sign in.',
+      s1h2: 'Once signed in, tap Get token. Do not change anything; Continue to summary → Create Token.',
+      s1h3: 'The token is shown once — press Copy, then paste it in step 2.',
       s2: 'Paste the token here',
       s2p: 'The token is used only for this install and is never stored. You can revoke it in Cloudflare afterwards.',
       token: 'Cloudflare API Token',
@@ -697,7 +713,15 @@ function pageHtml(env, host) {
 
     '<section class="card"><h2><span class="n">1</span><span data-i18n="s1">' + t.s1 + '</span></h2>' +
     '<p class="muted" data-i18n="s1p">' + t.s1p + '</p>' +
+    '<div class="actions">' +
+    '<div class="pair">' +
+    '<a class="btn ghost block" id="signupBtn" href="' + esc(CF_SIGNUP) + '" target="_blank" rel="noopener">🆕 <span data-i18n="signup">' + t.signup + '</span></a>' +
+    '<a class="btn ghost block" id="loginBtn" href="' + esc(CF_LOGIN) + '" target="_blank" rel="noopener">🔑 <span data-i18n="login">' + t.login + '</span></a>' +
+    '</div>' +
     '<a class="btn block" id="tokenBtn" href="' + esc(TOKEN_TEMPLATE_URL) + '" target="_blank" rel="noopener">🔑 <span data-i18n="s1b">' + t.s1b + '</span></a>' +
+    '<a class="btn ghost block" id="tokensBtn" href="' + esc(CF_TOKENS) + '" target="_blank" rel="noopener">🧾 <span data-i18n="tokensPlain">' + t.tokensPlain + '</span></a>' +
+    '</div>' +
+    '<p class="muted" data-i18n="accountHint">' + t.accountHint + '</p>' +
     '<div class="steps"><div class="step"><b>۱</b><span data-i18n="s1h1">' + t.s1h1 + '</span></div>' +
     '<div class="step"><b>۲</b><span data-i18n="s1h2">' + t.s1h2 + '</span></div>' +
     '<div class="step"><b>۳</b><span data-i18n="s1h3">' + t.s1h3 + '</span></div></div></section>' +
@@ -807,6 +831,9 @@ async function fetchHandler(request, env, ctx) {
   if (path === '/token' || path === '/get-token') {
     return Response.redirect(TOKEN_TEMPLATE_URL, 302);
   }
+  if (path === '/signup') return Response.redirect(CF_SIGNUP, 302);
+  if (path === '/login') return Response.redirect(CF_LOGIN, 302);
+  if (path === '/tokens') return Response.redirect(CF_TOKENS, 302);
   if (path === '/api/token-url') {
     return jsonResponse({ ok: true, url: TOKEN_TEMPLATE_URL, permissions: TOKEN_PERMISSIONS });
   }
@@ -875,6 +902,9 @@ export const _testing = {
   inspectWorker,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
+  CF_SIGNUP,
+  CF_LOGIN,
+  CF_TOKENS,
   PANEL_SOURCES,
   WIZARD_SOURCES,
   __setFetch,

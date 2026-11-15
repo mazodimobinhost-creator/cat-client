@@ -29,6 +29,8 @@ check('Vercel wrapper is edge', apiSrc.includes("runtime: 'edge'"));
 check('wrapper imports the wizard', apiSrc.includes("from '../lib/catclient.wizard.js'"));
 check('wrapper remaps __wpath', apiSrc.includes('__wpath'));
 check('vercel.json rewrites /api/install', vzSrc.includes('/api/install'));
+check('vercel.json rewrites /signup /login /tokens',
+  vzSrc.includes('/signup') && vzSrc.includes('/login') && vzSrc.includes('/tokens'));
 check('lib wizard matches app asset', libSrc === wizardSrc);
 check('fresh install closes OPEN_SUB', wizardSrc.includes("name: 'OPEN_SUB', text: 'false'"));
 check('fresh install closes OPEN_PANEL', wizardSrc.includes("name: 'OPEN_PANEL', text: 'false'"));
