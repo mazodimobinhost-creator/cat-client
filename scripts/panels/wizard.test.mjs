@@ -210,7 +210,7 @@ let first;
   check('PANEL_PASSWORD is bound as secret_text (never plain_text)', bind.PANEL_PASSWORD && bind.PANEL_PASSWORD.type === 'secret_text' && !s.bindings.some((b) => b.type === 'plain_text' && b.name === 'PANEL_PASSWORD'));
   check('CF_API_TOKEN + CF_ACCOUNT_ID + CF_WORKER_NAME bound for direct in-panel self-update', bind.CF_API_TOKEN && bind.CF_API_TOKEN.type === 'secret_text' && bind.CF_ACCOUNT_ID && bind.CF_ACCOUNT_ID.text === 'acc-1' && bind.CF_WORKER_NAME && bind.CF_WORKER_NAME.text === 'my-panel');
   check('generated password is independent of the UUID and long enough', bind.PANEL_PASSWORD.text.length >= 24 && bind.PANEL_PASSWORD.text !== bind.UUID.text && !bind.PANEL_PASSWORD.text.includes(bind.UUID.text));
-  check('no OPEN_PANEL / OPEN_SUB binding is set by the Wizard', !bind.OPEN_PANEL && !bind.OPEN_SUB);
+  check('OPEN_PANEL and OPEN_SUB are forced closed', bind.OPEN_PANEL && bind.OPEN_PANEL.text === 'false' && bind.OPEN_SUB && bind.OPEN_SUB.text === 'false');
   check('compat date + flags come from the single Wizard constants (no nodejs_compat)', s.meta.compatibility_date === T.COMPAT_DATE && JSON.stringify(s.meta.compatibility_flags) === JSON.stringify(T.COMPAT_FLAGS) && !s.meta.compatibility_flags.includes('nodejs_compat'));
   check('route enabled', state.routes['my-panel'] === true);
   check('online after health probe', first.online === true && first.panelVersion === PANEL_VERSION);

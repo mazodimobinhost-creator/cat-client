@@ -882,6 +882,12 @@ internal fun MainActivity.buildCloudScreen(): View {
         }
     }
     wizardCard.addView(wizardButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+    wizardCard.addView(
+        cloudActionButton(R.string.cloud_wizard_web, R.drawable.ic_cloud_tab, accent = true) {
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.WEB_WIZARD_URL))) }
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+    )
     wizardCard.addView(wizardProgressText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     wizardCard.addView(wizardProgressBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(4) })
 

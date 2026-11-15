@@ -24,7 +24,7 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.3.1';
+const CAT_WIZARD_VERSION = '1.3.2';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
 const BRANCH = 'arena/c5b36768-cat-client';
@@ -397,6 +397,8 @@ async function* runInstall(input, env) {
     // here. It is never derived from the UUID and never written to a log line.
     panelPassword = customPassword || randomPassword(24);
     bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: panelPassword });
+    bindings.push({ type: 'plain_text', name: 'OPEN_PANEL', text: 'false' });
+    bindings.push({ type: 'plain_text', name: 'OPEN_SUB', text: 'false' });
     bindings.push({ type: 'secret_text', name: 'CF_API_TOKEN', text: token });
     bindings.push({ type: 'plain_text', name: 'CF_ACCOUNT_ID', text: String(account.id) });
     bindings.push({ type: 'plain_text', name: 'CF_WORKER_NAME', text: workerName });

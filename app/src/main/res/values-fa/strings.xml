@@ -975,6 +975,7 @@
     <string name="cloud_wizard_title">Cat Wizard — نصب یک‌کلیکی برای دوستان</string>
     <string name="cloud_wizard_desc">یک صفحهٔ «ویزارد» کوچک روی حساب خودت می‌سازد. هرکس آن را باز کند «دریافت توکن» را می‌زند، توکن کلودفلر خودش را می‌چسباند و پنل Cat خودش را می‌گیرد (آدرس پنل + رمز + لینک ساب) — روی حساب خودش، چیزی از تو رد نمی‌شود. کد دعوت اختیاری صفحه را قفل می‌کند.</string>
     <string name="cloud_wizard_deploy">🧙 ساخت صفحهٔ ویزارد من</string>
+    <string name="cloud_wizard_web">🌐 ویزارد وب Cat (توکن را بچسبان، پنل نصب شود)</string>
     <string name="cloud_wizard_deployed">✓ ویزارد بالا آمد</string>
     <string name="cloud_wizard_share_hint">این لینک را به دوستانت بده. هرکس با توکن خودش پنل خودش را نصب می‌کند؛ توکن هیچ‌جا ذخیره نمی‌شود.</string>
 

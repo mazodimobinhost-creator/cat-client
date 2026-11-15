@@ -1,0 +1,15 @@
+{
+  "framework": null,
+  "rewrites": [
+    { "source": "/", "destination": "/api?__wpath=/" },
+    { "source": "/health", "destination": "/api?__wpath=/health" },
+    { "source": "/token", "destination": "/api?__wpath=/token" },
+    { "source": "/get-token", "destination": "/api?__wpath=/get-token" },
+    { "source": "/wizard", "destination": "/api?__wpath=/wizard" },
+    { "source": "/index.html", "destination": "/api?__wpath=/" },
+    { "source": "/api/install", "destination": "/api?__wpath=/api/install" },
+    { "source": "/api/deploy", "destination": "/api?__wpath=/api/deploy" },
+    { "source": "/api/verify", "destination": "/api?__wpath=/api/verify" },
+    { "source": "/api/token-url", "destination": "/api?__wpath=/api/token-url" }
+  ]
+}

@@ -976,6 +976,7 @@
     <string name="cloud_wizard_title">Cat Wizard — one-click installer for friends</string>
     <string name="cloud_wizard_desc">Deploys a small “wizard” page on YOUR account. Anyone who opens it taps “Get token”, pastes their own Cloudflare token and gets their own Cat Panel (panel URL + password + sub link) — on their own account, nothing goes through you. Optional invite code protects the page.</string>
     <string name="cloud_wizard_deploy">🧙 Build my wizard page</string>
+    <string name="cloud_wizard_web">🌐 Open Cat Wizard (paste token, install panel)</string>
     <string name="cloud_wizard_deployed">✓ Wizard is live</string>
     <string name="cloud_wizard_share_hint">Share this link. Each visitor installs their own panel with their own token; the token is never stored.</string>
 

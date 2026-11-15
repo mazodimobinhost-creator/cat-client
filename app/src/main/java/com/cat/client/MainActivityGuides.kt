@@ -401,6 +401,12 @@ internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
         "اگر ورود موزیلا بسته است: ورکر خودت، لینک ?secret=، بعد Cat Fox.",
         "If Mozilla sign-in is blocked: your Worker, ?secret= URL, then Cat Fox.",
         "رله کلادفلر ورکر فایرفاکس موزیلا 451 firefox cloudflare worker relay") { showFoxMozillaRelayDialog() },
+    FinderEntry("🧙 ویزارد پنل Cat (توکن کلادفلر)", "🧙 Cat Panel wizard (Cloudflare token)",
+        "سایت ویزارد را باز کن، توکن کلادفلر را بچسبان؛ پنل Cat روی حساب خودت نصب می‌شود و لینک ساب می‌دهد.",
+        "Opens the wizard site, paste a Cloudflare token; Cat Panel installs on your account and gives a sub link.",
+        "ویزارد wizard bpb milli zeus پنل panel توکن token کلادفلر cloudflare vercel نصب deploy") {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.WEB_WIZARD_URL))) }
+    },
     FinderEntry("🌉 Cat Edge (فهرست عمومی، پل، دامنه)", "🌉 Cat Edge (public list, bridge, domain)",
         "فهرست امضاشده، جلسهٔ واقعی، بعد VMess روی هستهٔ Cat. پل یا دامنه را می‌چسبانی.",
         "Signed list, real session, then VMess on Cat's core. Paste a bridge or domain.",
