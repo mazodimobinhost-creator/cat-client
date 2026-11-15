@@ -10,8 +10,8 @@ class Beta298VpsScriptsRunTest {
     fun versionIsBeta298() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 380"))
-        assertTrue(gradle.contains("1.10.0-beta313"))
+        assertTrue(gradle.contains("versionCode = 381"))
+        assertTrue(gradle.contains("1.10.0-beta314"))
     }
 
     @Test

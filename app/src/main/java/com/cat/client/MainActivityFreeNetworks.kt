@@ -119,6 +119,12 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showFirefoxCountryPickerDialog() }
     entry(
+        t("☁️ Cat Fox + رله کلادفلر (ورود موزیلا از ورکر)", "☁️ Cat Fox + Cloudflare relay (Mozilla sign-in via Worker)"),
+        t("اینو بزنی: اسکریپت ورکر کپی می‌شود، لینک ?secret= را می‌چسبانی. فقط ورود موزیلا از رله می‌رود؛ تونل همان Fastly است.",
+            "Tap: copy the Worker script, paste the ?secret= URL. Only Mozilla sign-in uses the relay; the tunnel stays Fastly."),
+        accent = true,
+    ) { showFoxMozillaRelayDialog() }
+    entry(
         t("🌬️ Cat Wind — کشورها با پینگ روی خط شما", "🌬️ Cat Wind — countries with ping on your line"),
         t("اینو بزنی: وارد شو یا حساب رایگان بساز (تیک ربات با توست). بعدش Cat خودش همهٔ کانفیگ‌های مجاز را می‌گیرد، پینگ می‌کند و اضافه می‌کند.",
             "Tap: sign in or create the free account (the human check stays yours). Cat then fetches every allowed config, pings it, and adds it."),

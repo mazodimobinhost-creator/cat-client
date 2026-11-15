@@ -34,9 +34,9 @@
 | `MainActivityDiagnostics.kt` | 224 | Diagnostics: copy/share logs and crash, update check, external links. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFox.kt` | 1588 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 18 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 2176 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 33 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityGuides.kt` | 1094 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 24 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFox.kt` | 1598 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 18 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 2182 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 34 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityGuides.kt` | 1098 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 25 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 593 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityPair.kt` | 83 | Claim a panel pairing code generated in Cat Panel → Tools. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -346,7 +346,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_288 Kotlin files, 121820 lines._
+_288 Kotlin files, 121840 lines._
 
 ## MainActivity screens — function index
 
@@ -403,15 +403,15 @@ for the dialog/button you want to change.
 
 ### `MainActivityFox.kt` (9 functions)
 
-`buildFirefoxVpnFenixCard`:114, `showFirefoxAccountManagerDialog`:285, `showFirefoxEmailLoginDialog`:809, `showFirefoxVpnFenixHubDialog`:989, `connectFirefoxVpnDirectly`:1137, `showFirefoxCountryPickerDialog`:1283, `showFoxTransportDialog`:1412, `showFoxMozillaRelayDialog`:1437, `showFirefoxTokenImportDialog`:1530
+`buildFirefoxVpnFenixCard`:114, `showFirefoxAccountManagerDialog`:295, `showFirefoxEmailLoginDialog`:819, `showFirefoxVpnFenixHubDialog`:999, `connectFirefoxVpnDirectly`:1147, `showFirefoxCountryPickerDialog`:1293, `showFoxTransportDialog`:1422, `showFoxMozillaRelayDialog`:1447, `showFirefoxTokenImportDialog`:1540
 
 ### `MainActivityFreeNetworks.kt` (42 functions)
 
-`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:216, `connectableWgUris`:235, `freeProgress`:245, `saveFreeSubscription`:270, `connectFreeSubscription`:281, `freeResult`:316, `showFreeProxyDialog`:334, `buildFreeProxy`:355, `showFanoosDialog`:397, `fetchFanoos`:444, `fetchFanoosAll`:504, `showFreeAccountDialog`:642, `showProtonDialog`:787, `showProtonPaste`:791, `showProtonWebView`:815, `addProtonConfs`:1041, `showVoidlyDialog`:1111, `showVoidlyGenerate`:1165, `showVoidlyPaste`:1237, `addVoidlyConfs`:1261, `addFreeSlipNet`:1323, `addWarpAmneziaAuto`:1388, `showFreePsiphonDialog`:1435, `pickFreePsiphonCountry`:1473, `connectFreePsiphon`:1492, `showCatWarpFreeDialog`:1531, `scanCatWarpOnThisLine`:1599, `connectCatWarpFree`:1753, `showCatWindDialog`:1788, `showCatWindLogin`:1798, `connectCatWind`:1943, `jsString`:2035, `showCatEdgeDialog`:2039, `showCatEdgePaste`:2084, `runCatEdgeConnect`:2112
+`freeFa`:31, `freeButton`:33, `freeText`:54, `freeBox`:63, `freeLp`:68, `withPhysicalNet`:71, `showFreeNetworksHub`:83, `rankLinksByLivePing`:222, `connectableWgUris`:241, `freeProgress`:251, `saveFreeSubscription`:276, `connectFreeSubscription`:287, `freeResult`:322, `showFreeProxyDialog`:340, `buildFreeProxy`:361, `showFanoosDialog`:403, `fetchFanoos`:450, `fetchFanoosAll`:510, `showFreeAccountDialog`:648, `showProtonDialog`:793, `showProtonPaste`:797, `showProtonWebView`:821, `addProtonConfs`:1047, `showVoidlyDialog`:1117, `showVoidlyGenerate`:1171, `showVoidlyPaste`:1243, `addVoidlyConfs`:1267, `addFreeSlipNet`:1329, `addWarpAmneziaAuto`:1394, `showFreePsiphonDialog`:1441, `pickFreePsiphonCountry`:1479, `connectFreePsiphon`:1498, `showCatWarpFreeDialog`:1537, `scanCatWarpOnThisLine`:1605, `connectCatWarpFree`:1759, `showCatWindDialog`:1794, `showCatWindLogin`:1804, `connectCatWind`:1949, `jsString`:2041, `showCatEdgeDialog`:2045, `showCatEdgePaste`:2090, `runCatEdgeConnect`:2118
 
 ### `MainActivityGuides.kt` (11 functions)
 
-`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:353, `finderEntries`:357, `showFeatureFinderDialog`:516, `normalizeFinderText`:751, `featureFinderBar`:755, `showDnsCfHostFreeMethodsDialog`:790, `showCatVpsWorkshopDialog`:835, `showFirewallConnectionGuideDialog`:957, `showPrivacyPolicyIfNeeded`:1013, `showPrivacyPolicyDialog`:1019
+`buildPlainLanguageQuickGuideCard`:117, `showRecommendedOneClickConnectWizardDialog`:353, `finderEntries`:357, `showFeatureFinderDialog`:520, `normalizeFinderText`:755, `featureFinderBar`:759, `showDnsCfHostFreeMethodsDialog`:794, `showCatVpsWorkshopDialog`:839, `showFirewallConnectionGuideDialog`:961, `showPrivacyPolicyIfNeeded`:1017, `showPrivacyPolicyDialog`:1023
 
 ### `MainActivityMethodFinder.kt` (8 functions)
 

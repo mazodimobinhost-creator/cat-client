@@ -268,6 +268,16 @@ internal fun MainActivity.buildFirefoxVpnFenixCard(): View {
     }
     card.addView(row1, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
+    card.addView(
+        fenixBtn(
+            label = if (isFarsi) "☁️ رله کلادفلر — اگر ورود موزیلا بسته است" else "☁️ Cloudflare relay — if Mozilla sign-in is blocked",
+            accent = false,
+        ) {
+            showFoxMozillaRelayDialog { refreshFenixSummary() }
+        },
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+    )
+
     // Secondary Row: Full FENIX Hub & Ping Scanner
     card.addView(
         fenixBtn(

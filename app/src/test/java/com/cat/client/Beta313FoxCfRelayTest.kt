@@ -16,8 +16,8 @@ class Beta313FoxCfRelayTest {
     fun versionIsBeta313() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 380"))
-        assertTrue(gradle.contains("1.10.0-beta313"))
+        assertTrue(gradle.contains("versionCode = 381"))
+        assertTrue(gradle.contains("1.10.0-beta314"))
     }
 
     @Test
@@ -56,9 +56,14 @@ class Beta313FoxCfRelayTest {
         assertFalse(js.contains("Arman"))
         assertFalse(js.contains("Spider"))
         val fox = src("MainActivityFox.kt")
-        assertTrue(fox.contains("ترکیب با رلهٔ کلادفلر") || fox.contains("Combine with a Cloudflare relay"))
+        assertTrue(fox.contains("رله کلادفلر — اگر ورود موزیلا بسته است") || fox.contains("Cloudflare relay — if Mozilla sign-in is blocked"))
+        assertTrue(fox.contains("showFoxMozillaRelayDialog"))
         assertFalse(fox.contains("Spider"))
         assertFalse(fox.contains("temomail"))
+        val free = src("MainActivityFreeNetworks.kt")
+        assertTrue(free.contains("Cat Fox + رله کلادفلر") || free.contains("Cat Fox + Cloudflare relay"))
+        val guides = src("MainActivityGuides.kt")
+        assertTrue(guides.contains("Cat Fox + رله کلادفلر") || guides.contains("Cat Fox + Cloudflare relay"))
     }
 
     companion object {

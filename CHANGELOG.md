@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta314] — 2026-10-09 (Panel 6.89.0)
+
+Owner: Cat Fox Cloudflare relay on the Fox card, Free networks, and finder — not only hub item 8.
+
+### Changed
+- **Cat Fox relay** is a button on the Fox home card, a Free-networks row, and a finder entry. Same Worker URL (`?secret=`). Still not a UI clone.
+
 ## [1.10.0-beta313] — 2026-10-09 (Panel 6.89.0)
 
 Owner: Cat Fox + Cloudflare Worker relay when Mozilla sign-in is 451/blocked. VPN traffic stays on Fastly.
