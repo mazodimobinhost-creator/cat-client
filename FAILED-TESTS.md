@@ -1,12 +1,12 @@
 ### npm test failure excerpt
 ```
-  duration_ms: 0.62798
+  duration_ms: 0.701041
   type: 'test'
   ...
 # Subtest: panel repair resolves its Worker from the prerelease list too
 not ok 9 - panel repair resolves its Worker from the prerelease list too
   ---
-  duration_ms: 0.800727
+  duration_ms: 0.814471
   type: 'test'
   location: '/home/runner/work/cat-client/cat-client/scripts/panels/app-prerelease-update.test.mjs:10:1'
   failureType: 'testCodeFailure'
@@ -28,7 +28,7 @@ not ok 9 - panel repair resolves its Worker from the prerelease list too
 # Subtest: drafts are rejected while signed prereleases can be selected
 not ok 10 - drafts are rejected while signed prereleases can be selected
   ---
-  duration_ms: 0.240144
+  duration_ms: 0.249123
   type: 'test'
   location: '/home/runner/work/cat-client/cat-client/scripts/panels/app-prerelease-update.test.mjs:17:1'
   failureType: 'testCodeFailure'
