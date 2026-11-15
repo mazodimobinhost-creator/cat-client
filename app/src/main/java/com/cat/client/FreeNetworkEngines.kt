@@ -917,6 +917,9 @@ internal class FreeNetworkStore(context: Context) {
     var windSubId: String
         get() = prefs.getString("wd_sub", "").orEmpty()
         set(v) { prefs.edit().putString("wd_sub", v).apply() }
+    var edgeSubId: String
+        get() = prefs.getString("ed_sub", "").orEmpty()
+        set(v) { prefs.edit().putString("ed_sub", v).apply() }
     var windWgPriv: String
         get() = prefs.getString("wd_wgp", "").orEmpty()
         set(v) { prefs.edit().putString("wd_wgp", v).apply() }

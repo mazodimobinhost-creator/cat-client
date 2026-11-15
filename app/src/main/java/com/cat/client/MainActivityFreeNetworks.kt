@@ -179,6 +179,12 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showProtonDialog() }
     entry(
+        t("🌉 Cat Edge (فهرست عمومی، پل، دامنه)", "🌉 Cat Edge (public list, bridge, domain)"),
+        t("اینو بزنی: فهرست امضاشده گرفته می‌شود، جلسه روی میزبان باز می‌شود، VMess وصل می‌شود. پل یا دامنه را هم می‌چسبانی.",
+            "Tap: the signed list is fetched, a session opens on the host, VMess connects. You can paste a bridge or domain too."),
+        accent = true,
+    ) { showCatEdgeDialog() }
+    entry(
         t("🛡️ Cat Voidly (لوکیشن بزن، کانفیگ بیاید داخل اپ)", "🛡️ Cat Voidly (pick a location, config comes in)"),
         t("اینو بزنی: فهرست زندهٔ لوکیشن می‌آید. یکی را انتخاب کن؛ Cat صفحهٔ ساخت را باز می‌کند و فایل .conf را می‌آورد داخل اپ. اپ رسمی WireGuard لازم نیست. فقط UDP است.",
             "Tap: live locations load. Pick one; Cat opens the generator and brings the .conf into the app. Official WireGuard app is not needed. UDP only."),
@@ -2027,3 +2033,144 @@ private fun MainActivity.connectCatWind(codes: Set<String> = emptySet()) {
 
 /** evaluateJavascript returns a JSON string literal; decode it. */
 private fun jsString(raw: String?): String = runCatching { org.json.JSONArray("[" + (raw ?: "\"\"") + "]").optString(0) }.getOrDefault("")
+
+// ───────────── 🌉 Cat Edge (public list + pasted bridge/falcon) ─────────────
+
+internal fun MainActivity.showCatEdgeDialog() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val box = freeBox()
+    box.addView(
+        freeText(
+            t(
+                "فهرست عمومی امضاشده گرفته می‌شود، با هر میزبان یک جلسهٔ واقعی ساخته می‌شود، بعد VMess روی هستهٔ خود Cat وصل می‌شود. پل یا دامنهٔ خودت را هم می‌شود چسباند. تست، پینگ خالی نیست.",
+                "Fetches the signed public list, opens a real session on each host, then connects VMess on Cat's own core. You can paste a bridge or your own domain. The test is not a ping.",
+            ),
+            12.5f,
+            TEXT_PRIMARY,
+        ),
+    )
+    var dialog: AlertDialog? = null
+    box.addView(
+        freeButton(t("⚡ اتصال به سریع‌ترین سالم (فهرست عمومی)", "⚡ Connect the fastest healthy (public list)"), accent = true) {
+            dialog?.dismiss()
+            runCatEdgeConnect(pasted = emptyList(), refresh = true)
+        },
+        freeLp(12),
+    )
+    box.addView(
+        freeButton(t("📋 چسباندن پل / دامنه", "📋 Paste a bridge / domain"), accent = false) {
+            dialog?.dismiss()
+            showCatEdgePaste()
+        },
+        freeLp(8),
+    )
+    box.addView(
+        freeText(
+            t("پورت ۸۰ و ۱۰۸۰ گذاشته نمی‌شود. بدون skip-cert-verify.", "Ports 80 and 1080 are not used. No skip-cert-verify."),
+            12f,
+        ),
+        freeLp(8),
+    )
+    val built = MaterialAlertDialogBuilder(this)
+        .setTitle(t("🌉 Cat Edge", "🌉 Cat Edge"))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+    dialog = built
+    built.showCatClientDialog()
+}
+
+private fun MainActivity.showCatEdgePaste() {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val input = EditText(this).apply {
+        hint = t("دامنه، host:443، یا چند خط", "domain, host:443, or several lines")
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        minLines = 4
+        typeface = CatClientBodyTypeface
+    }
+    val clip = (getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
+        ?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+    if (CatEdgePlanner.parsePasted(clip).isNotEmpty()) input.setText(clip)
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("📋 پل یا دامنه برای Cat Edge", "📋 Bridge or domain for Cat Edge"))
+        .setView(input)
+        .setNegativeButton(t("لغو", "Cancel"), null)
+        .setPositiveButton(t("تست و اتصال", "Test and connect")) { _, _ ->
+            val nodes = CatEdgePlanner.parsePasted(input.text?.toString().orEmpty(), kind = "bridge")
+            if (nodes.isEmpty()) {
+                Toast.makeText(this, t("میزبان معتبری نبود.", "No valid host."), Toast.LENGTH_LONG).show()
+            } else {
+                runCatEdgeConnect(pasted = nodes, refresh = false)
+            }
+        }
+        .create()
+        .showCatClientDialog()
+}
+
+private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, refresh: Boolean) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val name = CatEdgePlanner.NAME
+    freeProgress(t("⏳ Cat Edge — جلسه و اتصال…", "⏳ Cat Edge — session and connect…")) { step ->
+        val http = CatEdgePlanner.EdgeHttp { url, headers ->
+            val a = FreeNetHttp.request(url, headers = headers, timeoutMs = 12_000, allowTunnel = true)
+            a.code to a.body
+        }
+        val nodes = ArrayList<CatEdgePlanner.Node>()
+        if (refresh) {
+            step(t("گرفتن فهرست امضاشده…", "Fetching the signed list…"))
+            val list = withContext(Dispatchers.IO) {
+                withPhysicalNet { CatEdgePlanner.fetchSignedList(http) }
+            }
+            step(t("فهرست ${list.nodes.size} میزبان (سریال ${list.serial})", "List of ${list.nodes.size} hosts (serial ${list.serial})"))
+            nodes += CatEdgePlanner.pickForOneTap(list.nodes, limit = 16)
+        }
+        nodes += pasted
+        if (nodes.isEmpty()) {
+            freeResult(t("⚠️ میزبانی نبود", "⚠️ No hosts"), listOf(t("فهرست یا چسباندن خالی بود.", "The list or paste was empty.")), null, "")
+            return@freeProgress
+        }
+        step(t("دست‌دهی روی ${nodes.size} میزبان…", "Handshaking ${nodes.size} hosts…"))
+        val ready = withContext(Dispatchers.IO) {
+            withPhysicalNet { CatEdgePlanner.raceHandshakes(nodes, http, maxParallel = 6, maxKeep = 6) }
+        }
+        if (ready.isEmpty()) {
+            freeResult(
+                t("⚠️ هیچ جلسه‌ای باز نشد", "⚠️ No session opened"),
+                listOf(
+                    t(
+                        "دست‌دهی روی این خط جواب نداد. دامنهٔ خودت را بچسبان یا وقتی یک کانفیگ دیگر وصل است دوباره بگیر.",
+                        "The session did not open on this line. Paste your own domain, or retry while another config is connected.",
+                    ),
+                ),
+                null,
+                "",
+            )
+            return@freeProgress
+        }
+        val links = ready.map { it.link }
+        val report = ready.map { r ->
+            "${if (r.rttMs > 0) "✅" else "•"} ${r.node.host} · ${r.rttMs} ms · ${r.node.kind}/${r.node.profile}"
+        }
+        step(t("ذخیره ${links.size} کانفیگ…", "Saving ${links.size} configs…"))
+        val store = FreeNetworkStore(this@runCatEdgeConnect)
+        val subId = try {
+            saveFreeSubscription(store.edgeSubId, name, CatEdgePlanner.subscriptionText(links))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            freeResult(t("❌ ذخیره نشد", "❌ Not saved"), report + (e.message ?: e.javaClass.simpleName), null, "")
+            return@freeProgress
+        }
+        store.edgeSubId = subId
+        renderSubscriptions()
+        freeResult(
+            t("✅ ${ready.size} جلسه — در حال وصل", "✅ ${ready.size} sessions — connecting"),
+            report,
+            subId,
+            t("VMess روی هستهٔ Cat. اگر این یکی نداد، بعدی امتحان می‌شود.", "VMess on Cat's core. If this one fails, the next is tried."),
+        )
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
+    }
+}

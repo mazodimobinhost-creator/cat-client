@@ -19,8 +19,8 @@ class Beta311MlmHubRemainderTest {
     fun versionIsBeta311() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 378"))
-        assertTrue(gradle.contains("1.10.0-beta311"))
+        assertTrue(gradle.contains("versionCode = 379"))
+        assertTrue(gradle.contains("1.10.0-beta312"))
     }
 
     @Test
@@ -35,7 +35,7 @@ class Beta311MlmHubRemainderTest {
         ids.forEach { id ->
             assertTrue("hub id $id must launch", launch.contains("\"$id\" ->"))
         }
-        assertEquals(23, ids.size)
+        assertEquals(24, ids.size)
         listOf(
             "cat_wind" to "showCatWindDialog()",
             "voidly" to "showVoidlyDialog()",
@@ -48,6 +48,7 @@ class Beta311MlmHubRemainderTest {
             "free_github_configs" to "runFetchSevenGitHubFreeConfigSourcesDialog()",
             "psiphon_free" to "showFreePsiphonDialog()",
             "sni_lab" to "showNetMelli2026BypassLabDialog()",
+            "cat_edge" to "showCatEdgeDialog()",
         ).forEach { (id, call) ->
             assertTrue("$id -> $call", launch.contains("\"$id\" -> $call"))
         }

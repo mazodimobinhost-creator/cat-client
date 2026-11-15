@@ -338,6 +338,18 @@ internal object MlmAndNextGenVpnHub {
             actionLabelFa = "🧪 باز کردن آزمایشگاه",
             actionLabelEn = "🧪 Open the lab",
         ),
+        VpnEcosystemEntry(
+            id = "cat_edge",
+            badge = "🌉 Cat Edge",
+            titleFa = "۲۴) 🌉 Cat Edge (فهرست عمومی + پل + دامنه)",
+            titleEn = "24) 🌉 Cat Edge (public list + bridge + domain)",
+            howItWorksFa = "فهرست امضاشده را می‌گیرد، روی هر میزبان جلسه می‌سازد، VMess را روی هستهٔ Cat وصل می‌کند. پل یا دامنه را می‌چسبانی. تست پینگ خالی نیست.",
+            howItWorksEn = "Fetches the signed list, opens a session on each host, connects VMess on Cat's core. Paste a bridge or domain. The test is not a ping.",
+            statusInIranFa = "🟢 روی خط ایران با لبهٔ HTTPS؛ اگر دامنه بسته بود دامنهٔ خودت را بچسبان.",
+            statusInIranEn = "🟢 On Iran via HTTPS edge; paste your own domain if the list host is closed.",
+            actionLabelFa = "🌉 باز کردن Cat Edge",
+            actionLabelEn = "🌉 Open Cat Edge",
+        ),
     )
 
     // =========================================================================

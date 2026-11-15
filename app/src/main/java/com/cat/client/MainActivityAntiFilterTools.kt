@@ -676,6 +676,7 @@ internal fun MainActivity.launchMlmHubEntry(id: String?) {
         "free_github_configs" -> runFetchSevenGitHubFreeConfigSourcesDialog()
         "psiphon_free" -> showFreePsiphonDialog()
         "sni_lab" -> showNetMelli2026BypassLabDialog()
+        "cat_edge" -> showCatEdgeDialog()
     }
 }
 

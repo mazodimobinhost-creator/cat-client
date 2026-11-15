@@ -543,13 +543,14 @@ class WhiteDnsSmartScannerTest {
     @Test fun mlmAndNextGenVpnHubOutlineAmneziaProtonIpv6AndBankShieldWork() {
         // beta248: + 🆓 Free Proxy, 🏮 Fanoos, 🎫 Free 50GB. beta311: Wind/Voidly/SSTP/GP/… (launched by id).
         val hubIds = MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.map { it.id }
-        assertEquals(23, hubIds.size)
+        assertEquals(24, hubIds.size)
         assertEquals(listOf("free_proxy", "fanoos", "free_50gb"), hubIds.subList(9, 12))
         assertTrue(
             hubIds.containsAll(
                 listOf(
                     "cat_wind", "voidly", "sstp_vpngate", "cat_gp", "telegram_mtproto",
                     "warp_gool", "flux_doctor", "cat_feed", "free_github_configs", "psiphon_free", "sni_lab",
+                    "cat_edge",
                 ),
             ),
         )

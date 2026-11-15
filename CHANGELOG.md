@@ -4,6 +4,17 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta312] — 2026-10-09 (Panel 6.89.0)
+
+Owner: Cat Edge — signed public list, real session, VMess on Cat's core. Bridges and domains paste in. Not a UI clone.
+
+### Added
+- **Cat Edge:** fetches the signed public-server envelope, opens a real session on each host, then connects `vmess://` (WS+TLS) that Cat already runs. One tap races the Iran-profile hosts. Paste a bridge or your own domain. Ports 80/1080 are refused. No skip-cert-verify.
+
+### Notes
+- **Mami** (anonymous register + signed six-method API) is not in Cat: that API is not in the public MLM tree.
+- **Direct / Shroudly native** (packet desync VpnService) is not vendored. TLS-record split Cat already has (F&F / SNI lab) stays there.
+
 ## [1.10.0-beta311] — 2026-10-09 (Panel 6.89.0)
 
 Owner: remaining MLM CONNECT methods Cat already runs, on the hub, each tap launches that engine.
