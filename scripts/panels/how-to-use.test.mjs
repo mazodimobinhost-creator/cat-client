@@ -1,10 +1,7 @@
 /**
- * HOW-TO-USE: a brand-new owner must see, without hunting, how to use the panel.
- *
- * Login is only a password form (no dead tab bar). After sign-in the Home tab
- * opens with three numbered steps and one copy button that uses the same
- * subLinks() the user list already uses. Settings says “change the password,
- * leave the rest”.
+ * HOW-TO-USE: a brand-new owner must see the real setup order, not a dummy
+ * copy-paste card: scan IPs → pick a country if they want one → get ProxyIP
+ * and SOCKS. Each Home button opens the real page (scanner / loc finder).
  *
  * Run standalone:  node scripts/panels/how-to-use.test.mjs
  */
@@ -34,7 +31,7 @@ const ok = (name, cond, extra) => {
   else { fail++; console.log('  ✗ ' + name + (extra !== undefined ? ' → ' + extra : '')); }
 };
 
-console.log('\nHow-to-use — a new owner is not lost\n');
+console.log('\nHow-to-use — scan, then country, then ProxyIP/SOCKS\n');
 
 {
   const env = {};
@@ -42,8 +39,8 @@ console.log('\nHow-to-use — a new owner is not lost\n');
   const html = await login.text();
   ok('login is a password form', login.status === 200 && html.includes('type="password"') && html.includes('id="f"'), login.status);
   ok('login has no dead tab bar', !html.includes('class="tabbar"') && !html.includes('data-sec="home"'));
-  ok('login says the three steps after sign-in',
-    /کپی لینک اشتراک|copy the subscription/i.test(html) && /Cat Client/.test(html));
+  ok('login names the real order (scan → country → ProxyIP/SOCKS)',
+    /اسکن آی‌پی|scan IPs/i.test(html) && /ProxyIP/.test(html) && /SOCKS/.test(html));
   ok('first-run still shows admin / admin', html.includes('<code>admin</code>'));
 }
 
@@ -59,20 +56,23 @@ console.log('\nHow-to-use — a new owner is not lost\n');
   const page = await get(env, '/panel', { headers: { cookie } });
   const html = await page.text();
   ok('home how-to card is first on the home tab',
-    html.includes('id="howUse"') && html.includes('id="howCopy"') && html.includes('id="howLink"')
-    && html.indexOf('id="howUse"') < html.indexOf('id="hmKv"'), html.includes('id="howUse"'));
-  ok('three numbered steps, no extra knobs',
-    html.includes('data-i="how_1"') && html.includes('data-i="how_2"') && html.includes('data-i="how_3"')
-    && html.includes('class="howuse"'));
-  ok('Persian and English how-to strings ship',
-    html.includes("how_title:'چطور استفاده کنم؟'") && html.includes("how_title:'How do I use this?'")
-    && html.includes("how_copy:'کپی لینک اشتراک'") && html.includes("how_copy:'Copy subscription link'"));
-  ok('copy button uses the same subLinks() as the user list',
-    /function howSubUrl\(\)\{/.test(html) && /subLinks\(location\.origin/.test(html)
-    && /\$\('#howCopy'\)/.test(html));
-  ok('settings tells a new owner to change the password and leave the rest',
-    html.includes('id="howSet"') && html.includes("how_set_title:'اول رمز را عوض کن")
-    && html.includes("how_set_title:'Change the password first"));
+    html.includes('id="howUse"') && html.includes('id="howScan"') && html.includes('id="howCc"') && html.includes('id="howPx"')
+    && html.indexOf('id="howUse"') < html.indexOf('id="hmKv"'));
+  ok('three numbered steps are scan → country → ProxyIP/SOCKS',
+    html.includes("how_1:'اسکن آی‌پی تمیز'") && html.includes("how_2:'کشور خروجی را انتخاب کن'")
+    && html.includes("how_3:'ProxyIP و SOCKS بگیر'")
+    && html.includes("how_1:'Scan clean IPs'") && html.includes("how_2:'Pick an exit country'")
+    && html.includes("how_3:'Get ProxyIP and SOCKS'"));
+  ok('step buttons open the real scanner and loc finder (not a fake page)',
+    /function howGo\(view,sec,atab\)\{/.test(html)
+    && /howGo\('scan','addr','ip'\)/.test(html)
+    && /howGo\('loc','loc'\)/.test(html)
+    && /locKind[\s\S]{0,40}both/.test(html));
+  ok('copy-sub is after the three setup steps, not instead of them',
+    html.includes('id="howCopy"') && html.indexOf('id="howScan"') < html.indexOf('id="howCopy"')
+    && html.includes("how_copy:'کپی لینک اشتراک (بعد از سه قدم بالا)'"));
+  ok('settings points back to the same Home order',
+    html.includes('id="howSet"') && /اسکن آی‌پی/.test(html) && /ProxyIP و SOCKS/.test(html));
   ok('home tab still has status / errors / usage under the how-to',
     html.includes('id="v-home"') && html.includes('data-i="hm_status"') && html.includes('id="errRows"'));
 }
