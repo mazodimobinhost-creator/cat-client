@@ -28,7 +28,8 @@ class Beta317InAppUpdateIranTest {
             "https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/latest",
             GitHubReleaseClient.browserLatestReleaseUrl(),
         )
-        val pointer = File("docs/latest-release.json").readText()
+        val pointer = listOf(File("docs/latest-release.json"), File("../docs/latest-release.json"))
+            .first { it.isFile }.readText()
         val parsed = GitHubReleaseClient.parseLatestPointer(pointer, ApkVariant.Arm64V8a)
         assertEquals("v1.10.0-beta317", parsed.version)
         assertTrue(parsed.downloadable)
