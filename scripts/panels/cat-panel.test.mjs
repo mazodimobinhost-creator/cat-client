@@ -117,6 +117,7 @@ const auth = { cookie };
   check('has vless + trojan', b.includes('vless://') && b.includes('trojan://'));
   const firstName = decodeURIComponent(b.split('\n')[0].split('#')[1] || '');
   check('BPB-style remark', firstName.includes('VLESS - Clean IP') || firstName.includes('VLESS - WorkerOnly'), firstName);
+  check('config names start with 🐈‍⬛', firstName.startsWith('🐈‍⬛'), firstName);
   check('first entry is TLS 443', /:443\?/.test(lines[0]), lines[0]);
   // :80 sits after the BPB 443→8080 waves (beyond the 48-entry default limit);
   // the default plain-port set still contains it.

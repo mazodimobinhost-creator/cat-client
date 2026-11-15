@@ -3674,7 +3674,7 @@ function inbBare(a) {
   return (pin ? t.slice(0, t.lastIndexOf(':')) : t).replace(/^\[|\]$/g, '').toLowerCase();
 }
 function inbKind(e, host, sets) {
-  const n = String((e && e.name) || '');
+  const n = stripCatMark(e && e.name);
   if (n.indexOf('🎯') === 0) return 'px';
   if (n.indexOf('🧦') === 0) return 'socks';
   if (n.indexOf('🧬') === 0) return 'sni';
@@ -3693,7 +3693,7 @@ function inbExitOf(e, kind) {
     const m = INB_PX_RE.exec(String(e.link || ''));
     if (m) { let v = m[1]; for (let i = 0; i < 2; i++) { try { v = decodeURIComponent(v); } catch (x) { break; } } return v; }
   }
-  if (kind === 'socks') return String(e.name || '').replace(/^🧦\s*\d+\.\s*/, '');
+  if (kind === 'socks') return stripCatMark(e.name).replace(/^🧦\s*\d+\.\s*/, '');
   if (kind === 'sni') return String(e.sni || '');
   return '';
 }
@@ -5699,11 +5699,11 @@ function realityLines(host, env, uuid, user, q) {
   const at = '@' + formatAddr(String(host)) + ':' + nodePort(env);
   // beta244 🟣 SS-2022 rides the same Xray; only after its own round trip through the public port passed
   const pw = st.ss && st.ss.verified && r.ssPassword ? r.ssPassword(uuid) : '';
-  const ss = pw ? ['ss://' + st.ss.method + ':' + encodeURIComponent(pw) + at + '#' + encodeURIComponent('🐱 Cat · 🟣 SS-2022')] : [];
+  const ss = pw ? ['ss://' + st.ss.method + ':' + encodeURIComponent(pw) + at + '#' + encodeURIComponent(withCatMark('🟣 SS-2022'))] : [];
   if (!st.verified || !st.pub) return ss;
   return ss.concat(st.profiles.map((p) => PROTO_VLESS + '://' + String(uuid).toLowerCase() + at +
     '?encryption=none&flow=xtls-rprx-vision&security=reality&sni=' + p.sni + '&fp=chrome&pbk=' + encodeURIComponent(st.pub) + '&sid=' + st.sid +
-    '&type=tcp#' + encodeURIComponent('🐱 Cat · 🔒 Reality · ' + (REALITY_LABEL[p.id] || p.id))));
+    '&type=tcp#' + encodeURIComponent(withCatMark('🔒 Reality · ' + (REALITY_LABEL[p.id] || p.id)))));
 }
 function nodeHostIpsCached(host) { const c = NODE_IPS.get(String(host || '').toLowerCase()); return c ? c.ips : []; }
 /** Waits only when nothing is known yet; a stale entry is refreshed in the background. */
@@ -5846,8 +5846,19 @@ function addressList(host, env, settings) {
   return settings.domMap ? list.map((a) => settings.domMap[a] || a) : list;
 }
 
+const CAT_MARK = '🐈‍⬛';
+function stripCatMark(name) {
+  const n = String(name || '');
+  return n.indexOf(CAT_MARK) === 0 ? n.slice(CAT_MARK.length).replace(/^\s+/, '') : n;
+}
+function withCatMark(name) {
+  const n = String(name || '').trim();
+  if (!n) return CAT_MARK;
+  return n.indexOf(CAT_MARK) === 0 ? n : CAT_MARK + ' ' + n;
+}
+
 function configName(proto, addr, port, tls, cc, host, index) {
-  // BPB-style remarks: "💦 12. VLESS - Clean IP : 8080". Entries on the panel's
+  // BPB-style remarks: "🐈‍⬛ 💦 12. VLESS - Clean IP : 8080". Entries on the panel's
   // own address are 🔌 WorkerOnly; everything else is a clean IP (💦). A country
   // flag (when known) still leads the name so clients can group by country.
   const protoName = proto === 'vless' ? 'VLESS' : 'TROJAN';
@@ -5856,7 +5867,7 @@ function configName(proto, addr, port, tls, cc, host, index) {
   const isHostIp = !isWorker && !isVercelEdge && !!host && nodeHostIpsCached(host).includes(String(addr));
   const label = (isWorker ? 'WorkerOnly' : (isVercelEdge ? 'Vercel Edge' : (isHostIp ? 'Server IP' : 'Clean IP'))) + (tls ? ' TLS' : '');
   const n = index ? index + '. ' : '';
-  return (cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : (isVercelEdge ? '▲ ' : (isHostIp ? '🏠 ' : '💦 '))) + n + protoName + ' - ' + label + ' : ' + port;
+  return withCatMark((cc ? flagOf(cc) + ' ' : '') + (isWorker ? '🔌 ' : (isVercelEdge ? '▲ ' : (isHostIp ? '🏠 ' : '💦 '))) + n + protoName + ' - ' + label + ' : ' + port);
 }
 
 function wsParams(hostHeader, path, sni, fp, tls, ech, alpn) {
@@ -6196,7 +6207,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       if (entries.length >= 200) break;
       if (!sniHost || sniHost === ctx.sni) continue;
       const sctx = Object.assign({}, ctx, { sni: sniHost });
-      const name = '🧬 SNI ' + sniHost;
+      const name = withCatMark('🧬 SNI ' + sniHost);
       if (ctx.protocols[PROTO_VLESS]) entries.push({ proto: 'vless', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: sniHost, link: vlessLink(sctx, workerDial, tlsPort, true, '', { name }), name });
       if (ctx.protocols[TROJAN_KEY]) entries.push({ proto: 'trojan', addr: workerDial, port: tlsPort, tls: true, cc: '', sni: sniHost, link: trojanLink(sctx, workerDial, tlsPort, true, '', { name }), name });
     }
@@ -6210,7 +6221,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
       // ProxyIP that exits through that relay (?proxyip= on the WS path).
       const pxlabel = pxcc ? (faUi ? (PX_FA_NAMES[pxcc] || pxcc) : (COUNTRY_NAMES[pxcc] || pxcc)) : '';
       const pxsni = pxTls ? sniFor(pxi - 1) : ctx.sni;
-      const pxname = '🎯 ' + pxi + '. ' + (pxcc ? flagOf(pxcc) + ' ' + pxlabel + ' · ' : '') + px + (pxTls ? sniSuffix(pxsni) : '');
+      const pxname = withCatMark('🎯 ' + pxi + '. ' + (pxcc ? flagOf(pxcc) + ' ' + pxlabel + ' · ' : '') + px + (pxTls ? sniSuffix(pxsni) : ''));
       const pxc = pxsni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: pxsni });
       // The pin lives in the WS PATH. Every output format must send THIS path (entry.wsPath), not the generic one —
       // Clash/sing-box/Xray used the generic path, so their «🎯» configs were labels only: all identical.
@@ -6228,7 +6239,7 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
             // The relay address is deliberately NOT in the name: the name travels into
       // clients and logs, and the relay host was the last place it leaked.
       const sxcc = normalizeCountry((settings.proxyCountries || {})[sr.url]);
-      const ssname = '🧦 ' + sxi + '. ' + (sxcc ? flagOf(sxcc) + ' ' + (faUi ? (PX_FA_NAMES[sxcc] || sxcc) : (COUNTRY_NAMES[sxcc] || sxcc)) + ' · ' : '') + 'Relay' + (pxTls ? sniSuffix(ssni) : '');
+      const ssname = withCatMark('🧦 ' + sxi + '. ' + (sxcc ? flagOf(sxcc) + ' ' + (faUi ? (PX_FA_NAMES[sxcc] || sxcc) : (COUNTRY_NAMES[sxcc] || sxcc)) + ' · ' : '') + 'Relay' + (pxTls ? sniSuffix(ssni) : ''));
       const sctx = ssni === ctx.sni ? ctx : Object.assign({}, ctx, { sni: ssni });
       const svless = withPathQuery(ctx.paths[PROTO_VLESS + 'Path'], 'proxyip=' + encodeURIComponent(relayTokenFor(sr.url)));
       const strojan = withPathQuery(ctx.paths[TROJAN_KEY + 'Path'], 'proxyip=' + encodeURIComponent(relayTokenFor(sr.url)));
@@ -7362,7 +7373,7 @@ async function tgCommand(text, { origin, host, env, settings, masterUuid }) {
   const arg = parts.slice(1);
   const users = await readUsers(env);
   const byName = (q) => { q = String(q || '').toLowerCase(); return users.find((u) => u.id === q || u.id.startsWith(q) || u.name.toLowerCase() === q); };
-  const userLine = (u) => { const r = userBlockedReason(u); const left = u.expiresAt ? Math.ceil((u.expiresAt - Date.now()) / 86400000) + 'd' : '∞'; return (r ? (r === 'expired' ? '⏰' : '⛔') : '🟢') + ' <b>' + tgEsc(u.name) + '</b> · ' + left + ' · <code>' + u.id.slice(0, 8) + '</code>'; };
+  const userLine = (u) => { const r = userBlockedReason(u); const left = u.expiresAt ? Math.ceil((u.expiresAt - Date.now()) / 86400000) + 'd' : '∞'; return (r ? (r === 'expired' ? '⏰' : '⛔') : '🟢') + ' <b>🐈‍⬛ ' + tgEsc(u.name) + '</b> · ' + left + ' · <code>' + u.id.slice(0, 8) + '</code>'; };
   const links = (u) => { const l = subLinks(origin, subKeyOf(settings, masterUuid), u); return '🔗 <code>' + tgEsc(l.sub) + '</code>\n🧩 Clash: <code>' + tgEsc(l.clash) + '</code>\n📦 Xray: <code>' + tgEsc(l.xray) + '</code>' + (u ? '\nℹ️ ' + tgEsc(l.info) : ''); };
   switch (cmd) {
     case '/start': case '/help':
@@ -9692,7 +9703,7 @@ details summary{cursor:pointer;font-weight:700;color:var(--acc1)}
 .modal{position:fixed;inset:0;background:rgba(2,6,23,.65);display:none;place-items:center;z-index:50;padding:20px}.modal.show{display:grid}.qrbox{background:#fff;padding:14px;border-radius:16px}.qrbox img{width:min(78vw,320px);height:auto;display:block}
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 18px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}.toast.show{opacity:1}
 </style></head><body><div class="wrap">
-<div class="card head"><div class="av" aria-hidden="true">${initial}</div><div style="min-width:0;flex:1"><div class="nm">${escapeHtml(name)}</div><div class="mute small">${escapeHtml(title)} · ${escapeHtml(host)} · ${escapeHtml(edgeInfo)}</div></div><span class="pill ${status[0]}">● ${status[1]}</span><button class="ib" type="button" id="dk" aria-label="${L('حالت تیره/روشن', 'Dark/light mode')}" title="${L('حالت تیره/روشن', 'Dark/light mode')}">🌙</button></div>
+<div class="card head"><div class="av" aria-hidden="true">${initial}</div><div style="min-width:0;flex:1"><div class="nm">🐈‍⬛ ${escapeHtml(name)}</div><div class="mute small">${escapeHtml(title)} · ${escapeHtml(host)} · ${escapeHtml(edgeInfo)}</div></div><span class="pill ${status[0]}">● ${status[1]}</span><button class="ib" type="button" id="dk" aria-label="${L('حالت تیره/روشن', 'Dark/light mode')}" title="${L('حالت تیره/روشن', 'Dark/light mode')}">🌙</button></div>
 <div class="stats">
 ${stat('📊', L('مصرف', 'Usage'), q ? gb(used) + ' <span class="mute small">/ ' + gb(q) + '</span>' : (used ? gb(used) : L('نامحدود', 'Unlimited')), q ? pct + '%' : '', q ? `<div class="bar"><i style="width:${pct}%"></i></div>` : '')}
 ${stat('⏳', L('اعتبار', 'Validity'), expires ? (daysLeft > 0 ? daysLeft + ' ' + t.left : t.expired) : t.never, expires ? `<span class="mono">${expires.toISOString().slice(0, 10)}</span>` : '♾️')}
@@ -12381,8 +12392,8 @@ function actBtns(u){return '<div class="act"><button class="ib" data-c="cyan" da
 function filtered(){var q=($('#q').value||'').toLowerCase(),f=$('#flt').value,s=$('#srt').value;var list=USERS.filter(function(u){if(q&&u.name.toLowerCase().indexOf(q)<0&&u.id.indexOf(q)<0)return false;if(f!=='all'&&statusOf(u)!==f)return false;return true});
  list.sort(function(a,b){if(s==='name')return a.name.localeCompare(b.name);if(s==='exp'){var x=a.expiresAt||9e15,y=b.expiresAt||9e15;return x-y}return b.createdAt-a.createdAt});return list}
 function renderUsers(){var list=filtered();$('#empty').style.display=USERS.length?'none':'block';
- $('#rows').innerHTML=list.map(function(u){return '<tr'+(SEL[u.id]?' class="selr"':'')+'><td><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"></td><td><div class="b">'+esc(u.name)+(u.exitCc?' <span title="'+esc(tx('لوکیشن خروجی','Exit location')+': '+((u.exitCcs&&u.exitCcs.length)?u.exitCcs:[u.exitCc]).join(', '))+'">'+((u.exitCcs&&u.exitCcs.length)?u.exitCcs:[u.exitCc]).map(locFlag).join('')+'</span>':'')+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
- $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"><span class="nm">'+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('');bulkSync()}
+ $('#rows').innerHTML=list.map(function(u){return '<tr'+(SEL[u.id]?' class="selr"':'')+'><td><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"></td><td><div class="b">🐈‍⬛ '+esc(u.name)+(u.exitCc?' <span title="'+esc(tx('لوکیشن خروجی','Exit location')+': '+((u.exitCcs&&u.exitCcs.length)?u.exitCcs:[u.exitCc]).join(', '))+'">'+((u.exitCcs&&u.exitCcs.length)?u.exitCcs:[u.exitCc]).map(locFlag).join('')+'</span>':'')+'</div><div class="dim small mono">'+u.id.slice(0,8)+'…</div>'+(u.note?'<div class="dim small">'+esc(u.note)+'</div>':'')+usageLine(u)+'</td><td>'+protoChips(u)+'</td><td>'+linkBtns(u)+'</td><td>'+timeCell(u)+'</td><td>'+seenCell(u)+'</td><td>'+statusChip(u)+'</td><td>'+actBtns(u)+'</td></tr>'}).join('');
+ $('#cards').innerHTML=list.map(function(u){return '<div class="uc"><div class="hd"><input type="checkbox" data-sel="'+esc(u.id)+'"'+(SEL[u.id]?' checked':'')+' aria-label="'+esc(u.name)+'" title="'+esc(u.name)+'" style="width:auto"><span class="nm">🐈‍⬛ '+esc(u.name)+'</span>'+statusChip(u)+'<span style="margin-inline-start:auto">'+protoChips(u)+'</span></div><div class="kv"><div><span>'+t('h_time')+'</span>'+timeCell(u)+'</div><div><span>UUID</span><span class="mono" style="color:var(--mute)">'+u.id.slice(0,13)+'…</span></div></div>'+usageLine(u)+linkBtns(u)+'<div style="height:8px"></div>'+actBtns(u)+'</div>'}).join('');bulkSync()}
 var SEL={};
 function bulkSync(){Object.keys(SEL).forEach(function(id){if(!USERS.some(function(u){return u.id===id}))delete SEL[id]});var n=Object.keys(SEL).length,vis=filtered();$('#bulkBar').style.display=n?'flex':'none';$('#bulkN').textContent=String(n);var sa=$('#selAll');if(sa){sa.checked=!!vis.length&&vis.every(function(u){return SEL[u.id]});sa.indeterminate=n>0&&!sa.checked}}
 document.addEventListener('change',function(e){var c=e.target;if(c.id==='selAll'){filtered().forEach(function(u){if(c.checked)SEL[u.id]=1;else delete SEL[u.id]});renderUsers();return}var id=c.getAttribute&&c.getAttribute('data-sel');if(id==null)return;if(c.checked)SEL[id]=1;else delete SEL[id];renderUsers()});
@@ -13344,7 +13355,7 @@ function userUsed(u){var tr=u.traffic||{};return (Number(tr.up)||0)+(Number(tr.d
 function renderDash(){if(!$('#stVol'))return;var vol=0,dev=0;USERS.forEach(function(u){vol+=userUsed(u);dev+=Number(u.activeIps)||0});$('#stVol').textContent=fmtGB(vol);$('#stDev').textContent=String(dev);
  var tb=$('#topUsers');if(!tb)return;var list=USERS.slice().sort(function(a,b){return userUsed(b)-userUsed(a)}).slice(0,6);$('#topUsersEmpty').style.display=list.length?'none':'block';
  tb.innerHTML=list.map(function(u){var used=userUsed(u),q=Number(u.quotaBytes)||0,pct=q>0?Math.min(100,Math.round(used/q*100)):0;
-  return '<tr><td><b>'+esc(u.name)+'</b></td><td><div dir="ltr" class="small">'+fmtGB(used)+(q>0?' / '+fmtGB(q):' / ∞')+'</div>'+(q>0?'<div class="bar'+(pct>=90?' d':pct>=70?' w':'')+'"><i style="width:'+pct+'%"></i></div>':'')+'</td><td class="small">'+timeCell(u)+'</td><td class="small" dir="ltr">'+(Number(u.activeIps)||0)+(u.maxIps>0?' / '+u.maxIps:'')+'</td><td>'+statusChip(u)+'</td></tr>'}).join('')}
+  return '<tr><td><b>🐈‍⬛ '+esc(u.name)+'</b></td><td><div dir="ltr" class="small">'+fmtGB(used)+(q>0?' / '+fmtGB(q):' / ∞')+'</div>'+(q>0?'<div class="bar'+(pct>=90?' d':pct>=70?' w':'')+'"><i style="width:'+pct+'%"></i></div>':'')+'</td><td class="small">'+timeCell(u)+'</td><td class="small" dir="ltr">'+(Number(u.activeIps)||0)+(u.maxIps>0?' / '+u.maxIps:'')+'</td><td>'+statusChip(u)+'</td></tr>'}).join('')}
 /* ---- tools page ---- */
 function tRow(label,val,cls){return '<div><span>'+label+'</span><span class="'+(cls||'')+'" dir="ltr">'+val+'</span></div>'}
 function msCls(ms){return ms<250?'ok':ms<700?'warn':'bad'}
@@ -13803,7 +13814,7 @@ export default {
 
 export const _testing = {
   echPoolOf, echNext, ECH_COMBO_RE, ipRepoCandidates, genV4, genV6, trafficOf, cronUsageReset, cfQuota, realityLines, realityClients, normalizeUser,
-  nodeHostIps, nodeHostIpsCached, nodeVerifyTyped, nodeIpCheck, cfHostedName, withUserExits, configName,
+  nodeHostIps, nodeHostIpsCached, nodeVerifyTyped, nodeIpCheck, cfHostedName, withUserExits, configName, CAT_MARK, withCatMark, stripCatMark,
   dnsFilterFor, resolveDnsOverDoh, DNS_FILTERS, DEFAULT_PROXY_IPS,
   linkExitChain, normalizeLinkExit, parseLinkCode, linkExitCapable, linkPseudoUsers, linkUrlOk, dialTarget,
   admitLimitedUser, startFirstUseClock, subResponse,

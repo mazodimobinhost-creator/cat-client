@@ -75,6 +75,8 @@ console.log('\nHow-to-use — scan, then country, then ProxyIP/SOCKS\n');
     html.includes('id="howSet"') && /اسکن آی‌پی/.test(html) && /ProxyIP و SOCKS/.test(html));
   ok('home tab still has status / errors / usage under the how-to',
     html.includes('id="v-home"') && html.includes('data-i="hm_status"') && html.includes('id="errRows"'));
+  ok('user names in the list are prefixed with 🐈‍⬛',
+    html.includes('<div class="b">🐈‍⬛ \'+esc(u.name)') && html.includes('<span class="nm">🐈‍⬛ \'+esc(u.name)'));
 }
 
 console.log('\n' + (fail === 0 ? `how-to-use: ALL ${pass} PASSED` : `how-to-use: ${pass} passed, ${fail} FAILED`) + '\n');

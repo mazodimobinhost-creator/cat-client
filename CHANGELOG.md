@@ -6,6 +6,7 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ### Changed
 - **Cloudflare Cat Panel:** Home how-to is scan clean IPs → pick an exit country if you want one → get ProxyIP and SOCKS (each button opens the real page). Copy-sub comes after those three. Login has no dead tab bar; first-run still `admin` / `admin`. Guarded by `scripts/panels/how-to-use.test.mjs`.
+- **Names:** config remarks and user names show 🐈‍⬛ in front.
 
 ## [1.10.0-beta317] — 2026-11-15 (Panel 6.89.0)
 
