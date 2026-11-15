@@ -355,6 +355,10 @@ internal fun MainActivity.showRecommendedOneClickConnectWizardDialog() {
 }
 
 internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
+    FinderEntry("⬆ آپدیت برنامه", "⬆ Update the app",
+        "آخرین APK را از داخل Cat می‌گیرد؛ اگر گیت‌هاب بسته باشد «دانلود با مرورگر» آینه را باز می‌کند.",
+        "Gets the latest APK inside Cat; if GitHub is blocked, Download in browser opens the mirror.",
+        "آپدیت اپدیت بروزرسانی به‌روزرسانی نسخه جدید دانلود apk update download github") { openAppUpdatePanel() },
     FinderEntry("🚀 فقط می‌خواهم وصل شوم", "🚀 I just want to connect",
         "با یک ضربه روی همین خط وصل می‌شود. اگر این روش اینترنت نداد، خودش بعدی را امتحان می‌کند — پنجرهٔ رتبه‌بندی باز نمی‌شود. برای دیدن نتیجهٔ کامل «🧭 بررسی» را بزنید.",
         "Connects on this line in one tap. If this method gives no internet, it tries the next itself — no ranking dialog. Tap 🧭 Check for the full test.",

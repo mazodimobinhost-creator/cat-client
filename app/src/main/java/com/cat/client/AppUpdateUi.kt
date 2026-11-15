@@ -98,7 +98,8 @@ internal class AppUpdateUi(
             }
         }
         releaseButton = button(R.string.update_download_browser) {
-            manager.availableRelease()?.let(::openMirroredApk)
+            val release = manager.availableRelease()
+            if (release != null) openMirroredApk(release) else openLatestReleasePage()
         }
         listOf(checkButton, actionButton, releaseButton).forEach {
             panel.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
@@ -159,6 +160,7 @@ internal class AppUpdateUi(
             } catch (error: Exception) {
                 DiagnosticLogger.warn(activity, "update.check.failed", error = error)
                 if (manual) notice = activity.getString(R.string.update_check_failed)
+                if (manual) openLatestReleasePage()
             } finally {
                 checking = false
                 render()
@@ -202,10 +204,18 @@ internal class AppUpdateUi(
 
     private fun openMirroredApk(release: AppRelease) {
         val apk = release.apk?.url ?: return
+        openUrl(GitHubReleaseClient.browserAssetUrl(apk), "update.browser.failed")
+    }
+
+    private fun openLatestReleasePage() {
+        openUrl(GitHubReleaseClient.browserLatestReleaseUrl(), "update.latest.browser.failed")
+    }
+
+    private fun openUrl(url: String, event: String) {
         try {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GitHubReleaseClient.browserAssetUrl(apk))))
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (error: Exception) {
-            DiagnosticLogger.warn(activity, "update.browser.failed", error = error)
+            DiagnosticLogger.warn(activity, event, error = error)
         }
     }
 
@@ -342,7 +352,7 @@ internal class AppUpdateUi(
             state is AppDownloadState.Failed -> R.string.update_retry
             else -> R.string.update_download
         })
-        releaseButton.visibility = if (available) View.VISIBLE else View.GONE
+        releaseButton.visibility = View.VISIBLE
     }
 
     private fun failedMessage(failed: AppDownloadState.Failed): String = when (failed.reason) {

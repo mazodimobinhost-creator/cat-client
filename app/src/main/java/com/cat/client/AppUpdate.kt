@@ -145,7 +145,11 @@ object AppUpdatePolicy {
 
 object GitHubReleaseClient {
     suspend fun latest(variant: ApkVariant?): AppRelease = withContext(Dispatchers.IO) {
-        parseReleaseList(fetchReleasesJson(), variant)
+        val api = runCatching { parseReleaseList(fetchReleasesJson(), variant) }
+        if (api.isSuccess) return@withContext api.getOrThrow()
+        runCatching {
+            parseLatestPointer(repositoryFile(LATEST_POINTER_PATH, 8_192), variant)
+        }.getOrElse { throw api.exceptionOrNull() ?: it }
     }
 
     /** GitHub's /releases/latest excludes every pre-release. Cat Client itself
@@ -158,7 +162,7 @@ object GitHubReleaseClient {
             var lastError: IOException? = null
             for (index in 0 until releases.length()) {
                 val item = releases.optJSONObject(index) ?: continue
-                if (item.optBoolean("draft", true)) continue
+                if (item.optBoolean("draft", false)) continue
                 try {
                     val release = parseRelease(item.toString(), variant)
                     if (release.downloadable) return release
@@ -248,7 +252,7 @@ object GitHubReleaseClient {
     fun parseRelease(json: String, variant: ApkVariant?): AppRelease {
         try {
             val response = JSONObject(json)
-            if (response.getBoolean("draft")) {
+            if (response.optBoolean("draft", false)) {
                 throw IOException("GitHub release is a draft")
             }
             val tag = response.getString("tag_name")
@@ -297,7 +301,7 @@ object GitHubReleaseClient {
             release.checksums to "SHA256SUMS",
         )) {
             if (asset == null) continue
-            if (asset.id <= 0 || asset.size <= 0 || asset.name != expectedName) {
+            if (asset.id <= 0 || asset.size < 0 || asset.name != expectedName) {
                 throw IOException("GitHub release asset is invalid")
             }
             requireAssetUrl(asset.url, release.version, asset.name)
@@ -347,11 +351,16 @@ object GitHubReleaseClient {
                 throw IOException("GitHub API redirected to an invalid URL")
             }
             val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 4_000
-            connection.readTimeout = if (asset) 20_000 else 8_000
+            connection.connectTimeout = if (asset) 12_000 else 10_000
+            connection.readTimeout = if (asset) 30_000 else 20_000
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("Accept", if (asset) "application/octet-stream" else "application/vnd.github+json")
-            connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            val proxy = uri.host in PROXY_HOSTS
+            if (asset) {
+                connection.setRequestProperty("Accept", "application/octet-stream")
+            } else {
+                connection.setRequestProperty("Accept", if (proxy) "application/json,text/plain,*/*" else "application/vnd.github+json")
+                if (!proxy) connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+            }
             connection.setRequestProperty("User-Agent", if (asset) ASSET_UA else "Cat Client/${BuildConfig.VERSION_NAME}")
             try {
                 val status = connection.responseCode
@@ -426,16 +435,43 @@ object GitHubReleaseClient {
         }
     }
 
-    /** First URL that is not github.com — for the system browser when the in-app GET cannot finish. */
+    /** kkgithub first — gh-proxy.com is often blocked on the same lines as github.com. */
     internal fun browserAssetUrl(githubUrl: String): String =
-        assetUrlCandidates(githubUrl).first { !it.startsWith("https://github.com/") }
+        githubUrl.replaceFirst("https://github.com/", "https://kkgithub.com/")
+
+    internal fun browserLatestReleaseUrl(): String =
+        "https://kkgithub.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/latest"
+
+    internal fun parseLatestPointer(json: String, variant: ApkVariant?): AppRelease {
+        val obj = JSONObject(json)
+        val tag = obj.optString("tag").trim()
+        val version = AppUpdatePolicy.normalizedVersion(tag)
+        if (version.isEmpty() || !tag.startsWith("v")) throw IOException("latest-release.json tag is invalid")
+        val html = "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/tag/$tag"
+        val apkName = variant?.let { "CatClient-V$version-${it.suffix}.apk" }
+        val apk = apkName?.let {
+            ReleaseAsset(
+                1,
+                it,
+                "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/download/$tag/$it",
+                obj.optLong("size", 0L).coerceAtLeast(0L),
+            )
+        }
+        val sums = ReleaseAsset(
+            1,
+            "SHA256SUMS",
+            "https://github.com/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases/download/$tag/SHA256SUMS",
+            obj.optLong("checksumsSize", 609L).coerceAtLeast(1L),
+        )
+        return AppRelease(tag, html, apk, sums).also { validateRelease(it, variant) }
+    }
 
     /**
      * GET the APK through the first host that answers (github.com with VPN, a mirror without).
      * Bytes go to [dest] as they arrive so the UI can show progress instead of "preparing".
      */
     suspend fun downloadAsset(githubUrl: String, dest: File, expectedSize: Long) {
-        require(expectedSize in 1..400L * 1024 * 1024) { "GitHub asset size is invalid" }
+        require(expectedSize == 0L || expectedSize in 1..400L * 1024 * 1024) { "GitHub asset size is invalid" }
         val all = assetUrlCandidates(githubUrl)
         val winner = runCatching {
             firstSuccessful(all) { url ->
@@ -464,8 +500,8 @@ object GitHubReleaseClient {
             val uri = checkedUri(url)
             if (uri.host !in ASSET_HOSTS) throw IOException("GitHub asset redirected to an invalid host")
             val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 8_000
-            connection.readTimeout = 60_000
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 120_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/octet-stream")
             connection.setRequestProperty("User-Agent", ASSET_UA)
@@ -483,6 +519,7 @@ object GitHubReleaseClient {
                 val parent = dest.parentFile
                 if (parent != null && !parent.isDirectory && !parent.mkdirs()) throw IOException("Cannot create update storage")
                 dest.delete()
+                val maxCopy = if (expectedSize > 0) expectedSize else 400L * 1024 * 1024
                 connection.inputStream.use { input ->
                     dest.outputStream().use { output ->
                         val buffer = ByteArray(65_536)
@@ -492,12 +529,16 @@ object GitHubReleaseClient {
                             val count = input.read(buffer)
                             if (count == -1) break
                             copied += count
-                            if (copied > expectedSize) throw IOException("Update APK is larger than its release asset")
+                            if (copied > maxCopy) throw IOException("Update APK is larger than its release asset")
                             output.write(buffer, 0, count)
                             if (copied % (256L * 1024L) < buffer.size) output.flush()
                         }
                         output.fd.sync()
-                        if (copied != expectedSize) throw IOException("Update APK size does not match the release")
+                        if (expectedSize > 0) {
+                            if (copied != expectedSize) throw IOException("Update APK size does not match the release")
+                        } else if (copied < 5_000_000L) {
+                            throw IOException("Update APK is too small")
+                        }
                     }
                 }
                 return
@@ -574,6 +615,7 @@ object GitHubReleaseClient {
     private const val GITHUB_OWNER = "mazodimobinhost-creator"
     private const val GITHUB_REPOSITORY = "cat-client"
     private const val ACTIVE_BRANCH = "arena/c5b36768-cat-client"
+    private const val LATEST_POINTER_PATH = "docs/latest-release.json"
     private val RELEASES_PATH = "/repos/$GITHUB_OWNER/$GITHUB_REPOSITORY/releases"
     private const val ASSET_UA =
         "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"

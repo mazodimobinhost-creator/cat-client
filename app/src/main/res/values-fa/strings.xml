@@ -128,7 +128,7 @@
     <string name="update_checking">در حال بررسی نسخه جدید…</string>
     <string name="update_up_to_date">آخرین نسخه را دارید.</string>
     <string name="update_not_ready">نسخه مناسب برای برنامه شما هنوز آماده نیست. کمی بعد دوباره بررسی کنید یا صفحه انتشار را در گیت‌هاب ببینید.</string>
-    <string name="update_check_failed">بررسی نسخه جدید انجام نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.</string>
+    <string name="update_check_failed">بررسی نسخه جدید انجام نشد. «دانلود با مرورگر» را بزن (آینهٔ گیت‌هاب) یا اتصال را چک کن.</string>
     <string name="update_preparing">در حال آماده‌سازی دانلود…</string>
     <string name="update_downloading">در حال دانلود نسخه جدید…</string>
     <string name="update_download_progress">در حال دانلود نسخه جدید: %1$s</string>

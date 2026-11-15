@@ -15,8 +15,8 @@ class Beta299WarpEndpointScanTest {
     fun versionIsBeta299() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 383"))
-        assertTrue(gradle.contains("1.10.0-beta316"))
+        assertTrue(gradle.contains("versionCode = 384"))
+        assertTrue(gradle.contains("1.10.0-beta317"))
     }
 
     @Test

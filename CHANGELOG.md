@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta317] — 2026-11-15 (Panel 6.89.0)
+
+Owner: in-app update when GitHub is blocked.
+
+### Changed
+- **Update:** finder «آپدیت برنامه», Download-in-browser always visible (kkgithub mirror), GitHub API fallback via `docs/latest-release.json` on jsDelivr. Draft field missing no longer skips every release.
+
 ## [1.10.0-beta316] — 2026-11-15 (Panel 6.89.0)
 
 Owner: Cat Fox relay default secret is admin.

@@ -101,6 +101,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import java.text.DateFormat
+import com.cat.client.MainActivity.Companion.SCREEN_SETTINGS
 
 // Diagnostics: copy/share logs and crash, update check, external links.
 // Moved out of MainActivity.kt unchanged (beta221 code split phase 2); see docs/CODEMAP.md.
@@ -175,6 +176,12 @@ internal fun MainActivity.shareDiagnostics() {
 
 internal fun MainActivity.checkForUpdates() {
     appUpdateUi.check(manual = false)
+}
+
+internal fun MainActivity.openAppUpdatePanel() {
+    openScreen(SCREEN_SETTINGS)
+    settingsCategoryOpeners[R.string.update_settings_title]?.invoke()
+    appUpdateUi.check(manual = true)
 }
 
 internal fun MainActivity.openFooterLink() = openExternalUrl(getString(R.string.footer_url))
