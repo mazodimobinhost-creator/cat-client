@@ -1,6 +1,0 @@
-24ee6bb3878ea3617efc56dcdab19ab0e14645b81350d7d9bf61582ca6305ab2  /tmp/rel/CatClient-V1.10.0-beta317-arm64-v8a.apk
-a878f468d7cbc3da20df4d36757a9b00b5ab6e9787b090f9a842d6140c4fb3c2  /tmp/rel/CatClient-V1.10.0-beta317-armeabi-v7a.apk
-73cd12142e0c1bcb0c5fd064c7bdbc12e0fbdb81a03e29f44457c4aea0ac92cb  dist-apk/CatClient-V1.10.0-beta317-arm64-v8a.apk.bin.00
-d14bf88af7b0f5fb40a95bc2397b1e0853a1774ffbb77c65fe04f68dc4258db3  dist-apk/CatClient-V1.10.0-beta317-arm64-v8a.apk.bin.01
-cd0f8a4370ed3ad8d3914f7752fda249c34b9eb8176d42e45426856881f4ff44  dist-apk/CatClient-V1.10.0-beta317-armeabi-v7a.apk.bin.00
-d7a5b03840afa56134355133e6b6e89d314f70bbe43e03151d611c885bac8122  dist-apk/CatClient-V1.10.0-beta317-armeabi-v7a.apk.bin.01
