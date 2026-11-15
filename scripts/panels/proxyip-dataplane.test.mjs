@@ -179,10 +179,10 @@ for (const [tag, label, settings] of [
   ['socks-tme', 'a t.me/socks share', { proxyIps: 'https://t.me/socks?server=83.147.217.103&port=1080' }],
 ]) {
   const P = await panel(tag, settings); const ls = await links(P);
-  const link = ls.find((l) => l.startsWith('vless://') && nameOf(l).startsWith('🧦'));
+  const link = ls.find((l) => l.startsWith('vless://') && nameOf(l).includes('🧦'));
   // The relay ADDRESS is deliberately absent from the name: it is the last place
   // the proxy host used to travel, and names end up in clients and logs.
-  check(label + ': the sub has a 🧦 config for it', !!link && /^🧦 \d+\. Relay/.test(nameOf(link)), JSON.stringify(ls.map(nameOf).filter((n) => /🎯|🧦/.test(n))));
+  check(label + ': the sub has a 🧦 config for it', !!link && /🧦 \d+\. Relay/.test(nameOf(link)), JSON.stringify(ls.map(nameOf).filter((n) => /🎯|🧦/.test(n))));
   check(label + ': the 🧦 name carries no relay host:port', !!link && !/\d+\.\d+\.\d+\.\d+:\d+/.test(nameOf(link)), nameOf(link));;
   if (!link) continue;
   const r = await run(P, clientPath(link), vlessDomain('example.org', 80, Array.from(enc.encode('GET / HTTP/1.1\r\n\r\n'))), { socks: new Set([SOCKS]) });

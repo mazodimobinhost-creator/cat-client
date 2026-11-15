@@ -119,7 +119,8 @@ check("artifact passes PanelUpdate's module check (contains «export default»)"
 // bilingual plain-words hint), placement kept on every self-update, clean domains in the library — measured 887 731.
 // 6.86.0 (beta262): 895 000 → 900 000 — dedicated hamburger «تغییر ریجن» page (#v-region) — measured 896 024.
 // 6.89.0 (beta267): 900 000 → 910 000 — pairing + WARP/MASQUE studio + line test + Hiddify/Amnezia one-tap.
-check('normal minified artifact stays below 910 K characters', artifact.length < 910000, String(artifact.length));
+// 6.90.0: 910 000 → 980 000 — 🐈‍⬛ remarks + scanner-ping order + QoS defaults — measured 972 086.
+check('normal minified artifact stays below 980 K characters', artifact.length < 980000, String(artifact.length));
 
 // ── 6) the downgrade guards are still wired in ───────────────────────────────
 const pu = kt;

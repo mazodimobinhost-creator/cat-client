@@ -112,7 +112,7 @@ console.log('\nRelay reference — fail closed, never fall back to a direct conn
 /* Build a link the way the panel does, so the path carries relay:<id>. */
 const P0 = await panel('build', [RELAY]);
 const built = P0.T.buildConfigEntries(HOST, P0.env, P0.settings, 'u1', null, {});
-const sk = built.entries.filter((e) => e.name.startsWith('🧦'));
+const sk = built.entries.filter((e) => e.name.includes('🧦'));
 ok('a 🧦 entry exists to test with', sk.length > 0, sk.length);
 const relayPath = sk[0].wsPath;
 ok('its path carries a relay reference, not the credentials',

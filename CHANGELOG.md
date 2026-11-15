@@ -7,6 +7,7 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 ### Changed
 - **Cloudflare Cat Panel:** Home how-to is scan clean IPs → pick an exit country if you want one → get ProxyIP and SOCKS (each button opens the real page). Copy-sub comes after those three. Login has no dead tab bar; first-run still `admin` / `admin`. Guarded by `scripts/panels/how-to-use.test.mjs`.
 - **Names:** config remarks and user names show 🐈‍⬛ in front.
+- **Panel 6.90.0:** subscription puts scanner-fast IPs first even when health-order is off; default clean list leads with QoS edges `188.114.97.6` / `188.114.96.6` / `162.159.36.1`. In-app Update panel needs this version (strictly newer than bundled 6.89.0). ~120 ms HTTP ping to Cloudflare from Iran LTE is the anycast floor — reordering cannot beat physics.
 
 ## [1.10.0-beta317] — 2026-11-15 (Panel 6.89.0)
 

@@ -68,7 +68,7 @@ const pos = (txt, ip) => txt.indexOf(ip);
   const t0 = await subText('?rotate=off&dom=1');
   check('baseline sub: plain configs OFF (as configured)', t0.indexOf('security=none') === -1);
   check('baseline sub: vless OFF, trojan only (as configured)', t0.indexOf('vless://') === -1 && t0.indexOf('trojan://') > -1);
-  check('baseline sub: original panel order', pos(t0, '10.0.0.1') > -1 && pos(t0, '10.0.0.1') < pos(t0, '10.0.0.2') && pos(t0, '10.0.0.2') < pos(t0, '10.0.0.3'), [pos(t0, '10.0.0.1'), pos(t0, '10.0.0.2'), pos(t0, '10.0.0.3')].join(','));
+  check('baseline sub: scanner pings lead even with healthOrder off', pos(t0, '10.0.0.3') > -1 && pos(t0, '10.0.0.3') < pos(t0, '10.0.0.2') && pos(t0, '10.0.0.2') < pos(t0, '10.0.0.1'), [pos(t0, '10.0.0.1'), pos(t0, '10.0.0.2'), pos(t0, '10.0.0.3')].join(','));
 
   // ── ?survive=1 forces the resilience flags for this render only ─────────
   const ts = await subText('?rotate=off&survive=1&dom=1');

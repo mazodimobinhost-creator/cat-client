@@ -62,7 +62,7 @@
  *   PANEL_TITLE     header title     DNS_UPSTREAM  DoH upstream for /dns-query
  */
 
-const CAT_PANEL_VERSION = '6.89.0';
+const CAT_PANEL_VERSION = '6.90.0';
 
 const NON_CF_WHITELIST_TARGETS = Object.freeze([
   { id: 'akamai-edge-1', provider: 'Akamai', ip: '23.212.251.15', port: 443, sni: 'dl.WindowsUpdate.com' },
@@ -1430,6 +1430,8 @@ const PLAIN_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095];
  * them MUST resolve to Cloudflare anycast, otherwise the config is dead.
  */
 const DEFAULT_CLEAN_ADDRESSES = [
+  // QoS / spectrum edges that from Iran often land on a closer colo than a random 104.16.
+  '188.114.97.6', '188.114.96.6', '162.159.36.1',
   '104.16.132.229', '104.17.148.22', '172.67.181.32', '172.64.80.1',
   '104.18.32.47', '104.19.144.33', '104.21.48.201', '172.66.40.112',
   '162.159.135.42', '108.162.192.142', '141.101.90.96', '104.26.10.230',
@@ -1536,7 +1538,7 @@ function defaultSettings() {
     chainMode: 'all',   // 'all' = every connection via chain (stable IP/country), 'cf' = only Cloudflare-hosted targets
     chainStrict: false, // true = never fall back to direct when the chain is down
     entryLimit: 32,
-    healthOrder: false, // scanner-reported latency order, opt-in
+    healthOrder: false, // toggle; scanner pings still reorder the sub when present
     includeHost: true,  // also emit the worker hostname itself as an address
     fallbackHost: '',   // optional backup/mirror worker domain for ISP failover
     installedAt: 0,     // first-save timestamp → "panel uptime" on the Overview
@@ -6048,29 +6050,29 @@ function buildConfigEntries(host, env, settings, uuid, user, q) {
   const ownSet = new Set((settings.ips || []).map((a) => String(a).trim().toLowerCase()).filter((a) => a && !repoIps.has(a)));
   const ownAddrs = addresses.filter((a) => ownSet.has(a.toLowerCase()));
   const restAddrs = addresses.filter((a) => !ownSet.has(a.toLowerCase()));
-  // beta90 health ordering (?health=1 / settings.healthOrder): sender-reported
-  // scanner latency, NOT a worker-measured config success rate. Normalize tags
-  // and bridge domain→resolved-IP entries so DNS-free subs retain provenance.
-  const healthOn = q.health || settings.healthOrder === true;
+  // Scanner latency (ipSources.ms from the owner's line) always leads when we
+  // have it — V2BOX/v2rayNG ping the entry IP, so putting the proven-fast ones
+  // first is the only thing the panel can do about RTT. healthOrder false no
+  // longer hides this: saved panels were opt-in-off and never reordered.
+  // ?health=1 still forces the sort with no stored pings.
   const healthMs = Object.create(null);
-  if (healthOn) {
-    const sources = settings.ipSources && typeof settings.ipSources === 'object' ? settings.ipSources : {};
-    const healthNow = Date.now(), healthTtl = 7 * 24 * 60 * 60 * 1000;
-    const keyOf = (a) => String(a || '').split('#')[0].trim().toLowerCase();
-    const remember = (key, ms) => {
-      const k = keyOf(key), n = Number(ms);
-      if (k && Number.isFinite(n) && n > 0 && (healthMs[k] == null || n < healthMs[k])) healthMs[k] = n;
-    };
-    for (const k of Object.keys(sources)) if (sources[k]) {
-      const at = Number(sources[k].at) || 0;
-      // Old scanner results are not current health; after 7 days treat as unknown.
-      if (at > 0 && healthNow - at >= 0 && healthNow - at <= healthTtl) remember(k, sources[k].ms);
-    }
-    for (const k of Object.keys(settings.domMap || {})) {
-      const mapped = settings.domMap[k], sourceMs = healthMs[keyOf(k)];
-      if (mapped && sourceMs != null) remember(mapped, sourceMs);
-    }
+  const sources = settings.ipSources && typeof settings.ipSources === 'object' ? settings.ipSources : {};
+  const healthNow = Date.now(), healthTtl = 7 * 24 * 60 * 60 * 1000;
+  const keyOf = (a) => String(a || '').split('#')[0].trim().toLowerCase();
+  const remember = (key, ms) => {
+    const k = keyOf(key), n = Number(ms);
+    if (k && Number.isFinite(n) && n > 0 && (healthMs[k] == null || n < healthMs[k])) healthMs[k] = n;
+  };
+  for (const k of Object.keys(sources)) if (sources[k]) {
+    const at = Number(sources[k].at) || 0;
+    // Old scanner results are not current health; after 7 days treat as unknown.
+    if (at > 0 && healthNow - at >= 0 && healthNow - at <= healthTtl) remember(k, sources[k].ms);
   }
+  for (const k of Object.keys(settings.domMap || {})) {
+    const mapped = settings.domMap[k], sourceMs = healthMs[keyOf(k)];
+    if (mapped && sourceMs != null) remember(mapped, sourceMs);
+  }
+  const healthOn = q.health || settings.healthOrder === true || Object.keys(healthMs).length > 0;
   const msOf = (a) => healthOn ? (healthMs[String(a || '').split('#')[0].trim().toLowerCase()] || null) : null;
   const byHealth = (arr) => arr.sort((x, y) => {
     const mx = msOf(x), my = msOf(y);

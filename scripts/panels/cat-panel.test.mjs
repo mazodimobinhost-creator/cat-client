@@ -366,7 +366,7 @@ let user;
   const set = await (await req('/api/countries', { method:'PUT', headers: auth, body:{ country:'tr', countryFallback:'auto', ipCountries:{ '7.7.7.7':'nl' } } })).json();
   check('preferred country saved + manual tag', set.preferred==='TR' && set.countries.map(c=>c.code).join()==='DE,NL,TR');
   const sub = (await (await req('/sub/' + MASTER + '?limit=12&rotate=off')).text()).trim().split('\n');
-  check('preferred country entries come first with flag names', sub[0].includes('@6.6.6.6:') && decodeURIComponent(sub[0].split('#')[1]).startsWith('🇹🇷'));
+  check('preferred country entries come first with flag names', sub[0].includes('@6.6.6.6:') && decodeURIComponent(sub[0].split('#')[1]).includes('🇹🇷'));
   check('other countries follow as fallback', sub.some(l=>l.includes('@5.5.5.5:')));
   const de = (await (await req('/sub/' + MASTER + '?country=DE&strict=1')).text()).trim().split('\n');
   check('?country=DE&strict=1 → only Germany', de.length>0 && de.every(l=>l.includes('@5.5.5.5:')));
@@ -748,11 +748,11 @@ let user;
     const { entries: epx } = T.buildConfigEntries(HOST, ENV, stpx, MASTER, null, {});
     const pxs = epx.filter((e) => e.name.includes('🎯'));
     // beta94: the relay carries its default port, and its country tag moved with it.
-    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name.replace(/ · (VL|TR)$/, '') === '🎯 1. 🇩🇪 آلمان · 203.0.113.1:443', pxs[0] && pxs[0].name);
+    check('per-ProxyIP configs: numbered + flag + Persian country', pxs.length === 2 && pxs[0].name.replace(/ · (VL|TR)$/, '') === '🐈‍⬛ 🎯 1. 🇩🇪 آلمان · 203.0.113.1:443', pxs[0] && pxs[0].name);
     { // spoofing is opt-in: the rotation pool (and the ' · <sni>' remark suffix) only exist while sniFront is on
       const stf = T.normalizeSettings({ lang: 'fa', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, sniFront: true });
       const pxf = T.buildConfigEntries(HOST, ENV, stf, MASTER, null, {}).entries.filter((e) => e.name.includes('🎯'));
-      check('per-ProxyIP configs keep the SNI remark suffix while spoofing is on', pxf.length === 2 && pxf[0].name.startsWith('🎯 1. 🇩🇪 آلمان · 203.0.113.1:443 · '), pxf[0] && pxf[0].name); }
+      check('per-ProxyIP configs keep the SNI remark suffix while spoofing is on', pxf.length === 2 && pxf[0].name.startsWith('🐈‍⬛ 🎯 1. 🇩🇪 آلمان · 203.0.113.1:443 · '), pxf[0] && pxf[0].name); }
     // Path params must be real query params: one '?' only, `ed` and `proxyip`
     // as separate entries (a second '?' — «?ed=2560?proxyip=…» — made the relay
     // override unparseable for every client; regression-pinned in link-shape.test.mjs).
@@ -769,7 +769,7 @@ let user;
     }), pxs[0] && pxs[0].link);
     const sten = T.normalizeSettings({ lang: 'en', proxyIps: ['203.0.113.1:443'], proxyCountries: { '203.0.113.1': 'DE' }, useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false });
     const { entries: een } = T.buildConfigEntries(HOST, ENV, sten, MASTER, null, {});
-    check('en locale → English country label', een.some((e) => e.name.replace(/ · (VL|TR)$/, '') === '🎯 1. 🇩🇪 Germany · 203.0.113.1:443'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
+    check('en locale → English country label', een.some((e) => e.name.replace(/ · (VL|TR)$/, '') === '🐈‍⬛ 🎯 1. 🇩🇪 Germany · 203.0.113.1:443'), een.filter((e) => e.name.includes('🎯'))[0] && een.filter((e) => e.name.includes('🎯'))[0].name);
   }
   check('pinnedPortOf parses v4/v6/domain, rejects bare', T.pinnedPortOf('1.2.3.4:2053') === 2053 && T.pinnedPortOf('[2001:db8::1]:8443') === 8443 && T.pinnedPortOf('2001:db8::1') === 0 && T.pinnedPortOf('www.x.com:2053') === 2053 && T.pinnedPortOf('1.2.3.4') === 0);
   const r = await req('/api/ips', { method: 'POST', headers: auth, body: { ips: ['198.51.100.9:8443#DE', 'not an ip!!'], replace: true } });
@@ -798,10 +798,10 @@ let user;
   const { ctx } = T.buildConfigEntries(HOST, ENV, subSt, MASTER, null, {});
   { const html = T.panelPage({ CAT_PANEL_KV: new Map() }, T.defaultSettings(), 'h.example.workers.dev', 'u123');
   check('hero «in use» card on dashboard', html.includes('heroCard') && html.includes('renderHero') && html.includes('hero_inuse'));
-  check('panel version is 6.89.0', T.CAT_PANEL_VERSION === '6.89.0');
+  check('panel version is 6.90.0', T.CAT_PANEL_VERSION === '6.90.0');
   check('6.87.0 compiles panelPage at isolate startup so a cold GET is not Error 1102',
     readFileSync(workerPath, 'utf8').includes('warmup.workers.dev'));
-  check('6.89.0 keeps a compiled panelPage shell and fills only host/uuid',
+  check('6.90.0 keeps a compiled panelPage shell and fills only host/uuid',
     readFileSync(workerPath, 'utf8').includes('zzcathostzz.invalid') &&
     readFileSync(workerPath, 'utf8').includes('zzcatverwarnzz'));
   {
@@ -1024,7 +1024,7 @@ let user;
     })());
     const stS = T.normalizeSettings({ useDefaults: false, includeHost: false, tlsPorts: [443], plainEnabled: false, proxyIps: ['socks5://bob:hunter2@198.51.100.9:1080'] });
     const outS = T.buildConfigEntries('panelx.workers.dev', ENV, stS, 'u1', null, {});
-    const sk = outS.entries.filter((e) => e.name.startsWith('🧦 1.'));
+    const sk = outS.entries.filter((e) => e.name.includes('🧦 1.'));
         const pathDec = decodeURIComponent(sk[0].link.split('path=')[1].split('&')[0]);
     const relayVal = decodeURIComponent(pathDec.split('proxyip=')[1]);
     check('sub: 🧦 config emitted with an encoded relay reference (never the credentials)',
