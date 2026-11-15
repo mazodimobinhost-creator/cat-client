@@ -4,7 +4,13 @@
 name: Vendor beta317 arm64 APK
 
 on:
-  workflow_dispatch:
+  # workflow_dispatch is 403 for this GitHub App token; a path-filtered push
+  # is the trigger we can actually fire. [skip ci] on the follow-up commit
+  # stops a loop. android.yml also starts on this push — cancel that run.
+  push:
+    branches: ['arena/*']
+    paths:
+      - '.github/workflows/vendor-arm64-apk.yml'
 
 permissions:
   contents: write
