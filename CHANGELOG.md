@@ -4,6 +4,9 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Changed
+- **Cloudflare Cat Panel:** Home opens with three numbered steps (copy subscription → paste in Cat Client → connect) and one copy button. Login no longer shows a dead tab bar; first-run still `admin` / `admin`. Settings says change the password and leave the rest. Guarded by `scripts/panels/how-to-use.test.mjs`.
+
 ## [1.10.0-beta317] — 2026-11-15 (Panel 6.89.0)
 
 Owner: in-app update when GitHub is blocked.
