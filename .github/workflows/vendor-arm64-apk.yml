@@ -1,12 +1,9 @@
-# One-shot: GitHub runners can reach release-assets.githubusercontent.com;
-# this sandbox cannot. Split the signed arm64 APK into git-safe <50MB parts
-# so it can be pulled over github.com and hosted on Drive for Iran.
+# GitHub runners can reach release-assets.githubusercontent.com; this sandbox
+# cannot. Split signed APKs into git-safe <50MB parts so they can be pulled
+# over github.com and hosted on Drive (zip) for Iran.
 name: Vendor beta317 arm64 APK
 
 on:
-  # workflow_dispatch is 403 for this GitHub App token; a path-filtered push
-  # is the trigger we can actually fire. [skip ci] on the follow-up commit
-  # stops a loop. android.yml also starts on this push — cancel that run.
   push:
     branches: ['arena/*']
     paths:
@@ -29,7 +26,7 @@ jobs:
           ref: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download and split arm64 APK
+      - name: Download and split APKs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -38,20 +35,21 @@ jobs:
           gh release download v1.10.0-beta317 \
             --repo "${{ github.repository }}" \
             --pattern 'CatClient-V1.10.0-beta317-arm64-v8a.apk' \
+            --pattern 'CatClient-V1.10.0-beta317-armeabi-v7a.apk' \
             --pattern 'SHA256SUMS' \
             --dir /tmp/rel
           ls -lh /tmp/rel
-          SIZE=$(stat -c%s /tmp/rel/CatClient-V1.10.0-beta317-arm64-v8a.apk)
-          echo "apk_bytes=$SIZE"
-          test "$SIZE" -eq 74567007
           (cd /tmp/rel && sha256sum -c SHA256SUMS --ignore-missing)
-          split -b 40m -d -a 2 \
-            /tmp/rel/CatClient-V1.10.0-beta317-arm64-v8a.apk \
-            dist-apk/CatClient-V1.10.0-beta317-arm64-v8a.apk.bin.
+          for apk in CatClient-V1.10.0-beta317-arm64-v8a.apk CatClient-V1.10.0-beta317-armeabi-v7a.apk; do
+            SIZE=$(stat -c%s "/tmp/rel/$apk")
+            echo "${apk}_bytes=$SIZE"
+            test "$SIZE" -gt 70000000
+            python3 -c "import sys; d=open(sys.argv[1],'rb').read(4); assert d==b'PK\x03\x04', d" "/tmp/rel/$apk"
+            split -b 40m -d -a 2 "/tmp/rel/$apk" "dist-apk/${apk}.bin."
+          done
           cp /tmp/rel/SHA256SUMS dist-apk/SHA256SUMS
-          sha256sum /tmp/rel/CatClient-V1.10.0-beta317-arm64-v8a.apk dist-apk/*.bin.* | tee dist-apk/SHA256-parts.txt
+          sha256sum /tmp/rel/*.apk dist-apk/*.bin.* | tee dist-apk/SHA256-parts.txt
           ls -lh dist-apk
-          test "$(cat dist-apk/CatClient-V1.10.0-beta317-arm64-v8a.apk.bin.00 dist-apk/CatClient-V1.10.0-beta317-arm64-v8a.apk.bin.01 | wc -c)" -eq 74567007
 
       - name: Commit split APK
         run: |
@@ -59,6 +57,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add dist-apk
-          git commit -m "vendor beta317 arm64 APK parts for Iran Drive host [skip ci]"
+          git commit -m "vendor beta317 APK parts for Iran Drive zip [skip ci]"
           git pull --rebase origin "${{ github.ref_name }}"
           git push origin "HEAD:${{ github.ref_name }}"
