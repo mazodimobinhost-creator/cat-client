@@ -32,6 +32,7 @@ check('vercel.json rewrites /api/install', vzSrc.includes('/api/install'));
 check('vercel.json rewrites /signup /login /tokens',
   vzSrc.includes('/signup') && vzSrc.includes('/login') && vzSrc.includes('/tokens'));
 check('lib wizard matches app asset', libSrc === wizardSrc);
+check('wizard offers Pages as well as Worker', wizardSrc.includes("target === 'pages'") && wizardSrc.includes('installPagesBtn'));
 check('fresh install closes OPEN_SUB', wizardSrc.includes("name: 'OPEN_SUB', text: 'false'"));
 check('fresh install closes OPEN_PANEL', wizardSrc.includes("name: 'OPEN_PANEL', text: 'false'"));
 

@@ -71,6 +71,7 @@ const WIZARD_SOURCES = [
 const TOKEN_PERMISSIONS = [
   { key: 'workers_scripts', type: 'edit' },
   { key: 'workers_kv_storage', type: 'edit' },
+  { key: 'page', type: 'edit' },
   { key: 'account_settings', type: 'read' },
   { key: 'user_details', type: 'read' },
 ];
@@ -292,6 +293,58 @@ async function enableRoute(token, accountId, name, enabled = true) {
   return res.ok;
 }
 
+async function inspectPages(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/pages/projects/' + name, undefined, { raw: true });
+  } catch (e) {
+    throw new Error('pages existence check inconclusive: ' + (e && e.message ? e.message : e));
+  }
+  if (res.status === 404) return { status: 'missing' };
+  if (res.status !== 200) {
+    throw new Error('pages existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', project: (res.json && res.json.result) || {} };
+}
+
+function pagesEnvFromBindings(bindings) {
+  const env_vars = {};
+  for (const b of bindings) {
+    if (!b || b.type === 'kv_namespace') continue;
+    env_vars[b.name] = { type: b.type === 'secret_text' ? 'secret_text' : 'plain_text', value: String(b.text || '') };
+  }
+  env_vars.CAT_DEPLOY_TARGET = { type: 'plain_text', value: 'pages' };
+  return env_vars;
+}
+
+async function createPagesProject(token, accountId, name, envVars, kvNamespaceId) {
+  const created = await cf(token, 'POST', '/accounts/' + accountId + '/pages/projects', {
+    name,
+    production_branch: 'main',
+  });
+  if (!created.ok) throw new Error('pages project: ' + cfError(created, 'could not create Pages project'));
+  const production = {
+    compatibility_date: COMPAT_DATE,
+    compatibility_flags: COMPAT_FLAGS.slice(),
+    env_vars: envVars,
+  };
+  if (kvNamespaceId) production.kv_namespaces = { CAT_KV: { namespace_id: kvNamespaceId } };
+  const patched = await cf(token, 'PATCH', '/accounts/' + accountId + '/pages/projects/' + name, {
+    deployment_configs: { production },
+  });
+  if (!patched.ok) throw new Error('pages env: ' + cfError(patched, 'could not set Pages env / KV'));
+  return created.json.result || {};
+}
+
+async function uploadPages(token, accountId, name, script) {
+  const form = new FormData();
+  form.append('manifest', '{}');
+  form.append('_worker.js', new Blob([script], { type: 'application/javascript+module' }), '_worker.js');
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/pages/projects/' + name + '/deployments', form);
+  if (!res.ok) throw new Error('pages upload: ' + cfError(res, 'Pages deploy failed'));
+  return res.json.result || {};
+}
+
 /* ------------------------------------------------------------------ */
 /* sources                                                             */
 /* ------------------------------------------------------------------ */
@@ -363,6 +416,7 @@ async function* runInstall(input, env) {
 
   const token = String(input.token || '').trim();
   const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
+  const target = (kind === 'panel' && String(input.target || '').toLowerCase() === 'pages') ? 'pages' : 'worker';
   const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))));
   const customPassword = String(input.password || '').trim();
   const customUser = String(input.username || '').trim();
@@ -374,21 +428,35 @@ async function* runInstall(input, env) {
   const account = (input.accountId && verified.accounts.find((a) => a.id === input.accountId)) || verified.accounts[0];
   log('verify', 'ok', 'token OK · account: ' + (account.name || account.id), { account }); yield* flush();
 
-  log('existing', 'info', 'proving worker name is unused before upload'); yield* flush();
-  const inspected = await inspectWorker(token, account.id, workerName);
-  if (inspected.status !== 'missing') {
-    throw new Error('worker already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+  log('existing', 'info', target === 'pages' ? 'proving Pages project is unused before upload' : 'proving worker name is unused before upload'); yield* flush();
+  if (target === 'pages') {
+    const inspected = await inspectPages(token, account.id, workerName);
+    if (inspected.status !== 'missing') {
+      throw new Error('Pages project already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+    }
+    log('existing', 'ok', 'Pages project name is unused'); yield* flush();
+  } else {
+    const inspected = await inspectWorker(token, account.id, workerName);
+    if (inspected.status !== 'missing') {
+      throw new Error('worker already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+    }
+    log('existing', 'ok', 'worker name is unused (settings returned 404)'); yield* flush();
   }
-  log('existing', 'ok', 'worker name is unused (settings returned 404)'); yield* flush();
 
   log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
   const source = await fetchSource(kind, env);
   log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
 
-  log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
-  const subdomain = await ensureSubdomain(token, account.id, log);
-  const workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
-  log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
+  let workerUrl = '';
+  if (target === 'pages') {
+    workerUrl = 'https://' + workerName + '.pages.dev';
+    log('subdomain', 'ok', workerName + '.pages.dev', { pages: true }); yield* flush();
+  } else {
+    log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
+    const subdomain = await ensureSubdomain(token, account.id, log);
+    workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
+    log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
+  }
 
   const bindings = [];
   let uuid = '';
@@ -427,18 +495,34 @@ async function* runInstall(input, env) {
   // conditional-create request is used, so a Worker created by someone else after
   // this check can still be overwritten. The window shrinks from "whole install"
   // to the time between this GET and the PUT.
-  log('existing', 'info', 'confirming worker name is still unused right before upload'); yield* flush();
-  const recheck = await inspectWorker(token, account.id, workerName);
-  if (recheck.status !== 'missing') {
-    throw new Error('worker appeared while the install was running; upload cancelled to preserve its bindings');
-  }
-  log('upload', 'info', 'uploading worker "' + workerName + '"'); yield* flush();
-  await uploadWorker(token, account.id, workerName, source.text, bindings);
-  log('upload', 'ok', 'worker deployed'); yield* flush();
+  if (target === 'pages') {
+    log('existing', 'info', 'confirming Pages project is still unused right before upload'); yield* flush();
+    const recheck = await inspectPages(token, account.id, workerName);
+    if (recheck.status !== 'missing') {
+      throw new Error('Pages project appeared while the install was running; upload cancelled to preserve it');
+    }
+    const envVars = pagesEnvFromBindings(bindings);
+    const kvBind = bindings.find((b) => b && b.type === 'kv_namespace');
+    log('upload', 'info', 'creating Pages project "' + workerName + '"'); yield* flush();
+    await createPagesProject(token, account.id, workerName, envVars, kvBind && kvBind.namespace_id);
+    log('upload', 'info', 'uploading _worker.js to Pages'); yield* flush();
+    await uploadPages(token, account.id, workerName, source.text);
+    log('upload', 'ok', 'Pages deployed'); yield* flush();
+    log('route', 'ok', 'Pages production URL ' + workerUrl); yield* flush();
+  } else {
+    log('existing', 'info', 'confirming worker name is still unused right before upload'); yield* flush();
+    const recheck = await inspectWorker(token, account.id, workerName);
+    if (recheck.status !== 'missing') {
+      throw new Error('worker appeared while the install was running; upload cancelled to preserve its bindings');
+    }
+    log('upload', 'info', 'uploading worker "' + workerName + '"'); yield* flush();
+    await uploadWorker(token, account.id, workerName, source.text, bindings);
+    log('upload', 'ok', 'worker deployed'); yield* flush();
 
-  log('route', 'info', 'enabling workers.dev route'); yield* flush();
-  const routed = await enableRoute(token, account.id, workerName);
-  log('route', routed ? 'ok' : 'warn', routed ? 'route enabled' : 'could not toggle the route (enable it in the dashboard if the URL 404s)'); yield* flush();
+    log('route', 'info', 'enabling workers.dev route'); yield* flush();
+    const routed = await enableRoute(token, account.id, workerName);
+    log('route', routed ? 'ok' : 'warn', routed ? 'route enabled' : 'could not toggle the route (enable it in the dashboard if the URL 404s)'); yield* flush();
+  }
 
   log('check', 'info', 'waiting for ' + workerUrl); yield* flush();
   let online = false;
@@ -480,8 +564,12 @@ async function* runInstall(input, env) {
     // Never hand out a broken URL. For this freshly created script ONLY its public
     // route is switched off; the Worker, KV, D1, Secrets and every other binding
     // are left untouched for diagnosis or retry.
-    const disabled = await enableRoute(token, account.id, workerName, false).catch(() => false);
-    log('route', disabled ? 'ok' : 'warn', disabled ? 'route of the new worker disabled' : 'could not disable the new worker route — disable it in the dashboard'); yield* flush();
+    if (target === 'worker') {
+      const disabled = await enableRoute(token, account.id, workerName, false).catch(() => false);
+      log('route', disabled ? 'ok' : 'warn', disabled ? 'route of the new worker disabled' : 'could not disable the new worker route — disable it in the dashboard'); yield* flush();
+    } else {
+      log('route', 'warn', 'Pages project left in place for diagnosis — delete it in the dashboard if you retry with the same name'); yield* flush();
+    }
     log('check', 'error', 'runtime verification failed; panel was not activated (' + lastHealth + ')', { status: lastHealth }); yield* flush();
     throw new Error('worker deployed but did not pass 3 consecutive /health checks with the expected version (' + lastHealth + '); cause not determined — check Workers Live Logs');
   }
@@ -499,6 +587,7 @@ async function* runInstall(input, env) {
     ? {
       ok: true,
       kind,
+      target,
       workerName,
       workerUrl,
       stealthPath,
@@ -615,7 +704,9 @@ function i18n() {
       pass: 'رمز پنل (اختیاری — اگر خالی بماند یک رمز تصادفی ساخته می‌شود)',
       user: 'نام کاربری پنل (اختیاری — ورود با نام کاربری + رمز)',
       adv: 'تنظیمات بیشتر',
-      install: 'نصب Cat Panel روی حساب من',
+      install: 'نصب روی Worker · workers.dev',
+      installPages: 'نصب روی Pages · pages.dev',
+      targetHint: 'همان پنل است؛ یا روی Worker می‌نشیند یا روی Pages. *.pages.dev روی بعضی خطوط ایران فیلتر است — اگر باز نشد Worker را بزن.',
       installWizard: 'ساخت ویزارد خصوصی خودم',
       wizardHint: 'یک نسخهٔ خصوصی از همین ویزارد روی حساب خودت می‌سازد تا لینکش را به دیگران بدهی.',
       log: 'گزارش نصب',
@@ -661,7 +752,9 @@ function i18n() {
       pass: 'Panel password (optional — a random one is generated if left empty)',
       user: 'Panel username (optional — sign in with username + password)',
       adv: 'More options',
-      install: 'Install Cat Panel on my account',
+      install: 'Install on Worker · workers.dev',
+      installPages: 'Install on Pages · pages.dev',
+      targetHint: 'Same panel — sits on a Worker or on Pages. *.pages.dev is filtered on some Iranian lines; if it does not open, use Worker.',
       installWizard: 'Create my own private wizard',
       wizardHint: 'Deploys a private copy of this wizard on your account so you can share your own link.',
       log: 'Install log',
@@ -739,7 +832,9 @@ function pageHtml(env, host) {
     '<label class="field"><span data-i18n="user">' + t.user + '</span><input id="wuser" autocomplete="username" placeholder="admin"></label>' +
     '<label class="field"><span data-i18n="pass">' + t.pass + '</span><input id="wpass" autocomplete="new-password"></label></details>' +
     '<div class="progress"><i id="bar"></i></div>' +
+    '<p class="muted" data-i18n="targetHint">' + t.targetHint + '</p>' +
     '<button class="btn block" id="installBtn">🚀 <span data-i18n="install">' + t.install + '</span></button>' +
+    '<button class="btn ghost block" id="installPagesBtn" style="margin-top:8px">📄 <span data-i18n="installPages">' + t.installPages + '</span></button>' +
     '<div class="row" style="margin-top:10px"><button class="btn ghost sm" id="wizardBtn" data-i18n="installWizard">' + t.installWizard + '</button><span class="muted" data-i18n="wizardHint">' + t.wizardHint + '</span></div>' +
     '<p class="err hide" id="installErr"></p></section>' +
 
@@ -788,10 +883,10 @@ function clientJs() {
     '  if(j.scopes&&!j.scopes.kv)logLine("warn",t("scopeWarn"));',
     ' }).catch(function(e){$("#verifyBtn").disabled=false;err.textContent=String(e);err.classList.remove("hide")})});',
     'var STEPS=["verify","source","subdomain","kv","upload","route","check"];',
-    'function install(kind){var err=$("#installErr");err.classList.add("hide");$("#result").classList.remove("show");',
+    'function install(kind,target){var err=$("#installErr");err.classList.add("hide");$("#result").classList.remove("show");',
     ' if(!$("#token").value.trim()){err.textContent=t("needToken");err.classList.remove("hide");return}',
-    ' $("#installBtn").disabled=true;$("#wizardBtn").disabled=true;$("#bar").style.width="4%";$("#log").textContent="…";',
-    ' var body=payload({kind:kind,workerName:$("#wname").value,username:$("#wuser").value,password:$("#wpass").value});',
+    ' $("#installBtn").disabled=true;var pb=$("#installPagesBtn");if(pb)pb.disabled=true;$("#wizardBtn").disabled=true;$("#bar").style.width="4%";$("#log").textContent="…";',
+    ' var body=payload({kind:kind,target:target||"worker",workerName:$("#wname").value,username:$("#wuser").value,password:$("#wpass").value});',
     ' fetch("/api/install",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).then(function(res){',
     '  if(!res.ok&&res.headers.get("content-type")&&res.headers.get("content-type").indexOf("json")>=0&&res.headers.get("content-type").indexOf("ndjson")<0){return res.json().then(function(j){throw new Error(j.error||("HTTP "+res.status))})}',
     '  var reader=res.body.getReader();var dec=new TextDecoder();var buf="";',
@@ -799,14 +894,15 @@ function clientJs() {
     '   if(ev.done){if(ev.ok===false){throw new Error(ev.msg||"failed")}showResult(ev.result);return}',
     '   logLine(ev.level||"info",(ev.step?ev.step+": ":"")+ev.msg);var i=STEPS.indexOf(ev.step);if(i>=0)$("#bar").style.width=Math.round(((i+1)/STEPS.length)*96)+"%"}',
     '  return reader.read().then(function step(r){if(r.done){if(buf)handle(buf);return}buf+=dec.decode(r.value,{stream:true});var parts=buf.split("\\n");buf=parts.pop();parts.forEach(handle);return reader.read().then(step)})',
-    ' }).then(function(){$("#installBtn").disabled=false;$("#wizardBtn").disabled=false}).catch(function(e){$("#installBtn").disabled=false;$("#wizardBtn").disabled=false;$("#bar").style.width="0";err.textContent=t("failed")+e.message;err.classList.remove("hide");logLine("error",e.message)})}',
+    ' }).then(function(){$("#installBtn").disabled=false;var pb=$("#installPagesBtn");if(pb)pb.disabled=false;$("#wizardBtn").disabled=false}).catch(function(e){$("#installBtn").disabled=false;var pb=$("#installPagesBtn");if(pb)pb.disabled=false;$("#wizardBtn").disabled=false;$("#bar").style.width="0";err.textContent=t("failed")+e.message;err.classList.remove("hide");logLine("error",e.message)})}',
     'function showResult(r){$("#bar").style.width="100%";var box=$("#result");box.classList.add("show");var pill=$("#onlinePill");pill.textContent=r.online?t("online"):t("offline");pill.className="pill "+(r.online?"ok":"warn");',
     ' if(r.kind==="wizard"){$("#resultTitle").textContent=t("wizardDone");$("#panelResult").classList.add("hide");$("#wizardResult").classList.remove("hide");$("#rWiz").textContent=r.workerUrl;$("#rWizOpen").href=r.workerUrl;}',
     ' else{$("#resultTitle").textContent=t("done");$("#panelResult").classList.remove("hide");$("#wizardResult").classList.add("hide");$("#rPanel").textContent=r.panelUrl;$("#rOpen").href=r.panelUrl;$("#rPass").textContent=r.password;var uR=$("#rUserRow");if(r.username){uR.classList.remove("hide");$("#rUser").textContent=r.username;}else{uR.classList.add("hide");}$("#rSub").textContent=r.subUrl;$("#rApp").href=r.deepLink;',
     '  var qr=$("#rQr");if(r.online){qr.src=r.workerUrl+"/qr.svg?d="+encodeURIComponent(r.subUrl)+"&size=6";qr.hidden=false}else{qr.hidden=true}}',
     ' box.scrollIntoView({behavior:"smooth"})}',
-    '$("#installBtn").addEventListener("click",function(){install("panel")});',
-    '$("#wizardBtn").addEventListener("click",function(){install("wizard")});',
+    '$("#installBtn").addEventListener("click",function(){install("panel","worker")});',
+    '$("#installPagesBtn").addEventListener("click",function(){install("panel","pages")});',
+    '$("#wizardBtn").addEventListener("click",function(){install("wizard","worker")});',
     '})();',
   ].join('');
 }
@@ -900,6 +996,7 @@ export default {
 export const _testing = {
   CAT_WIZARD_VERSION,
   inspectWorker,
+  inspectPages,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
   CF_SIGNUP,

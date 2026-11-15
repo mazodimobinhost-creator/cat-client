@@ -39,6 +39,7 @@ const state = {
   subdomain: '',
   kv: [],
   scripts: {},
+  pages: {},
   routes: {},
   calls: [],
   tokenValid: true,
@@ -113,6 +114,38 @@ T.__setFetch(async (input, init = {}) => {
         return json({ success: true, result: { id: name } });
       }
     }
+    const pagesMatch = p.match(/^\/accounts\/acc-1\/pages\/projects(?:\/([a-z0-9-]+))?(?:\/deployments)?$/);
+    if (pagesMatch) {
+      const name = pagesMatch[1];
+      const isDeploy = /\/deployments$/.test(p);
+      if (!name && method === 'POST') {
+        const body = JSON.parse(init.body);
+        const n = body.name;
+        if (state.pages[n]) return json({ success: false, errors: [{ message: 'already exists' }] }, 409);
+        state.pages[n] = { script: '', env: null, subdomain: n + '.pages.dev' };
+        return json({ success: true, result: { name: n, subdomain: n + '.pages.dev' } });
+      }
+      if (name && !isDeploy && method === 'GET') {
+        return state.pages[name]
+          ? json({ success: true, result: { name, subdomain: state.pages[name].subdomain } })
+          : json({ success: false, errors: [{ code: 8000007, message: 'Project not found' }] }, 404);
+      }
+      if (name && !isDeploy && method === 'PATCH') {
+        if (!state.pages[name]) return json({ success: false, errors: [{ message: 'not found' }] }, 404);
+        const body = JSON.parse(init.body);
+        state.pages[name].env = body.deployment_configs && body.deployment_configs.production;
+        return json({ success: true, result: { name } });
+      }
+      if (name && isDeploy && method === 'POST') {
+        if (!state.pages[name]) return json({ success: false, errors: [{ message: 'not found' }] }, 404);
+        const form = init.body;
+        const file = form && form.get && form.get('_worker.js');
+        const script = file && typeof file.text === 'function' ? await file.text() : '';
+        state.pages[name].script = script;
+        state.scripts[name] = { bindings: [], script, meta: {} };
+        return json({ success: true, result: { url: 'https://' + name + '.pages.dev', environment: 'production' } });
+      }
+    }
     return json({ success: false, errors: [{ message: 'unhandled ' + method + ' ' + p }] }, 500);
   }
 
@@ -154,6 +187,7 @@ async function installEvents(body, env = {}) {
   check('template has Workers Scripts edit', decoded.some((p) => p.key === 'workers_scripts' && p.type === 'edit'));
   check('template has Workers KV edit', decoded.some((p) => p.key === 'workers_kv_storage' && p.type === 'edit'));
   check('template has Account Settings read (needed to list accounts)', decoded.some((p) => p.key === 'account_settings' && p.type === 'read'));
+  check('template has Pages edit (panel can sit on pages.dev)', decoded.some((p) => p.key === 'page' && p.type === 'edit'));
   check('template scoped to all accounts + zones', T.TOKEN_TEMPLATE_URL.includes('accountId=*') && T.TOKEN_TEMPLATE_URL.includes('zoneId=all'));
   const r = await req('/token');
   check('/token redirects to the template', r.status === 302 && r.headers.get('location') === T.TOKEN_TEMPLATE_URL);
@@ -178,6 +212,7 @@ async function installEvents(body, env = {}) {
   const html = await r.text();
   check('/ serves the wizard page', r.status === 200 && html.includes('Cat Wizard') && html.includes('id="installBtn"'));
   check('page embeds the token button with template URL', html.includes('id="tokenBtn"') && html.includes('permissionGroupKeys='));
+  check('page offers Worker and Pages install buttons', html.includes('id="installBtn"') && html.includes('id="installPagesBtn"'));
   check('page has signup / login / plain-tokens buttons like the app',
     html.includes('id="signupBtn"') && html.includes(T.CF_SIGNUP) &&
     html.includes('id="loginBtn"') && html.includes(T.CF_LOGIN) &&
@@ -378,6 +413,25 @@ let first;
   check('wizard copy is the wizard source', state.scripts['my-wizard'].script.includes('CAT_WIZARD_VERSION'));
   const bind = Object.fromEntries(state.scripts['my-wizard'].bindings.map((b) => [b.name, b]));
   check('wizard copy inherits the invite code', bind.WIZARD_PASSWORD && bind.WIZARD_PASSWORD.text === 'inv');
+}
+
+/* 7b. Pages target: same panel on pages.dev, never a Worker script PUT */
+{
+  T.sourceCache.clear();
+  const beforeCalls = state.calls.length;
+  const { done, events } = await installEvents({ token: 'good-token', workerName: 'pg-one', target: 'pages' });
+  const calls = state.calls.slice(beforeCalls);
+  check('pages install finishes ok on pages.dev', done && done.result && done.result.ok && done.result.target === 'pages' && done.result.workerUrl === 'https://pg-one.pages.dev', JSON.stringify(done));
+  check('pages install created a Pages project + env + _worker.js', !!state.pages['pg-one'] && !!state.pages['pg-one'].script && state.pages['pg-one'].script.includes('CAT_PANEL_VERSION'));
+  check('pages env closes OPEN_SUB and OPEN_PANEL', (() => {
+    const vars = state.pages['pg-one'].env && state.pages['pg-one'].env.env_vars;
+    return vars && vars.OPEN_SUB && vars.OPEN_SUB.value === 'false' && vars.OPEN_PANEL && vars.OPEN_PANEL.value === 'false' && vars.CAT_DEPLOY_TARGET && vars.CAT_DEPLOY_TARGET.value === 'pages';
+  })());
+  check('pages path never PUTs a workers/scripts', !calls.some((x) => x.startsWith('PUT ') && x.includes('/workers/scripts/')));
+  check('pages path never toggles workers.dev route', !calls.some((x) => x.includes('/workers/scripts/') && x.includes('/subdomain')));
+  check('pages log mentions Pages', events.some((e) => /pages/i.test(e.msg || '')));
+  const blocked = await installEvents({ token: 'good-token', workerName: 'pg-one', target: 'pages' });
+  check('existing Pages project is not overwritten', blocked.done && blocked.done.ok === false && /already exists/i.test(blocked.done.msg), JSON.stringify(blocked.done));
 }
 
 /* 8. bad token surfaces a clean error event */
