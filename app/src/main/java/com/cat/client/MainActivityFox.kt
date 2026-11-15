@@ -1448,7 +1448,7 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
     fun t(fa: String, en: String) = if (isFarsi) fa else en
     val input = EditText(this).apply {
-        hint = "https://….workers.dev/?secret=…"
+        hint = "https://….workers.dev/?secret=admin"
         setText(FirefoxVpnEngine.readMozillaRelayUrl(this@showFoxMozillaRelayDialog))
         setSingleLine(true)
         layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -1475,8 +1475,8 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
         addView(
             TextView(this@showFoxMozillaRelayDialog).apply {
                 text = t(
-                    "فقط ورود موزیلا از رله می‌رود، نه ترافیک VPN.\n\nلینک کامل را بچسبان. این غلط است:\nhttps://NAME.workers.dev/\nاین درست است:\nhttps://NAME.workers.dev/?secret=رمز\n\nرمز را در اسکریپت ورکر و در لینک یکی کن. دامنهٔ خودت هم می‌شود؛ workers.dev لازم نیست.",
-                    "Only Mozilla sign-in goes through the relay, not VPN traffic.\n\nPaste the full URL. This is wrong:\nhttps://NAME.workers.dev/\nThis is right:\nhttps://NAME.workers.dev/?secret=SECRET\n\nUse the same secret in the Worker script and the URL. Your own domain is fine; workers.dev is not required.",
+                    "فقط ورود موزیلا از رله می‌رود، نه ترافیک VPN.\n\nرمز پیش‌فرض admin است. همین لینک کافی است:\nhttps://NAME.workers.dev/\nاسکریپت ورکر هم SECRET=admin دارد. اگر رمز دیگری گذاشتی، ?secret= همان را بگذار. دامنهٔ خودت هم می‌شود؛ workers.dev لازم نیست.",
+                    "Only Mozilla sign-in goes through the relay, not VPN traffic.\n\nDefault secret is admin. This URL is enough:\nhttps://NAME.workers.dev/\nThe Worker script also uses SECRET=admin. If you set another secret, put the same value in ?secret=. Your own domain is fine; workers.dev is not required.",
                 )
                 textSize = 13f
                 setTextColor(TEXT_SECONDARY)
@@ -1490,7 +1490,7 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
                 text = t("📋 کپی اسکریپت ورکر", "📋 Copy Worker script")
                 isAllCaps = false
                 setOnClickListener {
-                    val secret = FoxMozillaRelay.newSecret()
+                    val secret = FoxMozillaRelay.DEFAULT_SECRET
                     val script = FoxMozillaRelay.workerScript(secret)
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("Cat Fox relay", script))
@@ -1499,7 +1499,7 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
                     }
                     Toast.makeText(
                         this@showFoxMozillaRelayDialog,
-                        t("اسکریپت کپی شد — SECRET را در لینک هم بگذار", "Script copied — put the same SECRET in the URL"),
+                        t("اسکریپت کپی شد — رمز پیش‌فرض admin", "Script copied — default secret is admin"),
                         Toast.LENGTH_LONG,
                     ).show()
                 }

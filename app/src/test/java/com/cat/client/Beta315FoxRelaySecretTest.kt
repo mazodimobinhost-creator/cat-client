@@ -18,22 +18,21 @@ class Beta315FoxRelaySecretTest {
     fun versionIsBeta315() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 382"))
-        assertTrue(gradle.contains("1.10.0-beta315"))
+        assertTrue(gradle.contains("versionCode = 383"))
+        assertTrue(gradle.contains("1.10.0-beta316"))
     }
 
     @Test
     fun bareWorkersDevUrlIsNeedSecretNotInvalid() {
         val raw = "https://my-relay.example.workers.dev/"
-        assertNull(FoxMozillaRelay.normalize(raw))
-        assertEquals("need-secret", FoxMozillaRelay.formIssue(raw)!!.detail)
+        assertEquals("https://my-relay.example.workers.dev/?secret=admin", FoxMozillaRelay.normalize(raw))
+        assertNull(FoxMozillaRelay.formIssue(raw))
         assertEquals(
-            "https://my-relay.example.workers.dev/?secret=",
+            "https://my-relay.example.workers.dev/?secret=admin",
             FoxMozillaRelay.withEmptySecretQuery(raw),
         )
         val fa = FoxMozillaRelay.probeLabel("need-secret", true)
-        assertTrue(fa.contains("رمز نیست"))
-        assertTrue(fa.contains("?secret="))
+        assertTrue(fa.contains("admin"))
         assertFalse(fa.contains("invalid"))
         assertNull(FoxMozillaRelay.formIssue("https://my-relay.example.workers.dev/?secret=abc12345"))
         assertEquals(
@@ -67,8 +66,8 @@ class Beta315FoxRelaySecretTest {
         assertTrue(fox.contains("🔍 تست رله"))
         assertFalse(fox.contains("setNeutralButton(t(\"تست\""))
         assertTrue(fox.contains("BUTTON_POSITIVE"))
-        assertTrue(fox.contains("این غلط است"))
-        assertTrue(fox.contains("https://NAME.workers.dev/?secret="))
+        assertTrue(fox.contains("رمز پیش‌فرض admin"))
+        assertTrue(fox.contains("https://NAME.workers.dev/"))
         assertFalse(fox.contains("رله جواب نداد: \${probe.detail}"))
         val engine = src("FirefoxVpnEngine.kt")
         assertTrue(engine.contains("FoxMozillaRelay.formIssue(relayUrl)"))

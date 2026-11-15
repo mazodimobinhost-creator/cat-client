@@ -14,6 +14,7 @@ import java.util.Locale
 internal object FoxMozillaRelay {
     const val PREFS_KEY = "mozilla_relay_url"
     const val HEALTH_RELAY_NAME = "cat-fox"
+    const val DEFAULT_SECRET = "admin"
 
     private val ALLOWED_SUFFIXES = listOf(
         "mozilla.org",
@@ -51,11 +52,12 @@ internal object FoxMozillaRelay {
         if (u.port != -1 && u.port != 443) return null
         val path = (u.rawPath.takeUnless { it.isNullOrEmpty() } ?: "/")
         if (path.contains("..") || path.contains('\\')) return null
-        val secret = queryMap(u.rawQuery)["secret"]?.trim().orEmpty()
-        if (secret.isEmpty() || secret.length > 200 || secret.any { it.isWhitespace() || it == '"' || it == '\'' }) {
+        val kept = queryMap(u.rawQuery).filterKeys { it != "url" && it != "health" }.toMutableMap()
+        val secret = kept["secret"]?.trim().orEmpty().ifEmpty { DEFAULT_SECRET }
+        if (secret.length > 200 || secret.any { it.isWhitespace() || it == '"' || it == '\'' }) {
             return null
         }
-        val kept = queryMap(u.rawQuery).filterKeys { it != "url" && it != "health" }
+        kept["secret"] = secret
         val query = kept.entries.joinToString("&") { "${it.key}=${it.value}" }
         return "https://$host$path?$query"
     }
@@ -82,9 +84,8 @@ internal object FoxMozillaRelay {
     }
 
     /**
-     * Why [normalize] rejected a paste. `null` means the URL is well-formed
-     * (https + `?secret=`). A bare `https://….workers.dev/` is `need-secret`,
-     * not a vague `invalid`.
+     * Why [normalize] rejected a paste. `null` means the URL is well-formed.
+     * A bare `https://….workers.dev/` is valid: secret defaults to [DEFAULT_SECRET].
      */
     fun formIssue(raw: String?): Probe? {
         val s = raw?.trim().orEmpty()
@@ -93,15 +94,15 @@ internal object FoxMozillaRelay {
         val u = runCatching { URI(s) }.getOrNull() ?: return Probe(false, "invalid")
         if (!u.scheme.equals("https", ignoreCase = true)) return Probe(false, "need-https")
         val secret = queryMap(u.rawQuery)["secret"]?.trim().orEmpty()
-        if (secret.isEmpty() || secret.length > 200 || secret.any { it.isWhitespace() || it == '"' || it == '\'' }) {
+        if (secret.isNotEmpty() && (secret.length > 200 || secret.any { it.isWhitespace() || it == '"' || it == '\'' })) {
             return Probe(false, "need-secret")
         }
         return Probe(false, "invalid")
     }
 
     /**
-     * Bare `https://host/` → `https://host/?secret=` so the user can type the
-     * Worker SECRET. `null` if the paste already has a `secret` query key.
+     * Bare `https://host/` → `https://host/?secret=admin`. `null` if a non-empty
+     * `secret` is already in the query.
      */
     fun withEmptySecretQuery(raw: String?): String? {
         val s = raw?.trim().orEmpty()
@@ -112,30 +113,30 @@ internal object FoxMozillaRelay {
         if (host.isEmpty() || host == "localhost" || host == "127.0.0.1" || host == "::1") return null
         if (u.port != -1 && u.port != 443) return null
         val q = queryMap(u.rawQuery)
-        if (q.containsKey("secret")) return null
+        if (q["secret"]?.trim().orEmpty().isNotEmpty()) return null
         val path = (u.rawPath.takeUnless { it.isNullOrEmpty() } ?: "/")
         if (path.contains("..") || path.contains('\\')) return null
-        val kept = q.filterKeys { it != "url" && it != "health" }
+        val kept = q.filterKeys { it != "url" && it != "health" && it != "secret" }
         val rest = kept.entries.joinToString("&") { "${it.key}=${it.value}" }
-        val query = if (rest.isEmpty()) "secret=" else "$rest&secret="
+        val query = if (rest.isEmpty()) "secret=$DEFAULT_SECRET" else "$rest&secret=$DEFAULT_SECRET"
         return "https://$host$path?$query"
     }
 
     fun probeLabel(detail: String, fa: Boolean): String = when (detail) {
         "need-secret" -> if (fa) {
-            "رمز نیست. لینک ناقص است — باید این شکلی باشد: https://….workers.dev/?secret=رمز (همان SECRET داخل ورکر)"
+            "رمز پیش‌فرض admin است. اگر ورکر رمز دیگری دارد، در لینک ?secret= همان را بگذار"
         } else {
-            "Missing secret. Paste https://….workers.dev/?secret=YOUR_SECRET (same SECRET as in the Worker)"
+            "Default secret is admin. If the Worker uses another secret, put it in ?secret="
         }
         "wrong-secret" -> if (fa) {
-            "رمز اشتباه است — ?secret= باید با SECRET داخل ورکر یکی باشد"
+            "رمز اشتباه است — پیش‌فرض admin است؛ ?secret= باید با SECRET داخل ورکر یکی باشد"
         } else {
-            "Wrong secret — ?secret= must match SECRET in the Worker"
+            "Wrong secret — default is admin; ?secret= must match SECRET in the Worker"
         }
         "secret-unset" -> if (fa) {
-            "داخل ورکر SECRET خالی است. اول در اسکریپت رمز بگذار، Deploy کن، بعد همان را در ?secret= بگذار"
+            "داخل ورکر SECRET خالی است. دکمهٔ کپی اسکریپت را بزن (رمز admin) و Deploy کن"
         } else {
-            "Worker SECRET is empty. Set it in the script, Deploy, then put the same value in ?secret="
+            "Worker SECRET is empty. Tap Copy Worker script (secret admin) and Deploy"
         }
         "need-https" -> if (fa) "لینک باید با https شروع شود" else "URL must start with https"
         "unreachable" -> if (fa) {
@@ -151,9 +152,9 @@ internal object FoxMozillaRelay {
         }
         "not ready" -> if (fa) "ورکر آماده نیست" else "Worker is not ready"
         "invalid" -> if (fa) {
-            "لینک باید https باشد و ?secret= داشته باشد"
+            "لینک باید https باشد. رمز پیش‌فرض admin است"
         } else {
-            "URL must be https and include ?secret="
+            "URL must be https. Default secret is admin"
         }
         else -> if (fa) "رله جواب نداد: $detail" else "Relay did not answer: $detail"
     }
@@ -170,9 +171,11 @@ internal object FoxMozillaRelay {
         return Probe(true, "ready")
     }
 
-    fun workerScript(secret: String): String {
-        val s = secret.trim()
-        require(s.matches(Regex("[a-zA-Z0-9]{8,64}"))) { "secret" }
+    fun workerScript(secret: String = DEFAULT_SECRET): String {
+        val s = secret.trim().ifEmpty { DEFAULT_SECRET }
+        require(s.matches(Regex("[a-zA-Z0-9]{4,64}"))) { "secret" }
+        val withDefault = WORKER_JS.replace("const SECRET = \"$DEFAULT_SECRET\";", "const SECRET = \"$s\";")
+        if (withDefault != WORKER_JS) return withDefault
         return WORKER_JS.replace("const SECRET = \"\";", "const SECRET = \"$s\";")
     }
 
@@ -199,11 +202,11 @@ internal object FoxMozillaRelay {
 
     /**
      * User deploys this as a Cloudflare Worker. Control-plane only (Mozilla/Firefox hosts).
-     * Requires SECRET. Health: GET ?secret=&health=1 → {"relay":"cat-fox","version":1,"ready":true}
+     * Default SECRET is admin. Health: GET ?secret=admin&health=1 → {"relay":"cat-fox","version":1,"ready":true}
      */
     const val WORKER_JS = """
 // Cat Fox Mozilla relay — control-plane only. VPN traffic does not go through this Worker.
-const SECRET = "";
+const SECRET = "admin";
 const ALLOWED = ["mozilla.org", "mozilla.com", "firefox.com", "github.com", "githubusercontent.com", "jsdelivr.net"];
 const DROP = ["host", "connection", "content-length", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "true-client-ip"];
 

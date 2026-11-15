@@ -16,14 +16,14 @@ class Beta307DumpMethodsTest {
     fun versionIsBeta307() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 382"))
-        assertTrue(gradle.contains("1.10.0-beta315"))
+        assertTrue(gradle.contains("versionCode = 383"))
+        assertTrue(gradle.contains("1.10.0-beta316"))
     }
 
     @Test
     fun foxRelayWrapsMozillaOnlyAndNeedsSecret() {
         assertNull(FoxMozillaRelay.normalize("http://relay.example.com/?secret=abc"))
-        assertNull(FoxMozillaRelay.normalize("https://relay.example.com/"))
+        assertEquals("https://relay.example.com/?secret=admin", FoxMozillaRelay.normalize("https://relay.example.com/"))
         assertNull(FoxMozillaRelay.normalize("https://127.0.0.1/?secret=abc"))
         val relay = FoxMozillaRelay.normalize("https://relay.example.com/?secret=s3cret1&health=1&url=https://evil.test")
         assertEquals("https://relay.example.com/?secret=s3cret1", relay)

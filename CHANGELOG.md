@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta316] — 2026-11-15 (Panel 6.89.0)
+
+Owner: Cat Fox relay default secret is admin.
+
+### Changed
+- **Cat Fox relay:** a bare `https://….workers.dev/` uses `?secret=admin`. Copied Worker script ships `SECRET = "admin"`. Custom `?secret=` still wins. VPN traffic still not through the Worker.
+
 ## [1.10.0-beta315] — 2026-11-15 (Panel 6.89.0)
 
 Owner: Cat Fox relay paste without `?secret=` said "invalid" and closed the dialog.
