@@ -33,7 +33,7 @@ object CloudflareWorker {
     const val WORKER_ASSET_PATH = "panels/catclient.worker.js"
     const val WIZARD_ASSET_PATH = "panels/catclient.wizard.js"
     /** Public Cat Wizard (token → deploy Cat Panel on the visitor's Cloudflare). Hosted on Vercel. */
-    const val WEB_WIZARD_URL = "https://cat-wizard.vercel.app"
+    const val WEB_WIZARD_URL = "https://cat-wizard-gamma.vercel.app"
 
     /**
      * The official paste artifact — `dist-panel/catpanel.min.js`, built by
