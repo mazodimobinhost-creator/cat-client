@@ -647,6 +647,7 @@ internal object FirefoxVpnEngine {
     }
 
     fun probeMozillaRelay(relayUrl: String): FoxMozillaRelay.Probe {
+        FoxMozillaRelay.formIssue(relayUrl)?.let { return it }
         val health = FoxMozillaRelay.healthUrl(relayUrl)
             ?: return FoxMozillaRelay.Probe(false, "invalid")
         val resp = runCatching {

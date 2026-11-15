@@ -4,6 +4,13 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta315] — 2026-11-15 (Panel 6.89.0)
+
+Owner: Cat Fox relay paste without `?secret=` said "invalid" and closed the dialog.
+
+### Changed
+- **Cat Fox relay:** a bare `https://….workers.dev/` is "رمز نیست" (add `?secret=`), not `invalid`. Test stays in the dialog and fills `?secret=` so the secret can be typed. 403 = wrong secret, 503 = SECRET empty in the Worker. VPN traffic still not through the Worker.
+
 ## [1.10.0-beta314] — 2026-10-09 (Panel 6.89.0)
 
 Owner: Cat Fox Cloudflare relay on the Fox card, Free networks, and finder — not only hub item 8.

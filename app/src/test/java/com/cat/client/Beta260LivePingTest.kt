@@ -73,8 +73,8 @@ class Beta260LivePingTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 381"))
-        assertTrue(gradle.contains("1.10.0-beta314"))
+        assertTrue(gradle.contains("versionCode = 382"))
+        assertTrue(gradle.contains("1.10.0-beta315"))
     }
 
     private fun src(name: String): String = listOf(

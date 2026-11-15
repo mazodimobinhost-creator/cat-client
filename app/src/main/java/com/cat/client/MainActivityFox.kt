@@ -1455,14 +1455,28 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
         textDirection = View.TEXT_DIRECTION_LTR
         textSize = 13f
     }
+    val statusView = TextView(this).apply {
+        textSize = 13f
+        setTextColor(TEAL)
+        setLineSpacing(0f, 1.15f)
+    }
+    fun showProbe(msg: String) {
+        statusView.text = msg
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+    }
+    fun slotSecretIfMissing() {
+        val slotted = FoxMozillaRelay.withEmptySecretQuery(input.text?.toString()) ?: return
+        input.setText(slotted)
+        input.setSelection(slotted.length)
+    }
     val box = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(20), dp(8), dp(20), dp(4))
         addView(
             TextView(this@showFoxMozillaRelayDialog).apply {
                 text = t(
-                    "فقط درخواست‌های ورود موزیلا از رله می‌روند، نه ترافیک VPN. ورکر را در کلادفلر بگذار (دامنهٔ خودت هم می‌شود؛ workers.dev لازم نیست)، رمز را در کد و در لینک یکی کن، بعد لینک را اینجا بچسبان.",
-                    "Only Mozilla sign-in goes through the relay, not VPN traffic. Paste the Worker in Cloudflare (your own domain is fine; workers.dev is not required), use the same secret in the script and the URL, then paste the URL here.",
+                    "فقط ورود موزیلا از رله می‌رود، نه ترافیک VPN.\n\nلینک کامل را بچسبان. این غلط است:\nhttps://NAME.workers.dev/\nاین درست است:\nhttps://NAME.workers.dev/?secret=رمز\n\nرمز را در اسکریپت ورکر و در لینک یکی کن. دامنهٔ خودت هم می‌شود؛ workers.dev لازم نیست.",
+                    "Only Mozilla sign-in goes through the relay, not VPN traffic.\n\nPaste the full URL. This is wrong:\nhttps://NAME.workers.dev/\nThis is right:\nhttps://NAME.workers.dev/?secret=SECRET\n\nUse the same secret in the Worker script and the URL. Your own domain is fine; workers.dev is not required.",
                 )
                 textSize = 13f
                 setTextColor(TEXT_SECONDARY)
@@ -1470,6 +1484,7 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
             },
         )
         addView(input, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        addView(statusView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         addView(
             MaterialButton(this@showFoxMozillaRelayDialog).apply {
                 text = t("📋 کپی اسکریپت ورکر", "📋 Copy Worker script")
@@ -1491,50 +1506,68 @@ internal fun MainActivity.showFoxMozillaRelayDialog(onChanged: () -> Unit = {}) 
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
+        addView(
+            MaterialButton(this@showFoxMozillaRelayDialog).apply {
+                text = t("🔍 تست رله", "🔍 Test relay")
+                isAllCaps = false
+                setOnClickListener {
+                    slotSecretIfMissing()
+                    val typed = input.text?.toString().orEmpty()
+                    val form = FoxMozillaRelay.formIssue(typed)
+                    if (form != null) {
+                        showProbe(FoxMozillaRelay.probeLabel(form.detail, isFarsi))
+                        return@setOnClickListener
+                    }
+                    isEnabled = false
+                    statusView.text = t("⏳ تست رله…", "⏳ Testing relay…")
+                    activityScope.launch {
+                        val probe = withContext(Dispatchers.IO) {
+                            FirefoxVpnEngine.probeMozillaRelay(typed)
+                        }
+                        isEnabled = true
+                        showProbe(
+                            if (probe.ok) t("✅ رله آماده است — ذخیره را بزن", "✅ Relay is ready — tap Save")
+                            else FoxMozillaRelay.probeLabel(probe.detail, isFarsi),
+                        )
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
     }
-    MaterialAlertDialogBuilder(this)
+    val dialog = MaterialAlertDialogBuilder(this)
         .setTitle(t("🛡️ رلهٔ ورود موزیلا", "🛡️ Mozilla sign-in relay"))
         .setView(box)
         .setNegativeButton(android.R.string.cancel, null)
-        .setNeutralButton(t("تست", "Test")) { _, _ ->
-            val typed = input.text?.toString().orEmpty()
-            Toast.makeText(this, t("⏳ تست رله…", "⏳ Testing relay…"), Toast.LENGTH_SHORT).show()
-            activityScope.launch {
-                val probe = withContext(Dispatchers.IO) { FirefoxVpnEngine.probeMozillaRelay(typed) }
-                Toast.makeText(
-                    this@showFoxMozillaRelayDialog,
-                    if (probe.ok) t("✅ رله آماده است", "✅ Relay is ready")
-                    else t("رله جواب نداد: ${probe.detail}", "Relay did not answer: ${probe.detail}"),
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
-        }
-        .setPositiveButton(t("ذخیره", "Save")) { _, _ ->
+        .setPositiveButton(t("ذخیره", "Save"), null)
+        .create()
+    dialog.showCatClientDialog {
+        getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
             val typed = input.text?.toString().orEmpty().trim()
             if (typed.isEmpty()) {
-                FirefoxVpnEngine.saveMozillaRelayUrl(this, "")
+                FirefoxVpnEngine.saveMozillaRelayUrl(this@showFoxMozillaRelayDialog, "")
                 onChanged()
-                Toast.makeText(this, t("رله خاموش شد", "Relay cleared"), Toast.LENGTH_SHORT).show()
-                return@setPositiveButton
+                Toast.makeText(this@showFoxMozillaRelayDialog, t("رله خاموش شد", "Relay cleared"), Toast.LENGTH_SHORT).show()
+                dismiss()
+                return@setOnClickListener
             }
-            if (FoxMozillaRelay.normalize(typed) == null) {
-                Toast.makeText(
-                    this,
-                    t("لینک باید https باشد و ?secret= داشته باشد", "URL must be https and include ?secret="),
-                    Toast.LENGTH_LONG,
-                ).show()
-                return@setPositiveButton
+            slotSecretIfMissing()
+            val candidate = input.text?.toString().orEmpty().trim()
+            if (FoxMozillaRelay.normalize(candidate) == null) {
+                val detail = FoxMozillaRelay.formIssue(candidate)?.detail ?: "invalid"
+                showProbe(FoxMozillaRelay.probeLabel(detail, isFarsi))
+                return@setOnClickListener
             }
-            FirefoxVpnEngine.saveMozillaRelayUrl(this, typed)
+            FirefoxVpnEngine.saveMozillaRelayUrl(this@showFoxMozillaRelayDialog, candidate)
             onChanged()
             Toast.makeText(
-                this,
-                t("رله ذخیره شد: ${FoxMozillaRelay.redact(typed)}", "Relay saved: ${FoxMozillaRelay.redact(typed)}"),
+                this@showFoxMozillaRelayDialog,
+                t("رله ذخیره شد: ${FoxMozillaRelay.redact(candidate)}", "Relay saved: ${FoxMozillaRelay.redact(candidate)}"),
                 Toast.LENGTH_LONG,
             ).show()
+            dismiss()
         }
-        .create()
-        .showCatClientDialog()
+    }
 }
 
 internal fun MainActivity.showFirefoxTokenImportDialog(onChanged: () -> Unit = {}) {

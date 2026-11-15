@@ -81,7 +81,86 @@ internal object FoxMozillaRelay {
         return "$relay${sep}health=1"
     }
 
+    /**
+     * Why [normalize] rejected a paste. `null` means the URL is well-formed
+     * (https + `?secret=`). A bare `https://….workers.dev/` is `need-secret`,
+     * not a vague `invalid`.
+     */
+    fun formIssue(raw: String?): Probe? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return Probe(false, "empty")
+        if (normalize(s) != null) return null
+        val u = runCatching { URI(s) }.getOrNull() ?: return Probe(false, "invalid")
+        if (!u.scheme.equals("https", ignoreCase = true)) return Probe(false, "need-https")
+        val secret = queryMap(u.rawQuery)["secret"]?.trim().orEmpty()
+        if (secret.isEmpty() || secret.length > 200 || secret.any { it.isWhitespace() || it == '"' || it == '\'' }) {
+            return Probe(false, "need-secret")
+        }
+        return Probe(false, "invalid")
+    }
+
+    /**
+     * Bare `https://host/` → `https://host/?secret=` so the user can type the
+     * Worker SECRET. `null` if the paste already has a `secret` query key.
+     */
+    fun withEmptySecretQuery(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return null
+        val u = runCatching { URI(s) }.getOrNull() ?: return null
+        if (!u.scheme.equals("https", ignoreCase = true)) return null
+        val host = u.host?.trim()?.lowercase(Locale.US) ?: return null
+        if (host.isEmpty() || host == "localhost" || host == "127.0.0.1" || host == "::1") return null
+        if (u.port != -1 && u.port != 443) return null
+        val q = queryMap(u.rawQuery)
+        if (q.containsKey("secret")) return null
+        val path = (u.rawPath.takeUnless { it.isNullOrEmpty() } ?: "/")
+        if (path.contains("..") || path.contains('\\')) return null
+        val kept = q.filterKeys { it != "url" && it != "health" }
+        val rest = kept.entries.joinToString("&") { "${it.key}=${it.value}" }
+        val query = if (rest.isEmpty()) "secret=" else "$rest&secret="
+        return "https://$host$path?$query"
+    }
+
+    fun probeLabel(detail: String, fa: Boolean): String = when (detail) {
+        "need-secret" -> if (fa) {
+            "رمز نیست. لینک ناقص است — باید این شکلی باشد: https://….workers.dev/?secret=رمز (همان SECRET داخل ورکر)"
+        } else {
+            "Missing secret. Paste https://….workers.dev/?secret=YOUR_SECRET (same SECRET as in the Worker)"
+        }
+        "wrong-secret" -> if (fa) {
+            "رمز اشتباه است — ?secret= باید با SECRET داخل ورکر یکی باشد"
+        } else {
+            "Wrong secret — ?secret= must match SECRET in the Worker"
+        }
+        "secret-unset" -> if (fa) {
+            "داخل ورکر SECRET خالی است. اول در اسکریپت رمز بگذار، Deploy کن، بعد همان را در ?secret= بگذار"
+        } else {
+            "Worker SECRET is empty. Set it in the script, Deploy, then put the same value in ?secret="
+        }
+        "need-https" -> if (fa) "لینک باید با https شروع شود" else "URL must start with https"
+        "unreachable" -> if (fa) {
+            "ورکر در دسترس نیست. اگر دامنهٔ workers.dev روی این اینترنت بسته است، دامنهٔ خودت را روی ورکر بگذار"
+        } else {
+            "Worker unreachable. If workers.dev is blocked on this network, put your own domain on the Worker"
+        }
+        "empty" -> if (fa) "لینک ورکر را بچسبان" else "Paste the Worker URL"
+        "not json" -> if (fa) {
+            "این ورکر رله نیست. دکمهٔ کپی اسکریپت را بزن، کد را در کلادفلر بگذار و Deploy کن"
+        } else {
+            "This Worker is not a relay. Tap Copy Worker script, paste it in Cloudflare, and Deploy"
+        }
+        "not ready" -> if (fa) "ورکر آماده نیست" else "Worker is not ready"
+        "invalid" -> if (fa) {
+            "لینک باید https باشد و ?secret= داشته باشد"
+        } else {
+            "URL must be https and include ?secret="
+        }
+        else -> if (fa) "رله جواب نداد: $detail" else "Relay did not answer: $detail"
+    }
+
     fun parseHealth(status: Int, body: String): Probe {
+        if (status == 403 || status == 401) return Probe(false, "wrong-secret")
+        if (status == 503) return Probe(false, "secret-unset")
         if (status != 200) return Probe(false, "HTTP $status")
         val trimmed = body.trim()
         if (trimmed.isEmpty() || trimmed.length > 8_000) return Probe(false, "empty")

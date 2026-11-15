@@ -16,8 +16,8 @@ class Beta291SpoofAndSlipNetTest {
     fun versionIsBeta291() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 381"))
-        assertTrue(gradle.contains("1.10.0-beta314"))
+        assertTrue(gradle.contains("versionCode = 382"))
+        assertTrue(gradle.contains("1.10.0-beta315"))
     }
 
     @Test
