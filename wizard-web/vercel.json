@@ -1,5 +1,8 @@
 {
   "framework": null,
+  "git": {
+    "deploymentEnabled": true
+  },
   "rewrites": [
     { "source": "/", "destination": "/api?__wpath=/" },
     { "source": "/health", "destination": "/api?__wpath=/health" },
