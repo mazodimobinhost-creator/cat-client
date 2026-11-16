@@ -207,20 +207,31 @@ jobs:
             echo "CATCLIENT_RELEASE_KEY_PASSWORD=$key_password"
           } >> "$GITHUB_ENV"
 
+      # Panel tests require Node 22 (package.json engines). ubuntu-latest's
+      # preinstalled node is not pinned and has been Node 20 on some images —
+      # that fails this step in ~1s while the dedicated Panel workflow (which
+      # already pins 22) stays green.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
       - name: Panel worker tests (data plane, subscriptions, auth)
         run: |
-          node --version
-          node scripts/panels/cat-panel.test.mjs
-          node scripts/panels/tunnel-e2e.test.mjs
-          node scripts/panels/abuse-safe-mode.test.mjs
-          node scripts/panels/wizard.test.mjs
-          node scripts/panels/link-shape.test.mjs
-          node scripts/panels/panel-integrity.test.mjs
-          node scripts/panels/kv-persistence.test.mjs
-          # Real DOM run: every button on every view is clicked; a single broken
-          # inline script leaves them all dead (the «options don't work» report).
-          npm install --no-save jsdom javascript-obfuscator@5 --silent
-          node scripts/panels/panel-dom.test.mjs
+          set +e
+          {
+            set -e
+            node --version
+            npm install --no-save jsdom javascript-obfuscator@5 --no-audit --no-fund
+            node scripts/panels/cat-panel.test.mjs
+            node scripts/panels/tunnel-e2e.test.mjs
+            node scripts/panels/abuse-safe-mode.test.mjs
+            node scripts/panels/wizard.test.mjs
+            node scripts/panels/link-shape.test.mjs
+            node scripts/panels/panel-integrity.test.mjs
+            node scripts/panels/kv-persistence.test.mjs
+            # Real DOM run: every button on every view is clicked; a single broken
+            # inline script leaves them all dead (the «options don't work» report).
+            node scripts/panels/panel-dom.test.mjs
           # The shipped (obfuscated) worker must stay identifiable by every consumer's regex —
           # without it «Update panel» installed panel 5.23.13 over a live 6.x deployment.
           node scripts/panels/panel-update-contract.test.mjs
@@ -247,10 +258,21 @@ jobs:
           node scripts/panels/orbot-engine.test.mjs
           # beta196: first-connection clock, per-user operator profile + exact-port clean IPs,
           # ⚡ quick user, scanner → user, installable panel (driven through the real UI)
-          node scripts/panels/devcop-parity.test.mjs
-          node scripts/panels/bestping-custom.test.mjs
-          # beta220: opt-in «📨 report to panel» endpoint (anonymised, capped, owner-only view)
-          node scripts/panels/app-report.test.mjs
+            node scripts/panels/devcop-parity.test.mjs
+            node scripts/panels/bestping-custom.test.mjs
+            # beta220: opt-in «📨 report to panel» endpoint (anonymised, capped, owner-only view)
+            node scripts/panels/app-report.test.mjs
+          } 2>&1 | tee panel-tests.log
+          STATUS=${PIPESTATUS[0]}
+          if [[ "$STATUS" != "0" ]]; then
+            echo "=== PANEL TESTS FAILED (exit $STATUS) ==="
+            printf '::error title=Panel tests::panel worker tests exited %s (see panel-tests.log)\n' "$STATUS"
+            grep -E '^(✗|not ok|FAIL |Error:|AssertionError|TUNNEL .*FAILED|ALL FAILED)' panel-tests.log | tail -n 40 | while IFS= read -r line; do
+              printf '::error title=Panel tests::%s\n' "$line"
+            done
+            tail -n 80 panel-tests.log
+          fi
+          exit "$STATUS"
 
       # Ship the obfuscated worker inside the APK (readable source never leaves
       # the repo). The full panel suite then re-runs against the obfuscated
@@ -513,7 +535,7 @@ jobs:
             cat kotlin-precheck.log build-log.txt unit-test.log 2>/dev/null |
               grep -oE 'app/src/(main|test)/[^:]+\.kt' | sort | uniq -c | sort -rn | head -20
             echo '## log tail'
-            for log in step18.log kotlin-precheck.log build-log.txt unit-test.log; do
+            for log in panel-tests.log step18.log kotlin-precheck.log build-log.txt unit-test.log; do
               if [[ -s "$log" ]]; then echo "### $log"; tail -n 120 "$log"; fi
             done
           } > FAILED-TESTS.md
@@ -832,6 +854,7 @@ jobs:
           path: |
             build-log.txt
             kotlin-precheck.log
+            panel-tests.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -841,7 +864,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LOG=""
-          for f in build-log.txt kotlin-precheck.log sdk-install.log; do [[ -f "$f" ]] && LOG="$f" && break; done
+          for f in panel-tests.log kotlin-precheck.log build-log.txt sdk-install.log; do [[ -f "$f" ]] && LOG="$f" && break; done
           if [[ -z "$LOG" ]]; then exit 0; fi
           {
             echo "Failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
