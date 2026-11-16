@@ -109,7 +109,7 @@ test('the free clean-IP library / ProxyIP feeds never reach a node sub (CI with 
   const { entries } = T.buildConfigEntries(HOST, ENV, s, UUID, null, {});
   assert.deepEqual([...new Set(entries.map((e) => e.addr))].sort(), [HOST, '198.51.100.44', '203.0.113.7', '203.0.113.9'].sort(), entries.map((e) => e.name + ' ' + e.addr + ':' + e.port).join(' | '));
   assert.ok(entries.every((e) => e.port === 443), 'a node answers on its one port — a typed :2053 is not advertised');
-  assert.ok(!entries.some((e) => /^🎯|^🧦/.test(e.name)), 'panel-wide / feed exits are not listed on a node — only a pinned user\'s');
+  assert.ok(!entries.some((e) => e.name.includes('🎯') || e.name.includes('🧦')), 'panel-wide / feed exits are not listed on a node — only a pinned user\'s');
 });
 
 test('a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in their sub on a node', async () => {
@@ -117,16 +117,16 @@ test('a user pinned to Germany: their 🎯 ProxyIP and 🧦 SOCKS exits are in t
   const user = { id: 'u1', exits: ['198.51.100.20:443', 'socks5://u:p@198.51.100.30:1080'], exitCc: 'DE' };
   const s = T.withUserExits(settings(), user);
   const { entries } = T.buildConfigEntries(HOST, ENV, s, UUID, null, {});
-  const px = entries.filter((e) => /^🎯/.test(e.name));
-  const sx = entries.filter((e) => /^🧦/.test(e.name));
+  const px = entries.filter((e) => e.name.includes('🎯'));
+  const sx = entries.filter((e) => e.name.includes('🧦'));
   assert.ok(px.length >= 2 && px.every((e) => decodeURIComponent(e.wsPath).includes('proxyip=198.51.100.20:443') && e.addr === HOST && e.port === 443), JSON.stringify(px.map((e) => [e.name, e.wsPath])));
   assert.ok(sx.length >= 2, entries.map((e) => e.name).join(' | '));
-  assert.ok(!entries.some((e) => /^🧬/.test(e.name)), 'no SNI-spoof lines on a node');
+  assert.ok(!entries.some((e) => e.name.includes('🧬')), 'no SNI-spoof lines on a node');
 });
 
 test('no exits typed → no built-in default ProxyIP lines on a node', async () => {
   const { entries } = T.buildConfigEntries(HOST, ENV, settings(), UUID, null, {});
-  assert.ok(!entries.some((e) => /^🎯|^🧦/.test(e.name)), entries.map((e) => e.name).join(' | '));
+  assert.ok(!entries.some((e) => e.name.includes('🎯') || e.name.includes('🧦')), entries.map((e) => e.name).join(' | '));
 });
 
 function fakeSockets(log) {
