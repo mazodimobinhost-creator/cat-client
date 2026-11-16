@@ -14,8 +14,8 @@ class Beta293DnsTunnelTestNotLoopbackDead {
     fun versionIsBeta293() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 388"))
-        assertTrue(gradle.contains("1.10.0-beta321"))
+        assertTrue(gradle.contains("versionCode = 389"))
+        assertTrue(gradle.contains("1.10.0-beta322"))
     }
 
     @Test
@@ -40,6 +40,8 @@ class Beta293DnsTunnelTestNotLoopbackDead {
         assertTrue(links.any { it.contains("1.1.1.1") })
         val free = src("MainActivityFreeNetworks.kt")
         assertTrue(free.contains("probeWorking"))
+        assertTrue(free.contains("tried, total, name, ip, alive, rtt"))
+        assertTrue(free.contains("تست تانل: "))
         assertFalse(free.contains("listOf(\"178.22.122.100\")"))
         val delay = src("CatClientVpnServiceConnectionTests.kt")
         assertTrue(delay.contains("realDnsTunnelDelayMs"))

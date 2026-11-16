@@ -20,7 +20,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * stay closed on TCP. They get a real UDP wait-for-reply. ICMP to the Cloudflare IP is
  * NOT a tunnel ping: 8.6.112.x always answers ping while WireGuard stays blocked.
  */
-internal data class SharePing(val link: String, val host: String?, val port: Int, val rttMs: Long?)
+internal data class SharePing(
+    val link: String,
+    val host: String?,
+    val port: Int,
+    val rttMs: Long?,
+    val hostMs: Long? = null,
+)
 
 internal object LiveNetPing {
     private val UDP_SCHEMES = setOf(
@@ -138,15 +144,17 @@ internal object LiveNetPing {
         onEach: ((SharePing, Int, Int) -> Unit)? = null,
     ): List<SharePing> {
         if (links.isEmpty()) return emptyList()
-        val wait = timeoutMs.toLong().coerceAtLeast(200L) + 1_800L
+        val wait = timeoutMs.toLong().coerceAtLeast(200L) * 2 + 1_800L
         val pool = Executors.newFixedThreadPool(parallelism.coerceIn(1, 12))
         val done = AtomicInteger(0)
         return try {
             val futs = links.map { link ->
                 pool.submit<SharePing> {
                     val hp = hostPortFromShare(link)
-                    val ms = hp?.let { pingMs(it.first, it.second, isUdpShare(link), timeoutMs) }
-                    val hit = SharePing(link, hp?.first, hp?.second ?: 0, ms)
+                    val udp = isUdpShare(link)
+                    val tunnel = hp?.let { pingMs(it.first, it.second, udp, timeoutMs) }
+                    val hostPing = if (udp) hp?.let { icmpMs(it.first, timeoutMs) } else null
+                    val hit = SharePing(link, hp?.first, hp?.second ?: 0, tunnel, hostPing)
                     onEach?.invoke(hit, done.incrementAndGet(), links.size)
                     hit
                 }
@@ -157,7 +165,14 @@ internal object LiveNetPing {
                     SharePing(links[i], hp?.first, hp?.second ?: 0, null)
                 }
             }
-            hits.sortedWith(compareBy({ it.rttMs == null }, { it.rttMs ?: Long.MAX_VALUE }))
+            hits.sortedWith(
+                compareBy(
+                    { it.rttMs == null },
+                    { it.rttMs ?: Long.MAX_VALUE },
+                    { it.hostMs == null },
+                    { it.hostMs ?: Long.MAX_VALUE },
+                ),
+            )
         } finally {
             pool.shutdownNow()
         }
@@ -167,4 +182,23 @@ internal object LiveNetPing {
     fun labelEn(ms: Long?): String = if (ms != null) "🟢 ${ms} ms on your line" else "⚪ closed on this line"
     fun waitingFa(): String = "⏳ پینگ…"
     fun waitingEn(): String = "⏳ ping…"
+
+    /** UDP shares: tunnel ms (🟢) vs host ICMP (🟡) — ICMP is not a WireGuard ping. */
+    fun labelShareFa(hit: SharePing): String {
+        if (!isUdpShare(hit.link)) return labelFa(hit.rttMs)
+        return when {
+            hit.rttMs != null -> "🟢 ${hit.rttMs} ms تونل" + (hit.hostMs?.let { " · آی‌پی $it ms" } ?: "")
+            hit.hostMs != null -> "🟡 ${hit.hostMs} ms آی‌پی · UDP بسته"
+            else -> "⚪ روی این خط بسته"
+        }
+    }
+
+    fun labelShareEn(hit: SharePing): String {
+        if (!isUdpShare(hit.link)) return labelEn(hit.rttMs)
+        return when {
+            hit.rttMs != null -> "🟢 ${hit.rttMs} ms tunnel" + (hit.hostMs?.let { " · host $it ms" } ?: "")
+            hit.hostMs != null -> "🟡 ${hit.hostMs} ms host · UDP closed"
+            else -> "⚪ closed on this line"
+        }
+    }
 }

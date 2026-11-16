@@ -232,13 +232,13 @@ private suspend fun MainActivity.rankLinksByLivePing(
     val ranked = withContext(Dispatchers.IO) {
         LiveNetPing.rankShares(links) { hit, i, n ->
             val addr = if (hit.host.isNullOrBlank() || hit.port <= 0) "?" else "${hit.host}:${hit.port}"
-            val ms = if (fa) LiveNetPing.labelFa(hit.rttMs) else LiveNetPing.labelEn(hit.rttMs)
+            val ms = if (fa) LiveNetPing.labelShareFa(hit) else LiveNetPing.labelShareEn(hit)
             step("$ms · $addr  ($i/$n)")
         }
     }
     val lines = ranked.map { hit ->
         val addr = if (hit.host.isNullOrBlank() || hit.port <= 0) "?" else "${hit.host}:${hit.port}"
-        (if (fa) LiveNetPing.labelFa(hit.rttMs) else LiveNetPing.labelEn(hit.rttMs)) + " · $addr"
+        (if (fa) LiveNetPing.labelShareFa(hit) else LiveNetPing.labelShareEn(hit)) + " · $addr"
     }
     return ranked.map { it.link } to lines
 }
@@ -1358,8 +1358,16 @@ internal fun MainActivity.addFreeSlipNet() {
     freeProgress(t("⏳ اسکن ریزولور و ساخت تانل DNS…", "⏳ Scanning resolvers and building the DNS tunnel…")) { step ->
         step(t("اسکن ریزولور روی این خط…", "Scanning resolvers on this line…"))
         val cards = withContext(Dispatchers.IO) {
-            runCatching { WhiteDnsSmartScanner.scanResolversWithSlipNetScore(maxCandidates = 10, timeoutMs = 800) }
-                .getOrDefault(emptyList())
+            runCatching {
+                WhiteDnsSmartScanner.scanResolversWithSlipNetScore(maxCandidates = 10, timeoutMs = 800) { tried, total, name, ip, alive, rtt ->
+                    val ping = when {
+                        alive && rtt != null -> "$rtt ms"
+                        alive -> t("باز", "open")
+                        else -> t("بسته", "closed")
+                    }
+                    step("$tried/$total · $name · $ip · $ping")
+                }
+            }.getOrDefault(emptyList())
         }
         val resolvers = cards.filter { it.udpAlive || it.tcpAlive }.sortedByDescending { it.score }.map { it.resolverIp }
         val used = resolvers.take(2)
@@ -1371,7 +1379,7 @@ internal fun MainActivity.addFreeSlipNet() {
         }
         val links = withContext(Dispatchers.IO) {
             SlipNetFreePlanner.probeWorking(this@addFreeSlipNet, raw, maxKeep = 3, timeoutMs = 8_000) { s ->
-                step(s)
+                step(t("تست تانل: ", "Testing tunnel: ") + s)
             }
         }
         if (links.isEmpty()) {

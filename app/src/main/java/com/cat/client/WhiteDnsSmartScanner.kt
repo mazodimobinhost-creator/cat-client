@@ -3047,14 +3047,17 @@ internal object WhiteDnsSmartScanner {
         testDomain: String = "cloudflare.com",
         maxCandidates: Int = 6,
         timeoutMs: Int = 850,
+        onProgress: ((tried: Int, total: Int, nameFa: String, ip: String, alive: Boolean, rttMs: Long?) -> Unit)? = null,
     ): List<SlipNetResolverScoreCard> {
         val cards = mutableListOf<SlipNetResolverScoreCard>()
         val candidates = RESOLVER_CATALOG.take(maxCandidates.coerceIn(1, RESOLVER_CATALOG.size))
-        for (entry in candidates) {
+        for ((index, entry) in candidates.withIndex()) {
             val ip = entry.primaryIp
             val udpRtt = probeDnsOverUdp(ip, qtype = 1, timeoutMs = timeoutMs, domain = testDomain)
             val tcpRtt = probeDnsOverTcp(ip, qtype = 1, timeoutMs = timeoutMs + 250, domain = testDomain)
-            if (udpRtt == null && tcpRtt == null) continue
+            val alive = udpRtt != null || tcpRtt != null
+            onProgress?.invoke(index + 1, candidates.size, entry.nameFa, ip, alive, udpRtt ?: tcpRtt)
+            if (!alive) continue
 
             val useTcp = udpRtt == null
             val nsOk = if (useTcp) {

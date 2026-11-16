@@ -39,6 +39,12 @@ class Beta260LivePingTest {
         assertFalse(LiveNetPing.isLoopback("s1.example.com"))
         assertEquals("🟢 87 ms روی خط شما", LiveNetPing.labelFa(87))
         assertEquals("⚪ closed on this line", LiveNetPing.labelEn(null))
+        val icmpOnly = SharePing("awg://auto@8.6.112.208:2408", "8.6.112.208", 2408, rttMs = null, hostMs = 127)
+        assertTrue(LiveNetPing.labelShareFa(icmpOnly).contains("127"))
+        assertTrue(LiveNetPing.labelShareFa(icmpOnly).contains("UDP"))
+        assertTrue(LiveNetPing.labelShareFa(icmpOnly).startsWith("🟡"))
+        val tunnel = SharePing("awg://auto@8.6.112.208:2408", "8.6.112.208", 2408, rttMs = 45, hostMs = 127)
+        assertTrue(LiveNetPing.labelShareFa(tunnel).startsWith("🟢"))
         assertTrue(LiveNetPing.isUdpShare("awg://auto@8.6.112.208:2408?publickey=x#n"))
         assertTrue(LiveNetPing.isUdpShare("wireguard://auto@162.159.192.1:2408?publickey=x"))
         assertTrue(LiveNetPing.isUdpShare("hysteria2://pw@203.0.113.9:443?sni=x"))
@@ -54,8 +60,11 @@ class Beta260LivePingTest {
         assertTrue(ping.contains("onEach"))
         assertTrue(ping.contains("if (udp) return udpReplyMs(host, port, timeoutMs)"))
         assertFalse(ping.contains("udpReplyMs(host, port, timeoutMs) ?: icmpMs"))
+        assertTrue(ping.contains("labelShareFa"))
+        assertTrue(ping.contains("icmpMs"))
         val hub = src("MainActivityFreeNetworks.kt")
         assertTrue(hub.contains("LiveNetPing.rankShares(links) { hit, i, n ->"))
+        assertTrue(hub.contains("labelShareFa"))
     }
 
     @Test
@@ -90,8 +99,8 @@ class Beta260LivePingTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 388"))
-        assertTrue(gradle.contains("1.10.0-beta321"))
+        assertTrue(gradle.contains("versionCode = 389"))
+        assertTrue(gradle.contains("1.10.0-beta322"))
     }
 
     private fun src(name: String): String = listOf(

@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta322] — 2026-11-16 (Panel 6.92.0)
+
+Owner: Amnezia ping numbers back (ICMP vs UDP); DNS scan live progress.
+
+### Changed
+- **Amnezia ping:** ICMP to the IP is shown again (`🟡 127 ms آی‌پی · UDP بسته`). Tunnel-open is still only UDP (`🟢`).
+- **Cat DNS:** resolver scan logs each IP as it is tried instead of sitting on one frozen line.
+
 ## [1.10.0-beta321] — 2026-11-16 (Panel 6.92.0)
 
 Owner: Amnezia ping was ICMP to Cloudflare, then delay-test 0/65.

@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1631 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 20 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 2354 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 35 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 2362 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 35 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 1108 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 26 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 593 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -131,7 +131,7 @@
 | `VerifiedTunnelChain.kt` | 41 | — | — · — |
 | `VoidlyFree.kt` | 88 | 🛡️ Cat Voidly — pick a live region, generate on their page, Cat brings the `.conf` in. | Beta287VoidlyWireGuardTest, Beta288VoidlyLocationTest · — |
 | `WarpRegistration.kt` | 486 | Real Cloudflare WARP registration for `awg://auto@…` / `wireguard://auto@…` configs. | Beta209WarpEditorTest, Beta210WarpAutoKeyTest, Beta265IranMethodsTest · — |
-| `WhiteDnsSmartScanner.kt` | 3270 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, Beta291SpoofAndSlipNetTest, WhiteDnsSmartScannerTest · — |
+| `WhiteDnsSmartScanner.kt` | 3273 | Conceptual smart scanner & resolver toolkit combining: 1) 6-port Cloudflare TLS + SNI Pool scanner (inspired by WhiteDNS-cleanip-finder) 2) Multi-t… | AetherSelectionTest, Beta291SpoofAndSlipNetTest, WhiteDnsSmartScannerTest · — |
 | `WhiteDnsToolkit.kt` | 853 | Scanner toolkit inspired by the sections of WhiteDNS IP Scanner (independent implementation, no code copied): ASN → CIDR export, CIDR → IP list, op… | Beta238FoxWebChannelTest, WhiteDnsToolkitTest · — |
 | `XrayEngine.kt` | 262 | Runs the official Xray-core (XTLS/Xray-core, MPL-2.0 — built unmodified from source in CI by `scripts/build-xray-core.sh` together with Cat's tiny… | Beta223XrayEngineTest · — |
 | `XrayRouting.kt` | 543 | beta223 — the Xray engine. | Beta223XrayEngineTest, Beta255EnginesAuditTest · — |
@@ -339,7 +339,7 @@
 | `GitHostProfiles.kt` | 144 | Hosts that build from a GitHub repository like Lucity / Shiprr, but each needs something different (Nov 2026 sources, re-checked when added): • Zer… | Beta238FoxWebChannelTest · — |
 | `Globe3d.kt` | 39 | Orthographic 3D globe math for the home connection sphere. | Beta268Globe3dTest · — |
 | `HostRegions.kt` | 69 | beta227 — «ask the user the country». | Beta227HostCountryTest, Beta228SmarterAspLinuxTest, Beta238FoxWebChannelTest · — |
-| `LiveNetPing.kt` | 170 | Connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest, Beta265IranMethodsTest · — |
+| `LiveNetPing.kt` | 204 | Connect time on THIS network (protected socket, so a running VPN does not fake the RTT). | Beta260LivePingTest, Beta263CatWindTest, Beta265IranMethodsTest · — |
 | `MethodFinderPlan.kt` | 312 | beta246 🧭 «Which method works on my internet?» — the pure part (no Android, unit-tested). | Beta246MethodFinderTest, Beta292DnsCfHostMethodsTest, Beta309Ipv6ScoutTest, Beta319ClientFixesTest · — |
 | `MethodFinderSources.kt` | 217 | beta246 🧭: collects what the method finder tests. | Beta246MethodFinderTest · — |
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
@@ -349,7 +349,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_291 Kotlin files, 123329 lines._
+_291 Kotlin files, 123374 lines._
 
 ## MainActivity screens — function index
 
@@ -410,7 +410,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (43 functions)
 
-`freeFa`:34, `freeButton`:36, `freeText`:57, `freeBox`:66, `freeLp`:71, `withPhysicalNet`:74, `showFreeNetworksHub`:86, `rankLinksByLivePing`:225, `connectableWgUris`:250, `freeProgress`:260, `saveFreeSubscription`:298, `connectFreeSubscription`:309, `freeResult`:347, `showFreeProxyDialog`:365, `buildFreeProxy`:386, `showFanoosDialog`:428, `fetchFanoos`:475, `fetchFanoosAll`:535, `showFreeAccountDialog`:673, `showProtonDialog`:818, `showProtonPaste`:822, `showProtonWebView`:846, `addProtonConfs`:1072, `showVoidlyDialog`:1142, `showVoidlyGenerate`:1196, `showVoidlyPaste`:1268, `addVoidlyConfs`:1292, `addFreeSlipNet`:1354, `addWarpAmneziaAuto`:1419, `showFreePsiphonDialog`:1480, `pickFreePsiphonCountry`:1518, `connectFreePsiphon`:1537, `showCatWarpFreeDialog`:1576, `scanCatWarpOnThisLine`:1644, `connectCatWarpFree`:1798, `showCatWindDialog`:1833, `showCatWindLogin`:1843, `connectCatWind`:1988, `jsString`:2080, `showCatEdgeDialog`:2084, `showCatEdgePaste`:2129, `runCatEdgeConnect`:2169, `showCatEdgeCountryPicker`:2253
+`freeFa`:34, `freeButton`:36, `freeText`:57, `freeBox`:66, `freeLp`:71, `withPhysicalNet`:74, `showFreeNetworksHub`:86, `rankLinksByLivePing`:225, `connectableWgUris`:250, `freeProgress`:260, `saveFreeSubscription`:298, `connectFreeSubscription`:309, `freeResult`:347, `showFreeProxyDialog`:365, `buildFreeProxy`:386, `showFanoosDialog`:428, `fetchFanoos`:475, `fetchFanoosAll`:535, `showFreeAccountDialog`:673, `showProtonDialog`:818, `showProtonPaste`:822, `showProtonWebView`:846, `addProtonConfs`:1072, `showVoidlyDialog`:1142, `showVoidlyGenerate`:1196, `showVoidlyPaste`:1268, `addVoidlyConfs`:1292, `addFreeSlipNet`:1354, `addWarpAmneziaAuto`:1427, `showFreePsiphonDialog`:1488, `pickFreePsiphonCountry`:1526, `connectFreePsiphon`:1545, `showCatWarpFreeDialog`:1584, `scanCatWarpOnThisLine`:1652, `connectCatWarpFree`:1806, `showCatWindDialog`:1841, `showCatWindLogin`:1851, `connectCatWind`:1996, `jsString`:2088, `showCatEdgeDialog`:2092, `showCatEdgePaste`:2137, `runCatEdgeConnect`:2177, `showCatEdgeCountryPicker`:2261
 
 ### `MainActivityGuides.kt` (11 functions)
 
