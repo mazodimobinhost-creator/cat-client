@@ -17,8 +17,8 @@ class Beta312CatEdgeTest {
     fun versionIsBeta312() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 386"))
-        assertTrue(gradle.contains("1.10.0-beta319"))
+        assertTrue(gradle.contains("versionCode = 387"))
+        assertTrue(gradle.contains("1.10.0-beta320"))
     }
 
     @Test
@@ -163,6 +163,30 @@ class Beta312CatEdgeTest {
         )
         val none = CatEdgePlanner.raceHandshakes(nodes, { _, _ -> 500 to "no" }, maxParallel = 2, maxKeep = 2)
         assertTrue(none.isEmpty())
+    }
+
+    @Test
+    fun raceReportsEveryHostSoTheDialogIsNotStuckOnOneLine() {
+        val nodes = listOf(
+            CatEdgePlanner.Node("a", "a.example.com", 443, "ir", "public"),
+            CatEdgePlanner.Node("b", "b.example.com", 443, "ir", "public"),
+        )
+        val seen = java.util.Collections.synchronizedList(ArrayList<String>())
+        CatEdgePlanner.raceHandshakes(
+            nodes,
+            { _, _ -> 500 to "no" },
+            maxParallel = 2,
+            maxKeep = 2,
+        ) { tried, total, open, node, rtt ->
+            seen += "${tried}/${total}:${node.host}:open=$open:rtt=$rtt"
+        }
+        assertEquals(2, seen.size)
+        assertTrue(seen.any { it.contains("a.example.com") })
+        assertTrue(seen.any { it.contains("b.example.com") })
+        val ui = src("MainActivityFreeNetworks.kt")
+        assertTrue(ui.contains("onProgress") || ui.contains("tried, total, open, node, rtt"))
+        assertTrue(ui.contains("باز / بسته همین‌جا می‌آید") || ui.contains("Open / closed land here"))
+        assertTrue(ui.contains("timeoutMs = 4_500"))
     }
 
     @Test

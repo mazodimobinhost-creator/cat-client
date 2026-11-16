@@ -229,7 +229,13 @@ private suspend fun MainActivity.rankLinksByLivePing(
 ): Pair<List<String>, List<String>> {
     if (links.isEmpty()) return links to emptyList()
     step(if (fa) "پینگ واقعی هر سرور روی همین اینترنت…" else "Live ping of each server on this network…")
-    val ranked = withContext(Dispatchers.IO) { LiveNetPing.rankShares(links) }
+    val ranked = withContext(Dispatchers.IO) {
+        LiveNetPing.rankShares(links) { hit, i, n ->
+            val addr = if (hit.host.isNullOrBlank() || hit.port <= 0) "?" else "${hit.host}:${hit.port}"
+            val ms = if (fa) LiveNetPing.labelFa(hit.rttMs) else LiveNetPing.labelEn(hit.rttMs)
+            step("$ms · $addr  ($i/$n)")
+        }
+    }
     val lines = ranked.map { hit ->
         val addr = if (hit.host.isNullOrBlank() || hit.port <= 0) "?" else "${hit.host}:${hit.port}"
         (if (fa) LiveNetPing.labelFa(hit.rttMs) else LiveNetPing.labelEn(hit.rttMs)) + " · $addr"
@@ -255,16 +261,29 @@ private fun MainActivity.freeProgress(title: String, work: suspend (step: (Strin
     val fa = freeFa()
     val log = freeText("", 12.5f, TEXT_PRIMARY)
     val box = freeBox().apply { addView(log) }
+    val scroll = ScrollView(this).apply { addView(box) }
     var job: Job? = null
     val dialog = MaterialAlertDialogBuilder(this)
         .setTitle(title)
-        .setView(ScrollView(this).apply { addView(box) })
+        .setView(scroll)
         .setNegativeButton(if (fa) "توقف" else "Stop") { _, _ -> job?.cancel() }
         .setCancelable(false)
         .create()
     dialog.showCatClientDialog()
     val lines = mutableListOf<String>()
-    val step: (String) -> Unit = { s -> runOnUiThread { lines += s; log.text = lines.joinToString("\n") } }
+    val step: (String) -> Unit = { s ->
+        runOnUiThread {
+            lines += s
+            if (lines.size > 48) {
+                val keep = lines.takeLast(40)
+                lines.clear()
+                lines += "…"
+                lines += keep
+            }
+            log.text = lines.joinToString("\n")
+            scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        }
+    }
     job = activityScope.launch {
         try {
             work(step)
@@ -2135,15 +2154,19 @@ private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, re
     fun t(f: String, e: String) = if (fa) f else e
     val name = CatEdgePlanner.NAME
     freeProgress(t("⏳ Cat Edge — جلسه و اتصال…", "⏳ Cat Edge — session and connect…")) { step ->
-        val http = CatEdgePlanner.EdgeHttp { url, headers ->
+        val listHttp = CatEdgePlanner.EdgeHttp { url, headers ->
             val a = FreeNetHttp.request(url, headers = headers, timeoutMs = 12_000, allowTunnel = true)
+            a.code to a.body
+        }
+        val handshakeHttp = CatEdgePlanner.EdgeHttp { url, headers ->
+            val a = FreeNetHttp.request(url, headers = headers, timeoutMs = 4_500, allowTunnel = true)
             a.code to a.body
         }
         val nodes = ArrayList<CatEdgePlanner.Node>()
         if (refresh) {
             step(t("گرفتن فهرست امضاشده…", "Fetching the signed list…"))
             val list = withContext(Dispatchers.IO) {
-                withPhysicalNet { CatEdgePlanner.fetchSignedList(http) }
+                withPhysicalNet { CatEdgePlanner.fetchSignedList(listHttp) }
             }
             val countries = list.nodes.map { CatEdgePlanner.locationCode(it) }.toSet()
             step(t("فهرست ${list.nodes.size} میزبان · ${countries.size} مکان (سریال ${list.serial})", "List of ${list.nodes.size} hosts · ${countries.size} places (serial ${list.serial})"))
@@ -2154,15 +2177,25 @@ private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, re
             freeResult(t("⚠️ میزبانی نبود", "⚠️ No hosts"), listOf(t("فهرست یا چسباندن خالی بود.", "The list or paste was empty.")), null, "")
             return@freeProgress
         }
-        step(t("دست‌دهی روی ${nodes.size} میزبان از همه مکان‌ها…", "Handshaking ${nodes.size} hosts from every place…"))
+        step(
+            t(
+                "دست‌دهی ${nodes.size} میزبان — همزمان ۸ تا، هر کدام تا ۵ ثانیه. باز / بسته همین‌جا می‌آید.",
+                "Handshaking ${nodes.size} hosts — 8 at a time, 5 s each. Open / closed land here as they finish.",
+            ),
+        )
         val ready = withContext(Dispatchers.IO) {
             withPhysicalNet {
                 CatEdgePlanner.raceHandshakes(
                     nodes,
-                    http,
+                    handshakeHttp,
                     maxParallel = 8,
                     maxKeep = nodes.size.coerceAtMost(CatEdgePlanner.PICK_MAX_TOTAL),
-                )
+                ) { tried, total, open, node, rtt ->
+                    val loc = CatEdgePlanner.locationLabel(node).line(fa)
+                    val ping = if (rtt != null) "${rtt} ms" else t("بسته", "closed")
+                    val mark = if (rtt != null) "✅" else "⚪"
+                    step("$mark $tried/$total · ${t("باز", "open")} $open · $loc · ${node.host} · $ping")
+                }
             }
         }
         if (ready.isEmpty()) {

@@ -514,23 +514,34 @@ internal object CatEdgePlanner {
         maxParallel: Int = 6,
         maxKeep: Int = 6,
         publicKeyDer: ByteArray = rsaSpki(),
+        onProgress: ((tried: Int, total: Int, open: Int, node: Node, rttMs: Long?) -> Unit)? = null,
     ): List<Ready> {
         if (nodes.isEmpty()) return emptyList()
         val ready = java.util.Collections.synchronizedList(ArrayList<Ready>())
         val kept = AtomicInteger(0)
+        val tried = AtomicInteger(0)
         val pool = Executors.newFixedThreadPool(maxParallel.coerceIn(1, 8))
         try {
             val futures = nodes.map { node ->
                 pool.submit<Ready?> {
-                    if (kept.get() >= maxKeep) return@submit null
-                    val row = runCatching { handshake(node, http, publicKeyDer = publicKeyDer) }.getOrNull() ?: return@submit null
-                    if (kept.incrementAndGet() <= maxKeep) {
+                    if (kept.get() >= maxKeep) {
+                        val n = tried.incrementAndGet()
+                        onProgress?.invoke(n, nodes.size, ready.size, node, null)
+                        return@submit null
+                    }
+                    val row = runCatching { handshake(node, http, publicKeyDer = publicKeyDer) }.getOrNull()
+                    val n = tried.incrementAndGet()
+                    if (row != null && kept.incrementAndGet() <= maxKeep) {
                         ready += row
+                        onProgress?.invoke(n, nodes.size, ready.size, node, row.rttMs)
                         row
-                    } else null
+                    } else {
+                        onProgress?.invoke(n, nodes.size, ready.size, node, null)
+                        null
+                    }
                 }
             }
-            futures.forEach { runCatching { it.get(20, TimeUnit.SECONDS) } }
+            futures.forEach { runCatching { it.get(16, TimeUnit.SECONDS) } }
         } finally {
             pool.shutdownNow()
         }

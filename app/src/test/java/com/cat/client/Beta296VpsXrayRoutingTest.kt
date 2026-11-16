@@ -17,8 +17,8 @@ class Beta296VpsXrayRoutingTest {
     fun versionIsBeta296() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 386"))
-        assertTrue(gradle.contains("1.10.0-beta319"))
+        assertTrue(gradle.contains("versionCode = 387"))
+        assertTrue(gradle.contains("1.10.0-beta320"))
     }
 
     @Test

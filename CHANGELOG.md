@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta320] — 2026-11-16 (Panel 6.92.0)
+
+Owner: Cat Edge handshake progress + Amnezia live ping.
+
+### Changed
+- **Cat Edge:** the session dialog logs each host as it is tried (open/closed/ms) instead of freezing on «handshaking N hosts».
+- **Amnezia:** `awg://` / WireGuard rows are timed with UDP (reply required) then ICMP — TCP connect on WARP ports always looked «closed».
+
 ## [1.10.0-beta319] — 2026-11-16 (Panel 6.92.0)
 
 Owner: Cat Edge picker pool, method finder, share, v2rayNG-style editor.

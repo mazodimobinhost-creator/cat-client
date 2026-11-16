@@ -39,6 +39,22 @@ class Beta260LivePingTest {
         assertFalse(LiveNetPing.isLoopback("s1.example.com"))
         assertEquals("🟢 87 ms روی خط شما", LiveNetPing.labelFa(87))
         assertEquals("⚪ closed on this line", LiveNetPing.labelEn(null))
+        assertTrue(LiveNetPing.isUdpShare("awg://auto@8.6.112.208:2408?publickey=x#n"))
+        assertTrue(LiveNetPing.isUdpShare("wireguard://auto@162.159.192.1:2408?publickey=x"))
+        assertTrue(LiveNetPing.isUdpShare("hysteria2://pw@203.0.113.9:443?sni=x"))
+        assertFalse(LiveNetPing.isUdpShare("vmess://abc"))
+        assertFalse(LiveNetPing.isUdpShare("https://u:p@s1.example.com:443"))
+        assertEquals(
+            "8.6.112.208" to 2408,
+            LiveNetPing.hostPortFromShare("awg://auto@8.6.112.208:2408?publickey=x#Amnezia"),
+        )
+        val ping = src("LiveNetPing.kt")
+        assertTrue(ping.contains("udpReplyMs"))
+        assertTrue(ping.contains("icmpMs"))
+        assertTrue(ping.contains("isUdpShare(link)"))
+        assertTrue(ping.contains("onEach"))
+        val hub = src("MainActivityFreeNetworks.kt")
+        assertTrue(hub.contains("LiveNetPing.rankShares(links) { hit, i, n ->"))
     }
 
     @Test
@@ -73,8 +89,8 @@ class Beta260LivePingTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 386"))
-        assertTrue(gradle.contains("1.10.0-beta319"))
+        assertTrue(gradle.contains("versionCode = 387"))
+        assertTrue(gradle.contains("1.10.0-beta320"))
     }
 
     private fun src(name: String): String = listOf(
