@@ -54,8 +54,8 @@ internal fun MainActivity.buildMethodFinderCard(): View {
     panel.addView(
         advancedSectionDetail(
             t(
-                "«بررسی» را بزنید: برنامه همهٔ روش‌هایش (Cat Warp، سرورهای رایگان Hysteria2 و وایرگارد، کانفیگ‌های خودتان، Cat Fox VPN و SSTP) را واقعاً روی همین اینترنت امتحان می‌کند و بهترین را بالا می‌آورد. لازم نیست تا آخر صبر کنید؛ هر وقت چند روش سبز شد «⏹ توقف» بزنید، نتیجه‌ها می‌مانند. بعد «اتصال» کنار روش سبز را بزنید.",
-                "Tap Check: the app really tries every method it has (Cat Warp, free Hysteria2 and WireGuard servers, your own configs, Cat Fox VPN and SSTP) on this internet and puts the best on top. No need to wait for the end: tap ⏹ Stop once a few are green; results stay. Then tap Connect next to a green method.",
+                "«بررسی» را بزنید: برنامه همهٔ روش‌هایش را روی همین اینترنت امتحان می‌کند. به‌محض سبز شدن یک روش، «اتصال» می‌آید — تا آخر اسکن صبر نکن.",
+                "Tap Check: the app tries every method on this internet. Connect appears as soon as one method is green — do not wait for the scan to finish.",
             ),
         ),
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) },
@@ -203,7 +203,8 @@ internal fun MainActivity.showMethodFinderDialog(families: Set<FinderFamily>, fr
     fun renderRows() {
         rows.removeAllViews()
         val results = MethodFinderPlan.summarize(candidates, tested, delays)
-        val shown = if (finished) MethodFinderPlan.ranked(results) else results
+        val overall = results.filter { it.working > 0 && it.bestIndex != null }.minByOrNull { it.bestMs ?: Int.MAX_VALUE }
+        val shown = if (finished || overall != null) MethodFinderPlan.ranked(results) else results
         fun card(): LinearLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -213,12 +214,12 @@ internal fun MainActivity.showMethodFinderDialog(families: Set<FinderFamily>, fr
                 setColor(withAlpha(palette.surfaceElevated2, 200))
             }
         }
-        val overall = results.filter { it.working > 0 && it.bestIndex != null }.minByOrNull { it.bestMs ?: Int.MAX_VALUE }
         val sidTop = subId
-        if (finished && overall != null && sidTop != null) {
+        if (overall != null && sidTop != null) {
             val label = (if (fa) overall.family.fa else overall.family.en).substringBefore(" (")
             rows.addView(
                 finderButton(t("⭐ اتصال به بهترین روش ($label · ${overall.bestMs}ms)", "⭐ Connect with the best method ($label · ${overall.bestMs} ms)"), accent = true) {
+                    cancelServiceTest()
                     dialogRef?.dismiss()
                     connectFinderCandidate(sidTop, overall.bestIndex!!)
                 },
@@ -243,9 +244,10 @@ internal fun MainActivity.showMethodFinderDialog(families: Set<FinderFamily>, fr
             })
             val best = r.bestIndex
             val sid = subId
-            if (finished && r.working > 0 && best != null && sid != null) {
+            if (r.working > 0 && best != null && sid != null) {
                 c.addView(
                     finderButton(t("🚀 اتصال با بهترینِ این روش", "🚀 Connect with the best of this method"), accent = true) {
+                        cancelServiceTest()
                         dialogRef?.dismiss()
                         connectFinderCandidate(sid, best)
                     },

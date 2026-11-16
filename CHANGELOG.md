@@ -4,6 +4,15 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta323] — 2026-11-16 (Panel 6.92.0)
+
+Owner: finder connect while scanning; Amnezia → MASQUE; spoof wraps real config.
+
+### Changed
+- **Method finder:** Connect appears as soon as a method is green. Do not wait for the whole scan.
+- **Amnezia:** when WireGuard UDP is closed, a MASQUE button is on that same result.
+- **Spoof:** tiny TLS records on your vless/trojan/vmess; live progress; no silent Cat Warp fallback. Forwarder DNS stays off the tunnel.
+
 ## [1.10.0-beta322] — 2026-11-16 (Panel 6.92.0)
 
 Owner: Amnezia ping numbers back (ICMP vs UDP); DNS scan live progress.

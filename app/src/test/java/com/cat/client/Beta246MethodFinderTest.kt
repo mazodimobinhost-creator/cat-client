@@ -184,6 +184,9 @@ class Beta246MethodFinderTest {
         assertTrue("the finder runs the service's real delay test", ui.contains("setAction(Actions.TEST_CONNECTION_DELAYS)"))
         assertTrue("stop = the service's cancel (results so far stay)", ui.contains("setAction(Actions.CANCEL_CONNECTION_DELAY_TEST)"))
         assertTrue("a live connection is only paused after the user agrees", ui.contains("confirmFinderDisconnect(fa)"))
+        assertTrue("connect as soon as a method is green, not after the whole scan", ui.contains("if (overall != null && sidTop != null)"))
+        assertFalse("do not wait for finished before showing connect", ui.contains("finished && overall"))
+        assertTrue(ui.contains("Connect appears as soon as one method is green"))
         val sources = src("MethodFinderSources.kt")
         assertFalse("lists over HTTPS only", sources.contains("\"http://"))
     }

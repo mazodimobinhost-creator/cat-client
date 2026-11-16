@@ -13,8 +13,8 @@ class Beta288VoidlyLocationTest {
     fun versionIsBeta288() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 389"))
-        assertTrue(gradle.contains("1.10.0-beta322"))
+        assertTrue(gradle.contains("versionCode = 390"))
+        assertTrue(gradle.contains("1.10.0-beta323"))
     }
 
     @Test

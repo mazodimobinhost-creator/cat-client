@@ -257,7 +257,7 @@ private fun connectableWgUris(text: String, label: String): List<String> {
 }
 
 /** Progress dialog with a live log; [work] runs on IO and returns the lines of its report. */
-private fun MainActivity.freeProgress(title: String, work: suspend (step: (String) -> Unit) -> Unit): Job {
+internal fun MainActivity.freeProgress(title: String, work: suspend (step: (String) -> Unit) -> Unit): Job {
     val fa = freeFa()
     val log = freeText("", 12.5f, TEXT_PRIMARY)
     val box = freeBox().apply { addView(log) }
@@ -344,7 +344,14 @@ internal fun MainActivity.connectFreeSubscription(
     }
 }
 
-private fun MainActivity.freeResult(title: String, report: List<String>, subId: String?, note: String) {
+internal fun MainActivity.freeResult(
+    title: String,
+    report: List<String>,
+    subId: String?,
+    note: String,
+    extraLabel: String? = null,
+    extraAction: (() -> Unit)? = null,
+) {
     val fa = freeFa()
     val box = freeBox()
     box.addView(freeText(report.joinToString("\n"), 12f))
@@ -356,6 +363,8 @@ private fun MainActivity.freeResult(title: String, report: List<String>, subId: 
     if (subId != null) {
         builder.setPositiveButton(if (fa) "⚡ اتصال" else "⚡ Connect") { _, _ -> connectFreeSubscription(subId) }
         builder.setNeutralButton(if (fa) "📋 دیدن کانفیگ‌ها" else "📋 See configs") { _, _ -> openScreen(SCREEN_SERVERS) }
+    } else if (!extraLabel.isNullOrBlank() && extraAction != null) {
+        builder.setPositiveButton(extraLabel) { _, _ -> extraAction() }
     }
     builder.create().showCatClientDialog()
 }
@@ -1444,14 +1453,17 @@ internal fun MainActivity.addWarpAmneziaAuto() {
         val (ranked, pingLines) = rankLinksByLivePing(links, step, fa)
         val open = pingLines.count { it.startsWith("🟢") }
         if (open == 0) {
+            val masque = CatWarpFreePlanner.PROTOS.first { it.id == "h2" }
             freeResult(
                 t("وایرگارد روی این خط بسته است", "WireGuard is closed on this line"),
                 pingLines.take(16),
                 null,
                 t(
-                    "آی‌پی کلودفلر پینگ ICMP می‌دهد؛ تونل WireGuard/Amnezia باز نشد. این تقصیر کانفیگ نیست — همراه اول و ایرانسل WG را می‌بندند. از ضدسانسور «Cat Warp» را با MASQUE بزن.",
-                    "The Cloudflare IP answers ICMP; the WireGuard/Amnezia tunnel did not. Not a bad config — Hamrah and Irancell often block WG. Use Cat Warp with MASQUE from Anti-filter.",
+                    "آی‌پی کلودفلر پینگ ICMP می‌دهد؛ تونل WireGuard/Amnezia باز نشد. این تقصیر کانفیگ نیست — همراه اول و ایرانسل WG را می‌بندند. MASQUE همان Cat Warp است، داخل HTTPS.",
+                    "The Cloudflare IP answers ICMP; the WireGuard/Amnezia tunnel did not. Not a bad config — Hamrah and Irancell often block WG. MASQUE is Cat Warp inside HTTPS.",
                 ),
+                extraLabel = t("🚀 MASQUE را همین الان بزن", "🚀 MASQUE now"),
+                extraAction = { connectCatWarpFree(masque) },
             )
             return@freeProgress
         }

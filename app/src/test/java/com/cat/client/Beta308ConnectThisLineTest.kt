@@ -20,8 +20,8 @@ class Beta308ConnectThisLineTest {
     fun versionIsBeta308() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 389"))
-        assertTrue(gradle.contains("1.10.0-beta322"))
+        assertTrue(gradle.contains("versionCode = 390"))
+        assertTrue(gradle.contains("1.10.0-beta323"))
     }
 
     @Test
@@ -122,6 +122,8 @@ class Beta308ConnectThisLineTest {
         assertTrue(body.contains("withInitPackets = true"))
         assertTrue(body.contains("pingAll = false"))
         assertTrue(body.contains("وایرگارد روی این خط بسته است") || body.contains("WireGuard is closed on this line"))
+        assertTrue(body.contains("MASQUE را همین الان بزن"))
+        assertTrue(body.contains("connectCatWarpFree(masque)"))
         assertTrue(src.contains("beginConnectFlow(Actions.CONNECT, autoNext = autoNext)"))
         assertTrue(src.contains("connectFreeSubscription(subId, autoNext = true)"))
     }

@@ -16,8 +16,8 @@ class Beta291SpoofAndSlipNetTest {
     fun versionIsBeta291() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 389"))
-        assertTrue(gradle.contains("1.10.0-beta322"))
+        assertTrue(gradle.contains("versionCode = 390"))
+        assertTrue(gradle.contains("1.10.0-beta323"))
     }
 
     @Test
@@ -34,6 +34,16 @@ class Beta291SpoofAndSlipNetTest {
         val engines = src("MainActivityEngines.kt")
         assertTrue(engines.contains("&sni_fwd_target="))
         assertFalse(engines.contains("&sni=\$realSni&"))
+        assertTrue(engines.contains("TLS_RECORD_TINY_FRAG"))
+        assertTrue(engines.contains("اسپوف بدون کانفیگ خودت کار نمی‌کند"))
+        assertFalse(engines.contains("activated serverless Cat Warp with clean SNI"))
+        assertTrue(spoof.contains("resolveForProtectedSocket(cleanHost)"))
+        val vmessJson = """{"v":"2","ps":"Mine","add":"188.114.98.224","port":"443","id":"a1b2c3d4-e5f6-4789-abcd-ef0123456789","aid":"0","net":"ws","host":"my.worker.dev","path":"/ws","tls":"tls","sni":"my.worker.dev"}"""
+        val vmess = "vmess://" + java.util.Base64.getEncoder().encodeToString(vmessJson.toByteArray())
+        val tpl = LocalSniSpoofProxy.extractRealConfigTemplate(listOf(vmess))!!
+        assertEquals("188.114.98.224", tpl.remoteHost)
+        assertEquals("vmess", tpl.scheme)
+        assertEquals("my.worker.dev", tpl.hostHeader)
     }
 
     @Test

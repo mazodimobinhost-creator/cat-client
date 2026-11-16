@@ -3773,8 +3773,8 @@ internal fun MainActivity.showCloudflareFiveSpoofMethodsDialog() {
                     if (isFarsi) "$rttBadge✅ این روش روی سرور واقعی شما (${realTemplate.hostHeader}) آماده شد:\n\n"
                     else "$rttBadge✅ Built for your real server (${realTemplate.hostHeader}):\n\n"
                 } else {
-                    if (isFarsi) "$rttBadge💡 چون کانفیگ شخصی نداشتید، این روش روی موتور بدون سرور Cat Warp با SNI اسپوف‌شده (${m.sampleSni}) اعمال می‌شود:\n\n"
-                    else "$rttBadge💡 Applied to serverless Cat Warp engine with spoofed SNI (${m.sampleSni}):\n\n"
+                    if (isFarsi) "$rttBadgeاسپوف روی کانفیگ خودت کار می‌کند. یک vless / trojan / vmess در فهرست بگذار، بعد همین روش را بزن. Cat Warp جای اسپوف نیست.\n\n"
+                    else "$rttBadgeSpoof wraps YOUR config. Put a vless / trojan / vmess in the list, then tap this method. Cat Warp is not spoof.\n\n"
                 }
                 MaterialAlertDialogBuilder(this@showCloudflareFiveSpoofMethodsDialog)
                     .setTitle(if (isFarsi) m.titleFa else m.titleEn)
@@ -3798,46 +3798,12 @@ internal fun MainActivity.showCloudflareFiveSpoofMethodsDialog() {
                         if (realTemplate != null) {
                             runOneClickRepairMyRealConfigAndConnect(preferredStrategy = chosenStrategy)
                         } else {
-                            activityScope.launch {
-                                val subTitle = "☁️ اسپوف کلودفلر (روش ${m.index})"
-                                val existing = userSubscriptionManager.list().firstOrNull {
-                                    it.name.startsWith("☁️ اسپوف کلودفلر")
-                                }
-                                val saved = withContext(Dispatchers.IO) {
-                                    if (existing != null) {
-                                        userSubscriptionManager.update(existing.id, subTitle, snippet)
-                                    } else {
-                                        userSubscriptionManager.add(subTitle, snippet)
-                                    }
-                                }
-                                userSubscriptionManager.select(saved.id)
-                                val cur = aetherPreferenceStore.read()
-                                aetherPreferenceStore.save(
-                                    cur.copy(
-                                        enabled = true,
-                                        mode = AetherMode.MasqueInMasque,
-                                        masqueTransport = "h2",
-                                        endpoint = "162.159.198.235:443",
-                                        innerEndpoint = "162.159.198.2:443",
-                                        masqueSni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
-                                        echEnabled = m.index == 2,
-                                        endpointScannedAt = System.currentTimeMillis(),
-                                    ),
-                                )
-                                LocalSniSpoofProxy.startSpoofSocksProxy(
-                                    strategy = chosenStrategy,
-                                    decoySni = m.sampleSni.ifBlank { LocalSniSpoofProxy.currentDecoySni },
-                                )
-                                renderSubscriptions()
-                                onSubscriptionSelected()
-                                renderAdvancedControls()
-                                openScreen(SCREEN_HOME)
-                                if (currentVpnServiceState == VpnState.Started) {
-                                    reconnectForConnectionOptionChange()
-                                } else {
-                                    beginConnectFlow(Actions.CONNECT)
-                                }
-                            }
+                            Toast.makeText(
+                                this@showCloudflareFiveSpoofMethodsDialog,
+                                if (isFarsi) "اول یک vless / trojan / vmess خودت را در فهرست بگذار."
+                                else "Put your own vless / trojan / vmess in the list first.",
+                                Toast.LENGTH_LONG,
+                            ).show()
                         }
                     }
                     .create()
@@ -3935,89 +3901,82 @@ internal fun MainActivity.runIranDnsAndDnsttScanDialog() {
 
 /**
  * 1-Click Real Config Repair & Connect:
- * - Finds the user's REAL config (or falls back to serverless Aether/Firefox VPN if the user has no personal config),
- * - Scans open Non-Cloudflare & Cloudflare endpoints,
- * - Starts the local TCP Anti-DPI SNI Splitter forwarding to the user's real server,
- * - Saves the repaired configs, selects them, and immediately connects the VPN!
+ * wraps the user's real vless/trojan/vmess in the local SNI splitter (tiny TLS records by default).
+ * Does not silently switch to Cat Warp when there is no personal config.
  */
 internal fun MainActivity.runOneClickRepairMyRealConfigAndConnect(
-    preferredStrategy: LocalSniSpoofProxy.SpoofStrategy = LocalSniSpoofProxy.SpoofStrategy.TLS_RECORD_SPLIT_AT_SNI,
+    preferredStrategy: LocalSniSpoofProxy.SpoofStrategy = LocalSniSpoofProxy.SpoofStrategy.TLS_RECORD_TINY_FRAG,
 ) {
     val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-    Toast.makeText(
-        this,
-        if (isFarsi) "🪄 در حال بررسی کانفیگ واقعی شما، اسکن آی‌پی‌های باز و راه‌اندازی تانل ضد فیلترینگ…"
-        else "🪄 Inspecting your real config, scanning open IPs & starting Anti-DPI tunnel…",
-        Toast.LENGTH_SHORT,
-    ).show()
-
-    activityScope.launch {
+    fun t(f: String, e: String) = if (isFarsi) f else e
+    freeProgress(t("🪄 تعمیر کانفیگ واقعی با اسپوف…", "🪄 Repairing your real config with spoof…")) { step ->
+        step(t("خواندن کانفیگ vless / trojan / vmess خودت…", "Reading your vless / trojan / vmess…"))
         val realTemplate = resolveUserRealConfigTemplate()
+        if (realTemplate == null) {
+            freeResult(
+                t("اسپوف بدون کانفیگ خودت کار نمی‌کند", "Spoof needs your own config"),
+                listOf(
+                    t(
+                        "در فهرست یک vless یا trojan یا vmess واقعی باشد (نه 127.0.0.1 خالی). بعد همین دکمه را بزن تا روی سرور خودت برش TLS زده شود. Cat Warp جای اسپوف نیست.",
+                        "Put a real vless, trojan or vmess in the list (not empty 127.0.0.1). Then tap this again so TLS is split on YOUR server. Cat Warp is not spoof.",
+                    ),
+                ),
+                null,
+                "",
+            )
+            return@freeProgress
+        }
+        step(t("کانفیگ: ${realTemplate.remark} · ${realTemplate.remoteHost}:${realTemplate.remotePort}", "Config: ${realTemplate.remark} · ${realTemplate.remoteHost}:${realTemplate.remotePort}"))
+        step(t("اسکن لبهٔ باز روی این خط…", "Scanning open edges on this line…"))
         val openHits = withContext(Dispatchers.IO) {
             LocalSniSpoofProxy.scanNonCloudflareWhitelistTargets(timeoutMs = 900)
         }
-        if (realTemplate != null) {
-            val repairedLinks = withContext(Dispatchers.IO) {
-                LocalSniSpoofProxy.buildRepairedConfigsForRealTemplate(
-                    template = realTemplate,
-                    strategy = preferredStrategy,
-                    verifiedNonCfHits = openHits,
-                )
+        step(t("راه‌اندازی فورواردر خردکنندهٔ TLS (${preferredStrategy.id})…", "Starting TLS-fragment forwarder (${preferredStrategy.id})…"))
+        val repairedLinks = withContext(Dispatchers.IO) {
+            LocalSniSpoofProxy.buildRepairedConfigsForRealTemplate(
+                template = realTemplate,
+                strategy = preferredStrategy,
+                verifiedNonCfHits = openHits,
+            )
+        }
+        if (repairedLinks.isEmpty()) {
+            freeResult(t("تعمیر ساخته نشد", "Repair was not built"), emptyList(), null, "")
+            return@freeProgress
+        }
+        step(t("ذخیره ${repairedLinks.size} ردیف تعمیرشده…", "Saving ${repairedLinks.size} repaired rows…"))
+        val content = repairedLinks.joinToString("\n")
+        val subTitle = "🪄 تعمیرشده خودکار (${realTemplate.remark.take(22)})"
+        val existing = userSubscriptionManager.list().firstOrNull {
+            it.name.startsWith("🪄 تعمیرشده خودکار")
+        }
+        val saved = withContext(Dispatchers.IO) {
+            if (existing != null) {
+                userSubscriptionManager.update(existing.id, subTitle, content)
+            } else {
+                userSubscriptionManager.add(subTitle, content)
             }
-            val content = repairedLinks.joinToString("\n")
-            val subTitle = "🪄 تعمیرشده خودکار (${realTemplate.remark.take(22)})"
-            val existing = userSubscriptionManager.list().firstOrNull {
-                it.name.startsWith("🪄 تعمیرشده خودکار")
-            }
-            val saved = withContext(Dispatchers.IO) {
-                if (existing != null) {
-                    userSubscriptionManager.update(existing.id, subTitle, content)
-                } else {
-                    userSubscriptionManager.add(subTitle, content)
-                }
-            }
-            userSubscriptionManager.select(saved.id)
-            val curAether = aetherPreferenceStore.read()
-            if (curAether.enabled) {
-                aetherPreferenceStore.save(curAether.copy(enabled = false))
-            }
-            orbotEnginePreferenceStore.setEnabled(false)
+        }
+        userSubscriptionManager.select(saved.id)
+        val curAether = aetherPreferenceStore.read()
+        if (curAether.enabled) {
+            aetherPreferenceStore.save(curAether.copy(enabled = false))
+        }
+        orbotEnginePreferenceStore.setEnabled(false)
+        withContext(Dispatchers.Main) {
             renderSubscriptions()
             onSubscriptionSelected()
             renderAdvancedControls()
-            Toast.makeText(
-                this@runOneClickRepairMyRealConfigAndConnect,
-                if (isFarsi) "✅ کانفیگ واقعی شما («${realTemplate.remark}») با برش محلی SNI و ۵ روش اسپوف تعمیر شد — در حال اتصال…"
-                else "✅ Repaired your real config ('${realTemplate.remark}') with local SNI split & 5 CF spoofs — connecting…",
-                Toast.LENGTH_LONG,
-            ).show()
-            openScreen(SCREEN_HOME)
-            if (currentVpnServiceState == VpnState.Started) {
-                reconnectForConnectionOptionChange()
-            } else {
-                beginConnectFlow(Actions.CONNECT)
-            }
-        } else {
-            // User has no personal VLESS/Trojan config yet -> automatically configure serverless Aether MASQUE with clean SNI & connect!
-            val bestSni = openHits.firstOrNull()?.target?.sni ?: LocalSniSpoofProxy.currentDecoySni
-            val cur = aetherPreferenceStore.read()
-            aetherPreferenceStore.save(
-                cur.copy(
-                    enabled = true,
-                    mode = AetherMode.MasqueHttp2,
-                    endpoint = cur.endpoint ?: "162.159.198.1:443",
-                    masqueSni = bestSni,
-                    endpointScannedAt = System.currentTimeMillis(),
-                ),
-            )
-            LocalSniSpoofProxy.startSpoofSocksProxy(strategy = preferredStrategy, decoySni = bestSni)
-            renderAdvancedControls()
-            Toast.makeText(
-                this@runOneClickRepairMyRealConfigAndConnect,
-                if (isFarsi) "💡 چون کانفیگ شخصی نداشتید، موتور بدون سرور Cat Warp با SNI سفید «$bestSni» فعال شد — در حال اتصال…"
-                else "💡 No personal config found; activated serverless Cat Warp with clean SNI '$bestSni' — connecting…",
-                Toast.LENGTH_LONG,
-            ).show()
+        }
+        freeResult(
+            t("✅ اسپوف روی کانفیگ خودت آماده شد", "✅ Spoof is ready on your config"),
+            listOf(
+                t("سرور ${realTemplate.remoteHost}:${realTemplate.remotePort}", "Server ${realTemplate.remoteHost}:${realTemplate.remotePort}"),
+                t("${repairedLinks.size} ردیف با خرد کردن TLS", "${repairedLinks.size} rows with TLS fragmentation"),
+            ),
+            saved.id,
+            t("در حال وصل…", "Connecting…"),
+        )
+        withContext(Dispatchers.Main) {
             openScreen(SCREEN_HOME)
             if (currentVpnServiceState == VpnState.Started) {
                 reconnectForConnectionOptionChange()

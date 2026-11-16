@@ -1220,6 +1220,34 @@ internal object LocalSniSpoofProxy {
         for (raw in rawLines) {
             val line = raw.trim()
             val lower = line.lowercase()
+            if (lower.startsWith("vmess://")) {
+                val parsedVmess = runCatching {
+                    val b64 = line.substringAfter("vmess://").substringBefore('#').trim()
+                    val bytes = decodeLenientBase64(b64) ?: return@runCatching null
+                    val obj = org.json.JSONObject(String(bytes, Charsets.UTF_8))
+                    val id = obj.optString("id").trim()
+                    if (id.isBlank() || id.startsWith("11111111-") || id.startsWith("00000000-")) return@runCatching null
+                    val host = obj.optString("add").trim()
+                    val port = obj.optString("port").toIntOrNull() ?: obj.optInt("port", 443)
+                    if (host == "127.0.0.1" || host.equals("localhost", ignoreCase = true)) return@runCatching null
+                    val hostHeader = obj.optString("host").ifBlank { obj.optString("sni") }.ifBlank { host }
+                    if (hostHeader.contains("example.workers.dev") || hostHeader == "sub.workers.dev") return@runCatching null
+                    if (host.isBlank() || port !in 1..65535) return@runCatching null
+                    RealConfigTemplate(
+                        scheme = "vmess",
+                        uuidOrPass = id,
+                        remoteHost = host,
+                        remotePort = port,
+                        hostHeader = hostHeader,
+                        sni = obj.optString("sni").ifBlank { hostHeader },
+                        path = obj.optString("path").ifBlank { "/ws" },
+                        networkType = obj.optString("net").ifBlank { "ws" },
+                        remark = obj.optString("ps").ifBlank { host },
+                    )
+                }.getOrNull()
+                if (parsedVmess != null) return parsedVmess
+                continue
+            }
             if (!lower.startsWith("vless://") && !lower.startsWith("trojan://")) continue
             val parsed = runCatching {
                 val uri = java.net.URI(line.replace(" ", "%20"))
@@ -1434,7 +1462,8 @@ internal object LocalSniSpoofProxy {
                     protectOutboundSocket(upstream)
                     applyGamingSocketTuning(upstream)
                     upstream.soTimeout = if (gamingLowLatencyBoosterEnabled) 15_000 else 20_000
-                    upstream.connect(InetSocketAddress(cleanHost, remotePort), 8_000)
+                    val resolved = resolveForProtectedSocket(cleanHost)
+                    upstream.connect(InetSocketAddress(resolved, remotePort), 8_000)
                     val upIn = upstream.getInputStream()
                     val upOut = upstream.getOutputStream()
                     spoofWorkerPool.execute {
