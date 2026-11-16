@@ -12,6 +12,14 @@ import org.junit.Test
 class Beta319ClientFixesTest {
 
     @Test
+    fun versionIsBeta319() {
+        val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
+            .first { it.isFile }.readText()
+        assertTrue(gradle.contains("versionCode = 386"))
+        assertTrue(gradle.contains("1.10.0-beta319"))
+    }
+
+    @Test
     fun edgePickerTakesTheSignedListPoolNotFourRowsAndDoesNotInventCountries() {
         val nodes = (1..40).map { i ->
             CatEdgePlanner.Node("g$i", "g$i.example.com", 443, "global", "public")

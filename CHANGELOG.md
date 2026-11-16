@@ -4,6 +4,16 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta319] — 2026-11-16 (Panel 6.92.0)
+
+Owner: Cat Edge picker pool, method finder, share, v2rayNG-style editor.
+
+### Changed
+- **Cat Edge:** more signed-list hosts (Iran + Global — no invented countries) in a grouped picker. The paste dialog says Cat does not download a bridge; you paste a host you already have.
+- **Method finder:** Hysteria2 with `obfs` and no password no longer aborts the whole delay test (`missing obfs password`).
+- **Subscriptions:** copy / QR / share work for local lists, not only `https://` URLs.
+- **Editor:** v2rayNG / V2Box-style sections (general, user, transport, TLS/Reality, Hysteria) instead of raw text only.
+
 ## [1.10.0-beta318] — 2026-11-16 (Panel 6.92.0)
 
 Owner: Cat Edge every country on this line + per-config traffic. Panel 6.92.0 rides in the APK.

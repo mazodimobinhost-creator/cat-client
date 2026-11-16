@@ -9,13 +9,13 @@ test('beta app checks the releases list rather than GitHub stable-only latest', 
 });
 test('panel repair resolves its Worker from the prerelease list too', () => {
   const asset = source.slice(source.indexOf('suspend fun releaseAsset'), source.indexOf('suspend fun expectedSha256'));
-  assert.match(asset, /readText\(RELEASES_URL/);
+  assert.match(asset, /fetchReleasesJson|RELEASES_URLS/);
   assert.match(asset, /resolveReleaseAssetUrl/);
   assert.doesNotMatch(asset, /"https:\/\/github\.com[^"\n]*releases\/latest\/download/);
 });
 
 test('drafts are rejected while signed prereleases can be selected', () => {
   const parse = source.slice(source.indexOf('fun parseRelease('), source.indexOf('fun parseChecksum'));
-  assert.match(parse, /getBoolean\("draft"\)/);
+  assert.match(parse, /optBoolean\("draft"/);
   assert.doesNotMatch(parse, /getBoolean\("prerelease"\)/);
 });
