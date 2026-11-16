@@ -5,11 +5,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -2049,8 +2052,8 @@ internal fun MainActivity.showCatEdgeDialog() {
     box.addView(
         freeText(
             t(
-                "همهٔ کشورهای فهرست امضاشده روی همین خط تست می‌شوند. فقط سالم‌ها نشان داده می‌شوند؛ خودت انتخاب می‌کنی به کدام وصل شوی. پل یا دامنهٔ خودت را هم می‌شود چسباند. تست پینگ خالی نیست.",
-                "Every country in the signed list is tested on this line. Only the healthy ones are shown; you pick which to connect. You can paste a bridge or your own domain. The test is not a ping.",
+                "میزبان‌های عمومی از فهرست امضاشده می‌آیند (همین حالا ایران و جهانی — کشور ساختگی اضافه نمی‌شود). «تست همه» همان مخزن را روی این خط امتحان می‌کند و سالم‌ها را نشان می‌دهد.\n\nپل یا دامنه را Cat از جایی دانلود نمی‌کند. اگر خودت دامنه/پل داری (از ارائه‌دهنده‌ات، دوستی، یا دامنه‌ای که مال توست) همان را در «چسباندن» بگذار: example.com یا host:443 — چند خط هم می‌شود. تست پینگ خالی نیست.",
+                "Public hosts come from the signed list (right now Iran and Global — no invented countries). “Test every country” tries that pool on this line and shows the healthy ones.\n\nCat does not download a bridge or domain from somewhere else. If you already have a host (from your provider, a friend, or a domain you own), paste it: example.com or host:443 — several lines are fine. The test is not a ping.",
             ),
             12.5f,
             TEXT_PRIMARY,
@@ -2090,18 +2093,30 @@ internal fun MainActivity.showCatEdgeDialog() {
 private fun MainActivity.showCatEdgePaste() {
     val fa = freeFa()
     fun t(f: String, e: String) = if (fa) f else e
+    val box = freeBox()
+    box.addView(
+        freeText(
+            t(
+                "اینجا چیزی «از اینترنت گرفته نمی‌شود». اگر دامنه یا پل خودت را داری همان را بچسبان. اگر نداری، از صفحهٔ قبل «تست همه کشورها» را بزن تا میزبان‌های فهرست امضاشده (ایران / جهانی) روی این خط امتحان شوند.",
+                "Nothing is fetched from the internet here. Paste a domain or bridge you already have. If you do not have one, go back and tap “Test every country” so the signed-list hosts (Iran / Global) are tried on this line.",
+            ),
+            12.5f,
+            TEXT_PRIMARY,
+        ),
+    )
     val input = EditText(this).apply {
         hint = t("دامنه، host:443، یا چند خط", "domain, host:443, or several lines")
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
         minLines = 4
         typeface = CatClientBodyTypeface
     }
+    box.addView(input, freeLp(8))
     val clip = (getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)
         ?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
     if (CatEdgePlanner.parsePasted(clip).isNotEmpty()) input.setText(clip)
     MaterialAlertDialogBuilder(this)
         .setTitle(t("📋 پل یا دامنه برای Cat Edge", "📋 Bridge or domain for Cat Edge"))
-        .setView(input)
+        .setView(ScrollView(this).apply { addView(box) })
         .setNegativeButton(t("لغو", "Cancel"), null)
         .setPositiveButton(t("تست و اتصال", "Test and connect")) { _, _ ->
             val nodes = CatEdgePlanner.parsePasted(input.text?.toString().orEmpty(), kind = "bridge")
@@ -2146,7 +2161,7 @@ private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, re
                     nodes,
                     http,
                     maxParallel = 8,
-                    maxKeep = nodes.size.coerceAtMost(48),
+                    maxKeep = nodes.size.coerceAtMost(CatEdgePlanner.PICK_MAX_TOTAL),
                 )
             }
         }
@@ -2195,13 +2210,89 @@ private fun MainActivity.showCatEdgeCountryPicker(subId: String, ready: List<Cat
         }
         return
     }
-    val labels = ordered.map { CatEdgePlanner.pickerLine(it, fa) }.toTypedArray()
-    val checked = intArrayOf(ordered.indices.minByOrNull { ordered[it].rttMs } ?: 0)
+    val grouped = ordered.groupBy { CatEdgePlanner.locationCode(it.node) }
+    val wrap = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(4), dp(16), dp(4))
+    }
+    wrap.addView(
+        freeText(
+            t(
+                "فقط مکان‌های فهرست امضاشده (کشور ساختگی نیست). ${ordered.size} میزبان روی این خط سالم شد — یکی را بزن.",
+                "Only places from the signed list (no invented countries). ${ordered.size} hosts are healthy on this line — tap one.",
+            ),
+            12.5f,
+            TEXT_PRIMARY,
+        ),
+    )
+    val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    val selected = intArrayOf(ordered.indices.minByOrNull { ordered[it].rttMs } ?: 0)
+    val rowViews = ArrayList<LinearLayout>()
+    fun paint() {
+        rowViews.forEachIndexed { i, row ->
+            (row.background as? GradientDrawable)?.setColor(
+                if (i == selected[0]) withAlpha(TEAL, 55) else withAlpha(palette.surfaceElevated2, 210),
+            )
+        }
+    }
+    var index = 0
+    grouped.forEach { (_, rows) ->
+        val loc = CatEdgePlanner.locationLabel(rows.first().node)
+        list.addView(
+            freeText("${loc.line(fa)}  ·  ${rows.size}", 13f, TEAL, bold = true),
+            freeLp(10),
+        )
+        rows.forEach { readyRow ->
+            val my = index
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(7), dp(10), dp(7))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(withAlpha(palette.surfaceElevated2, 210))
+                }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    selected[0] = my
+                    paint()
+                }
+            }
+            row.addView(
+                TextView(this).apply {
+                    text = readyRow.node.host
+                    textSize = 13f
+                    setTextColor(TEXT_PRIMARY)
+                    layoutDirection = View.LAYOUT_DIRECTION_LTR
+                    textDirection = View.TEXT_DIRECTION_LTR
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            row.addView(
+                TextView(this).apply {
+                    text = "${readyRow.rttMs} ms"
+                    textSize = 12.5f
+                    typeface = CatClientBodyBoldTypeface
+                    setTextColor(TEAL)
+                },
+            )
+            list.addView(row, freeLp(4))
+            rowViews += row
+            index++
+        }
+    }
+    paint()
+    val listHeight = (resources.displayMetrics.heightPixels * 0.52f).toInt().coerceAtLeast(dp(220))
+    val frame = FrameLayout(this).apply {
+        addView(ScrollView(this@showCatEdgeCountryPicker).apply { addView(list) }, FrameLayout.LayoutParams(-1, -1))
+    }
+    wrap.addView(frame, LinearLayout.LayoutParams(-1, listHeight).apply { topMargin = dp(8) })
     MaterialAlertDialogBuilder(this)
-        .setTitle(t("کدام مکان؟ (روی این خط سالم)", "Which place? (healthy on this line)"))
-        .setSingleChoiceItems(labels, checked[0]) { _, which -> checked[0] = which }
+        .setTitle(t("کدام مکان؟ (${ordered.size} سالم روی این خط)", "Which place? (${ordered.size} healthy on this line)"))
+        .setView(wrap)
         .setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ ->
-            val chosen = ordered.getOrNull(checked[0]) ?: ordered.first()
+            val chosen = ordered.getOrNull(selected[0]) ?: ordered.first()
             connectFreeSubscription(subId, autoNext = false) { profiles ->
                 profiles.firstOrNull { it.server.equals(chosen.node.host, ignoreCase = true) } ?: profiles.firstOrNull()
             }

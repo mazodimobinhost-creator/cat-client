@@ -492,8 +492,13 @@ object SubConvConverter {
             // through their published `pinSHA256` instead of `insecure=1`.
             .put("skip-cert-verify", false)
             .apply {
-                listOf("obfs", "obfs-password", "sni").forEach { key ->
-                    query[key]?.takeIf(String::isNotBlank)?.let { put(key, it) }
+                query["sni"]?.takeIf(String::isNotBlank)?.let { put("sni", it) }
+                val obfs = query["obfs"]?.takeIf { it.isNotBlank() }
+                val obfsPassword = (query["obfs-password"] ?: query["obfs_password"])?.takeIf { it.isNotBlank() }
+                // mihomo aborts the whole profile with «missing obfs password» if type is set without a password.
+                if (obfs != null && obfsPassword != null) {
+                    put("obfs", obfs)
+                    put("obfs-password", obfsPassword)
                 }
                 if (!has("sni")) query["peer"]?.takeIf(String::isNotBlank)?.let { put("sni", it) }
                 hysteriaPorts(query["mport"] ?: authorityPorts)?.let { put("ports", it) }

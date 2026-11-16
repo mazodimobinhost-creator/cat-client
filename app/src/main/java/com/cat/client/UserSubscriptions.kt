@@ -567,7 +567,7 @@ object MihomoLinkConfigBuilder {
     private const val AUTO_GROUP = "CatClient Auto"
 
     fun build(proxies: List<JSONObject>): String {
-        val unique = proxies.filter(::isYamlSafeProxy).distinctBy { it.getString("name") }
+        val unique = proxies.map(::sanitizeHysteriaObfs).filter(::isYamlSafeProxy).distinctBy { it.getString("name") }
         require(unique.isNotEmpty()) { "اتصال سازگار با v1 پیدا نشد" }
         val proxyYaml = buildString {
             appendLine("proxies:")
@@ -680,6 +680,23 @@ object MihomoLinkConfigBuilder {
         proxyNames.forEach { appendLine("      - ${quote(it)}") }
         appendLine("rules:")
         appendLine("  - ${quote("MATCH,$SELECT_GROUP")}")
+    }
+
+    /**
+     * Hysteria2 with `obfs` and no password makes mihomo refuse to start («proxy N: missing obfs
+     * password»), which aborts the whole delay test. Drop the incomplete obfuscation so the rest
+     * of the list can still be measured.
+     */
+    internal fun sanitizeHysteriaObfs(proxy: JSONObject): JSONObject {
+        val type = proxy.optString("type").lowercase()
+        if (type == "hysteria2" || type == "hy2" || type == "hysteria") {
+            val obfs = proxy.optString("obfs")
+            val password = proxy.optString("obfs-password")
+            if (obfs.isNotBlank() && password.isBlank()) {
+                proxy.remove("obfs")
+            }
+        }
+        return proxy
     }
 
     /**

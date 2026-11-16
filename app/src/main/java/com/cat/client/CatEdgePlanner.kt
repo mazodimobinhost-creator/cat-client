@@ -473,8 +473,14 @@ internal object CatEdgePlanner {
         return "${loc.line(fa)} · ${ready.node.host} · ${ready.rttMs} ms"
     }
 
-    /** At least one host from every country in the signed list; not only IR. */
-    fun pickAllCountries(nodes: List<Node>, perCountry: Int = 4, maxTotal: Int = 48): List<Node> {
+    fun pickerHostLine(ready: Ready): String = "${ready.node.host}  ·  ${ready.rttMs} ms"
+
+    /** How many hosts of each signed-list country to handshake (the list itself is only IR + global). */
+    const val PICK_PER_COUNTRY = 32
+    const val PICK_MAX_TOTAL = 80
+
+    /** At least one host from every country in the signed list; not only IR. Does not invent countries. */
+    fun pickAllCountries(nodes: List<Node>, perCountry: Int = PICK_PER_COUNTRY, maxTotal: Int = PICK_MAX_TOTAL): List<Node> {
         if (nodes.isEmpty()) return emptyList()
         val grouped = nodes.groupBy { locationCode(it) }.toSortedMap()
         val queues = grouped.map { it.value.shuffled() }

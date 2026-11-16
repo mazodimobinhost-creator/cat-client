@@ -62,6 +62,8 @@ internal data class FreeServer(
     /** A Hysteria2 row that only works with certificate checks off (`insecure=1`, no pin): Cat never does that. */
     val insecureOnly: Boolean = false,
     val obfs: Boolean = false,
+    /** `obfs=` is set but there is no password — mihomo refuses to start the whole test list. */
+    val incompleteObfs: Boolean = false,
     val pinned: Boolean = false,
     val flag: String = "",
 ) {
@@ -156,10 +158,15 @@ internal object MethodFinderPlan {
             else -> {
                 val insecure = query["insecure"]?.lowercase() in setOf("1", "true") || query["allowinsecure"]?.lowercase() in setOf("1", "true")
                 val pinned = !query["pinsha256"].isNullOrBlank()
+                val obfsType = query["obfs"]?.takeIf { it.isNotBlank() }
+                val obfsPassword = (
+                    query["obfs-password"] ?: query["obfs_password"] ?: query["obfspassword"]
+                    )?.takeIf { it.isNotBlank() }
                 FreeServer(
                     family, line, host, port,
                     insecureOnly = insecure && !pinned,
-                    obfs = !query["obfs"].isNullOrBlank(),
+                    obfs = obfsType != null && obfsPassword != null,
+                    incompleteObfs = obfsType != null && obfsPassword == null,
                     pinned = pinned,
                     flag = flagOf(fragment),
                 )
@@ -179,7 +186,7 @@ internal object MethodFinderPlan {
             return list.filter { s -> (seen.merge(s.host.lowercase(), 1, Int::plus) ?: 1) <= MAX_PER_HOST }
         }
         val hy2 = capPerHost(
-            unique.filter { it.family == FinderFamily.FREE_HY2 && !it.insecureOnly }
+            unique.filter { it.family == FinderFamily.FREE_HY2 && !it.insecureOnly && !it.incompleteObfs }
                 .sortedWith(compareBy<FreeServer>({ !(it.pinned || isDomain(it.host)) }, { !it.obfs })),
         ).take(maxHy2)
         val wgAll = unique.filter { it.family == FinderFamily.FREE_WG }
@@ -252,6 +259,9 @@ internal object MethodFinderPlan {
             "decode peer public key" in s || "illegal base64" in s ->
                 if (fa) "یک کانفیگ وایرگارد کلید خراب دارد و آزمون را خواباند. آن ردیف را حذف کنید و دوباره «بررسی» را بزنید."
                 else "A WireGuard config has a broken key and stopped the test. Remove that row and tap Check again."
+            "missing obfs password" in s ->
+                if (fa) "یک Hysteria2 بدون رمز obfuscation آزمون را خواباند. آن ردیف را حذف کنید و دوباره «بررسی» را بزنید."
+                else "A Hysteria2 row with no obfuscation password stopped the test. Remove that row and tap Check again."
             else -> raw.take(160)
         }
     }

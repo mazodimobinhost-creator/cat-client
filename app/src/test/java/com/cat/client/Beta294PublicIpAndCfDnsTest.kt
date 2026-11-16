@@ -112,7 +112,7 @@ class Beta294PublicIpAndCfDnsTest {
         assertTrue(testing.contains("text = \"✏️\""))
         val sub = src("MainActivitySubscriptions.kt")
         assertTrue(sub.contains("showProfileValuesEditorDialog"))
-        assertTrue(sub.contains("ویرایش IP / پورت / SNI"))
+        assertTrue(sub.contains("ویرایش کانفیگ (همهٔ بخش‌ها)"))
         val free = src("MainActivityFreeNetworks.kt")
         assertTrue(free.contains("cloudflareLinks()"))
         assertFalse(free.contains("listOf(\"178.22.122.100\")"))

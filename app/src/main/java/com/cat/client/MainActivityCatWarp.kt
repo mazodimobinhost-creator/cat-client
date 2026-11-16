@@ -3094,22 +3094,60 @@ internal fun MainActivity.editSubscriptionOrAetherConfig(item: UserSubscription)
         showCatGpDialog()
         return
     }
-    val lines = subscriptionAetherLines(item)
-    if (lines.isEmpty()) {
-        showEditSubscriptionDialog(item)
+    val aether = subscriptionAetherLines(item)
+    val configs = ShareLinkEditor.lines(item.input)
+    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
+    val labels = ArrayList<String>()
+    val actions = ArrayList<() -> Unit>()
+    aether.forEach { (index, line) ->
+        labels += "⚡ " + aetherLineTitle(line)
+        actions += { showAetherConfigEditor(item, index, line) }
+    }
+    configs.forEach { (index, line) ->
+        val parsed = ShareLinkEditor.parse(line)
+        labels += "✎ " + (parsed?.listLabel() ?: line.take(64))
+        actions += {
+            val draft = parsed ?: ShareLinkEditor.parse(line)
+            if (draft == null) {
+                showEditSubscriptionDialog(item)
+            } else {
+                showShareLinkEditor(draft) { next -> replaceSubscriptionLine(item, index, next) }
+            }
+        }
+    }
+    if (configs.isEmpty() && aether.isEmpty()) {
+        userSubscriptionManager.cachedSnapshot(item.id)?.catalog?.profiles.orEmpty().forEach { profile ->
+            val link = profile.shareLink?.trim().orEmpty()
+            val parsed = ShareLinkEditor.parse(link) ?: return@forEach
+            labels += "✎ " + parsed.listLabel()
+            actions += {
+                showShareLinkEditor(parsed) { next ->
+                    val updated = userSubscriptionManager.replaceProfileShareLink(item.id, profile.tag, next)
+                    val fa = appLanguagePreferenceStore.read() == AppLanguage.Persian
+                    Toast.makeText(
+                        this,
+                        if (updated == null) {
+                            if (fa) "ذخیره نشد." else "Not saved."
+                        } else {
+                            if (fa) "✅ ذخیره شد" else "✅ Saved"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    if (updated != null) renderSubscriptions()
+                }
+            }
+        }
+    }
+    labels += if (isFarsi) "📝 ویرایش متن کامل سابسکریپشن (برای حرفه‌ای‌ها)" else "📝 Edit the whole subscription text (advanced)"
+    actions += { showEditSubscriptionDialog(item) }
+    if (labels.size == 1) {
+        actions[0]()
         return
     }
-    val isFarsi = appLanguagePreferenceStore.read() == AppLanguage.Persian
-    val labels = lines.map { (_, line) -> "⚡ " + aetherLineTitle(line) } +
-        (if (isFarsi) "📝 ویرایش متن کامل سابسکریپشن (برای حرفه‌ای‌ها)" else "📝 Edit the whole subscription text (advanced)")
     MaterialAlertDialogBuilder(this)
         .setTitle(if (isFarsi) "✏️ کدام کانفیگ را ویرایش کنم؟" else "✏️ Which config do you want to edit?")
         .setItems(labels.toTypedArray()) { _, which ->
-            if (which >= lines.size) {
-                showEditSubscriptionDialog(item)
-            } else {
-                showAetherConfigEditor(item, lines[which].first, lines[which].second)
-            }
+            actions.getOrNull(which)?.invoke()
         }
         .setNegativeButton(android.R.string.cancel, null)
         .create()

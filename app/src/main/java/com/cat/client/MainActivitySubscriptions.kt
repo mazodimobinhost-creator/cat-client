@@ -530,21 +530,26 @@ internal fun MainActivity.renderSubscriptions() {
         // shown on the card now, so the background job does not notify about the same message again
         provider?.announce?.let { providerStore.markAnnouncementSeen(item.input, it) }
         val isRemote = item.input.trim().startsWith("https://", ignoreCase = true)
-        val shareActions: List<Pair<Int, () -> Unit>> = if (isRemote) listOf(
+        val shareActions: List<Pair<Int, () -> Unit>> = listOf(
             R.string.subscription_action_copy_link to { copySubscriptionLink(item) },
             R.string.subscription_action_qr to { showConfigQrCodes(listOf(item.input.trim()), item.name) },
             R.string.subscription_action_share to { shareSubscriptionLink(item) },
-            R.string.subscription_action_open_v2rayng to { openSubscriptionInApp(item, "v2rayng") },
-            R.string.subscription_action_open_v2box to { openSubscriptionInApp(item, "v2box") },
-            R.string.subscription_action_open_info to { openSubscriptionInfoPage(item) },
-        ) + listOfNotNull(
-            provider?.supportUrl?.takeIf(String::isNotBlank)?.let { url ->
-                R.string.subscription_action_support to {
-                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                    Unit
-                }
-            },
-        ) else emptyList()
+        ) + if (isRemote) {
+            listOf(
+                R.string.subscription_action_open_v2rayng to { openSubscriptionInApp(item, "v2rayng") },
+                R.string.subscription_action_open_v2box to { openSubscriptionInApp(item, "v2box") },
+                R.string.subscription_action_open_info to { openSubscriptionInfoPage(item) },
+            ) + listOfNotNull(
+                provider?.supportUrl?.takeIf(String::isNotBlank)?.let { url ->
+                    R.string.subscription_action_support to {
+                        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                        Unit
+                    }
+                },
+            )
+        } else {
+            emptyList()
+        }
         subscriptionsList.addView(
             subscriptionCard(
                 title = item.name,
@@ -2206,7 +2211,7 @@ internal fun MainActivity.showConnectionShareMenu(
                 }
         }
         if (!catWarpRow && subscriptionId != null) {
-            menu.add(if (isFarsi) "✏️ ویرایش IP / پورت / SNI" else "✏️ Edit IP / port / SNI")
+            menu.add(if (isFarsi) "✏️ ویرایش کانفیگ (همهٔ بخش‌ها)" else "✏️ Edit config (all sections)")
                 .setOnMenuItemClickListener {
                     showProfileValuesEditorDialog(subscriptionId, profile, onProfileEdited)
                     true
@@ -2396,6 +2401,18 @@ internal fun MainActivity.showProfileValuesEditorDialog(
     val link = profile.shareLink?.trim().orEmpty()
     if (link.isBlank()) {
         Toast.makeText(this, t("این ردیف لینک قابل‌ویرایش ندارد.", "This row has no editable link."), Toast.LENGTH_LONG).show()
+        return
+    }
+    ShareLinkEditor.parse(link)?.let { draft ->
+        showShareLinkEditor(draft) { next ->
+            val updated = userSubscriptionManager.replaceProfileShareLink(subscriptionId, profile.tag, next)
+            if (updated == null) {
+                Toast.makeText(this, t("ذخیره نشد.", "Not saved."), Toast.LENGTH_LONG).show()
+                return@showShareLinkEditor
+            }
+            Toast.makeText(this, t("✅ ذخیره شد", "✅ Saved"), Toast.LENGTH_SHORT).show()
+            onSaved?.invoke(updated)
+        }
         return
     }
     val pad = dp(18)
