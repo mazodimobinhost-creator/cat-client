@@ -1152,8 +1152,11 @@ let user;
   {
     check('v6: 2606:4700 endpoints are recognized CF IPs', T.isCloudflareIp('2606:4700:d0::a29f:c001') && T.isCloudflareIp('2606:4700:4700::1111'));
     check('v6: defaults include IPv6 endpoints', T.DEFAULT_CLEAN_ADDRESSES.some((a) => a.startsWith('2606:4700:')));
-    const stV6 = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false });
-    const outV6 = T.buildConfigEntries('panelx.workers.dev', ENV, stV6, 'u1', null, {});
+    const stV6 = T.normalizeSettings({ useDefaults: true, includeHost: true, tlsPorts: [443], plainEnabled: false, subRotate: 'off', entryLimit: 96 });
+    // Default subRotate is `fetch` (reshuffle every render) and entryLimit is 32.
+    // ~20 default addresses × VLESS+Trojan overflows that cap, so both IPv6
+    // defaults can land past the cut and this assertion flakes on CI.
+    const outV6 = T.buildConfigEntries('panelx.workers.dev', ENV, stV6, 'u1', null, { rotate: 'off', fam: 'v6' });
     const v6e = outV6.entries.find((e) => String(e.addr).startsWith('2606:4700:'));
     check('v6: sub emits bracketed IPv6 endpoint link', !!v6e && v6e.link.includes('@[2606:4700:'), v6e && v6e.link.slice(0, 90));
     check('svc: hosts cover ChatGPT, Claude, Gemini web + API and AI Studio', T.SVC_TEST_HOSTS.includes('claude.ai') && T.SVC_TEST_HOSTS.includes('chatgpt.com') && T.SVC_TEST_HOSTS.includes('gemini.google.com') && T.SVC_TEST_HOSTS.includes('aistudio.google.com') && T.SVC_TEST_HOSTS.includes('generativelanguage.googleapis.com') && T.SVC_TEST_HOSTS.length === 7);
