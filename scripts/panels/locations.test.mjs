@@ -72,7 +72,7 @@ check('a country code is required', (await req('/api/locations/fetch', { method:
 
 const f1 = await (await req('/api/locations/fetch', { method: 'POST', headers: auth, body: { cc: 'de', kind: 'both', want: 3 } })).json();
 const added = (f1.added || []).map((e) => e.addr).sort();
-check('DE: only exits PROVEN in DE are added (ProxyIP via trace loc=, SOCKS via ip-api)', JSON.stringify(added) === JSON.stringify(['10.2.0.1:2053', 'socks5://10.1.0.1:10808']), JSON.stringify(f1));
+check('DE: only ProxyIPs PROVEN in DE are added (public SOCKS lists are not used)', JSON.stringify(added) === JSON.stringify(['10.2.0.1:2053']), JSON.stringify(f1));
 check('the ProxyIP keeps its own feed port 2053 (no 443 guess)', added.includes('10.2.0.1:2053') && dials.includes('10.2.0.1:2053'), dials.join(','));
 check('a ProxyIP tagged DE that really exits in NL is stored as NL, not DE', (f1.other || []).some((e) => e.addr === '10.2.0.2:443' && e.cc === 'NL'), JSON.stringify(f1.other));
 check('dead / wrong-country entries are never stored', !(f1.pool || []).some((e) => /10\.2\.0\.3|10\.1\.0\.2|10\.1\.0\.3/.test(e.addr)), JSON.stringify(f1.pool));
@@ -81,7 +81,7 @@ check('measured ms + Cloudflare colo are recorded', (f1.pool || []).some((e) => 
 
 const g = await (await req('/api/locations', { headers: auth })).json();
 const de = (g.countries || []).find((c) => c.cc === 'DE');
-check('GET /api/locations summarises countries (DE: 1 ProxyIP + 1 SOCKS healthy)', de && de.px === 1 && de.socks === 1 && de.ok === 2, JSON.stringify(g.countries));
+check('GET /api/locations summarises countries (DE: 1 ProxyIP, no public SOCKS)', de && de.px === 1 && de.socks === 0 && de.ok === 1, JSON.stringify(g.countries));
 check('choices carry Persian names + flags', (g.choices || []).some((c) => c.cc === 'DE' && c.fa === 'آلمان' && c.flag === '🇩🇪'));
 check('NL appears under its real country', (g.countries || []).some((c) => c.cc === 'NL'));
 
@@ -100,10 +100,10 @@ const s1 = await subText(cu.user);
 check('pinned user: 🎯 config through 10.2.0.1:2053 (exact port)', /proxyip(=|%3D)10\.2\.0\.1(%3A|%253A|:)2053/i.test(s1), s1.split('\n').filter((l) => /proxyip/i.test(l)).slice(0, 3).join(' | '));
 check('pinned user: no built-in default ProxyIPs', !/cmliussss|nscl\.ir|diam4/i.test(s1));
 check('pinned user: the 🎯 config is labelled with the German flag', s1.includes(encodeURIComponent('🇩🇪')) || s1.includes('🇩🇪'));
-check('pinned user: SOCKS relay goes by reference, its address never travels', /proxyip(=|%3D)relay(%3A|%253A|:)[0-9a-f]{16}/i.test(s1) && !s1.includes('10.1.0.1'));
+check('pinned user: no public SOCKS relay was imported', !s1.includes('10.1.0.1') && !/relay(%3A|%253A|:)[0-9a-f]{16}/i.test(s1));
 const s2 = await subText(other.user);
 check('other users keep the panel default exits (the whole repo pool, not just the pin)', /10\.2\.0\.4/.test(s2) && !/relay(%3A|%253A|:)/i.test(s2.split('\n').filter((l) => l.includes('10.1.0.1')).join('')), s2.split('\n').map((l) => decodeURIComponent(l.split('#')[1] || '')).slice(0, 12).join(' | '));
-check('the pinned user’s relay reference resolves on the server', T.resolveRelayToken ? !!T.resolveRelayToken((await (await req('/api/settings', { headers: auth })).json()).settings, (s1.match(/relay(?:%3A|%253A|:)([0-9a-f]{16})/i) || [])[1] ? 'relay:' + (s1.match(/relay(?:%3A|%253A|:)([0-9a-f]{16})/i) || [])[1] : '') : true);
+check('SOCKS relay resolver stays available for owner-pasted relays', typeof T.resolveRelayToken === 'function');
 const up = await (await req('/api/users/' + cu.user.id, { method: 'PUT', headers: auth, body: { exits: [], exitCc: '' } })).json();
 check('clearing the location returns the user to the panel default', up.user && up.user.exits.length === 0 && up.user.exitCc === '');
 
@@ -135,7 +135,7 @@ check('clearing the location returns the user to the panel default', up.user && 
   check('beta245: ➕ adds a library ProxyIP to the panel list with its exact port + country tag', one.ok && one.added === 1 && list.includes('10.2.0.1:2053') && (st.proxyCountries || {})['10.2.0.1:2053'] === 'DE', JSON.stringify([one, list, st.proxyCountries]));
   const all = await (await req('/api/locations/to-panel', { method: 'POST', headers: auth, body: { cc: 'DE' } })).json();
   const list2 = [].concat((await (await req('/api/settings', { headers: auth })).json()).settings.proxyIps || []).join('\n');
-  check('beta245: «➕ all» adds the rest of the country (SOCKS too), never a duplicate', all.ok && all.added === 1 && all.skipped === 1 && list2.includes('socks5://10.1.0.1:10808') && list2.split('10.2.0.1:2053').length === 2, JSON.stringify([all, list2]));
+  check('beta245: «➕ all» has nothing left to add when the only DE exit is already on the list', all.ok && all.added === 0 && all.skipped === 1 && list2.split('10.2.0.1:2053').length === 2, JSON.stringify([all, list2]));
   const no = await req('/api/locations/to-panel', { method: 'POST', headers: auth, body: { addrs: ['9.9.9.9:443'] } });
   check('beta245: an address that is not a tested library entry is refused (404)', no.status === 404);
   check('beta245: anonymous callers cannot add', (await req('/api/locations/to-panel', { method: 'POST', body: { cc: 'DE' } })).status === 401);
@@ -164,9 +164,9 @@ dead.add('10.2.0.1');
 const pg = await (await req('/api/locations/ping', { method: 'POST', headers: auth, body: {} })).json();
 const pe = (pg.pool || []).find((e) => e.addr === '10.2.0.1:2053');
 check('ping all re-tests for real and marks the dead exit ✗', pg.ok && pe && pe.ok === false && pe.fails === 1, JSON.stringify(pe));
-check('ping all keeps the healthy SOCKS ✓', (pg.pool || []).some((e) => e.kind === 'socks' && e.ok));
+check('ping all keeps the healthy NL ProxyIP ✓', (pg.pool || []).some((e) => e.addr === '10.2.0.2:443' && e.ok));
 const rm = await (await req('/api/locations/remove', { method: 'POST', headers: auth, body: { dead: true } })).json();
-check('«remove dead» drops only the dead ones', rm.removed === 1 && !(rm.pool || []).some((e) => e.addr === '10.2.0.1:2053') && (rm.pool || []).some((e) => e.kind === 'socks'), JSON.stringify(rm));
+check('«remove dead» drops only the dead ones', rm.removed === 1 && !(rm.pool || []).some((e) => e.addr === '10.2.0.1:2053') && (rm.pool || []).some((e) => e.addr === '10.2.0.2:443'), JSON.stringify(rm));
 
 T.__setSockets(null);
 const html = T.panelPage({}, { lang: 'fa' }, 'loc.workers.dev', 'MASTER-UUID');

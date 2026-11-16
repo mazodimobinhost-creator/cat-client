@@ -66,6 +66,14 @@ console.log('\nHow-to-use — scan, then country, then ProxyIP/SOCKS\n');
     && html.includes("how_3:'ProxyIP و SOCKS بگیر'")
     && html.includes("how_1:'Scan clean IPs'") && html.includes("how_2:'Pick an exit country'")
     && html.includes("how_3:'Get ProxyIP and SOCKS'"));
+  ok('step 1 says tick healthy IPs and send them to the panel list',
+    html.includes('به آی‌پی‌های پنل') && html.includes('To the panel IPs'));
+  ok('how-to card shows live IP / country / ProxyIP / SOCKS counts',
+    html.includes('id="howNow"') && html.includes('function renderHowNow(){')
+    && html.includes("how_now:'الان: %1 آی‌پی در لیست") && html.includes("how_now:'Now: %1 IPs in the list"));
+  ok('menu label for the IP list is لیست آی‌پی, not Nodes',
+    html.includes("n_nodes:'لیست آی‌پی'") && html.includes("n_nodes:'IP list'")
+    && !html.includes("n_nodes:'نودها'") && !html.includes("n_nodes:'Nodes'"));
   ok('step buttons open the real scanner and loc finder (not a fake page)',
     /function howGo\(view,sec,atab\)\{/.test(html)
     && /howGo\('scan','addr','ip'\)/.test(html)
@@ -82,9 +90,12 @@ console.log('\nHow-to-use — scan, then country, then ProxyIP/SOCKS\n');
     /id="sideNav"[\s\S]*?data-view="nodes"/.test(html)
     && /id="menu"[\s\S]*?data-view="nodes"/.test(html)
     && !html.includes('data-view="spoof"'));
-  ok('MITM / Patterniha free-preset are off the owner path',
+  ok('MITM / Patterniha / public SOCKS / Serverless preset are off the owner path',
     !html.includes('MITM-DomainFronting') && !html.includes('id="btnExtPresetFree"')
-    && !html.includes('patterniha/Free-Configs/main/configs.txt'));
+    && !html.includes('id="btnExtPreset"') && !html.includes('id="skLiveFetch"')
+    && !html.includes('id="ehGo"') && !html.includes('loc#ehGo') && !html.includes('patterniha/')
+    && !html.includes('vakhov/fresh-proxy-list')
+    && !html.includes("t('hero_warn')"));
   ok('SNI spoofing is behind a closed details, switch still in the page',
     html.includes('id="swSniRot"') && html.includes('id="sniSpoofAdv"') && html.includes('id="sniSpoofExtra"')
     && html.indexOf('id="sniSpoofAdv"') < html.indexOf('id="swSniRot"')

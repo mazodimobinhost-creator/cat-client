@@ -54,21 +54,13 @@ const bad = await req('/api/exit-hunt', { method: 'POST', headers: auth, body: {
 check('a country code is required', bad.status === 400);
 const r = await req('/api/exit-hunt', { method: 'POST', headers: auth, body: { cc: 'de', want: 3 } });
 const j = await r.json();
-const urls = (j.found || []).map((f) => f.url).sort();
-check('only proxies whose real exit is DE are kept', JSON.stringify(urls) === JSON.stringify(['socks5://10.1.0.1:10808', 'socks5://10.1.0.4:4145']), JSON.stringify(j));
-check('list came from the per-country proxifly feed', fetched.some((u) => u.includes('/proxies/countries/DE/data.txt')));
-check('http:// and dead entries are not counted as found', j.listed === 4 && j.tried === 4, JSON.stringify(j));
+check('exit-hunt does not pull public SOCKS lists', (j.found || []).length === 0 && fetched.every((u) => !u.includes('proxifly')), JSON.stringify({ j, fetched }));
 const st = await (await req('/api/settings', { headers: auth })).json();
 const px = st.settings.proxyIps; const pxs = Array.isArray(px) ? px.join('\n') : String(px);
-check('found exits saved with their exact ports', pxs.includes('socks5://10.1.0.1:10808') && pxs.includes('socks5://10.1.0.4:4145'), pxs);
-check('dead and wrong-country proxies are not saved', !pxs.includes('10.1.0.2') && !pxs.includes('10.1.0.3'), pxs);
-check('saved exits are tagged DE', (st.settings.proxyCountries || {})['socks5://10.1.0.1:10808'] === 'DE', JSON.stringify(st.settings.proxyCountries));
-const again = await (await req('/api/exit-hunt', { method: 'POST', headers: auth, body: { cc: 'DE', want: 1 } })).json();
-check('a second hunt skips relays that are already saved', !(again.found || []).some((f) => urls.includes(f.url)), JSON.stringify(again));
+check('public SOCKS are not saved into the panel', !pxs.includes('10.1.0.1') && !pxs.includes('10.1.0.4'), pxs);
 T.__setSockets(null);
 const html = T.panelPage({}, { lang: 'fa' }, 'hunt.workers.dev', 'MASTER-UUID');
-check('page has the country picker and the 📍 button', html.includes('id="ehCc"') && html.includes('id="ehGo"') && html.includes("'/api/exit-hunt'"));
-check('both languages carry eh_btn/eh_ok/eh_none', (html.match(/eh_btn:/g) || []).length >= 2 && (html.match(/eh_none:/g) || []).length >= 2);
+check('owner UI has no public-SOCKS hunt / live-fetch buttons', !html.includes('id="ehCc"') && !html.includes('id="ehGo"') && !html.includes('id="skLiveFetch"'));
 check('🚪 port tester button + 6 TLS ports on the page', html.includes('id="btnPortTest"') && html.includes('[443,8443,2053,2083,2087,2096]'));
 { const a = await req('/info/' + ENV.UUID); const b = await req('/status/' + ENV.UUID);
   check('/status/<uuid> is the same user page as /info/<uuid>', a.status === 200 && b.status === 200 && (await b.text()).length > 500, a.status + '/' + b.status); }

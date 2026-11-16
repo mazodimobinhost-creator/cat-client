@@ -191,7 +191,7 @@ check('1101 guidance points to runtime logs without calling it a ban or suggesti
 // hamburger menu: burger opens the drawer, items are labeled, view switch closes it
 document.querySelector('#btnBurger').click(); await sleep(80);
 check('burger opens menu drawer', document.querySelector('#menu').classList.contains('show'));
-check('menu has 13 labeled items (6.91.0: + IP list / nodes)', document.querySelectorAll('#menu .mlist > button').length === 13 && document.querySelector('#menu .mtx b').textContent.length > 2);
+check('menu has 13 labeled items (6.92.0: + IP list)', document.querySelectorAll('#menu .mlist > button').length === 13 && document.querySelector('#menu .mtx b').textContent.length > 2);
 check('hamburger lists the IP list', !!document.querySelector('#menu [data-view="nodes"]') && !document.querySelector('#menu [data-view="spoof"]'));
 check('hamburger has تغییر ریجن', /تغییر ریجن/.test((document.querySelector('#menu [data-view="region"]') || {}).textContent || ''));
 document.querySelector('#menu [data-view="region"]').click(); await sleep(80);

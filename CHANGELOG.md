@@ -5,6 +5,7 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 ## [Unreleased]
 
 ### Changed
+- **Panel 6.92.0:** how-to card shows live IP / country / ProxyIP / SOCKS counts. Scan step says tick healthy IPs then «به آی‌پی‌های پنل». Menu label is «لیست آی‌پی». Public SOCKS hunt (proxifly / vakhov / `#ehGo` / live-fetch), Patterniha Serverless preset, and the skk.moe hero warning are off the owner path. Owner-pasted SOCKS only. No extra protocol.
 - **Panel 6.91.0:** dashboard how-to (scan → country → ProxyIP/SOCKS) sits at the top of Home, above marquee/PWA/stats. IP list is in the sidebar (opens Clean IP → panel IPs). MITM/patterniha card, Patterniha free-config preset, and SNI-spoof copy are off the normal owner path (`#swSniRot` stays in a closed details). No extra protocol.
 - **Cloudflare Cat Panel:** Home how-to is scan clean IPs → pick an exit country if you want one → get ProxyIP and SOCKS (each button opens the real page). Copy-sub comes after those three. Login has no dead tab bar; first-run still `admin` / `admin`. Guarded by `scripts/panels/how-to-use.test.mjs`.
 - **Names:** config remarks and user names show 🐈‍⬛ in front.

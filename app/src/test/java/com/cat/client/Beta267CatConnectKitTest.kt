@@ -20,7 +20,7 @@ class Beta267CatConnectKitTest {
             File("app/src/main/assets/panels/catclient.worker.js"),
             File("src/main/assets/panels/catclient.worker.js"),
         ).first { it.isFile }.readText()
-        assertTrue(worker.contains("CAT_PANEL_VERSION = '6.91.0'"))
+        assertTrue(worker.contains("CAT_PANEL_VERSION = '6.92.0'"))
         assertFalse(worker.contains("CAT_PANEL_VERSION = '6.88.0'"))
     }
 

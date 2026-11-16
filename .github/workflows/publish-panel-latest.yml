@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euxo pipefail
           test -f dist-panel/catpanel.min.js
-          head -n 1 dist-panel/catpanel.min.js | grep -F "CAT_PANEL_VERSION = '6.91.0'"
+          head -n 1 dist-panel/catpanel.min.js | grep -F "CAT_PANEL_VERSION = '6.92.0'"
           cp dist-panel/catpanel.min.js catclient.worker.js
           python3 - <<'PY'
           from hashlib import sha256
@@ -45,4 +45,4 @@ jobs:
           print('worker', digest, 'bytes', Path('catclient.worker.js').stat().st_size)
           PY
           gh release upload v1.10.0-beta317 catclient.worker.js SHA256SUMS --clobber --repo mazodimobinhost-creator/cat-client
-          echo "uploaded panel 6.90.0 to v1.10.0-beta317"
+          echo "uploaded panel 6.92.0 to v1.10.0-beta317"
