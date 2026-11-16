@@ -1361,8 +1361,9 @@ internal fun MainActivity.addFreeSlipNet() {
             runCatching {
                 WhiteDnsSmartScanner.scanResolversWithSlipNetScore(maxCandidates = 10, timeoutMs = 800) { tried, total, name, ip, alive, rtt ->
                     val ping = when {
-                        alive && rtt != null -> "$rtt ms"
-                        alive -> t("باز", "open")
+                        alive == null -> t("در حال تست…", "testing…")
+                        alive == true && rtt != null -> "$rtt ms"
+                        alive == true -> t("باز", "open")
                         else -> t("بسته", "closed")
                     }
                     step("$tried/$total · $name · $ip · $ping")
