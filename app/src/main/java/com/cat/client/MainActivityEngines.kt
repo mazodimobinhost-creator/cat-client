@@ -3773,8 +3773,8 @@ internal fun MainActivity.showCloudflareFiveSpoofMethodsDialog() {
                     if (isFarsi) "$rttBadge✅ این روش روی سرور واقعی شما (${realTemplate.hostHeader}) آماده شد:\n\n"
                     else "$rttBadge✅ Built for your real server (${realTemplate.hostHeader}):\n\n"
                 } else {
-                    if (isFarsi) "$rttBadgeاسپوف روی کانفیگ خودت کار می‌کند. یک vless / trojan / vmess در فهرست بگذار، بعد همین روش را بزن. Cat Warp جای اسپوف نیست.\n\n"
-                    else "$rttBadgeSpoof wraps YOUR config. Put a vless / trojan / vmess in the list, then tap this method. Cat Warp is not spoof.\n\n"
+                    if (isFarsi) "${rttBadge}اسپوف روی کانفیگ خودت کار می‌کند. یک vless / trojan / vmess در فهرست بگذار، بعد همین روش را بزن. Cat Warp جای اسپوف نیست.\n\n"
+                    else "$rttBadge Spoof wraps YOUR config. Put a vless / trojan / vmess in the list, then tap this method. Cat Warp is not spoof.\n\n"
                 }
                 MaterialAlertDialogBuilder(this@showCloudflareFiveSpoofMethodsDialog)
                     .setTitle(if (isFarsi) m.titleFa else m.titleEn)

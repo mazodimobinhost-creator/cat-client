@@ -200,6 +200,18 @@ internal fun MainActivity.showMethodFinderDialog(families: Set<FinderFamily>, fr
         else -> t("⏳ ${r.tested} از ${r.total} امتحان شد…", "⏳ ${r.tested} of ${r.total} tried…") to palette.amber
     }
 
+    fun cancelServiceTest() {
+        val id = testId ?: return
+        runCatching {
+            startService(
+                Intent(this, CatClientVpnService::class.java)
+                    .setAction(Actions.CANCEL_CONNECTION_DELAY_TEST)
+                    .putExtra(Actions.EXTRA_APP_INITIATED, true)
+                    .putExtra(Actions.EXTRA_DELAY_TEST_ID, id),
+            )
+        }
+    }
+
     fun renderRows() {
         rows.removeAllViews()
         val results = MethodFinderPlan.summarize(candidates, tested, delays)
@@ -272,18 +284,6 @@ internal fun MainActivity.showMethodFinderDialog(families: Set<FinderFamily>, fr
                 layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             })
             rows.addView(c, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        }
-    }
-
-    fun cancelServiceTest() {
-        val id = testId ?: return
-        runCatching {
-            startService(
-                Intent(this, CatClientVpnService::class.java)
-                    .setAction(Actions.CANCEL_CONNECTION_DELAY_TEST)
-                    .putExtra(Actions.EXTRA_APP_INITIATED, true)
-                    .putExtra(Actions.EXTRA_DELAY_TEST_ID, id),
-            )
         }
     }
 
