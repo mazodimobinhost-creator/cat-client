@@ -446,3 +446,8 @@ internal data class ShareLinkDraft(
         }
     }
 }
+
+internal object ShareLinkEditor {
+    fun lines(input: String): List<Pair<Int, String>> = ShareLinkDraft.lines(input)
+    fun parse(link: String): ShareLinkDraft? = ShareLinkDraft.parse(link)
+}

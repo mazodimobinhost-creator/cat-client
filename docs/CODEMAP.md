@@ -345,11 +345,11 @@
 | `PrivacyPolicyAcceptance.kt` | 32 | — | — · — |
 | `ProtocolConnect.kt` | 191 | Dedicated Cat editors for TUIC, WireGuard and Cat Warp (Aether). | Beta267CatConnectKitTest · — |
 | `ProtonFreeEngine.kt` | 386 | beta254 — 🟢 Cat Proton: the service's own **free** plan (unlimited data, a handful of countries), used the same way Cat Fox uses a free Firefox acc… | Beta254FreeVpnsTest, Beta272ProtonAutoAddTest, Beta276ProtonLoginAddTest, Beta277ProtonCredentialsPageTest · — |
-| `ShareLinkEditor.kt` | 448 | v2rayNG / V2Box-style fields for one share link. | Beta319ClientFixesTest · — |
+| `ShareLinkEditor.kt` | 453 | v2rayNG / V2Box-style fields for one share link. | Beta319ClientFixesTest · — |
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_291 Kotlin files, 123182 lines._
+_291 Kotlin files, 123187 lines._
 
 ## MainActivity screens — function index
 
@@ -974,6 +974,7 @@ for the dialog/button you want to change.
 | `SessionPlanPreferences` | `SessionPlan.kt` |
 | `SessionPlanRequest` | `SessionPlan.kt` |
 | `ShareLinkDraft` | `ShareLinkEditor.kt` |
+| `ShareLinkEditor` | `ShareLinkEditor.kt` |
 | `ShareLinkRemark` | `MethodFinderPlan.kt` |
 | `SharePing` | `LiveNetPing.kt` |
 | `SignalArcView` | `DashboardViews.kt` |
