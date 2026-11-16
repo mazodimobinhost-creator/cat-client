@@ -1189,6 +1189,18 @@ class MainActivity : Activity() {
         val subscription = store.readUserSubscription(store.readSelectedSubscriptionId())
         val usage = subscription?.input?.let { SubscriptionUsageStore(this).read(it) }
         if (usage == null || (usage.totalBytes <= 0 && usage.usedBytes <= 0)) {
+            val local = ConfigTrafficStore(this).total(connectionProfiles.map { it.fingerprint })
+            if (local.usedBytes > 0L) {
+                homeUsageBar.setSplit(0f, 0f, withAlpha(TEXT_SECONDARY, 36))
+                homeUsageValue.text = SubscriptionUsagePolicy.formatBytes(local.usedBytes)
+                homeUsageLegend.text = listOf(
+                    getString(R.string.home_usage_download, SubscriptionUsagePolicy.formatBytes(local.rxBytes)),
+                    getString(R.string.home_usage_upload, SubscriptionUsagePolicy.formatBytes(local.txBytes)),
+                ).joinToString(" · ")
+                homeUsageHint.setText(R.string.home_usage_local)
+                homeUsageHint.visibility = View.VISIBLE
+                return
+            }
             homeUsageBar.setSplit(0f, 0f, withAlpha(TEXT_SECONDARY, 36))
             homeUsageValue.text = "—"
             homeUsageLegend.text = selectedSubscriptionName()

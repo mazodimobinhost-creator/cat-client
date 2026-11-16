@@ -585,6 +585,7 @@
     <string name="home_usage_remaining">Remaining %1$s</string>
     <string name="home_usage_expires">Expires in %1$d d</string>
     <string name="home_usage_footer">Live graph from the selected subscription — refreshed with every panel update.</string>
+    <string name="home_usage_local">Measured on this phone for these configs (download / upload).</string>
     <string name="free_title">Free Configs</string>
     <string name="free_description">Public, ping-tested configs scraped live. Tap any entry to connect.</string>
     <string name="free_refresh">Refresh</string>

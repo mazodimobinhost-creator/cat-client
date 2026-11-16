@@ -750,11 +750,13 @@ internal fun MainActivity.showConnectionTestingPage(
                         null -> R.string.connection_protocol_support_udp_unknown
                     },
                 )
-                holder.detail.text = if (SubscriptionStore.isBuiltInSubscription(selectedSubscriptionId)) {
+                val baseDetail = if (SubscriptionStore.isBuiltInSubscription(selectedSubscriptionId)) {
                     profile.type.uppercase(Locale.US)
                 } else {
                     ConnectionPublicEndpoint.detailLine(profile)
                 }
+                val trafficLine = ConfigTrafficPolicy.formatLine(ConfigTrafficStore(this@showConnectionTestingPage).read(profile.fingerprint))
+                holder.detail.text = if (trafficLine.isBlank()) baseDetail else "$baseDetail · $trafficLine"
                 holder.pencil.visibility = if (profile.shareLink.isNullOrBlank()) View.GONE else View.VISIBLE
                 holder.pencil.setOnClickListener {
                     showProfileValuesEditorDialog(selectedSubscriptionId, profile) { updated ->

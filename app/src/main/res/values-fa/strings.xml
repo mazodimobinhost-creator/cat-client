@@ -584,6 +584,7 @@
     <string name="home_usage_remaining">باقی‌مانده %1$s</string>
     <string name="home_usage_expires">انقضا تا %1$d روز</string>
     <string name="home_usage_footer">نمودار زنده از سابسکریپشن انتخاب‌شده — با هر رفرش پنل به‌روز می‌شود.</string>
+    <string name="home_usage_local">مصرف همین گوشی برای این کانفیگ‌ها (دانلود / آپلود).</string>
     <string name="free_title">کانفیگ‌های رایگان</string>
     <string name="free_description">کانفیگ‌های عمومی سالم که لحظه‌ای تست پینگ می‌شوند. روی هر کدام بزنید و متصل شوید.</string>
     <string name="free_refresh">به‌روزرسانی</string>

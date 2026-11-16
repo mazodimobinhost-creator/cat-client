@@ -407,9 +407,9 @@ internal fun MainActivity.finderEntries(): List<FinderEntry> = listOf(
         "ویزارد wizard bpb milli zeus پنل panel توکن token کلادفلر cloudflare vercel نصب deploy") {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CloudflareWorker.WEB_WIZARD_URL))) }
     },
-    FinderEntry("🌉 Cat Edge (فهرست عمومی، پل، دامنه)", "🌉 Cat Edge (public list, bridge, domain)",
-        "فهرست امضاشده، جلسهٔ واقعی، بعد VMess روی هستهٔ Cat. پل یا دامنه را می‌چسبانی.",
-        "Signed list, real session, then VMess on Cat's core. Paste a bridge or domain.",
+    FinderEntry("🌉 Cat Edge (همه کشورها، پل، دامنه)", "🌉 Cat Edge (every country, bridge, domain)",
+        "همه کشورها روی این خط تست می‌شوند؛ فقط سالم‌ها را می‌بینی و خودت وصل می‌شوی. پل یا دامنه را می‌چسبانی.",
+        "Every country is tested on this line; only the healthy ones are shown and you pick. Paste a bridge or domain.",
         "لبه پل دامنه فالکن edge bridge falcon آرگو argo vmess") { showCatEdgeDialog() },
     FinderEntry("🌬️ Cat Wind (۱۰ گیگ رایگان، پینگ زنده)", "🌬️ Cat Wind (10 GB free, live ping)",
         "وارد شو یا حساب رایگان بساز؛ Cat خودش همهٔ کانفیگ‌های مجاز را می‌گیرد و اضافه می‌کند.",

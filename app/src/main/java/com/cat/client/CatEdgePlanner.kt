@@ -69,7 +69,18 @@ internal object CatEdgePlanner {
         val profile: String,
         val kind: String,
         val clockOffsetSeconds: Int = 0,
+        val country: String = "",
     )
+
+    data class LocationLabel(
+        val code: String,
+        val flag: String,
+        val nameFa: String,
+        val nameEn: String,
+    ) {
+        fun name(fa: Boolean): String = if (fa) nameFa else nameEn
+        fun line(fa: Boolean): String = "$flag ${name(fa)}"
+    }
 
     data class AuthAttempt(
         val authorization: String,
@@ -274,9 +285,7 @@ internal object CatEdgePlanner {
         val keys = parameters.keys()
         while (keys.hasNext()) {
             val key = keys.next()
-            val isServer = key.startsWith("server_global_") || key.startsWith("server_ir_") ||
-                key.startsWith("servers_global_") || key.startsWith("servers_ir_")
-            if (!isServer) continue
+            if (!isServerKey(key)) continue
             val raw = parameters.opt(key) ?: continue
             val obj = when (raw) {
                 is JSONObject -> raw
@@ -289,7 +298,8 @@ internal object CatEdgePlanner {
             val profile = obj.optString("profile").ifBlank {
                 when {
                     key.contains("_ir_") -> "ir"
-                    else -> "global"
+                    key.contains("_global_") -> "global"
+                    else -> countryFromKey(key).ifBlank { "global" }.lowercase(Locale.US)
                 }
             }
             out += Node(
@@ -299,6 +309,7 @@ internal object CatEdgePlanner {
                 profile = profile,
                 kind = kindPublic,
                 clockOffsetSeconds = obj.optInt("clockOffsetSeconds", 0),
+                country = countryOf(key, obj, profile),
             )
         }
         return out.distinctBy { it.host + ":" + it.port }
@@ -330,7 +341,8 @@ internal object CatEdgePlanner {
     }
 
     fun vmessLink(node: Node, session: Session): String {
-        val title = "$NAME · ${node.kind} · ${node.host}"
+        val loc = locationLabel(node)
+        val title = "$NAME · ${loc.flag} ${loc.code} · ${node.host}"
         val json = JSONObject()
             .put("v", "2")
             .put("ps", title)
@@ -406,6 +418,82 @@ internal object CatEdgePlanner {
             throw IllegalStateException("insecure flag")
         }
         return Ready(node, session, rtt, link)
+    }
+
+    fun isServerKey(key: String): Boolean {
+        if (key.contains("falcon", ignoreCase = true)) return false
+        if (key.contains("template", ignoreCase = true)) return false
+        return key.startsWith("server_") || key.startsWith("servers_")
+    }
+
+    fun countryFromKey(key: String): String {
+        val lower = key.lowercase(Locale.US)
+        if (lower.contains("_global_") || lower.startsWith("server_global") || lower.startsWith("servers_global")) {
+            return ""
+        }
+        if (lower.contains("_ir_") || lower.startsWith("server_ir") || lower.startsWith("servers_ir")) {
+            return "IR"
+        }
+        val m = Regex("^servers?_([a-z]{2})_", RegexOption.IGNORE_CASE).find(key) ?: return ""
+        return ConnectionLocationPolicy.normalizeCountryCode(m.groupValues[1]).orEmpty()
+    }
+
+    fun countryOf(key: String, obj: JSONObject, profile: String): String {
+        val explicit = obj.optString("country").ifBlank { obj.optString("cc") }.ifBlank { obj.optString("loc") }
+        ConnectionLocationPolicy.normalizeCountryCode(explicit)?.let { return it }
+        ConnectionLocationPolicy.normalizeCountryCode(profile)?.let { return it }
+        if (profile.equals("ir", ignoreCase = true) || profile.equals("iran", ignoreCase = true)) return "IR"
+        return countryFromKey(key)
+    }
+
+    fun locationCode(node: Node): String {
+        ConnectionLocationPolicy.normalizeCountryCode(node.country)?.let { return it }
+        ConnectionLocationPolicy.normalizeCountryCode(node.profile)?.let { return it }
+        if (node.profile.equals("ir", ignoreCase = true) || node.profile.equals("iran", ignoreCase = true)) return "IR"
+        return "GLOBAL"
+    }
+
+    fun locationLabel(node: Node): LocationLabel {
+        val code = locationCode(node)
+        if (code == "GLOBAL") {
+            return LocationLabel("GLOBAL", "🌍", "جهانی", "Global")
+        }
+        val fa = ConnectionLocationPolicy.countryFromCode(code, Locale.forLanguageTag("fa"))
+        val en = ConnectionLocationPolicy.countryFromCode(code, Locale.ENGLISH)
+        return LocationLabel(
+            code = code,
+            flag = en?.flag ?: fa?.flag ?: "🌐",
+            nameFa = fa?.country ?: code,
+            nameEn = en?.country ?: code,
+        )
+    }
+
+    fun pickerLine(ready: Ready, fa: Boolean): String {
+        val loc = locationLabel(ready.node)
+        return "${loc.line(fa)} · ${ready.node.host} · ${ready.rttMs} ms"
+    }
+
+    /** At least one host from every country in the signed list; not only IR. */
+    fun pickAllCountries(nodes: List<Node>, perCountry: Int = 4, maxTotal: Int = 48): List<Node> {
+        if (nodes.isEmpty()) return emptyList()
+        val grouped = nodes.groupBy { locationCode(it) }.toSortedMap()
+        val queues = grouped.map { it.value.shuffled() }
+        val out = ArrayList<Node>()
+        var round = 0
+        val cap = perCountry.coerceAtLeast(1)
+        val max = maxTotal.coerceAtLeast(1)
+        while (out.size < max && round < cap) {
+            var added = false
+            for (q in queues) {
+                if (out.size >= max) break
+                val next = q.getOrNull(round) ?: continue
+                out += next
+                added = true
+            }
+            if (!added) break
+            round++
+        }
+        return out
     }
 
     fun pickForOneTap(nodes: List<Node>, limit: Int = 16): List<Node> {

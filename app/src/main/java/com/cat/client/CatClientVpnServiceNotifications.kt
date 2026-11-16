@@ -84,6 +84,14 @@ internal fun CatClientVpnService.startNotificationTrafficUpdates() {
                 val elapsedMs = now - previousAt
                 notificationDownloadBps = bytesPerSecond(rx, notificationLastRxBytes, elapsedMs)
                 notificationUploadBps = bytesPerSecond(tx, notificationLastTxBytes, elapsedMs)
+                val fp = activeConnectionFingerprint
+                if (fp.isNotBlank()) {
+                    val dRx = (rx - notificationLastRxBytes).coerceAtLeast(0L)
+                    val dTx = (tx - notificationLastTxBytes).coerceAtLeast(0L)
+                    if (dRx > 0L || dTx > 0L) {
+                        ConfigTrafficStore(this@startNotificationTrafficUpdates).add(fp, dRx, dTx)
+                    }
+                }
                 getSystemService(NotificationManager::class.java)
                     .notify(NOTIFICATION_ID, serviceNotification(connectedNotificationText()))
             }

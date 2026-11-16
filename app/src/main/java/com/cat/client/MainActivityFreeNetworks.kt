@@ -185,7 +185,7 @@ internal fun MainActivity.showFreeNetworksHub() {
         accent = true,
     ) { showProtonDialog() }
     entry(
-        t("🌉 Cat Edge (فهرست عمومی، پل، دامنه)", "🌉 Cat Edge (public list, bridge, domain)"),
+        t("🌉 Cat Edge (همه کشورها، پل، دامنه)", "🌉 Cat Edge (every country, bridge, domain)"),
         t("اینو بزنی: فهرست امضاشده گرفته می‌شود، جلسه روی میزبان باز می‌شود، VMess وصل می‌شود. پل یا دامنه را هم می‌چسبانی.",
             "Tap: the signed list is fetched, a session opens on the host, VMess connects. You can paste a bridge or domain too."),
         accent = true,
@@ -2049,8 +2049,8 @@ internal fun MainActivity.showCatEdgeDialog() {
     box.addView(
         freeText(
             t(
-                "فهرست عمومی امضاشده گرفته می‌شود، با هر میزبان یک جلسهٔ واقعی ساخته می‌شود، بعد VMess روی هستهٔ خود Cat وصل می‌شود. پل یا دامنهٔ خودت را هم می‌شود چسباند. تست، پینگ خالی نیست.",
-                "Fetches the signed public list, opens a real session on each host, then connects VMess on Cat's own core. You can paste a bridge or your own domain. The test is not a ping.",
+                "همهٔ کشورهای فهرست امضاشده روی همین خط تست می‌شوند. فقط سالم‌ها نشان داده می‌شوند؛ خودت انتخاب می‌کنی به کدام وصل شوی. پل یا دامنهٔ خودت را هم می‌شود چسباند. تست پینگ خالی نیست.",
+                "Every country in the signed list is tested on this line. Only the healthy ones are shown; you pick which to connect. You can paste a bridge or your own domain. The test is not a ping.",
             ),
             12.5f,
             TEXT_PRIMARY,
@@ -2058,7 +2058,7 @@ internal fun MainActivity.showCatEdgeDialog() {
     )
     var dialog: AlertDialog? = null
     box.addView(
-        freeButton(t("⚡ اتصال به سریع‌ترین سالم (فهرست عمومی)", "⚡ Connect the fastest healthy (public list)"), accent = true) {
+        freeButton(t("🌍 تست همه کشورها روی این خط", "🌍 Test every country on this line"), accent = true) {
             dialog?.dismiss()
             runCatEdgeConnect(pasted = emptyList(), refresh = true)
         },
@@ -2130,17 +2130,25 @@ private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, re
             val list = withContext(Dispatchers.IO) {
                 withPhysicalNet { CatEdgePlanner.fetchSignedList(http) }
             }
-            step(t("فهرست ${list.nodes.size} میزبان (سریال ${list.serial})", "List of ${list.nodes.size} hosts (serial ${list.serial})"))
-            nodes += CatEdgePlanner.pickForOneTap(list.nodes, limit = 16)
+            val countries = list.nodes.map { CatEdgePlanner.locationCode(it) }.toSet()
+            step(t("فهرست ${list.nodes.size} میزبان · ${countries.size} مکان (سریال ${list.serial})", "List of ${list.nodes.size} hosts · ${countries.size} places (serial ${list.serial})"))
+            nodes += CatEdgePlanner.pickAllCountries(list.nodes)
         }
         nodes += pasted
         if (nodes.isEmpty()) {
             freeResult(t("⚠️ میزبانی نبود", "⚠️ No hosts"), listOf(t("فهرست یا چسباندن خالی بود.", "The list or paste was empty.")), null, "")
             return@freeProgress
         }
-        step(t("دست‌دهی روی ${nodes.size} میزبان…", "Handshaking ${nodes.size} hosts…"))
+        step(t("دست‌دهی روی ${nodes.size} میزبان از همه مکان‌ها…", "Handshaking ${nodes.size} hosts from every place…"))
         val ready = withContext(Dispatchers.IO) {
-            withPhysicalNet { CatEdgePlanner.raceHandshakes(nodes, http, maxParallel = 6, maxKeep = 6) }
+            withPhysicalNet {
+                CatEdgePlanner.raceHandshakes(
+                    nodes,
+                    http,
+                    maxParallel = 8,
+                    maxKeep = nodes.size.coerceAtMost(48),
+                )
+            }
         }
         if (ready.isEmpty()) {
             freeResult(
@@ -2157,10 +2165,10 @@ private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, re
             return@freeProgress
         }
         val links = ready.map { it.link }
-        val report = ready.map { r ->
-            "${if (r.rttMs > 0) "✅" else "•"} ${r.node.host} · ${r.rttMs} ms · ${r.node.kind}/${r.node.profile}"
+        val report = ready.sortedBy { it.rttMs }.map { r ->
+            "${if (r.rttMs > 0) "✅" else "•"} ${CatEdgePlanner.pickerLine(r, fa)}"
         }
-        step(t("ذخیره ${links.size} کانفیگ…", "Saving ${links.size} configs…"))
+        step(t("ذخیره ${links.size} کانفیگ سالم…", "Saving ${links.size} healthy configs…"))
         val store = FreeNetworkStore(this@runCatEdgeConnect)
         val subId = try {
             saveFreeSubscription(store.edgeSubId, name, CatEdgePlanner.subscriptionText(links))
@@ -2170,13 +2178,36 @@ private fun MainActivity.runCatEdgeConnect(pasted: List<CatEdgePlanner.Node>, re
             return@freeProgress
         }
         store.edgeSubId = subId
-        renderSubscriptions()
-        freeResult(
-            t("✅ ${ready.size} جلسه — در حال وصل", "✅ ${ready.size} sessions — connecting"),
-            report,
-            subId,
-            t("VMess روی هستهٔ Cat. اگر این یکی نداد، بعدی امتحان می‌شود.", "VMess on Cat's core. If this one fails, the next is tried."),
-        )
-        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
+        withContext(Dispatchers.Main) {
+            renderSubscriptions()
+            showCatEdgeCountryPicker(subId, ready)
+        }
     }
+}
+
+private fun MainActivity.showCatEdgeCountryPicker(subId: String, ready: List<CatEdgePlanner.Ready>) {
+    val fa = freeFa()
+    fun t(f: String, e: String) = if (fa) f else e
+    val ordered = ready.sortedWith(compareBy({ CatEdgePlanner.locationCode(it.node) }, { it.rttMs }))
+    if (ordered.size == 1) {
+        connectFreeSubscription(subId, autoNext = false) { profiles ->
+            profiles.firstOrNull { it.server.equals(ordered[0].node.host, ignoreCase = true) } ?: profiles.firstOrNull()
+        }
+        return
+    }
+    val labels = ordered.map { CatEdgePlanner.pickerLine(it, fa) }.toTypedArray()
+    val checked = intArrayOf(ordered.indices.minByOrNull { ordered[it].rttMs } ?: 0)
+    MaterialAlertDialogBuilder(this)
+        .setTitle(t("کدام مکان؟ (روی این خط سالم)", "Which place? (healthy on this line)"))
+        .setSingleChoiceItems(labels, checked[0]) { _, which -> checked[0] = which }
+        .setPositiveButton(t("⚡ اتصال", "⚡ Connect")) { _, _ ->
+            val chosen = ordered.getOrNull(checked[0]) ?: ordered.first()
+            connectFreeSubscription(subId, autoNext = false) { profiles ->
+                profiles.firstOrNull { it.server.equals(chosen.node.host, ignoreCase = true) } ?: profiles.firstOrNull()
+            }
+        }
+        .setNeutralButton(t("📋 دیدن کانفیگ‌ها", "📋 See configs")) { _, _ -> openScreen(SCREEN_SERVERS) }
+        .setNegativeButton(t("بستن", "Close"), null)
+        .create()
+        .showCatClientDialog()
 }

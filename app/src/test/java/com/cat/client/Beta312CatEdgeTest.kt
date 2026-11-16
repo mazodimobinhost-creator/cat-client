@@ -57,6 +57,7 @@ class Beta312CatEdgeTest {
         val parameters = JSONObject()
             .put("server_ir_aa", """{"profile":"ir","server":"zuemy.wltfszy.com","port":443,"headers":{"Host":"AUTO"}}""")
             .put("server_global_bb", """{"profile":"global","server":"s1.example.com","port":443}""")
+            .put("server_de_cc", """{"profile":"de","server":"de1.example.com","port":443,"country":"DE"}""")
             .put("server_ir_badport", """{"profile":"ir","server":"bad.example.com","port":80}""")
             .put("falcon_template", """{"falconVersion":1,"port":443}""")
         val envelope = CatEdgePlanner.encodeEnvelope(parameters, "testkey", "9", 1793910585L) { data ->
@@ -67,9 +68,10 @@ class Beta312CatEdgeTest {
         }
         val (_, meta) = CatEdgePlanner.verifyEnvelope(envelope, mapOf("testkey" to pubB64))
         val nodes = CatEdgePlanner.nodesFrom(meta.parameters)
-        assertEquals(setOf("zuemy.wltfszy.com", "s1.example.com"), nodes.map { it.host }.toSet())
+        assertEquals(setOf("zuemy.wltfszy.com", "s1.example.com", "de1.example.com"), nodes.map { it.host }.toSet())
         assertFalse(nodes.any { it.port == 80 || it.port == 1080 })
         assertEquals("ir", nodes.first { it.host.startsWith("zuemy") }.profile)
+        assertEquals("DE", CatEdgePlanner.locationCode(nodes.first { it.host.startsWith("de1") }))
         assertEquals("public", nodes.first().kind)
     }
 
@@ -146,6 +148,8 @@ class Beta312CatEdgeTest {
         assertTrue(launch.contains("\"cat_edge\" -> showCatEdgeDialog()"))
         val ui = src("MainActivityFreeNetworks.kt")
         assertTrue(ui.contains("fun MainActivity.showCatEdgeDialog()"))
+        assertTrue(ui.contains("showCatEdgeCountryPicker"))
+        assertTrue(ui.contains("pickAllCountries"))
         assertFalse(ui.contains("آرگو VPN"))
         assertEquals(24, MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.size)
         assertEquals("cat_edge", MlmAndNextGenVpnHub.ALL_VPNS_2026_CATALOG.last().id)
@@ -169,6 +173,40 @@ class Beta312CatEdgeTest {
         )
         val picked = CatEdgePlanner.pickForOneTap(nodes, limit = 1)
         assertEquals("ir", picked.single().profile)
+    }
+
+    @Test
+    fun allCountriesKeepsEveryPlaceNotOnlyIran() {
+        val nodes = listOf(
+            CatEdgePlanner.Node("g", "s1.example.com", 443, "global", "public", country = ""),
+            CatEdgePlanner.Node("i", "zuemy.wltfszy.com", 443, "ir", "public", country = "IR"),
+            CatEdgePlanner.Node("d", "de1.example.com", 443, "de", "public", country = "DE"),
+        )
+        val picked = CatEdgePlanner.pickAllCountries(nodes, perCountry = 1, maxTotal = 8)
+        assertEquals(setOf("GLOBAL", "IR", "DE"), picked.map { CatEdgePlanner.locationCode(it) }.toSet())
+        val line = CatEdgePlanner.pickerLine(
+            CatEdgePlanner.Ready(nodes[2], CatEdgePlanner.Session("11111111-2222-4333-8444-555555555555", "/", ""), 40L, "vmess://x"),
+            fa = false,
+        )
+        assertTrue(line, line.contains("de1.example.com") && line.contains("40 ms"))
+        assertEquals("DE", CatEdgePlanner.locationCode(nodes[2]))
+    }
+
+    @Test
+    fun configTrafficAddsDownloadAndUploadPerFingerprint() {
+        val root = org.json.JSONObject()
+        ConfigTrafficPolicy.applyDelta(root, "fp-a", 1_024L, 512L)
+        ConfigTrafficPolicy.applyDelta(root, "fp-a", 1_024L, 0L)
+        ConfigTrafficPolicy.applyDelta(root, "fp-b", 0L, 100L)
+        val a = ConfigTrafficPolicy.read(root, "fp-a")
+        assertEquals(2_048L, a.rxBytes)
+        assertEquals(512L, a.txBytes)
+        assertTrue(ConfigTrafficPolicy.formatLine(a).contains("↓"))
+        assertTrue(ConfigTrafficPolicy.formatLine(a).contains("↑"))
+        val total = ConfigTrafficPolicy.total(root, listOf("fp-a", "fp-b"))
+        assertEquals(2_048L, total.rxBytes)
+        assertEquals(612L, total.txBytes)
+        assertEquals("", ConfigTrafficPolicy.formatLine(ConfigTraffic()))
     }
 
     companion object {

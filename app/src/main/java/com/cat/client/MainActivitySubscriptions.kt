@@ -523,6 +523,9 @@ internal fun MainActivity.renderSubscriptions() {
             updated,
         )
         val usage = usageStore.read(item.input)
+        val localTraffic = ConfigTrafficStore(this).total(
+            userSubscriptionManager.cachedSnapshot(item.id)?.catalog?.profiles?.map { it.fingerprint }.orEmpty(),
+        )
         val provider = providerStore.read(item.input)
         // shown on the card now, so the background job does not notify about the same message again
         provider?.announce?.let { providerStore.markAnnouncementSeen(item.input, it) }
@@ -561,6 +564,7 @@ internal fun MainActivity.renderSubscriptions() {
                     R.string.subscription_action_delete to { confirmDeleteSubscription(item) },
                 ),
                 usage = usage,
+                localTraffic = localTraffic,
             ),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
         )
@@ -578,6 +582,7 @@ internal fun MainActivity.subscriptionCard(
     onTestConnections: () -> Unit,
     actions: List<Pair<Int, () -> Unit>>,
     usage: SubscriptionUsage? = null,
+    localTraffic: ConfigTraffic = ConfigTraffic(),
 ): View = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     layoutDirection = View.LAYOUT_DIRECTION_LOCALE
@@ -707,7 +712,10 @@ internal fun MainActivity.subscriptionCard(
         textDirection = View.TEXT_DIRECTION_FIRST_STRONG
         gravity = Gravity.START
     }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-    val usageLine = subscriptionUsageLine(usage).trim()
+    var usageLine = subscriptionUsageLine(usage).trim()
+    if (usageLine.isBlank()) {
+        usageLine = ConfigTrafficPolicy.formatLine(localTraffic)
+    }
     if (usageLine.isNotBlank()) {
         val days = usage?.expireEpochSeconds?.let { seconds ->
             ((seconds * 1000L - System.currentTimeMillis()) / 86_400_000L)
