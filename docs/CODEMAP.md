@@ -35,7 +35,7 @@
 | `MainActivityDpiTester.kt` | 140 | beta247 🧪 find the TLS-fragmenting method that works on this internet (UI). | 13 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityEngines.kt` | 4029 | Emergency & anti-censorship tab: engine cards and their dialogs (DNS, paqet, Outline, WG, CF). | 15 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityFox.kt` | 1631 | Cat Fox VPN: card, account manager, sign-in dialogs, hub, direct connect. | 20 JVM · 9 panel (see `affected-tests.py`) |
-| `MainActivityFreeNetworks.kt` | 2337 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 35 JVM · 9 panel (see `affected-tests.py`) |
+| `MainActivityFreeNetworks.kt` | 2354 | beta247 🎁 free networks (UI): 🌀 Psiphon · 🆓 Free Proxy · 🌏 SSTP · 🔑 Outline · 🎫 50 GB · 🏮 Fanoos · 🟢 Proton · 🛡️ Voidly · 🌐 Cat GP · 🔐 Amnezia · 🌬️… | 35 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityGuides.kt` | 1108 | Plain-language guides, recommended one-click wizard, feature finder, firewall guide, privacy policy. | 26 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityMethodFinder.kt` | 593 | beta246 🧭 «Which method works on my internet?» + 🆓 free WireGuard/Hysteria2 servers (UI). | 14 JVM · 9 panel (see `affected-tests.py`) |
 | `MainActivityNetworkTools.kt` | 727 | Static IP / NAT64, speed & ping pages, ProxyIP and SOCKS5 pages, SNI override push, add-server sheet. | 13 JVM · 9 panel (see `affected-tests.py`) |
@@ -349,7 +349,7 @@
 | `SplitTunnel.kt` | 175 | — | WhiteDnsSmartScannerTest · — |
 | `TelegramProxyFinder.kt` | 281 | beta239 — Telegram proxy (MTProto / MTProxy) finder. | Beta239ProtocolsTelegramTest · — |
 
-_291 Kotlin files, 123312 lines._
+_291 Kotlin files, 123329 lines._
 
 ## MainActivity screens — function index
 
@@ -410,7 +410,7 @@ for the dialog/button you want to change.
 
 ### `MainActivityFreeNetworks.kt` (43 functions)
 
-`freeFa`:34, `freeButton`:36, `freeText`:57, `freeBox`:66, `freeLp`:71, `withPhysicalNet`:74, `showFreeNetworksHub`:86, `rankLinksByLivePing`:225, `connectableWgUris`:250, `freeProgress`:260, `saveFreeSubscription`:298, `connectFreeSubscription`:309, `freeResult`:344, `showFreeProxyDialog`:362, `buildFreeProxy`:383, `showFanoosDialog`:425, `fetchFanoos`:472, `fetchFanoosAll`:532, `showFreeAccountDialog`:670, `showProtonDialog`:815, `showProtonPaste`:819, `showProtonWebView`:843, `addProtonConfs`:1069, `showVoidlyDialog`:1139, `showVoidlyGenerate`:1193, `showVoidlyPaste`:1265, `addVoidlyConfs`:1289, `addFreeSlipNet`:1351, `addWarpAmneziaAuto`:1416, `showFreePsiphonDialog`:1463, `pickFreePsiphonCountry`:1501, `connectFreePsiphon`:1520, `showCatWarpFreeDialog`:1559, `scanCatWarpOnThisLine`:1627, `connectCatWarpFree`:1781, `showCatWindDialog`:1816, `showCatWindLogin`:1826, `connectCatWind`:1971, `jsString`:2063, `showCatEdgeDialog`:2067, `showCatEdgePaste`:2112, `runCatEdgeConnect`:2152, `showCatEdgeCountryPicker`:2236
+`freeFa`:34, `freeButton`:36, `freeText`:57, `freeBox`:66, `freeLp`:71, `withPhysicalNet`:74, `showFreeNetworksHub`:86, `rankLinksByLivePing`:225, `connectableWgUris`:250, `freeProgress`:260, `saveFreeSubscription`:298, `connectFreeSubscription`:309, `freeResult`:347, `showFreeProxyDialog`:365, `buildFreeProxy`:386, `showFanoosDialog`:428, `fetchFanoos`:475, `fetchFanoosAll`:535, `showFreeAccountDialog`:673, `showProtonDialog`:818, `showProtonPaste`:822, `showProtonWebView`:846, `addProtonConfs`:1072, `showVoidlyDialog`:1142, `showVoidlyGenerate`:1196, `showVoidlyPaste`:1268, `addVoidlyConfs`:1292, `addFreeSlipNet`:1354, `addWarpAmneziaAuto`:1419, `showFreePsiphonDialog`:1480, `pickFreePsiphonCountry`:1518, `connectFreePsiphon`:1537, `showCatWarpFreeDialog`:1576, `scanCatWarpOnThisLine`:1644, `connectCatWarpFree`:1798, `showCatWindDialog`:1833, `showCatWindLogin`:1843, `connectCatWind`:1988, `jsString`:2080, `showCatEdgeDialog`:2084, `showCatEdgePaste`:2129, `runCatEdgeConnect`:2169, `showCatEdgeCountryPicker`:2253
 
 ### `MainActivityGuides.kt` (11 functions)
 

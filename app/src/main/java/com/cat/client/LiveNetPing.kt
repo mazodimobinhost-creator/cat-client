@@ -17,8 +17,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * TCP shares (vmess/vless/https/…) use a TCP connect.
  * UDP shares (awg / WireGuard / Hysteria / TUIC) cannot be timed with TCP — those ports
- * stay closed on TCP and the list used to say «closed» for every Amnezia row. They get a
- * real UDP wait-for-reply, then ICMP to the host if the UDP port stays silent.
+ * stay closed on TCP. They get a real UDP wait-for-reply. ICMP to the Cloudflare IP is
+ * NOT a tunnel ping: 8.6.112.x always answers ping while WireGuard stays blocked.
  */
 internal data class SharePing(val link: String, val host: String?, val port: Int, val rttMs: Long?)
 
@@ -94,7 +94,7 @@ internal object LiveNetPing {
     }
 
     fun pingMs(host: String, port: Int, udp: Boolean, timeoutMs: Int = 1_200): Long? {
-        if (udp) return udpReplyMs(host, port, timeoutMs) ?: icmpMs(host, timeoutMs)
+        if (udp) return udpReplyMs(host, port, timeoutMs)
         return tcpMs(host, port, timeoutMs)
     }
 

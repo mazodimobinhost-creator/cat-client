@@ -14,8 +14,8 @@ class Beta293DnsTunnelTestNotLoopbackDead {
     fun versionIsBeta293() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 387"))
-        assertTrue(gradle.contains("1.10.0-beta320"))
+        assertTrue(gradle.contains("versionCode = 388"))
+        assertTrue(gradle.contains("1.10.0-beta321"))
     }
 
     @Test

@@ -50,9 +50,10 @@ class Beta260LivePingTest {
         )
         val ping = src("LiveNetPing.kt")
         assertTrue(ping.contains("udpReplyMs"))
-        assertTrue(ping.contains("icmpMs"))
         assertTrue(ping.contains("isUdpShare(link)"))
         assertTrue(ping.contains("onEach"))
+        assertTrue(ping.contains("if (udp) return udpReplyMs(host, port, timeoutMs)"))
+        assertFalse(ping.contains("udpReplyMs(host, port, timeoutMs) ?: icmpMs"))
         val hub = src("MainActivityFreeNetworks.kt")
         assertTrue(hub.contains("LiveNetPing.rankShares(links) { hit, i, n ->"))
     }
@@ -89,8 +90,8 @@ class Beta260LivePingTest {
     fun versionIsBeta263() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 387"))
-        assertTrue(gradle.contains("1.10.0-beta320"))
+        assertTrue(gradle.contains("versionCode = 388"))
+        assertTrue(gradle.contains("1.10.0-beta321"))
     }
 
     private fun src(name: String): String = listOf(

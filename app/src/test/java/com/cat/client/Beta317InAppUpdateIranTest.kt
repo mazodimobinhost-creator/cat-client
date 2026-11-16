@@ -13,15 +13,15 @@ class Beta317InAppUpdateIranTest {
     fun versionIsBeta317() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 387"))
-        assertTrue(gradle.contains("1.10.0-beta320"))
+        assertTrue(gradle.contains("versionCode = 388"))
+        assertTrue(gradle.contains("1.10.0-beta321"))
     }
 
     @Test
     fun browserMirrorAndPointerAndFinder() {
-        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta320/CatClient-V1.10.0-beta320-arm64-v8a.apk"
+        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta321/CatClient-V1.10.0-beta321-arm64-v8a.apk"
         assertEquals(
-            "https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta320/CatClient-V1.10.0-beta320-arm64-v8a.apk",
+            "https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta321/CatClient-V1.10.0-beta321-arm64-v8a.apk",
             GitHubReleaseClient.browserAssetUrl(apk),
         )
         assertEquals(
@@ -31,10 +31,10 @@ class Beta317InAppUpdateIranTest {
         val pointer = listOf(File("docs/latest-release.json"), File("../docs/latest-release.json"))
             .first { it.isFile }.readText()
         val parsed = GitHubReleaseClient.parseLatestPointer(pointer, ApkVariant.Arm64V8a)
-        assertEquals("v1.10.0-beta320", parsed.version)
+        assertEquals("v1.10.0-beta321", parsed.version)
         assertTrue(parsed.downloadable)
         assertEquals(
-            "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta320/CatClient-V1.10.0-beta320-arm64-v8a.apk",
+            "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta321/CatClient-V1.10.0-beta321-arm64-v8a.apk",
             parsed.apk!!.url,
         )
         val src = src("AppUpdate.kt")

@@ -13,20 +13,20 @@ class Beta282BrowserUpdateDownloadTest {
     fun versionIsBeta282() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 387"))
-        assertTrue(gradle.contains("1.10.0-beta320"))
+        assertTrue(gradle.contains("versionCode = 388"))
+        assertTrue(gradle.contains("1.10.0-beta321"))
     }
 
     @Test
     fun mirrorsIncludeHostRewritesAndBrowserButton() {
-        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta320/CatClient-V1.10.0-beta320-arm64-v8a.apk"
+        val apk = "https://github.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta321/CatClient-V1.10.0-beta321-arm64-v8a.apk"
         val candidates = GitHubReleaseClient.assetUrlCandidates(apk)
         assertEquals(apk, candidates.first())
         assertEquals(
-            "https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta320/CatClient-V1.10.0-beta320-arm64-v8a.apk",
+            "https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta321/CatClient-V1.10.0-beta321-arm64-v8a.apk",
             GitHubReleaseClient.browserAssetUrl(apk),
         )
-        assertTrue(candidates.contains("https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta320/CatClient-V1.10.0-beta320-arm64-v8a.apk"))
+        assertTrue(candidates.contains("https://kkgithub.com/mazodimobinhost-creator/cat-client/releases/download/v1.10.0-beta321/CatClient-V1.10.0-beta321-arm64-v8a.apk"))
         assertTrue(candidates.contains("https://github.akams.cn/$apk"))
         assertTrue(candidates.contains(apk))
         assertTrue(

@@ -309,6 +309,7 @@ internal suspend fun MainActivity.saveFreeSubscription(storedId: String, name: S
 internal fun MainActivity.connectFreeSubscription(
     subId: String,
     autoNext: Boolean = true,
+    pingAll: Boolean = true,
     pick: (List<ConnectionProfile>) -> ConnectionProfile? = { it.firstOrNull() },
 ) {
     val fa = freeFa()
@@ -330,7 +331,9 @@ internal fun MainActivity.connectFreeSubscription(
         handleConnectionSelected(profile, emptySet())
         openScreen(SCREEN_HOME)
         if (buttonModel.state == VpnState.Stopped) beginConnectFlow(Actions.CONNECT, autoNext = autoNext)
-        if (profiles.size > 1) {
+        // 65 WARP/Amnezia clones are the same Cloudflare anycast: sweeping them with the
+        // Mihomo delay test shows 0/65 after ICMP looked green. Fox/Fanoos still ping-all.
+        if (pingAll && profiles.size > 1) {
             val until = SystemClock.elapsedRealtime() + 60_000L
             while (buttonModel.state != VpnState.Started && SystemClock.elapsedRealtime() < until) delay(500)
             if (buttonModel.state == VpnState.Started) {
@@ -1430,9 +1433,23 @@ internal fun MainActivity.addWarpAmneziaAuto() {
             return@freeProgress
         }
         val (ranked, pingLines) = rankLinksByLivePing(links, step, fa)
-        step(t("۲) ذخیره و وصل…", "2) Saving and connecting…"))
+        val open = pingLines.count { it.startsWith("🟢") }
+        if (open == 0) {
+            freeResult(
+                t("وایرگارد روی این خط بسته است", "WireGuard is closed on this line"),
+                pingLines.take(16),
+                null,
+                t(
+                    "آی‌پی کلودفلر پینگ ICMP می‌دهد؛ تونل WireGuard/Amnezia باز نشد. این تقصیر کانفیگ نیست — همراه اول و ایرانسل WG را می‌بندند. از ضدسانسور «Cat Warp» را با MASQUE بزن.",
+                    "The Cloudflare IP answers ICMP; the WireGuard/Amnezia tunnel did not. Not a bad config — Hamrah and Irancell often block WG. Use Cat Warp with MASQUE from Anti-filter.",
+                ),
+            )
+            return@freeProgress
+        }
+        val keep = ranked.take(open)
+        step(t("۲) ذخیره ${keep.size} سرور باز و وصل…", "2) Saving ${keep.size} open servers and connecting…"))
         val store = FreeNetworkStore(this@addWarpAmneziaAuto)
-        val text = ranked.joinToString("\n")
+        val text = keep.joinToString("\n")
         val subId = try {
             saveFreeSubscription(store.warpAwgSubId, name, text)
         } catch (e: Exception) {
@@ -1443,16 +1460,16 @@ internal fun MainActivity.addWarpAmneziaAuto() {
         store.warpAwgSubId = subId
         withContext(Dispatchers.Main) { renderSubscriptions() }
         freeResult(
-            t("✅ Amnezia آمد — ${ranked.size} سرور — در حال وصل", "✅ Amnezia is in — ${ranked.size} servers — connecting"),
+            t("✅ Amnezia آمد — ${keep.size} سرور باز — در حال وصل", "✅ Amnezia is in — ${keep.size} open servers — connecting"),
             listOf(
-                t("✅ ${ranked.size} کانفیگ در فهرست آمد (پینگ همین خط)", "✅ ${ranked.size} configs are in the list (ping on this line)"),
-                t("کلید WARP سر وصل ساخته می‌شود", "The WARP key is made at connect"),
-            ) + pingLines,
+                t("✅ ${keep.size} کانفیگ با پینگ UDP روی این خط", "✅ ${keep.size} configs with UDP ping on this line"),
+                t("کلید WARP سر وصل ساخته می‌شود. آزمایش ۶۵تایی روی کلون‌های WARP زده نمی‌شود.",
+                    "The WARP key is made at connect. The 65-row WARP clone delay-test is not run."),
+            ) + pingLines.filter { it.startsWith("🟢") },
             subId,
-            t("اگر این یکی نداد، Cat خودش بعدی را امتحان می‌کند. خروجی آی‌پی کلودفلر است نه کشور.",
-                "If this one fails, Cat tries the next itself. Exit is a Cloudflare IP, not a country."),
+            t("خروجی آی‌پی کلودفلر است نه کشور.", "Exit is a Cloudflare IP, not a country."),
         )
-        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true) }
+        withContext(Dispatchers.Main) { connectFreeSubscription(subId, autoNext = true, pingAll = false) }
     }
 }
 

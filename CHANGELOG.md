@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta321] — 2026-11-16 (Panel 6.92.0)
+
+Owner: Amnezia ping was ICMP to Cloudflare, then delay-test 0/65.
+
+### Changed
+- **Amnezia ping:** UDP reply only. ICMP to `8.6.112.x` is not a tunnel ping (looked ~120 ms green, then WireGuard 0/65).
+- **Amnezia connect:** do not sweep 65 WARP clones with the Mihomo delay test. If no UDP reply, say WireGuard is closed on this line instead of connecting duds.
+
 ## [1.10.0-beta320] — 2026-11-16 (Panel 6.92.0)
 
 Owner: Cat Edge handshake progress + Amnezia live ping.

@@ -12,8 +12,8 @@ class Beta289AmneziaLandsTest {
     fun versionIsBeta289() {
         val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
             .first { it.isFile }.readText()
-        assertTrue(gradle.contains("versionCode = 387"))
-        assertTrue(gradle.contains("1.10.0-beta320"))
+        assertTrue(gradle.contains("versionCode = 388"))
+        assertTrue(gradle.contains("1.10.0-beta321"))
     }
 
     @Test
@@ -25,7 +25,7 @@ class Beta289AmneziaLandsTest {
         assertTrue(body.contains("BUILTIN_AWG_AND_HY2_URIS"))
         assertTrue(body.contains("AmneziaCleanEndpoints.liveOrFallback"))
         assertTrue(body.contains("rankLinksByLivePing"))
-        assertTrue(body.contains("connectFreeSubscription(subId, autoNext = true)"))
+        assertTrue(body.contains("connectFreeSubscription(subId, autoNext = true, pingAll = false)"))
         assertTrue(body.contains("saveFreeSubscription"))
         assertTrue(body.contains("amneziaSubscriptionPrefix"))
         assertFalse(body.contains("ensureAccountDetailed"))
