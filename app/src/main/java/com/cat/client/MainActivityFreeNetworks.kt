@@ -1365,10 +1365,25 @@ internal fun MainActivity.addFreeSlipNet() {
     fun t(f: String, e: String) = if (fa) f else e
     val name = "🧵 Cat DNS"
     freeProgress(t("⏳ اسکن ریزولور و ساخت تانل DNS…", "⏳ Scanning resolvers and building the DNS tunnel…")) { step ->
+        if (!SlipNetCliEngine.isInstalled(this@addFreeSlipNet)) {
+            freeResult(
+                t("⚠️ موتور تانل DNS در این نصب نیست", "⚠️ DNS-tunnel engine is not in this install"),
+                listOf(
+                    t("فایل libslipnet.so داخل این APK نیست. نسخهٔ کامل ریلیز GitHub را نصب کنید، نه ساخت ناقص.",
+                        "libslipnet.so is not in this APK. Install the full GitHub release, not a partial build."),
+                ),
+                null,
+                "",
+            )
+            return@freeProgress
+        }
         step(t("اسکن ریزولور روی این خط…", "Scanning resolvers on this line…"))
         val cards = withContext(Dispatchers.IO) {
             runCatching {
-                WhiteDnsSmartScanner.scanResolversWithSlipNetScore(maxCandidates = 10, timeoutMs = 800) { tried, total, name, ip, alive, rtt ->
+                WhiteDnsSmartScanner.scanResolversWithSlipNetScore(
+                    maxCandidates = WhiteDnsSmartScanner.RESOLVER_CATALOG.size,
+                    timeoutMs = 800,
+                ) { tried, total, name, ip, alive, rtt ->
                     val ping = when {
                         alive == null -> t("در حال تست…", "testing…")
                         alive == true && rtt != null -> "$rtt ms"
@@ -1379,8 +1394,15 @@ internal fun MainActivity.addFreeSlipNet() {
                 }
             }.getOrDefault(emptyList())
         }
-        val resolvers = cards.filter { it.udpAlive || it.tcpAlive }.sortedByDescending { it.score }.map { it.resolverIp }
-        val used = resolvers.take(2)
+        val resolvers = cards.filter { it.udpAlive || it.tcpAlive }
+            .sortedWith(
+                compareByDescending<WhiteDnsSmartScanner.SlipNetResolverScoreCard> {
+                    SlipNetFreePlanner.carrierRank(it.resolverIp)
+                }.thenByDescending { it.score }.thenBy { it.rttMs },
+            )
+            .map { it.resolverIp }
+            .filter { SlipNetFreePlanner.carrierRank(it) > 0 }
+        val used = resolvers.take(4)
         step(t("ساخت تانل و تست واقعی (نه 127.0.0.1 خالی)…", "Building the tunnel and testing for real (not empty 127.0.0.1)…"))
         val raw = if (used.isEmpty()) {
             SlipNetFreePlanner.cloudflareLinks()
@@ -1388,21 +1410,28 @@ internal fun MainActivity.addFreeSlipNet() {
             SlipNetFreePlanner.linksForResolvers(used)
         }
         val links = withContext(Dispatchers.IO) {
-            SlipNetFreePlanner.probeWorking(this@addFreeSlipNet, raw, maxKeep = 3, timeoutMs = 8_000) { s ->
+            SlipNetFreePlanner.probeWorking(this@addFreeSlipNet, raw, maxKeep = 3, timeoutMs = 15_000) { s ->
                 step(t("تست تانل: ", "Testing tunnel: ") + s)
             }
         }
         if (links.isEmpty()) {
+            val masque = CatWarpFreePlanner.PROTOS.first { it.id == "h2" }
+            val notes = SlipNetFreePlanner.lastNotes.filter { it.isNotBlank() }.take(10)
             freeResult(
                 t("⚠️ تانل DNS روی این خط جواب نداد", "⚠️ DNS tunnel did not work on this line"),
                 listOf(
-                    t("ریزولور باز بود، ولی سرورهای عمومی dnstt از این خط داده رد نکردند. ۲۸ ردیف مردهٔ 127.0.0.1 ذخیره نشد.",
-                        "A resolver was open, but the public dnstt servers did not carry data on this line. 28 dead 127.0.0.1 rows were not saved."),
+                    t(
+                        "ریزولور باز ممکن است شکن/الکترو باشد — آن‌ها A می‌دهند ولی TXT تونل dnstt را حمل نمی‌کنند. ردیف مردهٔ 127.0.0.1 ذخیره نشد.",
+                        "An open resolver may be Shecan/Electro — they answer A but do not carry dnstt TXT. Dead 127.0.0.1 rows were not saved.",
+                    ),
+                ) + notes + listOf(
                     t("MASQUE یا سایفون را بزن. اگر سرور dnstt خودت داری لینک dnstt:// را در اشتراک‌ها بچسبان.",
                         "Use MASQUE or Psiphon. If you have your own dnstt server, paste dnstt:// in subscriptions."),
                 ),
                 null,
                 "",
+                extraLabel = t("🚀 MASQUE را همین الان بزن", "🚀 MASQUE now"),
+                extraAction = { connectCatWarpFree(masque) },
             )
             return@freeProgress
         }

@@ -87,7 +87,8 @@ class Beta291SpoofAndSlipNetTest {
             assertTrue(
                 parsed.resolverIp == "178.22.122.100" ||
                     parsed.resolverIp == "10.202.10.202" ||
-                    parsed.resolverIp == "1.1.1.1",
+                    parsed.resolverIp == "1.1.1.1" ||
+                    parsed.resolverIp == "8.8.8.8",
             )
         }
         assertEquals(links.size, SlipNetFreePlanner.runnableUris(links + "cottendns://x").size)

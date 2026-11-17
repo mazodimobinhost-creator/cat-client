@@ -1,11 +1,15 @@
 package com.cat.client
 
 import android.content.Context
+import kotlin.math.abs
 
 /**
- * beta293/294 — free Cat DNS (dnstt) for Net Melli. Scan resolvers, also try Cloudflare
+ * Free Cat DNS (dnstt) for Net Melli. Scan resolvers, also try Cloudflare
  * 1.1.1.1 / DoH as the recursive resolver (not a Worker dnstt server). Keep only tunnels
  * that actually carry a request. Not another app.
+ *
+ * Anti-sanction DNS (Shecan / Electro / 403 …) answers A for ordinary sites but will not
+ * recursively carry dnstt TXT — those IPs are weak carriers and are tried last.
  */
 internal object SlipNetFreePlanner {
     data class PublicTunnel(val domain: String, val pubkey: String, val tag: String)
@@ -20,6 +24,41 @@ internal object SlipNetFreePlanner {
         PublicTunnel("tunnel.dnstt.xyz", "023678bec148aaaae5e03d450a1d05917129b632ca24ce1bbbd1b42bf377c36e", "xyz"),
     )
 
+    /** Answers A for shops/games; does not ferry dnstt TXT. */
+    private val WEAK_DNSTT_CARRIERS = setOf(
+        "178.22.122.100", "185.51.200.2",
+        "78.157.42.100", "78.157.42.101",
+        "10.202.10.10", "10.202.10.11", "10.202.10.202", "10.202.10.102",
+        "185.55.226.26", "185.55.225.25",
+        "87.107.110.109", "87.107.110.110",
+        "172.29.0.100", "172.29.2.100",
+        "193.24.103.1", "10.70.95.150",
+    )
+
+    private val PUBLIC_RECURSIVE = setOf(
+        "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112", "94.140.14.14",
+    )
+
+    @Volatile
+    var lastNotes: List<String> = emptyList()
+        private set
+
+    fun isWeakDnsttCarrier(ip: String): Boolean {
+        val t = ip.trim()
+        if (t in WEAK_DNSTT_CARRIERS) return true
+        if (t.startsWith("10.") || t.startsWith("172.29.") || t.startsWith("192.168.") || t.startsWith("127.")) return true
+        return false
+    }
+
+    /** Higher = better dnstt carrier. 0 = unusable (RFC1918). */
+    fun carrierRank(ip: String): Int {
+        val t = ip.trim()
+        if (t.startsWith("10.") || t.startsWith("127.") || t.startsWith("172.29.") || t.startsWith("192.168.")) return 0
+        if (t in WEAK_DNSTT_CARRIERS) return 1
+        if (t in PUBLIC_RECURSIVE) return 4
+        return 3
+    }
+
     fun dnsttUri(resolverIp: String, tunnel: PublicTunnel, doh: String = ""): String {
         val ip = resolverIp.trim().substringBefore('%')
         val dohQ = if (doh.startsWith("https://")) "&doh=${java.net.URLEncoder.encode(doh, "UTF-8")}" else ""
@@ -28,19 +67,22 @@ internal object SlipNetFreePlanner {
     }
 
     fun cloudflareLinks(): List<String> {
-        val tunnels = PUBLIC_TUNNELS.take(3)
+        val tunnels = PUBLIC_TUNNELS.take(4)
         return tunnels.flatMap { t ->
             listOf(
                 dnsttUri("1.1.1.1", t),
                 dnsttUri("1.1.1.1", t, doh = "https://1.1.1.1/dns-query"),
+                dnsttUri("8.8.8.8", t),
             )
-        }
+        }.distinct()
     }
 
     fun linksForResolvers(resolverIps: List<String>): List<String> {
-        val ips = resolverIps.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(2)
-        val tunnels = PUBLIC_TUNNELS.take(3)
-        val iran = ips.flatMap { ip -> tunnels.map { dnsttUri(ip, it) } }
+        val ips = resolverIps.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            .sortedByDescending { carrierRank(it) }
+            .filter { carrierRank(it) > 0 }
+            .take(4)
+        val iran = ips.flatMap { ip -> PUBLIC_TUNNELS.map { dnsttUri(ip, it) } }
         return (iran + cloudflareLinks()).distinct()
     }
 
@@ -53,28 +95,53 @@ internal object SlipNetFreePlanner {
     }
 
     /**
-     * Starts [SlipNetCliEngine] and keeps URIs whose SOCKS port actually carries HTTPS.
+     * Starts [SlipNetCliEngine] and keeps URIs whose SOCKS port actually carries TCP.
      * Does not save 127.0.0.1 rows that the connection tester would mark failed.
      */
     fun probeWorking(
         context: Context,
         uris: List<String>,
         maxKeep: Int = 3,
-        timeoutMs: Int = 8_000,
+        timeoutMs: Int = 15_000,
         onStep: (String) -> Unit = {},
     ): List<String> {
         SlipNetCliEngine.attach(context)
+        val notes = ArrayList<String>()
+        if (!SlipNetCliEngine.isInstalled(context)) {
+            notes += "libslipnet.so missing"
+            lastNotes = notes
+            return emptyList()
+        }
         val out = ArrayList<String>()
-        for (uri in runnableUris(uris)) {
+        val ordered = runnableUris(uris).sortedByDescending { raw ->
+            val parsed = WhiteDnsSmartScanner.parseTunnelUri(raw)
+            carrierRank(parsed?.resolverIp.orEmpty())
+        }
+        for (uri in ordered) {
             if (out.size >= maxKeep) break
             val parsed = WhiteDnsSmartScanner.parseTunnelUri(uri) ?: continue
             onStep("${parsed.tunnelDomain} @ ${parsed.resolverIp}")
-            val port = WhiteDnsSmartScanner.ensureLocalTunnelBridgePort(parsed, startDaemon = true)
-            val ready = WhiteDnsSmartScanner.lastEngineResult(parsed) is SlipNetCliEngine.StartResult.Ready
-            if (!ready) continue
-            val delay = SlipNetCliEngine.httpDelayThroughSocks(port, timeoutMs)
-            if (delay != null) out += uri
+            val preferred = 10853 + (abs(uri.hashCode()) % 45)
+            val result = SlipNetCliEngine.start(context, parsed, preferred, readyTimeoutMs = 12_000L)
+            if (result !is SlipNetCliEngine.StartResult.Ready) {
+                val why = when (result) {
+                    is SlipNetCliEngine.StartResult.Failed -> result.reasonFa
+                    is SlipNetCliEngine.StartResult.Unsupported -> result.reasonFa
+                    else -> "not ready"
+                }
+                notes += "${parsed.tunnelDomain} @ ${parsed.resolverIp}: $why"
+                continue
+            }
+            val delay = SlipNetCliEngine.socksConnectDelay(result.port, timeoutMs)
+                ?: SlipNetCliEngine.httpDelayThroughSocks(result.port, timeoutMs)
+            if (delay != null) {
+                out += uri
+            } else {
+                notes += "${parsed.tunnelDomain} @ ${parsed.resolverIp}: no TCP through tunnel"
+                SlipNetCliEngine.stop(SlipNetCliEngine.keyOf(parsed))
+            }
         }
+        lastNotes = notes
         return out
     }
 }

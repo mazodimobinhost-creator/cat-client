@@ -1,6 +1,7 @@
 package com.cat.client
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -46,6 +47,13 @@ class Beta293DnsTunnelTestNotLoopbackDead {
         val scanner = src("WhiteDnsSmartScanner.kt")
         assertTrue(scanner.contains("onProgress?.invoke(index + 1, candidates.size, entry.nameFa, ip, null, null)"))
         assertFalse(free.contains("listOf(\"178.22.122.100\")"))
+        assertFalse(free.contains("۲۸ ردیف مرده"))
+        assertTrue(free.contains("carrierRank"))
+        assertTrue(free.contains("timeoutMs = 15_000"))
+        assertTrue(SlipNetFreePlanner.carrierRank("1.1.1.1") > SlipNetFreePlanner.carrierRank("178.22.122.100"))
+        assertTrue(SlipNetFreePlanner.carrierRank("217.218.155.155") > SlipNetFreePlanner.carrierRank("178.22.122.100"))
+        assertEquals(0, SlipNetFreePlanner.carrierRank("10.202.10.202"))
+        assertTrue(src("SlipNetCliEngine.kt").contains("socksConnectDelay"))
         val delay = src("CatClientVpnServiceConnectionTests.kt")
         assertTrue(delay.contains("realDnsTunnelDelayMs"))
         assertTrue(delay.contains("httpDelayThroughSocks"))

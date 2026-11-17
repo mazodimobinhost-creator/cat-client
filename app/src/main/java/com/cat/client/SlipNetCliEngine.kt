@@ -136,6 +136,7 @@ internal object SlipNetCliEngine {
         context: Context,
         parsed: WhiteDnsSmartScanner.WhiteDnsParsedTunnelUri,
         preferredPort: Int,
+        readyTimeoutMs: Long = READY_TIMEOUT_MS,
     ): StartResult {
         attach(context)
         val cliUri = cliUriFor(parsed) ?: run {
@@ -202,7 +203,7 @@ internal object SlipNetCliEngine {
             }
         }, "slipnet-log-$port").apply { isDaemon = true; start() }
 
-        val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + readyTimeoutMs.coerceIn(3_000L, 45_000L)
         while (System.currentTimeMillis() < deadline) {
             if (!process.isAliveCompat()) break
             if (isListening(port)) {
@@ -237,13 +238,47 @@ internal object SlipNetCliEngine {
         Socket().use { s -> s.connect(InetSocketAddress("127.0.0.1", port), 250); true }
     }.getOrDefault(false)
 
+    /**
+     * SOCKS5 CONNECT to 1.1.1.1:443 through the local engine. Null = the tunnel did not carry TCP.
+     * Used for Cat DNS probes: dnstt is too slow for a full TLS generate_204 in 8s.
+     */
+    fun socksConnectDelay(port: Int, timeoutMs: Int): Int? {
+        if (port !in 1..65535) return null
+        val wait = timeoutMs.coerceIn(1_500, 35_000)
+        return runCatching {
+            val t0 = System.nanoTime()
+            Socket().use { s ->
+                s.soTimeout = wait
+                s.connect(InetSocketAddress("127.0.0.1", port), wait.coerceAtMost(4_000))
+                val out = s.getOutputStream()
+                val inp = java.io.DataInputStream(s.getInputStream())
+                out.write(byteArrayOf(5, 1, 0)); out.flush()
+                val greet = ByteArray(2).also { inp.readFully(it) }
+                check(greet[0].toInt() == 5 && greet[1].toInt() == 0)
+                // ATYP IPv4 1.1.1.1:443 — no extra DNS inside the tunnel
+                out.write(byteArrayOf(5, 1, 0, 1, 1, 1, 1, 1, 0x01, 0xBB.toByte()))
+                out.flush()
+                val head = ByteArray(4).also { inp.readFully(it) }
+                check(head[1].toInt() == 0)
+                val addrLen = when (head[3].toInt() and 0xFF) {
+                    1 -> 4
+                    4 -> 16
+                    3 -> inp.readUnsignedByte()
+                    else -> 0
+                }
+                inp.readFully(ByteArray(addrLen + 2))
+                ((System.nanoTime() - t0) / 1_000_000L).toInt().coerceAtLeast(1)
+            }
+        }.getOrNull()
+    }
+
     /** SOCKS5 CONNECT + HTTP 204 through the local engine. Null = tunnel did not carry a request. */
     fun httpDelayThroughSocks(port: Int, timeoutMs: Int): Int? {
         if (port !in 1..65535) return null
         return runCatching {
             val t0 = System.nanoTime()
             Socket().use { s ->
-                s.soTimeout = timeoutMs.coerceIn(1_500, 20_000)
+                s.soTimeout = timeoutMs.coerceIn(1_500, 35_000)
                 s.connect(InetSocketAddress("127.0.0.1", port), s.soTimeout)
                 val out = s.getOutputStream()
                 val inp = java.io.DataInputStream(s.getInputStream())
