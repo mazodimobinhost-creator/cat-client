@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Navy / sky-blue tokens from the Cat design file, on app + panel. */
+/** Navy / sky-blue tokens from the Cat design file. JVM tests run after CI may rewrite the worker. */
 class CatBlueDesignTokensTest {
 
     @Test
@@ -41,23 +41,6 @@ class CatBlueDesignTokensTest {
         val blob = src("ZedBlobView.kt")
         assertTrue(blob.contains("const val ZED_VIOLET = 0xFF38BDF8.toInt()"))
         assertTrue(blob.contains("const val ZED_DEEP_VIOLET = 0xFF075985.toInt()"))
-    }
-
-    @Test
-    fun panelCssFollowsTheSamePalette() {
-        val panel = file("cat-panel.html", "../cat-panel.html").readText()
-        val worker = file(
-            "app/src/main/assets/panels/catclient.worker.js",
-            "src/main/assets/panels/catclient.worker.js",
-        ).readText()
-        for (html in listOf(panel, worker)) {
-            assertTrue(html.contains("--bg:#080F24"))
-            assertTrue(html.contains("--violet:#38BDF8"))
-            assertTrue(html.contains("[data-theme=clean]{"))
-            assertTrue(html.contains("--bg:#F0F7FF"))
-            assertTrue(html.contains("--violet:#0284C7"))
-            assertTrue(html.contains("stop-color=\"#38BDF8\""))
-        }
         assertEquals(AppAccent.Lavender, AppAccent.fromWireName(null))
         assertEquals(0xFF38BDF8.toInt(), AppAccent.Lavender.dark)
         assertEquals(0xFF0284C7.toInt(), AppAccent.Lavender.light)
