@@ -10,16 +10,15 @@ class CatBlueDesignTokensTest {
 
     @Test
     fun versionIsBeta324() {
-        val gradle = listOf(File("app/build.gradle.kts"), File("build.gradle.kts"))
-            .first { it.isFile }.readText()
+        val gradle = file("app/build.gradle.kts", "build.gradle.kts").readText()
         assertTrue(gradle.contains("versionCode = 391"))
         assertTrue(gradle.contains("1.10.0-beta324"))
     }
 
     @Test
     fun resourceColorsAreSkyNavy() {
-        val light = File("app/src/main/res/values/colors.xml").readText()
-        val night = File("app/src/main/res/values-night/colors.xml").readText()
+        val light = file("app/src/main/res/values/colors.xml", "src/main/res/values/colors.xml").readText()
+        val night = file("app/src/main/res/values-night/colors.xml", "src/main/res/values-night/colors.xml").readText()
         assertTrue(light.contains("<color name=\"catclient_primary\">#0284C7</color>"))
         assertTrue(light.contains("<color name=\"catclient_background\">#F0F7FF</color>"))
         assertTrue(night.contains("<color name=\"catclient_primary\">#38BDF8</color>"))
@@ -46,8 +45,11 @@ class CatBlueDesignTokensTest {
 
     @Test
     fun panelCssFollowsTheSamePalette() {
-        val panel = File("cat-panel.html").readText()
-        val worker = File("app/src/main/assets/panels/catclient.worker.js").readText()
+        val panel = file("cat-panel.html", "../cat-panel.html").readText()
+        val worker = file(
+            "app/src/main/assets/panels/catclient.worker.js",
+            "src/main/assets/panels/catclient.worker.js",
+        ).readText()
         for (html in listOf(panel, worker)) {
             assertTrue(html.contains("--bg:#080F24"))
             assertTrue(html.contains("--violet:#38BDF8"))
@@ -62,5 +64,8 @@ class CatBlueDesignTokensTest {
     }
 
     private fun src(name: String): String =
-        File("app/src/main/java/com/cat/client/$name").readText()
+        file("app/src/main/java/com/cat/client/$name", "src/main/java/com/cat/client/$name").readText()
+
+    private fun file(vararg paths: String): File =
+        paths.map(::File).first { it.isFile }
 }

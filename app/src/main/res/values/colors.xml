@@ -21,10 +21,10 @@
 
     <!-- On surface colors -->
     <color name="catclient_on_surface">#0B2342</color>
-    <color name="catclient_on_surface_variant">#506782</color>
+    <color name="catclient_on_surface_variant">#3A4F66</color>
 
     <!-- Text hierarchy -->
-    <color name="text_tertiary">#7186A1</color>
+    <color name="text_tertiary">#33465A</color>
     <color name="text_muted">#91A6BE</color>
 
     <!-- Outline -->

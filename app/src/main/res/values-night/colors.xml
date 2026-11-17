@@ -21,10 +21,10 @@
 
     <!-- On surface colors (high contrast) -->
     <color name="catclient_on_surface">#F1F8FF</color>
-    <color name="catclient_on_surface_variant">#B8CAE1</color>
+    <color name="catclient_on_surface_variant">#C4D4E6</color>
 
     <!-- Text hierarchy -->
-    <color name="text_tertiary">#819AB7</color>
+    <color name="text_tertiary">#B2C6DB</color>
     <color name="text_muted">#637E9D</color>
 
     <!-- Outline -->
