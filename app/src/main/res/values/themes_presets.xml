@@ -2,32 +2,32 @@
 <resources>
     <!-- Generated per-preset theme overlays (match CatClientDesignTokens.themed). -->
     <style name="ThemeOverlay.CatClient.Lavender" parent="">
-        <item name="colorPrimary">#5646D6</item>
+        <item name="colorPrimary">#0284C7</item>
         <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorPrimaryContainer">#ACA2EA</item>
-        <item name="colorOnPrimaryContainer">#1C1B20</item>
-        <item name="colorSecondary">#C4326B</item>
-        <item name="colorSecondaryContainer">#DE99BA</item>
-        <item name="colorOnSecondaryContainer">#1C1B20</item>
-        <item name="colorTertiary">#C4326B</item>
-        <item name="colorSurface">#F3EEFA</item>
-        <item name="colorSurfaceVariant">#E5E0ED</item>
-        <item name="colorSurfaceContainer">#EAE4F2</item>
-        <item name="colorSurfaceContainerHigh">#E5E0ED</item>
-        <item name="colorSurfaceContainerLow">#F3EEFA</item>
-        <item name="colorSurfaceContainerLowest">#FAF5FF</item>
-        <item name="colorOnSurface">#1C1B20</item>
-        <item name="colorOnSurfaceVariant">#4A4559</item>
-        <item name="colorOutline">#CCC6D4</item>
-        <item name="colorOutlineVariant">#E5E0ED</item>
-        <item name="colorAccent">#5646D6</item>
-        <item name="colorControlActivated">#5646D6</item>
-        <item name="android:colorBackground">#FAF5FF</item>
-        <item name="android:windowBackground">#FAF5FF</item>
-        <item name="android:statusBarColor">#FAF5FF</item>
-        <item name="android:navigationBarColor">#FAF5FF</item>
-        <item name="android:textColorHighlight">#665646D6</item>
-        <item name="colorControlHighlight">#335646D6</item>
+        <item name="colorPrimaryContainer">#DDF2FF</item>
+        <item name="colorOnPrimaryContainer">#075985</item>
+        <item name="colorSecondary">#0EA5E9</item>
+        <item name="colorSecondaryContainer">#B9E6FE</item>
+        <item name="colorOnSecondaryContainer">#0B2342</item>
+        <item name="colorTertiary">#38BDF8</item>
+        <item name="colorSurface">#FFFFFF</item>
+        <item name="colorSurfaceVariant">#EAF5FF</item>
+        <item name="colorSurfaceContainer">#F3F9FF</item>
+        <item name="colorSurfaceContainerHigh">#EAF5FF</item>
+        <item name="colorSurfaceContainerLow">#F3F9FF</item>
+        <item name="colorSurfaceContainerLowest">#F0F7FF</item>
+        <item name="colorOnSurface">#0B2342</item>
+        <item name="colorOnSurfaceVariant">#506782</item>
+        <item name="colorOutline">#D4E5F5</item>
+        <item name="colorOutlineVariant">#EAF5FF</item>
+        <item name="colorAccent">#0284C7</item>
+        <item name="colorControlActivated">#0284C7</item>
+        <item name="android:colorBackground">#F0F7FF</item>
+        <item name="android:windowBackground">#F0F7FF</item>
+        <item name="android:statusBarColor">#F0F7FF</item>
+        <item name="android:navigationBarColor">#F0F7FF</item>
+        <item name="android:textColorHighlight">#660284C7</item>
+        <item name="colorControlHighlight">#330284C7</item>
     </style>
     <style name="ThemeOverlay.CatClient.Aurora" parent="">
         <item name="colorPrimary">#00897E</item>

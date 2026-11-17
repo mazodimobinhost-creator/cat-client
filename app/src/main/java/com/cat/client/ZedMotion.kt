@@ -183,7 +183,7 @@ class ZedLiveBackdropDrawable(density: Float) : Drawable() {
  * (log scale, 10 MB/s = full), the rest is a thin track with a stop dot.
  */
 class ZedWavyProgressView(context: Context) : View(context) {
-    var color: Int = 0xFFC7BFFF.toInt()
+    var color: Int = 0xFF38BDF8.toInt()
     var trackColor: Int = 0x40FFFFFF.toInt()
     var idleColor: Int = 0x80FFFFFF.toInt()
 
@@ -281,7 +281,7 @@ class ZedWavyProgressView(context: Context) : View(context) {
 
 /** Zed RouteBadge connector: dotted line, a head dot, and a dot travelling origin → exit (1.8 s). */
 class ZedRouteConnectorView(context: Context) : View(context) {
-    var color: Int = 0xFFC7BFFF.toInt()
+    var color: Int = 0xFF38BDF8.toInt()
     private var travel = 0f
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ticker = ValueAnimator.ofFloat(0f, 1f).apply {

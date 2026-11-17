@@ -268,10 +268,10 @@ class ZedBlobView(context: Context) : View(context) {
 
     companion object {
         const val ZED_LIME = 0xFFC7F24E.toInt()
-        const val ZED_HOT_PINK = 0xFFFF5FA2.toInt()
-        const val ZED_VIOLET = 0xFF7A5CFF.toInt()
-        const val ZED_DEEP_VIOLET = 0xFF2A1361.toInt()
-        const val ZED_CYAN = 0xFF37E0D8.toInt()
+        const val ZED_HOT_PINK = 0xFF0EA5E9.toInt()
+        const val ZED_VIOLET = 0xFF38BDF8.toInt()
+        const val ZED_DEEP_VIOLET = 0xFF075985.toInt()
+        const val ZED_CYAN = 0xFF7DD3FC.toInt()
     }
 }
 

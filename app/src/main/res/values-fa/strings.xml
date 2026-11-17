@@ -1043,7 +1043,7 @@
     <string name="servers_add_aether">Cat Warp — فیلدها + وصل</string>
     <string name="servers_add_file_hint">لینک تکیِ VLESS / VMess / Trojan / SS / Hy2 / WireGuard، آدرس اشتراک، فایل .conf وایرگارد و فایل Clash / sing-box پشتیبانی می‌شود. از هر برنامه‌ای هم می‌توانی لینک یا فایل را «اشتراک‌گذاری» کنی و Cat Client را انتخاب کنی.</string>
     <string name="accent_setting_title">تم رنگی</string>
-    <string name="accent_lavender">بنفش روشن</string>
+    <string name="accent_lavender">آبی آسمانی</string>
     <string name="accent_lime">لیمویی</string>
     <string name="accent_cyan">فیروزه‌ای</string>
     <string name="accent_theme_pink">صورتی</string>

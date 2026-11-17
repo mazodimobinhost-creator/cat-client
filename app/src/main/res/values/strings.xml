@@ -1044,7 +1044,7 @@
     <string name="servers_add_aether">Cat Warp — fields + Connect</string>
     <string name="servers_add_file_hint">Supports single VLESS / VMess / Trojan / SS / Hy2 / WireGuard links, subscription URLs, WireGuard .conf files and Clash / sing-box files. You can also share a link or file to Cat Client from any app.</string>
     <string name="accent_setting_title">Theme preset</string>
-    <string name="accent_lavender">Lavender</string>
+    <string name="accent_lavender">Sky</string>
     <string name="accent_lime">Lime</string>
     <string name="accent_cyan">Cyan</string>
     <string name="accent_theme_pink">Pink</string>

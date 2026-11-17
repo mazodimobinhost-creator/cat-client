@@ -4,6 +4,14 @@ All notable changes to Cat Client are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [1.10.0-beta324] — 2026-11-17 (Panel 6.92.0)
+
+Owner: Cat design file — navy / sky-blue panel + app.
+
+### Changed
+- **App:** Dashdark navy/sky tokens (`#080F24` / `#38BDF8` dark, `#F0F7FF` / `#0284C7` light). Default accent is sky. Globe arc uses the same sky accent.
+- **Panel:** `:root`, `clean`, `ocean`, and `daylight` skins follow the same palette. Other skins stay.
+
 ## [1.10.0-beta323] — 2026-11-16 (Panel 6.92.0)
 
 Owner: finder connect while scanning; Amnezia → MASQUE; spoof wraps real config.

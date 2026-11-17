@@ -29,7 +29,7 @@ class ZedWorldMapView(context: Context) : View(context) {
 
     data class Point(val x: Float, val y: Float, val label: String, val code: String)
 
-    var accent: Int = 0xFFC7BFFF.toInt()
+    var accent: Int = 0xFF38BDF8.toInt()
     var originColor: Int = 0xFFFF5FA2.toInt()
     var landColor: Int = Color.WHITE
 

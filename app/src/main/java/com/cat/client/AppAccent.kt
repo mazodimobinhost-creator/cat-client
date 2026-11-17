@@ -21,7 +21,7 @@ enum class AppAccent(
     val surfaceTintLight: Int,
     val tintStrength: Float,
 ) {
-    Lavender("lavender", R.string.accent_lavender, 0xFFC7BFFF.toInt(), 0xFF2A0A93.toInt(), 0xFF5646D6.toInt(), 0xFFFFFFFF.toInt(), 0xFFFF9BC4.toInt(), 0xFFC4326B.toInt(), 0xFF2A1361.toInt(), 0xFFE5DEFF.toInt(), 0.10f),
+    Lavender("lavender", R.string.accent_lavender, 0xFF38BDF8.toInt(), 0xFF061426.toInt(), 0xFF0284C7.toInt(), 0xFFFFFFFF.toInt(), 0xFF0EA5E9.toInt(), 0xFF38BDF8.toInt(), 0xFF080F24.toInt(), 0xFFE0F2FE.toInt(), 0.16f),
     Aurora("aurora", R.string.accent_aurora, 0xFF14B8A6.toInt(), 0xFF003731.toInt(), 0xFF00897E.toInt(), 0xFFFFFFFF.toInt(), 0xFFC7BFFF.toInt(), 0xFF5646D6.toInt(), 0xFF07202B.toInt(), 0xFFD6F5F0.toInt(), 0.22f),
     Ember("ember", R.string.accent_ember, 0xFFE8761F.toInt(), 0xFF2E1500.toInt(), 0xFF9A4A00.toInt(), 0xFFFFFFFF.toInt(), 0xFFFFB4AB.toInt(), 0xFFB3261E.toInt(), 0xFF2A1407.toInt(), 0xFFFFE8D6.toInt(), 0.22f),
     Midnight("midnight", R.string.accent_midnight, 0xFF2F6BFF.toInt(), 0xFFFFFFFF.toInt(), 0xFF1D4ED8.toInt(), 0xFFFFFFFF.toInt(), 0xFF9CCBFF.toInt(), 0xFF0A84FF.toInt(), 0xFF0A1226.toInt(), 0xFFDCE6FF.toInt(), 0.24f),
