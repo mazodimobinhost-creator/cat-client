@@ -1,0 +1,15 @@
+services:
+  panel-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["sh", "-c", "python3 scripts/android-startup-guard.py && npm test"]
+    working_dir: /src
+
+  android-debug:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./out:/out
+    command: ["sh", "-c", "./gradlew --no-daemon :app:assembleDebug && mkdir -p /out && cp app/build/outputs/apk/debug/*.apk /out/"]

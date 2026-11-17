@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>پیش‌نمایشِ بازطراحی پنل — مرحله‌ی ۱ (ساختار + خانه)</title>
+<style>
+/* ---------- tokens: ONE theme, light + dark from the OS ---------- */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --surface-2:#f0f2f5;
+  --text:#0f172a; --muted:#5b6472; --line:#e3e6eb;
+  --accent:#1d4ed8; --accent-fg:#ffffff; --accent-soft:#e8effd;
+  --ok:#047857; --warn:#b45309; --danger:#b91c1c;
+  --radius:14px; --shadow:0 1px 2px rgba(15,23,42,.06);
+  --nav-h:64px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0b0f16; --surface:#141b25; --surface-2:#1b232f;
+    --text:#e7edf6; --muted:#9aa7b8; --line:#26313f;
+    --accent:#5b9dff; --accent-fg:#08111f; --accent-soft:#17263d;
+    --ok:#34d399; --warn:#fbbf24; --danger:#f87171;
+    --shadow:0 1px 2px rgba(0,0,0,.35);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  /* system fonts only — nothing is downloaded */
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Arabic","Noto Sans","Helvetica Neue",Arial,sans-serif;
+  font-size:15px; line-height:1.6; -webkit-text-size-adjust:100%;
+}
+/* desktop: show it as a phone so the mobile layout is judged honestly */
+.phone{max-width:430px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative}
+@media (min-width:520px){
+  body{background:var(--surface-2);padding:24px 0}
+  .phone{border:1px solid var(--line);border-radius:22px;overflow:hidden;min-height:760px;box-shadow:0 10px 40px rgba(0,0,0,.10)}
+}
+.notice{max-width:430px;margin:0 auto 12px;padding:10px 14px;color:var(--muted);font-size:12.5px}
+@media (max-width:519px){.notice{display:none}}
+
+/* ---------- app bar ---------- */
+.bar{
+  position:sticky;top:0;z-index:20;background:var(--surface);
+  border-bottom:1px solid var(--line);
+  padding:10px 14px;display:flex;align-items:center;gap:10px;
+}
+.bar h1{font-size:16px;margin:0;font-weight:700;flex:1}
+.mark{width:26px;height:26px;border-radius:8px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;flex:0 0 auto}
+
+/* ---------- layout ---------- */
+main{padding:14px 14px calc(var(--nav-h) + 28px)}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:14px;margin-bottom:12px;
+}
+.card h2{font-size:14.5px;margin:0 0 4px;font-weight:700;display:flex;align-items:center;gap:7px}
+.card h2 svg{width:17px;height:17px;flex:0 0 auto;opacity:.85}
+.sub{color:var(--muted);font-size:12.5px;margin:0 0 12px}
+
+/* ---------- buttons: >=44px, one primary per card ---------- */
+.btn{
+  min-height:44px;padding:0 14px;border-radius:11px;border:1px solid var(--line);
+  background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:14px;
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;
+  transition:background .15s ease,border-color .15s ease,transform .06s ease;
+}
+.btn:hover{background:var(--surface-2)}
+.btn:active{transform:translateY(1px)}
+.btn svg{width:16px;height:16px}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn-primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn-ghost{background:transparent}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{min-height:36px;padding:0 11px;font-size:13px;border-radius:9px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- status rows ---------- */
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .k{color:var(--muted);font-size:13px}
+.row .v{font-weight:600;font-variant-numeric:tabular-nums}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2)}
+.badge.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.badge.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+/* ---------- stats ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.stat{background:var(--surface-2);border-radius:12px;padding:10px 11px}
+.stat .lab{color:var(--muted);font-size:11.5px}
+.stat .num{font-size:21px;font-weight:800;line-height:1.25;font-variant-numeric:tabular-nums}
+.stat .hint{color:var(--muted);font-size:11px}
+
+/* ---------- accordion ---------- */
+details{border-top:1px solid var(--line);padding:2px 0}
+details:first-of-type{border-top:0}
+summary{
+  list-style:none;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;
+  font-weight:600;font-size:14px;
+}
+summary::-webkit-details-marker{display:none}
+summary .chev{margin-inline-start:auto;transition:transform .18s ease;opacity:.6}
+details[open] summary .chev{transform:rotate(180deg)}
+details .body{padding:2px 0 10px;color:var(--muted);font-size:13px}
+
+/* ---------- error list ---------- */
+.errs{display:flex;flex-direction:column;gap:8px}
+.err{display:flex;gap:9px;align-items:flex-start;background:var(--surface-2);border-radius:11px;padding:9px 10px}
+.err .chip{
+  flex:0 0 auto;font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:7px;
+  background:var(--accent-soft);color:var(--accent);white-space:nowrap;
+}
+.err .msg{font-size:13px;word-break:break-word}
+.err .when{color:var(--muted);font-size:11.5px;margin-inline-start:auto;flex:0 0 auto;white-space:nowrap}
+
+/* ---------- empty state ---------- */
+.empty{text-align:center;padding:18px 10px}
+.empty .ic{font-size:26px;line-height:1}
+.empty .t{font-weight:700;margin-top:6px}
+.empty .d{color:var(--muted);font-size:12.5px;margin-top:3px}
+
+/* ---------- scroll containers (never the whole page) ---------- */
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:11px}
+.scroll code{display:block;white-space:pre;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;direction:ltr;text-align:left}
+
+/* ---------- bottom nav ---------- */
+.nav{
+  position:fixed;bottom:0;left:0;right:0;z-index:30;
+  background:var(--surface);border-top:1px solid var(--line);
+  display:flex;align-items:stretch;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.nav-inner{max-width:430px;margin:0 auto;display:flex;width:100%}
+.nav button{
+  flex:1;min-height:var(--nav-h);border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  padding:0 2px;
+}
+.nav button svg{width:22px;height:22px}
+.nav button[aria-current="page"]{color:var(--accent)}
+.nav button:hover{color:var(--text)}
+@media (min-width:520px){.nav{max-width:430px;left:50%;right:auto;transform:translateX(-50%);border-radius:0 0 22px 22px;border-left:1px solid var(--line);border-right:1px solid var(--line)}}
+
+/* ---------- toast ---------- */
+.toasts{position:fixed;bottom:calc(var(--nav-h) + 16px);left:0;right:0;z-index:40;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.toast{
+  max-width:92%;background:var(--text);color:var(--bg);border-radius:11px;
+  padding:10px 14px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);
+  animation:pop .18s ease;
+}
+.toast.ok{background:var(--ok);color:#fff}
+.toast.bad{background:var(--danger);color:#fff}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.view{display:none}
+.view.on{display:block}
+.hint{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+
+<p class="notice">پیش‌نمایشِ تعاملیِ مرحله‌ی ۱ — فقط «خانه» واقعی است؛ چهار بخش دیگر فقط ساختار و فهرستِ محتوا را نشان می‌دهند. روی دکمه‌ها و تب‌ها بزنید.</p>
+
+<div class="phone">
+  <header class="bar">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15V9a8 8 0 0 1 16 0v6"/><path d="M4 15h3v5H4zM17 15h3v5h-3z"/><path d="M7 15h10v3a4 4 0 0 1-4 4h-2a4 4 0 0 1-4-4z"/></svg>
+    </span>
+    <h1 id="barTitle">خانه</h1>
+    <button class="btn btn-sm btn-ghost" data-demo="بروزرسانی" aria-label="بروزرسانی وضعیت">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <!-- ============ 1. HOME ============ -->
+    <section class="view on" id="v-home" aria-labelledby="barTitle">
+
+      <div class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
+          وضعیت پنل و موتورهای ضدتحریم (اپ + پنل v6.69.27)
+        </h2>
+        <p class="sub">نسخه‌ی ۶.۶۹.۲۷ (اپ v1.10.0-beta146) · شامل بخش اختصاصی ساکس۵ + تشخیص خودکار فایروال و MTU</p>
+        <div class="row"><span class="k">وضعیت ورکر و KV</span><span class="v"><span class="badge ok"><span class="dot"></span>آنلاین · KV متصل</span></span></div>
+        <div class="row"><span class="k">موتور Aether (v2.4.0)</span><span class="v"><span class="badge ok">Gool H2 · WARP · Psiphon TCP-Only</span></span></div>
+        <div class="row"><span class="k">بخش اختصاصی ساکس۵</span><span class="v"><span class="badge ok">۷ مخزن زنده + استخر داخلی · اتصال یک‌کلیکی</span></span></div>
+        <div class="row"><span class="k">آزمایشگاه WhiteDNS</span><span class="v"><span class="badge ok">Auto-MTU · 52 DNS · CottenMax · Soar</span></span></div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" data-demo="⚡ اتصال فوری Aether با موفقیت شبیه‌سازی شد" style="flex:2">⚡ اتصال فوری Aether</button>
+          <button class="btn" data-demo="🧦 بخش اختصاصی ساکس۵ (لیست زنده ۷ مخزن + اتصال یک‌کلیکی) باز شد" style="flex:1.4">🧦 بخش اختصاصی ساکس۵</button>
+          <button class="btn" data-demo="🧭 تشخیص خودکار نوع فایروال منطقه اجرا شد" style="flex:1.2">🧭 تشخیص فایروال</button>
+        </div>
+        <details style="margin-top:10px">
+          <summary>⚙️ تنظیمات سریع خروجی، زنجیره، کشور و پروفایل فایروال
+            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="body">
+            در بازطراحی جدید اپ اندروید (<code>MainActivity.kt</code>)، دکمه‌های پرتکرار با ارتفاع استاندارد 44dp در بالای کارت قرار گرفته‌اند و انتخابگرهای فرعی (مکان خروجی 🇮🇷/🌍، همگام‌سازی خودکار DNS تحریم‌شکن با آی‌پی ایران 🇮🇷+🔓، زنجیره سایفون/تور، ۲۹ کشور سایفون و پروفایل فایروال همراه اول/ایرانسل) در بخش جمع‌شونده قرار دارند تا صفحه شلوغ نشود.
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" data-demo="🟦 پروفایل فایروال همراه اول (IPv6 / WARP v6) انتخاب شد">🟦 همراه اول (IPv6)</button>
+              <button class="btn btn-sm" data-demo="🟧 پروفایل فایروال ایرانسل (F&F / tlshello-0-len) انتخاب شد">🟧 ایرانسل (F&F)</button>
+              <button class="btn btn-sm" data-demo="🇮🇷+🔓 آی‌پی ایران + DNS تحریم‌شکن خودکار (شکن/الکترو) فعال شد">🇮🇷+🔓 آی‌پی ایران + DNS تحریم‌شکن</button>
+              <button class="btn btn-sm" data-demo="⚡ تشخیص خودکار MTU و رکورد حامل WhiteDNS اجرا شد">⚡ Auto-MTU &amp; Carrier</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+          خروجی فعلی
+        </h2>
+        <p class="sub">کشوری که ترافیک شما از آن بیرون می‌رود</p>
+        <div class="row"><span class="k">کشور</span><span class="v">🇩🇪 آلمان</span></div>
+        <div class="row"><span class="k">آدرس خروج</span><span class="v" style="font-variant-numeric:tabular-nums">104.16.12.7</span></div>
+        <div class="row"><span class="k">تأخیر</span><span class="v">۱۸۴ میلی‌ثانیه</span></div>
+        <p style="margin:12px 0 0"><button class="btn" data-demo="تست خروجی اجرا شد" style="width:100%">تست خروجی و نشت DNS</button></p>
+      </div>
+
+      <div class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>
+          مصرف درخواست
+        </h2>
+        <p class="sub">برآوردِ خودِ ورکر برای روز جاری (UTC) — عددِ صورت‌حسابِ کلودفلر نیست</p>
+        <div class="stats">
+          <div class="stat"><div class="lab">درخواست امروز</div><div class="num">۱۲٬۴۸۰</div><div class="hint">برآورد</div></div>
+          <div class="stat"><div class="lab">نوشتنِ لاگ</div><div class="num">۲۱۸<span style="font-size:13px;font-weight:600"> / ۱۰۰۰</span></div><div class="hint">سقفِ روزانه</div></div>
+          <div class="stat"><div class="lab">مانده در صف</div><div class="num">۳</div><div class="hint">در نوشتنِ بعدی</div></div>
+        </div>
+        <details style="margin-top:10px">
+          <summary>این عددها دقیق‌اند؟
+            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="body">
+            نه، و ترجیح می‌دهیم صریح باشیم: ورکر نمی‌تواند تعدادِ صورت‌حساب‌شده‌اش را از کلودفلر
+            بخواند. شمارنده در حافظه‌ی همان isolate جمع می‌شود و هر ۵ دقیقه (یا هنگامِ هجومِ خطا)
+            یک‌جا نوشته می‌شود، با سقف ۱۰۰۰ نوشتن در روز. پس عددِ درخواست «کمتر یا مساویِ واقعی» است،
+            نه دقیق. برای عددِ دقیق، داشبوردِ کلودفلر مرجع است.
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          آخرین خطاها
+        </h2>
+        <p class="sub">۵ تای آخر از ۵۰ خطای ذخیره‌شده</p>
+        <div class="errs">
+          <div class="err"><span class="chip">unhandled ×۳</span><span class="msg">fetch failed: upstream connect error</span><span class="when">۴ دقیقه پیش</span></div>
+          <div class="err"><span class="chip">relay</span><span class="msg">dial 198.51.50.8:443 timed out</span><span class="when">۲۱ دقیقه پیش</span></div>
+          <div class="err"><span class="chip">cron</span><span class="msg">repo feed arista: 404</span><span class="when">۲ ساعت پیش</span></div>
+          <div class="err"><span class="chip">socks5</span><span class="msg">handshake rejected (auth method)</span><span class="when">۵ ساعت پیش</span></div>
+          <div class="err"><span class="chip">kv</span><span class="msg">put cat_settings_v1: 429 rate limited</span><span class="when">دیروز</span></div>
+        </div>
+        <p style="margin:12px 0 0;display:flex;gap:8px">
+          <button class="btn" data-demo="۵۰ خطا بارگذاری شد" style="flex:1">دیدنِ همه (۵۰)</button>
+          <button class="btn btn-ghost" data-demo="لاگ خطا پاک شد">پاک‌کردن</button>
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>
+          نمای خالی (وقتی خطایی نیست)
+        </h2>
+        <p class="sub">همین کارت در حالتِ بدون‌داده — هر کارت باید پیامِ راهنما داشته باشد</p>
+        <div class="empty">
+          <div class="ic">✅</div>
+          <div class="t">هیچ خطایی ثبت نشده</div>
+          <div class="d">یعنی از آخرین باری که پاک کردی، ورکر بدون استثنا کار کرده. خطاها با تأخیرِ حداکثر ۵ دقیقه اینجا می‌آیند.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 9-4 4 4 9"/><path d="M16 15l4 4-4-4"/><path d="M9 9l6 6"/></svg>
+          نمونه‌ی کد و جدول
+        </h2>
+        <p class="sub">کد و جدول فقط داخل کانتینرِ خودشان اسکرول می‌خورند، نه کل صفحه</p>
+        <div class="scroll"><code>vless://11111111-2222-4333-8444-555555555555@104.16.12.7:443?encryption=none&amp;security=tls&amp;sni=skk.moe&amp;type=ws&amp;path=%2Fws#CatClient-DE</code></div>
+        <p style="margin:10px 0 0"><button class="btn btn-sm" data-demo="لینک کپی شد">کپی لینک</button></p>
+      </div>
+
+      <p class="hint">مرحله‌ی ۱ فقط ساختار + خانه است. چهار بخشِ دیگر بعد از تأیید شما ساخته می‌شوند.</p>
+    </section>
+
+    <!-- ============ 2. USERS (placeholder) ============ -->
+    <section class="view" id="v-users">
+      <div class="card">
+        <h2>👥 کاربران و ساب</h2>
+        <p class="sub">در مرحله‌ی ۲ ساخته می‌شود</p>
+        <details open><summary>لیست کاربران<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">جستجو · فیلتر فعال/منقضی/غیرفعال · مرتب‌سازی بر اساس نام، جدیدترین، نزدیک‌ترین انقضا · آخرین آنلاین</div></details>
+        <details><summary>لینک ساب و فرمت‌ها<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">URI · Base64 · QR · Clash · sing-box · JSON — هر کدام یک آکاردئون با کپیِ جدا</div></details>
+        <details><summary>کپی همه<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">دکمه‌ی اصلیِ کارت</div></details>
+      </div>
+      <div class="card"><div class="empty"><div class="ic">👤</div><div class="t">هنوز کاربری نساختی</div><div class="d">نمای خالی با دکمه‌ی «ساخت اولین کاربر»</div></div></div>
+    </section>
+
+    <!-- ============ 3. ADDRESSES & WHITEDNS ============ -->
+    <section class="view" id="v-addr">
+      <div class="card">
+        <h2>🌐 آدرس‌ها، اسکنر ۶ پورت و آزمایشگاه WhiteDNS</h2>
+        <p class="sub">IP تمیز · ProxyIP با پورت صریح · متدهای Resolver و تانل DNS</p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="btn btn-sm" data-tab="tab-ip" style="flex:1">IP تمیز (۶ پورت)</button>
+          <button class="btn btn-sm btn-ghost" data-tab="tab-px" style="flex:1">ProxyIP:Port</button>
+          <button class="btn btn-sm btn-ghost" data-tab="tab-sk" style="flex:1">🧬 WhiteDNS Lab</button>
+        </div>
+        <div id="tab-ip" class="body" style="color:var(--muted);font-size:13px">
+          اسکن واقعی ۶ پورت TLS کلودفلر (<code>443, 2053, 2083, 2087, 2096, 8443</code>) و ثبت دقیق زوج <code>IP:port</code> در سابسکریپشن بدون ساخت پورت حدسی.
+          <div style="margin-top:8px"><button class="btn btn-sm" data-demo="اسکن ۶ پورت TLS کلودفلر اجرا شد">📡 اجرای اسکن ۶ پورت TLS</button></div>
+        </div>
+        <div id="tab-px" class="body" style="display:none;color:var(--muted);font-size:13px">
+          حفظ پورت صریح ProxyIP (مانند <code>103.237.102.191:11111</code> و <code>184.75.221.82:3118</code>) در تمام مسیرهای ربات، اپ و پنل و تست واقعی سلامت از مسیر تانل.
+          <div style="margin-top:8px"><button class="btn btn-sm" data-demo="تست سلامت ProxyIP با پورت صریح انجام شد">🩺 تست ProxyIP با پورت صریح</button></div>
+        </div>
+        <div id="tab-sk" class="body" style="display:none;color:var(--muted);font-size:13px">
+          <b>متدهای جدید WhiteDNS (v1.6.14 + CottenMax + Soar):</b>
+          <ul style="margin:6px 0;padding-inline-start:18px">
+            <li><b>۷ ترنسپورت Resolver:</b> <code>Auto (UDP+TCP)</code>، <code>UDP :53</code>، <code>TCP :53</code>، <code>DoT :853</code>، <code>DoH :443</code>، <code>DoQ :853</code>، <code>DoH3 :443</code></li>
+            <li><b>۵ حالت رکورد حامل ضد DPI:</b> <code>HTTPS/SVCB (Type 65)</code>، <code>TXT+CNAME</code>، <code>TXT+AAAA</code>، <code>NULL (1232B EDNS0)</code>، <code>All</code></li>
+            <li><b>۹ پریست Auto-Tune ایران:</b> <code>iran-fast-low-mtu</code>، <code>iran-compact-fixed (62B)</code>، <code>iran-fixed-64-balanced</code>، <code>iran-download-heavy (FEC 4:1)</code>، <code>tcp-survival</code></li>
+          </ul>
+          <div class="scroll"><code>cottendns://178.22.122.100:53/?mode=cottenmax&amp;transport=auto&amp;delivery=txt-https&amp;preset=iran-fast-low-mtu&amp;safe_qname=101&amp;max_answer=1232&amp;fec=4:1&amp;timing_mask=light#WhiteDNS-CottenMax</code></div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-primary" data-demo="بسته تانل CottenMax + StormDNS + Soar + DNSTT کپی شد">📋 کپی بسته تانل WhiteDNS</button>
+            <button class="btn btn-sm" data-demo="پروب موازی UDP/53 + TCP/53 + DoT/853 + رکوردهای حامل انجام شد">🧪 پروب زنده ۵۲ سرور DNS</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4. LOCATION & AETHER ============ -->
+    <section class="view" id="v-loc">
+      <div class="card">
+        <h2>📍 لوکیشن، Aether v2.4.0 و زنجیره رفع تحریم</h2>
+        <p class="sub">انتخاب آی‌پی ایران 🇮🇷 / خارج 🌍 · ۲۹ کشور سایفون · فیکس ضدکرش سایفون زنجیره‌ای</p>
+        <details open><summary>۱) انتخابگر آی‌پی ایران (🇮🇷 IR) یا خارج (🌍 !IR)<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">برای سایت‌های بانکی/داخلی گزینه <code>🇮🇷 IR</code> (تک‌لایه سریع) و برای تلگرام/یوتیوب/هوش مصنوعی گزینه <code>🌍 !IR</code> (دو لایه Gool یا زنجیره سایفون/تور) به‌صورت خودکار تنظیم می‌شود.</div></details>
+        <details open><summary>۲) فیکس کلیدی سایفون زنجیره‌ای (Aether v2.4.0)<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">در حالت <code>WARP -> Psiphon</code>، تنظیمات <code>DisableTactics: true</code> (حذف خطای BPF <code>operation not permitted</code> روی اندروید بدون روت) و محدودسازی به ۱۱ پروتکل TCP سایفون (<code>CHAINED_TCP_TUNNEL_PROTOCOLS</code>) به همراه فیکس IPC سرویس <code>:psiphon</code> اعمال شده است.</div></details>
+        <details><summary>۳) فایروال همراه اول و ایرانسل<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">همراه اول: <code>IPv6 (2a06:98c1:3101::6812:202f)</code> با فالبک خودکار <code>v6 -> both</code> · ایرانسل: متد <code>F&amp;F (finalMask=tlshello-0-len, cipherSuites=semi-python, fingerprint=unsafe)</code> جهت رفع کامل محدودیت آپلود.</div></details>
+      </div>
+    </section>
+
+    <!-- ============ 5. SETTINGS (placeholder) ============ -->
+    <section class="view" id="v-set">
+      <div class="card">
+        <h2>⚙ تنظیمات</h2>
+        <p class="sub">در مرحله‌ی ۵ ساخته می‌شود — بخش‌های پیشرفته پیش‌فرض بسته</p>
+        <details><summary>SNI و میزبان<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">SNI اصلی · استخرِ چرخش · SNI اضافی</div></details>
+        <details><summary>فینگرپرینت · فرگمنت · ECH<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">تنظیماتِ سمتِ کلاینت که فقط در لینک می‌نشینند</div></details>
+        <details><summary>پروفایل اپراتور<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">ایرانسل · همراه اول · رایتل · مخابرات · تأخیر کم · مستقیم</div></details>
+        <details><summary>امنیت · تلگرام · بکاپ · درباره<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></summary><div class="body">رمز عبور · مسیر مخفی · ربات تلگرام · خروجی/ورودیِ تنظیمات · نسخه و مجوز</div></details>
+      </div>
+    </section>
+  </main>
+
+  <nav class="nav" aria-label="بخش‌های اصلی">
+    <div class="nav-inner">
+      <button data-view="v-home" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>
+        خانه
+      </button>
+      <button data-view="v-users">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 20v-2a4 4 0 0 0-3-3.9"/></svg>
+        کاربران
+      </button>
+      <button data-view="v-addr">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+        آدرس‌ها
+      </button>
+      <button data-view="v-loc">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        خروجی
+      </button>
+      <button data-view="v-set">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+        تنظیمات
+      </button>
+    </div>
+  </nav>
+
+  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="true"></div>
+</div>
+
+<script>
+// Demo-only interactions: no library, no network. Every button does something visible.
+(function () {
+  var titles = { 'v-home': 'خانه', 'v-users': 'کاربران و ساب', 'v-addr': 'آدرس‌ها', 'v-loc': 'لوکیشن و خروجی', 'v-set': 'تنظیمات' };
+  var toasts = document.getElementById('toasts');
+  function toast(msg, kind) {
+    var el = document.createElement('div');
+    el.className = 'toast' + (kind ? ' ' + kind : '');
+    el.textContent = msg;
+    toasts.appendChild(el);
+    setTimeout(function () { el.remove(); }, 2200);
+  }
+  document.querySelectorAll('.nav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.nav button').forEach(function (x) { x.removeAttribute('aria-current'); });
+      b.setAttribute('aria-current', 'page');
+      document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('on'); });
+      var id = b.getAttribute('data-view');
+      document.getElementById(id).classList.add('on');
+      document.getElementById('barTitle').textContent = titles[id] || 'پنل';
+      // scrollTop instead of window.scrollTo: same result, and it keeps the
+      // jsdom click audit at zero console noise (jsdom has no scrollTo).
+      document.documentElement.scrollTop = 0;
+    });
+  });
+  document.querySelectorAll('[data-demo]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var original = b.innerHTML;
+      b.disabled = true;
+      b.dataset._o = original;
+      b.innerHTML = '<span style="opacity:.7">در حال انجام…</span>';
+      setTimeout(function () {
+        b.disabled = false;
+        b.innerHTML = b.dataset._o;
+        toast(b.getAttribute('data-demo'), 'ok');
+      }, 700);
+    });
+  });
+  document.querySelectorAll('[data-tab]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('[data-tab]').forEach(function (x) {
+        x.className = 'btn btn-sm btn-ghost';
+        document.getElementById(x.getAttribute('data-tab')).style.display = 'none';
+      });
+      b.className = 'btn btn-sm';
+      document.getElementById(b.getAttribute('data-tab')).style.display = 'block';
+    });
+  });
+})();
+</script>
+</body>
+</html>

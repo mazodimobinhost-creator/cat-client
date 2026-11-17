@@ -446,6 +446,7 @@ class CleanIpScanner(
     }
 
     private fun protectBestEffort(socket: Socket, event: String) {
+        runCatching { socket.tcpNoDelay = true } // creates the descriptor so protect() has something to mark
         val protected = runCatching { socketProtector.protect(socket) }.getOrDefault(false)
         if (protected) return
         val count = protectFailureLogCount.incrementAndGet()

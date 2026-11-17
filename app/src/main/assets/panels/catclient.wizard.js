@@ -11,7 +11,10 @@
  *      subdomain, a KV namespace, the Cat Panel worker with UUID / password
  *      bindings, enables the route and hands back panel URL + password + sub.
  *
- * The token is only used in-flight for that request and never stored.
+ * The token is only used in-flight for that request and never stored (verified
+ * by wizard.test.mjs: it appears in no log event, KV write or result).
+ * The panel password is generated here (or supplied by the visitor), bound as a
+ * secret_text and shown ONCE in the final result; it is never derived from the UUID.
  *
  * Env (all optional):
  *  PANEL_SOURCE_URL   Override where the Cat Panel worker source is fetched from.
@@ -21,17 +24,41 @@
  *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
  */
 
-const CAT_WIZARD_VERSION = '1.0.0';
+const CAT_WIZARD_VERSION = '1.3.2';
 const REPO = 'mazodimobinhost-creator/cat-client';
 const REPO_URL = 'https://github.com/' + REPO;
-const BRANCH = 'arena/01a0c678-cat-client';
+const BRANCH = 'arena/c5b36768-cat-client';
 const CF_API = 'https://api.cloudflare.com/client/v4';
-const COMPAT_DATE = '2025-03-04';
+/* Runtime compatibility for EVERY deploy path (Wizard, in-app deploy, wrangler.jsonc).
+ * scripts/panels/compat-consistency.test.mjs fails when any of them drifts.
+ * nodejs_compat is intentionally absent: the Worker source uses no Node API
+ * (no Buffer / process / node: import), so the flag is not needed. */
+const COMPAT_DATE = '2026-09-01';
+const COMPAT_FLAGS = [];
 
+/* Oldest Panel / Wizard source this Wizard will deploy. A mirror or
+ * `releases/latest` that still serves an older artifact is rejected instead of
+ * being installed silently. Keep it equal to CAT_PANEL_VERSION at release time
+ * (compat-consistency.test.mjs enforces <=). */
+const PANEL_MIN_VERSION = '6.69.22';
+
+/* Network timeouts. A hung Cloudflare/GitHub/health request must become a
+ * clear failure (fail-closed), never an endless install. */
+let TIMEOUTS = { cf: 20000, source: 25000, health: 8000 };
+
+/* Deploy the normal minified module, matching established Worker panels such
+ * as BPB. The previous RC4/control-flow-obfuscated artifact was much larger and
+ * passed Node mocks but crashed at Cloudflare runtime with Error 1101. */
+const SNAPSHOT_PATH = 'dist-panel/catpanel.min.js';
+const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
 const PANEL_SOURCES = [
+  // Branch snapshot first: a pre-release must never resolve `releases/latest`
+  // to the older beta116 obfuscated artifact.
+  RAW_SNAPSHOT,
+  'https://ghproxy.net/' + RAW_SNAPSHOT,
   REPO_URL + '/releases/latest/download/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/app/src/main/assets/panels/catclient.worker.js',
-  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.worker.js',
+  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
+  'https://raw.githubusercontent.com/' + REPO + '/main/' + SNAPSHOT_PATH,
 ];
 const WIZARD_SOURCES = [
   REPO_URL + '/releases/latest/download/catclient.wizard.js',
@@ -44,11 +71,18 @@ const WIZARD_SOURCES = [
 const TOKEN_PERMISSIONS = [
   { key: 'workers_scripts', type: 'edit' },
   { key: 'workers_kv_storage', type: 'edit' },
+  { key: 'page', type: 'edit' },
   { key: 'account_settings', type: 'read' },
   { key: 'user_details', type: 'read' },
 ];
 const TOKEN_TEMPLATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
   encodeURIComponent(JSON.stringify(TOKEN_PERMISSIONS)) + '&accountId=*&zoneId=all&name=Cat%20Panel';
+/* Parameter-free dashboard URLs — safe while signed out. The template URL
+ * above carries query params; opened without a session, Cloudflare treats it
+ * as redirect_uri and answers «Invalid redirect_uri». Same split as the app. */
+const CF_SIGNUP = 'https://dash.cloudflare.com/sign-up';
+const CF_LOGIN = 'https://dash.cloudflare.com/login';
+const CF_TOKENS = 'https://dash.cloudflare.com/profile/api-tokens';
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -59,6 +93,42 @@ const CORS = {
 /* injectable fetch so tests / local previews can fake the Cloudflare API */
 let fetchImpl = (input, init) => fetch(input, init);
 function __setFetch(fn) { fetchImpl = fn || ((input, init) => fetch(input, init)); }
+
+/* Run `fn(signal)` with a hard deadline that also covers reading the body. */
+async function withTimeout(ms, label, fn) {
+  const ctl = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => { ctl.abort(); reject(new Error(label + ' timed out after ' + ms + ' ms')); }, ms);
+  });
+  try { return await Promise.race([fn(ctl.signal), deadline]); }
+  finally { clearTimeout(timer); }
+}
+
+function parseVersion(v) {
+  const m = /^[0-9]+(?:\.[0-9]+)*$/.exec(String(v || '').trim());
+  return m ? m[0].split('.').map(Number) : null;
+}
+/* -1 / 0 / 1, or null when either side is not a plain dotted version. */
+function compareVersions(a, b) {
+  const x = parseVersion(a); const y = parseVersion(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+function randomPassword(len = 24) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const limit = 256 - (256 % alphabet.length);
+  let out = '';
+  while (out.length < len) {
+    const bytes = crypto.getRandomValues(new Uint8Array(len));
+    for (const b of bytes) { if (b < limit && out.length < len) out += alphabet[b % alphabet.length]; }
+  }
+  return out;
+}
 
 /* ------------------------------------------------------------------ */
 /* small helpers                                                       */
@@ -77,7 +147,7 @@ function jsonResponse(value, status = 200, extra = {}) {
 
 function slugWorkerName(value, fallback) {
   const slug = String(value || '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
-  return (slug || fallback || 'catpanel').slice(0, 54);
+  return (slug || fallback || 'edge-panel').slice(0, 54);
 }
 
 function isUuid(value) {
@@ -99,6 +169,7 @@ function randomSuffix(len = 6) {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
+const SLEEP_MS = { early: 1500, late: 3000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------------ */
@@ -114,8 +185,10 @@ async function cf(token, method, path, body, opts = {}) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetchImpl(CF_API + path, { method, headers, body: payload });
-  const text = await res.text();
+  const { res, text } = await withTimeout(TIMEOUTS.cf, 'Cloudflare API ' + method + ' ' + path.split('?')[0], async (signal) => {
+    const r = await fetchImpl(CF_API + path, { method, headers, body: payload, signal });
+    return { res: r, text: await r.text() };
+  });
   let json;
   try { json = JSON.parse(text); } catch (e) { json = { success: res.ok, errors: [{ message: text.slice(0, 300) }] }; }
   if (opts.raw) return { status: res.status, json };
@@ -155,7 +228,7 @@ async function ensureSubdomain(token, accountId, log) {
   const current = await cf(token, 'GET', '/accounts/' + accountId + '/workers/subdomain');
   const existing = current.ok && current.json.result && current.json.result.subdomain;
   if (existing) return existing;
-  const candidate = 'catpanel-' + randomSuffix(8);
+  const candidate = 'edge-' + randomSuffix(8);
   log('subdomain', 'info', 'no workers.dev subdomain yet — creating ' + candidate);
   const created = await cf(token, 'PUT', '/accounts/' + accountId + '/workers/subdomain', { subdomain: candidate });
   const made = created.ok && created.json.result && created.json.result.subdomain;
@@ -176,17 +249,28 @@ async function ensureKv(token, accountId, title) {
   return { id, created: true };
 }
 
-/** Existing bindings of a worker (so a re-install keeps the UUID/password). */
-async function existingBindings(token, accountId, name) {
-  const res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
-  const bindings = res.json && res.json.result && Array.isArray(res.json.result.bindings) ? res.json.result.bindings : [];
-  const out = {};
-  for (const b of bindings) {
-    if (!b || !b.name) continue;
-    if (b.type === 'plain_text') out[b.name] = String(b.text || '');
-    if (b.type === 'kv_namespace') out['kv:' + b.name] = String(b.namespace_id || '');
+/**
+ * Prove that a worker name is unused before uploading. A PUT with a partial
+ * bindings array can detach secrets, D1 and custom bindings, so updates are
+ * deliberately blocked until every Cloudflare binding type is preserved and
+ * tested. Only an actual 404 means fresh; every ambiguous response fails closed.
+ */
+async function inspectWorker(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
+  } catch (e) {
+    throw new Error('worker existence check inconclusive: ' + (e && e.message ? e.message : e));
   }
-  return out;
+  if (res.status === 404) return { status: 'missing', bindings: [] };
+  if (res.status !== 200) {
+    throw new Error('worker existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  const result = res.json && res.json.result;
+  if (!result || !Array.isArray(result.bindings)) {
+    throw new Error('worker existence check inconclusive: malformed settings response · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', bindings: result.bindings };
 }
 
 async function uploadWorker(token, accountId, name, script, bindings) {
@@ -194,7 +278,7 @@ async function uploadWorker(token, accountId, name, script, bindings) {
     main_module: 'worker.js',
     bindings,
     compatibility_date: COMPAT_DATE,
-    compatibility_flags: ['nodejs_compat'],
+    compatibility_flags: COMPAT_FLAGS.slice(),
   };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }), 'metadata.json');
@@ -204,9 +288,61 @@ async function uploadWorker(token, accountId, name, script, bindings) {
   return res.json.result || {};
 }
 
-async function enableRoute(token, accountId, name) {
-  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: true, previews_enabled: false });
+async function enableRoute(token, accountId, name, enabled = true) {
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: enabled === true, previews_enabled: false });
   return res.ok;
+}
+
+async function inspectPages(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/pages/projects/' + name, undefined, { raw: true });
+  } catch (e) {
+    throw new Error('pages existence check inconclusive: ' + (e && e.message ? e.message : e));
+  }
+  if (res.status === 404) return { status: 'missing' };
+  if (res.status !== 200) {
+    throw new Error('pages existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', project: (res.json && res.json.result) || {} };
+}
+
+function pagesEnvFromBindings(bindings) {
+  const env_vars = {};
+  for (const b of bindings) {
+    if (!b || b.type === 'kv_namespace') continue;
+    env_vars[b.name] = { type: b.type === 'secret_text' ? 'secret_text' : 'plain_text', value: String(b.text || '') };
+  }
+  env_vars.CAT_DEPLOY_TARGET = { type: 'plain_text', value: 'pages' };
+  return env_vars;
+}
+
+async function createPagesProject(token, accountId, name, envVars, kvNamespaceId) {
+  const created = await cf(token, 'POST', '/accounts/' + accountId + '/pages/projects', {
+    name,
+    production_branch: 'main',
+  });
+  if (!created.ok) throw new Error('pages project: ' + cfError(created, 'could not create Pages project'));
+  const production = {
+    compatibility_date: COMPAT_DATE,
+    compatibility_flags: COMPAT_FLAGS.slice(),
+    env_vars: envVars,
+  };
+  if (kvNamespaceId) production.kv_namespaces = { CAT_KV: { namespace_id: kvNamespaceId } };
+  const patched = await cf(token, 'PATCH', '/accounts/' + accountId + '/pages/projects/' + name, {
+    deployment_configs: { production },
+  });
+  if (!patched.ok) throw new Error('pages env: ' + cfError(patched, 'could not set Pages env / KV'));
+  return created.json.result || {};
+}
+
+async function uploadPages(token, accountId, name, script) {
+  const form = new FormData();
+  form.append('manifest', '{}');
+  form.append('_worker.js', new Blob([script], { type: 'application/javascript+module' }), '_worker.js');
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/pages/projects/' + name + '/deployments', form);
+  if (!res.ok) throw new Error('pages upload: ' + cfError(res, 'Pages deploy failed'));
+  return res.json.result || {};
 }
 
 /* ------------------------------------------------------------------ */
@@ -224,12 +360,22 @@ async function fetchSource(kind, env) {
   let lastError = '';
   for (const url of urls) {
     try {
-      const res = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow' });
+      const fetched = await withTimeout(TIMEOUTS.source, 'source download', async (signal) => {
+        const r = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow', signal });
+        return { res: r, text: r.ok ? await r.text() : '' };
+      });
+      const res = fetched.res;
       if (!res.ok) { lastError = url + ' → HTTP ' + res.status; continue; }
-      const text = await res.text();
+      const text = fetched.text;
       if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
       const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
-      const entry = { text, url, version: versionMatch ? versionMatch[1] : '?', at: Date.now() };
+      const found = versionMatch ? versionMatch[1] : '';
+      if (kind === 'panel' && found === '6.69.12') { lastError = url + ' → blocked 1101 version v' + found; continue; }
+      const floor = kind === 'wizard' ? CAT_WIZARD_VERSION : PANEL_MIN_VERSION;
+      const cmp = compareVersions(found, floor);
+      if (cmp === null) { lastError = url + ' → source version unknown or malformed'; continue; }
+      if (cmp < 0) { lastError = url + ' → stale source v' + found + ' (< v' + floor + ')'; continue; }
+      const entry = { text, url, version: found, at: Date.now() };
       sourceCache.set(kind, entry);
       return entry;
     } catch (e) {
@@ -243,6 +389,26 @@ async function fetchSource(kind, env) {
 /* the install flow (async generator → streamed as NDJSON)             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Stealth: ask the fresh panel to move its UI to a random hidden path.
+ * Root then answers a bare 404 so crawlers scanning workers.dev find nothing.
+ * Keeps an existing panelPath if the panel already has one.
+ */
+async function applyStealth(base, username, password) {
+  const login = await fetchImpl(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password }) });
+  if (!login.ok) return '';
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) return '';
+  const get = await fetchImpl(base + '/api/settings', { headers: { cookie: cookie } });
+  if (!get.ok) return '';
+  const cur = await get.json().catch(() => ({}));
+  const existing = cur && cur.settings && String(cur.settings.panelPath || '');
+  if (/^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(existing)) return existing;
+  const p = randomSuffix(10);
+  const put = await fetchImpl(base + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie }, body: JSON.stringify({ panelPath: p }) });
+  return put.ok ? p : '';
+}
+
 async function* runInstall(input, env) {
   const events = [];
   const log = (step, level, msg, data) => { events.push({ step, level, msg, data }); };
@@ -250,7 +416,8 @@ async function* runInstall(input, env) {
 
   const token = String(input.token || '').trim();
   const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
-  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || 'catpanel'));
+  const target = (kind === 'panel' && String(input.target || '').toLowerCase() === 'pages') ? 'pages' : 'worker';
+  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))));
   const customPassword = String(input.password || '').trim();
   const customUser = String(input.username || '').trim();
   if (!token) throw new Error('token missing');
@@ -261,31 +428,58 @@ async function* runInstall(input, env) {
   const account = (input.accountId && verified.accounts.find((a) => a.id === input.accountId)) || verified.accounts[0];
   log('verify', 'ok', 'token OK · account: ' + (account.name || account.id), { account }); yield* flush();
 
+  log('existing', 'info', target === 'pages' ? 'proving Pages project is unused before upload' : 'proving worker name is unused before upload'); yield* flush();
+  if (target === 'pages') {
+    const inspected = await inspectPages(token, account.id, workerName);
+    if (inspected.status !== 'missing') {
+      throw new Error('Pages project already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+    }
+    log('existing', 'ok', 'Pages project name is unused'); yield* flush();
+  } else {
+    const inspected = await inspectWorker(token, account.id, workerName);
+    if (inspected.status !== 'missing') {
+      throw new Error('worker already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+    }
+    log('existing', 'ok', 'worker name is unused (settings returned 404)'); yield* flush();
+  }
+
   log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
   const source = await fetchSource(kind, env);
   log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
 
-  log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
-  const subdomain = await ensureSubdomain(token, account.id, log);
-  const workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
-  log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
-
-  const previous = await existingBindings(token, account.id, workerName).catch(() => ({}));
-  if (Object.keys(previous).length) { log('existing', 'info', 'worker "' + workerName + '" exists — updating in place, secrets are kept'); yield* flush(); }
+  let workerUrl = '';
+  if (target === 'pages') {
+    workerUrl = 'https://' + workerName + '.pages.dev';
+    log('subdomain', 'ok', workerName + '.pages.dev', { pages: true }); yield* flush();
+  } else {
+    log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
+    const subdomain = await ensureSubdomain(token, account.id, log);
+    workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
+    log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
+  }
 
   const bindings = [];
   let uuid = '';
+  let panelPassword = '';
   let kvBound = false;
   if (kind === 'panel') {
-    uuid = isUuid(previous.UUID) ? previous.UUID : (isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid());
+    uuid = isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid();
     bindings.push({ type: 'plain_text', name: 'UUID', text: uuid });
-    if (customPassword) bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: customPassword });
+    // beta240: tunnels on — a Worker without it serves the panel but refuses every VLESS/Trojan connection (403).
+    bindings.push({ type: 'plain_text', name: 'DATA_PLANE_ENABLED', text: 'true' });
+    // Panel login is its own secret: the owner's password, or a random one generated
+    // here. It is never derived from the UUID and never written to a log line.
+    panelPassword = customPassword || randomPassword(24);
+    bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: panelPassword });
+    bindings.push({ type: 'plain_text', name: 'OPEN_PANEL', text: 'false' });
+    bindings.push({ type: 'plain_text', name: 'OPEN_SUB', text: 'false' });
+    bindings.push({ type: 'secret_text', name: 'CF_API_TOKEN', text: token });
+    bindings.push({ type: 'plain_text', name: 'CF_ACCOUNT_ID', text: String(account.id) });
+    bindings.push({ type: 'plain_text', name: 'CF_WORKER_NAME', text: workerName });
     if (customUser) bindings.push({ type: 'plain_text', name: 'PANEL_USER', text: customUser });
     log('kv', 'info', 'creating KV storage (users, clean IPs, ports)'); yield* flush();
     try {
-      const kv = previous['kv:CAT_KV']
-        ? { id: previous['kv:CAT_KV'], created: false }
-        : await ensureKv(token, account.id, workerName + '-catpanel');
+      const kv = await ensureKv(token, account.id, workerName + '-catpanel');
       bindings.push({ type: 'kv_namespace', name: 'CAT_KV', namespace_id: kv.id });
       kvBound = true;
       log('kv', 'ok', kv.created ? 'KV namespace created' : 'KV namespace reused', { id: kv.id });
@@ -297,38 +491,109 @@ async function* runInstall(input, env) {
     bindings.push({ type: 'secret_text', name: 'WIZARD_PASSWORD', text: String(env.WIZARD_PASSWORD) });
   }
 
-  log('upload', 'info', 'uploading worker "' + workerName + '"'); yield* flush();
-  await uploadWorker(token, account.id, workerName, source.text, bindings);
-  log('upload', 'ok', 'worker deployed'); yield* flush();
+  // Race reduction, NOT an atomic guard: Cloudflare's script PUT is an upsert and no
+  // conditional-create request is used, so a Worker created by someone else after
+  // this check can still be overwritten. The window shrinks from "whole install"
+  // to the time between this GET and the PUT.
+  if (target === 'pages') {
+    log('existing', 'info', 'confirming Pages project is still unused right before upload'); yield* flush();
+    const recheck = await inspectPages(token, account.id, workerName);
+    if (recheck.status !== 'missing') {
+      throw new Error('Pages project appeared while the install was running; upload cancelled to preserve it');
+    }
+    const envVars = pagesEnvFromBindings(bindings);
+    const kvBind = bindings.find((b) => b && b.type === 'kv_namespace');
+    log('upload', 'info', 'creating Pages project "' + workerName + '"'); yield* flush();
+    await createPagesProject(token, account.id, workerName, envVars, kvBind && kvBind.namespace_id);
+    log('upload', 'info', 'uploading _worker.js to Pages'); yield* flush();
+    await uploadPages(token, account.id, workerName, source.text);
+    log('upload', 'ok', 'Pages deployed'); yield* flush();
+    log('route', 'ok', 'Pages production URL ' + workerUrl); yield* flush();
+  } else {
+    log('existing', 'info', 'confirming worker name is still unused right before upload'); yield* flush();
+    const recheck = await inspectWorker(token, account.id, workerName);
+    if (recheck.status !== 'missing') {
+      throw new Error('worker appeared while the install was running; upload cancelled to preserve its bindings');
+    }
+    log('upload', 'info', 'uploading worker "' + workerName + '"'); yield* flush();
+    await uploadWorker(token, account.id, workerName, source.text, bindings);
+    log('upload', 'ok', 'worker deployed'); yield* flush();
 
-  log('route', 'info', 'enabling workers.dev route'); yield* flush();
-  const routed = await enableRoute(token, account.id, workerName);
-  log('route', routed ? 'ok' : 'warn', routed ? 'route enabled' : 'could not toggle the route (enable it in the dashboard if the URL 404s)'); yield* flush();
+    log('route', 'info', 'enabling workers.dev route'); yield* flush();
+    const routed = await enableRoute(token, account.id, workerName);
+    log('route', routed ? 'ok' : 'warn', routed ? 'route enabled' : 'could not toggle the route (enable it in the dashboard if the URL 404s)'); yield* flush();
+  }
 
   log('check', 'info', 'waiting for ' + workerUrl); yield* flush();
   let online = false;
   let version = '';
-  for (let attempt = 1; attempt <= 6 && !online; attempt++) {
+  let consecutiveHealthy = 0;
+  let lastHealth = 'no response';
+  const expectedVersion = String(source.version || '');
+  for (let attempt = 1; attempt <= 8 && consecutiveHealthy < 3; attempt++) {
     try {
-      const res = await fetchImpl(workerUrl + '/health', { headers: { 'cache-control': 'no-cache' } });
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        online = body && body.ok === true;
-        version = body && body.version ? String(body.version) : '';
-      }
-    } catch (e) { /* propagation */ }
-    if (!online) await sleep(attempt < 3 ? 1500 : 3000);
+      const separator = workerUrl.includes('?') ? '&' : '?';
+      const probe = await withTimeout(TIMEOUTS.health, '/health probe', async (signal) => {
+        const r = await fetchImpl(workerUrl + '/health' + separator + '_verify=' + Date.now() + '-' + attempt, {
+          headers: { 'cache-control': 'no-cache, no-store' },
+          cf: { cacheTtl: 0, cacheEverything: false },
+          signal,
+        });
+        return { res: r, body: await r.json().catch(() => null) };
+      });
+      const res = probe.res; const body = probe.body;
+      const cacheStatus = String(res.headers && res.headers.get && res.headers.get('cf-cache-status') || '').toUpperCase();
+      const age = Number(res.headers && res.headers.get && res.headers.get('age') || 0);
+      const cached = cacheStatus === 'HIT' || cacheStatus === 'STALE' || cacheStatus === 'REVALIDATED' || age > 0;
+      const reported = body && typeof body === 'object' ? String(body.version || '').trim() : '';
+      const healthy = res.ok && !cached && !!body && body.ok === true && !!expectedVersion && reported === expectedVersion;
+      if (healthy) { version = reported; lastHealth = 'ok'; }
+      else if (cached) lastHealth = 'cached response (' + (cacheStatus || 'age ' + age) + ')';
+      else if (!body || typeof body !== 'object') lastHealth = 'HTTP ' + res.status + ' · malformed health body';
+      else if (res.ok && body.ok === true && reported !== expectedVersion) lastHealth = 'version mismatch · expected v' + expectedVersion + ' got ' + (reported ? 'v' + reported.slice(0, 20) : 'none');
+      else lastHealth = 'HTTP ' + res.status + (body.error ? ' · ' + String(body.error).slice(0, 80) : '');
+      consecutiveHealthy = healthy ? consecutiveHealthy + 1 : 0;
+    } catch (e) {
+      consecutiveHealthy = 0;
+      lastHealth = e && e.message ? e.message : String(e);
+    }
+    if (consecutiveHealthy < 3) await sleep(attempt < 3 ? SLEEP_MS.early : SLEEP_MS.late);
   }
-  log('check', online ? 'ok' : 'warn', online ? 'online · v' + version : 'not reachable yet — workers.dev needs up to a minute for a brand-new subdomain'); yield* flush();
+  online = consecutiveHealthy >= 3;
+  if (!online) {
+    // Never hand out a broken URL. For this freshly created script ONLY its public
+    // route is switched off; the Worker, KV, D1, Secrets and every other binding
+    // are left untouched for diagnosis or retry.
+    if (target === 'worker') {
+      const disabled = await enableRoute(token, account.id, workerName, false).catch(() => false);
+      log('route', disabled ? 'ok' : 'warn', disabled ? 'route of the new worker disabled' : 'could not disable the new worker route — disable it in the dashboard'); yield* flush();
+    } else {
+      log('route', 'warn', 'Pages project left in place for diagnosis — delete it in the dashboard if you retry with the same name'); yield* flush();
+    }
+    log('check', 'error', 'runtime verification failed; panel was not activated (' + lastHealth + ')', { status: lastHealth }); yield* flush();
+    throw new Error('worker deployed but did not pass 3 consecutive /health checks with the expected version (' + lastHealth + '); cause not determined — check Workers Live Logs');
+  }
+  log('check', 'ok', 'online · v' + version + ' · 3/3 health checks'); yield* flush();
 
-  const password = customPassword || uuid;
+  const password = kind === 'panel' ? panelPassword : '';
+  let stealthPath = '';
+  if (kind === 'panel' && online) {
+    log('stealth', 'info', 'moving the panel to a hidden path'); yield* flush();
+    stealthPath = await withTimeout(TIMEOUTS.health * 3, 'stealth setup', () => applyStealth(workerUrl, customUser, password)).catch(() => '');
+    log('stealth', stealthPath ? 'ok' : 'warn', stealthPath ? 'panel hidden at /' + stealthPath : 'stealth skipped — set a hidden path in Panel → Settings later'); yield* flush();
+  }
+  const panelBase = stealthPath ? workerUrl + '/' + stealthPath : workerUrl;
   const result = kind === 'panel'
     ? {
       ok: true,
       kind,
+      target,
       workerName,
       workerUrl,
-      panelUrl: customUser ? workerUrl + '/' : workerUrl + '/?p=' + encodeURIComponent(password),
+      stealthPath,
+      // The password is deliberately NOT placed in the URL: query strings end up in
+      // browser history and Workers Logs. The owner signs in with the password below.
+      panelUrl: panelBase + '/',
       subUrl: workerUrl + '/sub/' + uuid,
       subClash: workerUrl + '/sub/' + uuid + '/clash',
       subSingbox: workerUrl + '/sub/' + uuid + '/singbox',
@@ -337,6 +602,7 @@ async function* runInstall(input, env) {
       password,
       username: customUser,
       customPassword: !!customPassword,
+      passwordGenerated: !customPassword,
       kvBound,
       online,
       panelVersion: version || source.version,
@@ -392,7 +658,9 @@ function css() {
     '.muted{color:var(--muted);font-size:13px}p{margin:6px 0}',
     '.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:14px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 10px 30px rgba(124,58,237,.35);text-decoration:none;transition:transform .12s}',
     '.btn:hover{transform:translateY(-1px)}.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}',
-    '.btn.ghost{background:var(--card2);box-shadow:none;border:1px solid var(--line)}.btn.block{width:100%}.btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}',
+    '.btn.ghost{background:var(--card2);box-shadow:none;border:1px solid var(--line);color:var(--text)}.btn.block{width:100%}.btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}',
+    '.actions{display:grid;gap:8px;margin:12px 0 4px}.actions .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
+    '@media (max-width:560px){.actions .pair{grid-template-columns:1fr}}',
     '.field{display:block;margin:12px 0}.field span{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}',
     '.field input{width:100%;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--text);border-radius:12px;padding:12px 14px;font:inherit;font-size:14px;direction:ltr;text-align:left}',
     '.field input:focus{outline:2px solid var(--accent);outline-offset:1px}',
@@ -417,11 +685,15 @@ function i18n() {
     fa: {
       sub: 'نصب پنل کلودفلر شخصی در یک دقیقه',
       s1: 'دریافت توکن کلودفلر',
-      s1p: 'دکمهٔ زیر صفحهٔ API Token کلودفلر را با دسترسی‌های لازم باز می‌کند. فقط کافی است Continue to summary → Create Token را بزنی و توکن را کپی کنی.',
-      s1b: 'دریافت توکن از کلودفلر',
-      s1h1: 'اگر حساب کلودفلر نداری، همان‌جا با ایمیل رایگان بساز.',
-      s1h2: 'در صفحهٔ باز شده چیزی را تغییر نده؛ پایین صفحه Continue to summary و بعد Create Token.',
-      s1h3: 'توکن فقط یک بار نمایش داده می‌شود — Copy را بزن.',
+      s1p: 'ترتیب مهم است: اول اکانت بساز یا وارد شو (دو دکمهٔ ساده)، بعد «دریافت توکن» را بزن. اگر بدون ورود مستقیم روی توکن بروی، کلادفلر خطای Invalid redirect_uri می‌دهد.',
+      s1b: 'دریافت توکن از کلودفلر (دسترسی‌ها آماده)',
+      signup: 'ساخت اکانت رایگان کلودفلر',
+      login: 'ورود به اکانت کلودفلر',
+      tokensPlain: 'صفحهٔ توکن‌ها بدون پیش‌انتخاب',
+      accountHint: 'هنوز اکانت نداری یا Invalid redirect_uri دیدی؟ اول ساخت اکانت / ورود (این دو لینک پارامتری ندارند). بعد از ورود، دکمهٔ بنفش توکن را بزن.',
+      s1h1: 'اگر حساب نداری: ساخت اکانت رایگان. اگر داری: ورود.',
+      s1h2: 'بعد از ورود، «دریافت توکن» را بزن. چیزی را تغییر نده؛ Continue to summary → Create Token.',
+      s1h3: 'توکن فقط یک بار نمایش داده می‌شود — Copy را بزن و در مرحلهٔ ۲ بچسبان.',
       s2: 'توکن را اینجا بچسبان',
       s2p: 'توکن فقط برای همین نصب استفاده می‌شود و هیچ‌جا ذخیره نمی‌شود. بعد از نصب می‌توانی آن را از کلودفلر حذف کنی.',
       token: 'Cloudflare API Token',
@@ -429,10 +701,12 @@ function i18n() {
       check: 'بررسی توکن',
       s3: 'نصب پنل',
       name: 'نام ورکر (اختیاری)',
-      pass: 'رمز پنل (اختیاری — پیش‌فرض UUID)',
+      pass: 'رمز پنل (اختیاری — اگر خالی بماند یک رمز تصادفی ساخته می‌شود)',
       user: 'نام کاربری پنل (اختیاری — ورود با نام کاربری + رمز)',
       adv: 'تنظیمات بیشتر',
-      install: 'نصب Cat Panel روی حساب من',
+      install: 'نصب روی Worker · workers.dev',
+      installPages: 'نصب روی Pages · pages.dev',
+      targetHint: 'همان پنل است؛ یا روی Worker می‌نشیند یا روی Pages. *.pages.dev روی بعضی خطوط ایران فیلتر است — اگر باز نشد Worker را بزن.',
       installWizard: 'ساخت ویزارد خصوصی خودم',
       wizardHint: 'یک نسخهٔ خصوصی از همین ویزارد روی حساب خودت می‌سازد تا لینکش را به دیگران بدهی.',
       log: 'گزارش نصب',
@@ -446,7 +720,7 @@ function i18n() {
       copied: 'کپی شد',
       app: 'افزودن به Cat Client',
       apk: 'دانلود اپ',
-      keep: 'این آدرس و رمز را یک‌جا نگه دار. بعد از ورود، از تب «کانفیگ‌ها» پورت و SNI را انتخاب کن؛ آی‌پی تمیز خودکار داخل کانفیگ‌ها می‌رود.',
+      keep: 'این آدرس و رمز را یک‌جا نگه دار. بعد از ورود، از تب «کانفیگ‌ها» پورت و SNI را انتخاب کن؛ آی‌پی تمیز خودکار داخل کانفیگ‌ها می‌رود. رمز فقط همین یک‌بار نمایش داده می‌شود؛ همین حالا ذخیره‌اش کن.',
       wizardDone: 'ویزارد خصوصی آماده شد',
       wizardUrl: 'آدرس ویزارد تو',
       offline: 'هنوز بالا نیامده — یک دقیقه بعد آدرس را دوباره باز کن.',
@@ -459,11 +733,15 @@ function i18n() {
     en: {
       sub: 'Your own Cloudflare panel in one minute',
       s1: 'Get a Cloudflare token',
-      s1p: 'The button opens the Cloudflare API-token page with the right permissions pre-selected. Just hit Continue to summary → Create Token and copy it.',
-      s1b: 'Get token from Cloudflare',
-      s1h1: 'No Cloudflare account? Create a free one right there.',
-      s1h2: 'Do not change anything on that page; scroll down, Continue to summary, then Create Token.',
-      s1h3: 'The token is shown once — press Copy.',
+      s1p: 'Order matters: create an account or sign in first (the two plain buttons), then tap Get token. Opening the token page while signed out makes Cloudflare answer Invalid redirect_uri.',
+      s1b: 'Get token from Cloudflare (permissions filled)',
+      signup: 'Create a free Cloudflare account',
+      login: 'Sign in to Cloudflare',
+      tokensPlain: 'Plain tokens page (fallback)',
+      accountHint: 'No account yet, or Invalid redirect_uri? Use Create account / Sign in first (those two links have no parameters). After you are in, tap the purple token button.',
+      s1h1: 'No account: create a free one. Already have one: sign in.',
+      s1h2: 'Once signed in, tap Get token. Do not change anything; Continue to summary → Create Token.',
+      s1h3: 'The token is shown once — press Copy, then paste it in step 2.',
       s2: 'Paste the token here',
       s2p: 'The token is used only for this install and is never stored. You can revoke it in Cloudflare afterwards.',
       token: 'Cloudflare API Token',
@@ -471,10 +749,12 @@ function i18n() {
       check: 'Check token',
       s3: 'Install the panel',
       name: 'Worker name (optional)',
-      pass: 'Panel password (optional — UUID by default)',
+      pass: 'Panel password (optional — a random one is generated if left empty)',
       user: 'Panel username (optional — sign in with username + password)',
       adv: 'More options',
-      install: 'Install Cat Panel on my account',
+      install: 'Install on Worker · workers.dev',
+      installPages: 'Install on Pages · pages.dev',
+      targetHint: 'Same panel — sits on a Worker or on Pages. *.pages.dev is filtered on some Iranian lines; if it does not open, use Worker.',
       installWizard: 'Create my own private wizard',
       wizardHint: 'Deploys a private copy of this wizard on your account so you can share your own link.',
       log: 'Install log',
@@ -488,7 +768,7 @@ function i18n() {
       copied: 'Copied',
       app: 'Add to Cat Client',
       apk: 'Download app',
-      keep: 'Keep this URL and password together. After logging in, pick ports and SNI in the Configs tab; clean IPs are baked into the configs automatically.',
+      keep: 'Keep this URL and password together. After logging in, pick ports and SNI in the Configs tab; clean IPs are baked into the configs automatically. The password is shown only this once — save it now.',
       wizardDone: 'Private wizard ready',
       wizardUrl: 'Your wizard URL',
       offline: 'Not up yet — reopen the URL in a minute.',
@@ -510,7 +790,7 @@ function pageHtml(env, host) {
     host,
     tokenUrl: TOKEN_TEMPLATE_URL,
     inviteRequired,
-    defaultWorker: String(env.DEFAULT_WORKER || 'catpanel'),
+    defaultWorker: String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))),
     repo: REPO_URL,
     i18n: i18n(),
   };
@@ -526,7 +806,15 @@ function pageHtml(env, host) {
 
     '<section class="card"><h2><span class="n">1</span><span data-i18n="s1">' + t.s1 + '</span></h2>' +
     '<p class="muted" data-i18n="s1p">' + t.s1p + '</p>' +
+    '<div class="actions">' +
+    '<div class="pair">' +
+    '<a class="btn ghost block" id="signupBtn" href="' + esc(CF_SIGNUP) + '" target="_blank" rel="noopener">🆕 <span data-i18n="signup">' + t.signup + '</span></a>' +
+    '<a class="btn ghost block" id="loginBtn" href="' + esc(CF_LOGIN) + '" target="_blank" rel="noopener">🔑 <span data-i18n="login">' + t.login + '</span></a>' +
+    '</div>' +
     '<a class="btn block" id="tokenBtn" href="' + esc(TOKEN_TEMPLATE_URL) + '" target="_blank" rel="noopener">🔑 <span data-i18n="s1b">' + t.s1b + '</span></a>' +
+    '<a class="btn ghost block" id="tokensBtn" href="' + esc(CF_TOKENS) + '" target="_blank" rel="noopener">🧾 <span data-i18n="tokensPlain">' + t.tokensPlain + '</span></a>' +
+    '</div>' +
+    '<p class="muted" data-i18n="accountHint">' + t.accountHint + '</p>' +
     '<div class="steps"><div class="step"><b>۱</b><span data-i18n="s1h1">' + t.s1h1 + '</span></div>' +
     '<div class="step"><b>۲</b><span data-i18n="s1h2">' + t.s1h2 + '</span></div>' +
     '<div class="step"><b>۳</b><span data-i18n="s1h3">' + t.s1h3 + '</span></div></div></section>' +
@@ -544,7 +832,9 @@ function pageHtml(env, host) {
     '<label class="field"><span data-i18n="user">' + t.user + '</span><input id="wuser" autocomplete="username" placeholder="admin"></label>' +
     '<label class="field"><span data-i18n="pass">' + t.pass + '</span><input id="wpass" autocomplete="new-password"></label></details>' +
     '<div class="progress"><i id="bar"></i></div>' +
+    '<p class="muted" data-i18n="targetHint">' + t.targetHint + '</p>' +
     '<button class="btn block" id="installBtn">🚀 <span data-i18n="install">' + t.install + '</span></button>' +
+    '<button class="btn ghost block" id="installPagesBtn" style="margin-top:8px">📄 <span data-i18n="installPages">' + t.installPages + '</span></button>' +
     '<div class="row" style="margin-top:10px"><button class="btn ghost sm" id="wizardBtn" data-i18n="installWizard">' + t.installWizard + '</button><span class="muted" data-i18n="wizardHint">' + t.wizardHint + '</span></div>' +
     '<p class="err hide" id="installErr"></p></section>' +
 
@@ -593,10 +883,10 @@ function clientJs() {
     '  if(j.scopes&&!j.scopes.kv)logLine("warn",t("scopeWarn"));',
     ' }).catch(function(e){$("#verifyBtn").disabled=false;err.textContent=String(e);err.classList.remove("hide")})});',
     'var STEPS=["verify","source","subdomain","kv","upload","route","check"];',
-    'function install(kind){var err=$("#installErr");err.classList.add("hide");$("#result").classList.remove("show");',
+    'function install(kind,target){var err=$("#installErr");err.classList.add("hide");$("#result").classList.remove("show");',
     ' if(!$("#token").value.trim()){err.textContent=t("needToken");err.classList.remove("hide");return}',
-    ' $("#installBtn").disabled=true;$("#wizardBtn").disabled=true;$("#bar").style.width="4%";$("#log").textContent="…";',
-    ' var body=payload({kind:kind,workerName:$("#wname").value,username:$("#wuser").value,password:$("#wpass").value});',
+    ' $("#installBtn").disabled=true;var pb=$("#installPagesBtn");if(pb)pb.disabled=true;$("#wizardBtn").disabled=true;$("#bar").style.width="4%";$("#log").textContent="…";',
+    ' var body=payload({kind:kind,target:target||"worker",workerName:$("#wname").value,username:$("#wuser").value,password:$("#wpass").value});',
     ' fetch("/api/install",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).then(function(res){',
     '  if(!res.ok&&res.headers.get("content-type")&&res.headers.get("content-type").indexOf("json")>=0&&res.headers.get("content-type").indexOf("ndjson")<0){return res.json().then(function(j){throw new Error(j.error||("HTTP "+res.status))})}',
     '  var reader=res.body.getReader();var dec=new TextDecoder();var buf="";',
@@ -604,14 +894,15 @@ function clientJs() {
     '   if(ev.done){if(ev.ok===false){throw new Error(ev.msg||"failed")}showResult(ev.result);return}',
     '   logLine(ev.level||"info",(ev.step?ev.step+": ":"")+ev.msg);var i=STEPS.indexOf(ev.step);if(i>=0)$("#bar").style.width=Math.round(((i+1)/STEPS.length)*96)+"%"}',
     '  return reader.read().then(function step(r){if(r.done){if(buf)handle(buf);return}buf+=dec.decode(r.value,{stream:true});var parts=buf.split("\\n");buf=parts.pop();parts.forEach(handle);return reader.read().then(step)})',
-    ' }).then(function(){$("#installBtn").disabled=false;$("#wizardBtn").disabled=false}).catch(function(e){$("#installBtn").disabled=false;$("#wizardBtn").disabled=false;$("#bar").style.width="0";err.textContent=t("failed")+e.message;err.classList.remove("hide");logLine("error",e.message)})}',
+    ' }).then(function(){$("#installBtn").disabled=false;var pb=$("#installPagesBtn");if(pb)pb.disabled=false;$("#wizardBtn").disabled=false}).catch(function(e){$("#installBtn").disabled=false;var pb=$("#installPagesBtn");if(pb)pb.disabled=false;$("#wizardBtn").disabled=false;$("#bar").style.width="0";err.textContent=t("failed")+e.message;err.classList.remove("hide");logLine("error",e.message)})}',
     'function showResult(r){$("#bar").style.width="100%";var box=$("#result");box.classList.add("show");var pill=$("#onlinePill");pill.textContent=r.online?t("online"):t("offline");pill.className="pill "+(r.online?"ok":"warn");',
     ' if(r.kind==="wizard"){$("#resultTitle").textContent=t("wizardDone");$("#panelResult").classList.add("hide");$("#wizardResult").classList.remove("hide");$("#rWiz").textContent=r.workerUrl;$("#rWizOpen").href=r.workerUrl;}',
     ' else{$("#resultTitle").textContent=t("done");$("#panelResult").classList.remove("hide");$("#wizardResult").classList.add("hide");$("#rPanel").textContent=r.panelUrl;$("#rOpen").href=r.panelUrl;$("#rPass").textContent=r.password;var uR=$("#rUserRow");if(r.username){uR.classList.remove("hide");$("#rUser").textContent=r.username;}else{uR.classList.add("hide");}$("#rSub").textContent=r.subUrl;$("#rApp").href=r.deepLink;',
     '  var qr=$("#rQr");if(r.online){qr.src=r.workerUrl+"/qr.svg?d="+encodeURIComponent(r.subUrl)+"&size=6";qr.hidden=false}else{qr.hidden=true}}',
     ' box.scrollIntoView({behavior:"smooth"})}',
-    '$("#installBtn").addEventListener("click",function(){install("panel")});',
-    '$("#wizardBtn").addEventListener("click",function(){install("wizard")});',
+    '$("#installBtn").addEventListener("click",function(){install("panel","worker")});',
+    '$("#installPagesBtn").addEventListener("click",function(){install("panel","pages")});',
+    '$("#wizardBtn").addEventListener("click",function(){install("wizard","worker")});',
     '})();',
   ].join('');
 }
@@ -636,6 +927,9 @@ async function fetchHandler(request, env, ctx) {
   if (path === '/token' || path === '/get-token') {
     return Response.redirect(TOKEN_TEMPLATE_URL, 302);
   }
+  if (path === '/signup') return Response.redirect(CF_SIGNUP, 302);
+  if (path === '/login') return Response.redirect(CF_LOGIN, 302);
+  if (path === '/tokens') return Response.redirect(CF_TOKENS, 302);
   if (path === '/api/token-url') {
     return jsonResponse({ ok: true, url: TOKEN_TEMPLATE_URL, permissions: TOKEN_PERMISSIONS });
   }
@@ -701,11 +995,23 @@ export default {
 
 export const _testing = {
   CAT_WIZARD_VERSION,
+  inspectWorker,
+  inspectPages,
   TOKEN_TEMPLATE_URL,
   TOKEN_PERMISSIONS,
+  CF_SIGNUP,
+  CF_LOGIN,
+  CF_TOKENS,
   PANEL_SOURCES,
   WIZARD_SOURCES,
   __setFetch,
+  __setTimeouts: (t) => { TIMEOUTS = Object.assign({}, TIMEOUTS, t); },
+  __setSleep: (t) => { Object.assign(SLEEP_MS, t); },
+  COMPAT_DATE,
+  COMPAT_FLAGS,
+  PANEL_MIN_VERSION,
+  compareVersions,
+  randomPassword,
   runInstall,
   verifyToken,
   slugWorkerName,

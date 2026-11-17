@@ -1,0 +1,12 @@
+.git
+.gradle
+.scratch
+build
+app/build
+node_modules
+out
+*.apk
+*.keystore
+*.jks
+keystore.properties
+secrets.properties

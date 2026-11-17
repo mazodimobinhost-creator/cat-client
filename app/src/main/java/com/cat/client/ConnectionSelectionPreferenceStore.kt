@@ -13,15 +13,19 @@ class ConnectionSelectionPreferenceStore(context: Context) {
         return profiles.firstOrNull { it.fingerprint == fingerprint }
     }
 
-    fun saveSelectedProfile(subscriptionId: String, profile: ConnectionProfile?) {
+    fun saveSelectedProfile(subscriptionId: String, profile: ConnectionProfile?, userPick: Boolean = false) {
         prefs.edit().apply {
             if (profile == null) {
                 remove(key(subscriptionId))
             } else {
                 putString(key(subscriptionId), profile.fingerprint)
             }
+            if (userPick) putLong(KEY_LAST_PICK_AT, System.currentTimeMillis())
         }.apply()
     }
+
+    /** When the user last picked (or cleared) a list entry; newer UI exit choices override older list links. */
+    fun readLastProfilePickAt(): Long = prefs.getLong(KEY_LAST_PICK_AT, 0L)
 
     fun hasSelectedProfile(subscriptionId: String): Boolean = prefs.contains(key(subscriptionId))
 
@@ -74,6 +78,7 @@ class ConnectionSelectionPreferenceStore(context: Context) {
 
     private companion object {
         const val PREFS_NAME = "cat_client_connection_selection"
+        private const val KEY_LAST_PICK_AT = "last_profile_pick_at"
         const val KEY_PREFIX = "profile:"
         const val TYPES_KEY_PREFIX = "types:"
         const val SORT_KEY_PREFIX = "delay-sort:"
@@ -121,6 +126,12 @@ object AutomaticConnectionCandidatePolicy {
         lastSelectedProfile: ConnectionProfile?,
         excludedFingerprint: String = "",
         limit: Int = Int.MAX_VALUE,
+        /** Sticky location: keep the last working server first so a reconnect does not hop to another city/IP. */
+        sticky: Boolean = true,
+        /** beta220 route memory: routes that passed the real internet test on this network, newest first. */
+        networkGood: List<String> = emptyList(),
+        /** beta220 route memory: routes that failed the real internet test on this network in the last 6 h. */
+        networkBad: Set<String> = emptySet(),
     ): List<ConnectionProfile> {
         val failedFingerprints = records
             .filter { it.status == ConnectionDelayStatus.Failure }
@@ -129,16 +140,23 @@ object AutomaticConnectionCandidatePolicy {
             .filter { it.status == ConnectionDelayStatus.Success && it.delayMs != null }
             .associate { it.fingerprint to it.delayMs!! }
         val originalOrder = profiles.mapIndexed { index, profile -> profile.fingerprint to index }.toMap()
-        return profiles.filterNot {
+        val eligible = profiles.filterNot {
             it.fingerprint in failedFingerprints || it.fingerprint == excludedFingerprint
-        }.sortedWith(
+        }
+        // Routes that failed the real test here are left out — unless that would leave nothing to try.
+        val remembered = eligible.filterNot { it.fingerprint in networkBad }.ifEmpty { eligible }
+        return remembered.sortedWith(
             compareBy<ConnectionProfile> { profile ->
+                val goodRank = networkGood.indexOf(profile.fingerprint)
                 when {
+                    goodRank >= 0 -> -2
+                    sticky && profile.fingerprint == lastSelectedProfile?.fingerprint -> -1
                     profile.fingerprint in delayByFingerprint -> 0
                     profile.fingerprint == lastSelectedProfile?.fingerprint -> 1
                     else -> 2
                 }
-            }.thenBy { delayByFingerprint[it.fingerprint] ?: Int.MAX_VALUE }
+            }.thenBy { networkGood.indexOf(it.fingerprint).takeIf { rank -> rank >= 0 } ?: Int.MAX_VALUE }
+                .thenBy { delayByFingerprint[it.fingerprint] ?: Int.MAX_VALUE }
                 .thenBy { originalOrder[it.fingerprint] ?: Int.MAX_VALUE },
         ).take(limit.coerceAtLeast(0))
     }

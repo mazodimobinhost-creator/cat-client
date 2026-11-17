@@ -15,7 +15,7 @@ OUT_INCLUDE_DIR="${ROOT_DIR}/app/src/main/cpp/includes"
 VERSION_FILE="${OUT_JNI_DIR}/.mihomo-version"
 # Pin the compiler as well as source: dependency-only and security-patch changes
 # must never reuse an old libclash.so.
-export GOTOOLCHAIN=go1.26.8
+export GOTOOLCHAIN=go1.26.10
 PATCH_DIGEST="$(cat "${FLCLASH_PATCH}" "${MIHOMO_PATCH}" | shasum -a 256 | cut -d ' ' -f 1)"
 API_LEVEL="${ANDROID_API_LEVEL:-26}"
 CORE_BUILD_ID="${FLCLASH_COMMIT}-${MIHOMO_COMMIT}-${GOTOOLCHAIN}-${PATCH_DIGEST}"

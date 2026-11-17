@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "railway-panel/Dockerfile"
+
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 20
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

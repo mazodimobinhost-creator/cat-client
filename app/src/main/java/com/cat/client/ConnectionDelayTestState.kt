@@ -6,6 +6,8 @@ data class ConnectionDelayTestSession(
     val connectionTypes: Set<String>,
     val targetFingerprints: List<String> = emptyList(),
     val finishedFingerprints: Set<String> = emptySet(),
+    /** beta246: fingerprint → measured ms for rows that really worked in THIS run (in memory only). */
+    val delays: Map<String, Int> = emptyMap(),
     val status: String = Actions.DELAY_TEST_PREPARING,
     val completed: Int = 0,
     val total: Int = 0,

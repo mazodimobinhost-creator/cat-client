@@ -31,6 +31,25 @@ object VpnRuntimeStateStore {
     private const val KEY_ALWAYS_ON = "always_on"
     private const val KEY_LOCKDOWN = "lockdown"
     private const val KEY_STATE_SCHEMA = "state_schema"
+    private const val KEY_AUTO_RECONNECT_ON_DROP = "auto_reconnect_on_drop"
+    private const val KEY_AUTO_CONNECT_ON_BOOT = "auto_connect_on_boot_or_update"
+    private const val KEY_KILL_SWITCH_ENABLED = "kill_switch_enabled"
+    private const val KEY_LIVE_CONNECT_STEP = "live_connect_step"
+    private const val KEY_GAS_RELAY_URL = "gas_relay_url"
+    private const val KEY_GAS_USAGE_DAY = "gas_usage_day"
+    private const val KEY_GAS_USAGE_COUNT = "gas_usage_count"
+    const val GAS_DAILY_FREE_QUOTA = 20_000
+    private const val KEY_REAL_INTERNET_RESULT = "real_internet_result"
+
+    /** beta220: last real internet test (JSON of [RealInternetResult]); cleared when the VPN stops. */
+    internal fun saveRealInternetResult(context: Context, result: RealInternetResult?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+            if (result == null) remove(KEY_REAL_INTERNET_RESULT) else putString(KEY_REAL_INTERNET_RESULT, result.toJson())
+        }.apply()
+    }
+
+    internal fun readRealInternetResult(context: Context): RealInternetResult? =
+        RealInternetResult.fromJson(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_REAL_INTERNET_RESULT, null))
 
     fun save(
         context: Context,
@@ -150,5 +169,100 @@ object VpnRuntimeStateStore {
     fun readLockdown(context: Context): Boolean {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_LOCKDOWN, false)
+    }
+
+    /** Independent switch 1: Reconnect automatically if connection drops (default: false). */
+    fun isAutoReconnectOnDropEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_AUTO_RECONNECT_ON_DROP, false)
+
+    fun setAutoReconnectOnDropEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_AUTO_RECONNECT_ON_DROP, enabled)
+            .apply()
+    }
+
+    /** Independent switch 2: Connect automatically after device boot or app update (default: false). */
+    fun isAutoConnectOnBootOrUpdateEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_AUTO_CONNECT_ON_BOOT, false)
+
+    fun setAutoConnectOnBootOrUpdateEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_AUTO_CONNECT_ON_BOOT, enabled)
+            .apply()
+    }
+
+    /** Universal emergency Kill Switch across all methods and configs (default: false). */
+    fun isKillSwitchEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_KILL_SWITCH_ENABLED, false)
+
+    fun setKillSwitchEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_KILL_SWITCH_ENABLED, enabled)
+            .apply()
+    }
+
+    /** Smart Unspoofed Direct Bypass (patterniha XTLS/BBS#10): route unspoofed non-sanctioned domains direct. */
+    fun isSmartUnspoofedDirectBypassEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean("smart_unspoofed_direct_bypass", false)
+
+    fun setSmartUnspoofedDirectBypassEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("smart_unspoofed_direct_bypass", enabled)
+            .apply()
+    }
+
+    fun readLiveConnectStep(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LIVE_CONNECT_STEP, "")
+            .orEmpty()
+
+    fun saveLiveConnectStep(context: Context, stepText: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LIVE_CONNECT_STEP, stepText)
+            .apply()
+    }
+
+    fun readGasRelayUrl(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_GAS_RELAY_URL, "")
+            .orEmpty()
+
+    fun saveGasRelayUrl(context: Context, url: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_GAS_RELAY_URL, url.trim())
+            .apply()
+    }
+
+    private fun currentUtcDayKey(): Long = System.currentTimeMillis() / 86_400_000L
+
+    fun readGasDailyUsage(context: Context): Pair<Int, Int> {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val today = currentUtcDayKey()
+        val savedDay = prefs.getLong(KEY_GAS_USAGE_DAY, -1L)
+        val count = if (savedDay == today) prefs.getInt(KEY_GAS_USAGE_COUNT, 0) else 0
+        return count.coerceAtLeast(0) to GAS_DAILY_FREE_QUOTA
+    }
+
+    fun incrementGasDailyUsage(context: Context, delta: Int = 1): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val today = currentUtcDayKey()
+        val savedDay = prefs.getLong(KEY_GAS_USAGE_DAY, -1L)
+        val base = if (savedDay == today) prefs.getInt(KEY_GAS_USAGE_COUNT, 0) else 0
+        val next = (base + delta).coerceAtLeast(0)
+        prefs.edit()
+            .putLong(KEY_GAS_USAGE_DAY, today)
+            .putInt(KEY_GAS_USAGE_COUNT, next)
+            .apply()
+        return next
     }
 }

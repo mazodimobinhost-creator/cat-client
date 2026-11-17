@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="fa" dir="rtl" data-skin="zed-lavender" data-surface="glass">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Cat Client × ZedSecure — پیش‌نمایش زنده تم‌ها، پوسته‌ها و گرافیک جدید</title>
+<style>
+:root {
+  --bg: #0c0a18;
+  --bg2: #151129;
+  --card: rgba(28, 22, 52, 0.72);
+  --card-border: rgba(199, 191, 255, 0.18);
+  --text: #f5f3ff;
+  --muted: #a59ec9;
+  --accent: #c7bfff;
+  --accent2: #ff5fa2;
+  --accent3: #37e0d8;
+  --lime: #c7f24e;
+  --glow: rgba(199, 191, 255, 0.32);
+  --blur: 22px;
+  --radius: 24px;
+}
+[data-skin="zed-lavender"] { --bg:#0c0a18; --bg2:#1b1238; --accent:#c7bfff; --accent2:#ff5fa2; --accent3:#37e0d8; --glow:rgba(199,191,255,0.34); }
+[data-skin="persian-turquoise"] { --bg:#041518; --bg2:#092c33; --accent:#2dd4bf; --accent2:#38bdf8; --accent3:#a7f3d0; --glow:rgba(45,212,191,0.35); }
+[data-skin="cyberpunk-neon"] { --bg:#090414; --bg2:#1e0836; --accent:#f43f5e; --accent2:#00f5d4; --accent3:#facc15; --glow:rgba(244,63,94,0.38); }
+[data-skin="royal-gold"] { --bg:#0f0c06; --bg2:#241b0b; --accent:#fbbf24; --accent2:#f59e0b; --accent3:#fef08a; --glow:rgba(251,191,36,0.32); }
+[data-skin="amoled-pitch"] { --bg:#000000; --bg2:#070709; --card:rgba(14,14,18,0.92); --accent:#c7f24e; --accent2:#37e0d8; --accent3:#a855f7; --glow:rgba(199,242,78,0.28); }
+[data-skin="arctic-nord"] { --bg:#0b1320; --bg2:#16243b; --accent:#7dd3fc; --accent2:#818cf8; --accent3:#38bdf8; --glow:rgba(125,211,252,0.32); }
+[data-skin="crimson-ruby"] { --bg:#16060a; --bg2:#2c0b14; --accent:#fb7185; --accent2:#f43f5e; --accent3:#fda4af; --glow:rgba(251,113,133,0.34); }
+[data-skin="emerald-matrix"] { --bg:#03120b; --bg2:#072919; --accent:#34d399; --accent2:#10b981; --accent3:#a7f3d0; --glow:rgba(52,211,153,0.34); }
+[data-skin="sakura-rose"] { --bg:#170b16; --bg2:#2d142c; --accent:#f472b6; --accent2:#c084fc; --accent3:#fbcfe8; --glow:rgba(244,114,182,0.34); }
+[data-skin="sunset-coral"] { --bg:#180c08; --bg2:#30160d; --accent:#fb923c; --accent2:#f43f5e; --accent3:#fde047; --glow:rgba(251,146,60,0.34); }
+[data-skin="dracula-pro"] { --bg:#13111c; --bg2:#211d30; --accent:#bd93f9; --accent2:#ff79c6; --accent3:#8be9fd; --glow:rgba(189,147,249,0.34); }
+[data-skin="daylight-pearl"] {
+  --bg:#f4f3fb; --bg2:#e8e5f8; --card:rgba(255,255,255,0.82);
+  --card-border:rgba(86,70,214,0.18); --text:#17132b; --muted:#5c567a;
+  --accent:#5646d6; --accent2:#db2777; --accent3:#0d9488; --glow:rgba(86,70,214,0.22);
+}
+
+[data-surface="amoled"] { --bg:#000000; --bg2:#030305; --card:rgba(10,10,14,0.95); --blur:0px; }
+[data-surface="neumorph"] { --card:rgba(255,255,255,0.06); --radius:28px; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Vazirmatn", "Noto Sans Arabic", sans-serif;
+  background: radial-gradient(circle at 18% 12%, var(--glow), transparent 42%),
+              radial-gradient(circle at 82% 85%, rgba(255,95,162,0.18), transparent 45%),
+              linear-gradient(160deg, var(--bg), var(--bg2));
+  color: var(--text);
+  min-height: 100vh;
+  padding: 20px;
+  transition: background 0.35s ease, color 0.25s ease;
+}
+.top-bar {
+  max-width: 1240px;
+  margin: 0 auto 20px;
+  background: var(--card);
+  backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.28);
+}
+.top-bar h1 {
+  font-size: 20px;
+  margin-bottom: 6px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.top-bar p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  align-items: center;
+}
+.controls-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-left: 6px;
+}
+.swatch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.swatch-btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+.swatch-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--glow);
+  background: rgba(255,255,255,0.11);
+}
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.stage {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 370px 1fr;
+  gap: 22px;
+}
+@media (max-width: 920px) {
+  .stage { grid-template-columns: 1fr; }
+}
+
+/* Phone Mockup (ZedSecure App) */
+.phone {
+  background: var(--bg);
+  border: 2px solid var(--card-border);
+  border-radius: 42px;
+  padding: 18px 16px 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.45), inset 0 0 32px var(--glow);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 700px;
+  position: relative;
+  overflow: hidden;
+}
+.phone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.brand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  font-size: 12px;
+  font-weight: 700;
+}
+.status-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 10px var(--lime);
+}
+.mode-seg {
+  display: flex;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 3px;
+  font-size: 11px;
+}
+.mode-seg span {
+  padding: 5px 10px;
+  border-radius: 11px;
+  cursor: pointer;
+}
+.mode-seg span.on {
+  background: var(--accent);
+  color: #090612;
+  font-weight: 700;
+}
+
+/* ZedSecure Hero Core */
+.hero-box {
+  position: relative;
+  height: 255px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 6px 0;
+}
+.blob-wrap {
+  width: 188px;
+  height: 188px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.blob-halo {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--accent), var(--accent2), var(--accent3), var(--accent));
+  filter: blur(22px);
+  opacity: 0.58;
+  animation: spin 9s linear infinite;
+}
+.blob-svg {
+  width: 184px;
+  height: 184px;
+  position: relative;
+  z-index: 2;
+  animation: breathe 3.4s ease-in-out infinite alternate;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.45));
+}
+.blob-center {
+  position: absolute;
+  z-index: 3;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.45);
+}
+.blob-center .time {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.blob-center .sub {
+  font-size: 11px;
+  opacity: 0.9;
+  margin-top: 2px;
+}
+.floating-actions {
+  position: absolute;
+  left: 6px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 4;
+}
+.fab-mini {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.28);
+}
+.hero-state {
+  font-size: 24px;
+  font-weight: 800;
+  text-align: center;
+  margin-top: 6px;
+}
+
+/* Telemetry & Pills */
+.speed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0;
+}
+.glass-card {
+  background: var(--card);
+  backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 11px 13px;
+}
+.speed-label { font-size: 11px; color: var(--muted); }
+.speed-val { font-size: 16px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.loc-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0;
+}
+.aether-strip {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+.aether-chip {
+  flex: 1;
+  text-align: center;
+  padding: 7px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--card-border);
+}
+.aether-chip.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #090612;
+  border-color: transparent;
+}
+
+/* 5-Tab Bottom Dock */
+.bottom-dock {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 28px;
+  padding: 6px;
+  margin-top: 10px;
+}
+.dock-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 11px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dock-item.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #090612;
+}
+
+/* Panel Preview (Right Column) */
+.panel-preview {
+  background: var(--card);
+  backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 22px 54px rgba(0,0,0,0.3);
+}
+.panel-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--card-border);
+}
+.panel-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 10px;
+}
+.stat-box {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 13px;
+  position: relative;
+  overflow: hidden;
+}
+.stat-box::before {
+  content: "";
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--accent), var(--accent2));
+}
+.stat-box .k { font-size: 11.5px; color: var(--muted); }
+.stat-box .v {
+  font-size: 21px;
+  font-weight: 800;
+  margin: 4px 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stat-box .tag {
+  display: inline-block;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.07);
+  color: var(--text);
+}
+
+.idea-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.idea-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 14px;
+}
+.idea-card h3 {
+  font-size: 14px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.idea-card p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe {
+  0% { transform: scale(0.97) rotate(-2deg); }
+  100% { transform: scale(1.04) rotate(2deg); }
+}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>🎨 پیش‌نمایش زنده: نسل جدید رابط کاربری Cat Client × ZedSecure (اپ + پنل)</h1>
+  <p>روی هرکدام از ۱۲ تم، ۳ سبک پوسته (Glass / AMOLED / Neumorphic) و ۳ حالت گرافیک مرکزی کلیک کنید تا تغییر زندهٔ اپ و پنل را ببینید:</p>
+
+  <div class="controls-row" id="skinRow">
+    <span class="controls-label">🎨 انتخاب تم و پالت (۱۲ تم):</span>
+    <button class="swatch-btn active" onclick="setSkin('zed-lavender', this)"><span class="dot" style="background:linear-gradient(135deg,#c7bfff,#ff5fa2)"></span>Zed Lavender</button>
+    <button class="swatch-btn" onclick="setSkin('persian-turquoise', this)"><span class="dot" style="background:linear-gradient(135deg,#2dd4bf,#38bdf8)"></span>فیروزه‌ای ایرانی</button>
+    <button class="swatch-btn" onclick="setSkin('cyberpunk-neon', this)"><span class="dot" style="background:linear-gradient(135deg,#f43f5e,#00f5d4)"></span>Cyberpunk Neon</button>
+    <button class="swatch-btn" onclick="setSkin('royal-gold', this)"><span class="dot" style="background:linear-gradient(135deg,#fbbf24,#f59e0b)"></span>Royal Gold VIP</button>
+    <button class="swatch-btn" onclick="setSkin('amoled-pitch', this)"><span class="dot" style="background:linear-gradient(135deg,#000,#c7f24e)"></span>AMOLED Pitch Black</button>
+    <button class="swatch-btn" onclick="setSkin('arctic-nord', this)"><span class="dot" style="background:linear-gradient(135deg,#7dd3fc,#818cf8)"></span>Arctic Nord Ice</button>
+    <button class="swatch-btn" onclick="setSkin('crimson-ruby', this)"><span class="dot" style="background:linear-gradient(135deg,#fb7185,#e11d48)"></span>Crimson Ruby</button>
+    <button class="swatch-btn" onclick="setSkin('emerald-matrix', this)"><span class="dot" style="background:linear-gradient(135deg,#34d399,#059669)"></span>Emerald Matrix</button>
+    <button class="swatch-btn" onclick="setSkin('sakura-rose', this)"><span class="dot" style="background:linear-gradient(135deg,#f472b6,#c084fc)"></span>Sakura Rose</button>
+    <button class="swatch-btn" onclick="setSkin('sunset-coral', this)"><span class="dot" style="background:linear-gradient(135deg,#fb923c,#f43f5e)"></span>Sunset Coral</button>
+    <button class="swatch-btn" onclick="setSkin('dracula-pro', this)"><span class="dot" style="background:linear-gradient(135deg,#bd93f9,#ff79c6)"></span>Dracula Pro</button>
+    <button class="swatch-btn" onclick="setSkin('daylight-pearl', this)"><span class="dot" style="background:linear-gradient(135deg,#ffffff,#5646d6)"></span>Daylight Pearl (روشن)</button>
+  </div>
+
+  <div class="controls-row">
+    <span class="controls-label">✨ سبک پوسته (Surface):</span>
+    <button class="swatch-btn active" onclick="setSurface('glass', this)">🧊 شیشه‌ای مات (iOS/Zed Frosted Glass)</button>
+    <button class="swatch-btn" onclick="setSurface('amoled', this)">🌑 مشکی مطلق (OLED Battery Saver)</button>
+    <button class="swatch-btn" onclick="setSurface('neumorph', this)">💠 برجسته نرم (Soft Depth 3D)</button>
+    <span class="controls-label" style="margin-right:12px;">🌀 گرافیک مرکزی اپ:</span>
+    <button class="swatch-btn active" onclick="setHeroMode('blob', this)">🫧 ZedSecure Liquid Blob</button>
+    <button class="swatch-btn" onclick="setHeroMode('globe', this)">🌍 رادار نقشه جهان زنده</button>
+    <button class="swatch-btn" onclick="setHeroMode('shield', this)">🛡️ سپر کوانتومی Aether</button>
+  </div>
+</div>
+
+<div class="stage">
+  <!-- App Preview -->
+  <div class="phone">
+    <div>
+      <div class="phone-header">
+        <div class="brand-pill">
+          <span class="status-dot"></span>
+          <span>Cat Client · متصل</span>
+        </div>
+        <div class="mode-seg">
+          <span class="on">VPN</span>
+          <span>Proxy</span>
+        </div>
+      </div>
+
+      <div class="hero-box">
+        <div class="blob-wrap" id="heroVisual">
+          <div class="blob-halo"></div>
+          <svg class="blob-svg" viewBox="0 0 200 200" id="heroSvg">
+            <defs>
+              <linearGradient id="zedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:var(--accent);stop-opacity:1" />
+                <stop offset="55%" style="stop-color:var(--accent2);stop-opacity:1" />
+                <stop offset="100%" style="stop-color:var(--accent3);stop-opacity:1" />
+              </linearGradient>
+            </defs>
+            <path id="blobPath" fill="url(#zedGrad)"
+              d="M100,14 C123,14 134,29 152,43 C170,57 186,77 186,100 C186,123 170,143 152,157 C134,171 123,186 100,186 C77,186 66,171 48,157 C30,143 14,123 14,100 C14,77 30,57 48,43 C66,29 77,14 100,14 Z" />
+          </svg>
+          <div class="blob-center">
+            <div class="time" id="heroCenterMain">02:41:18</div>
+            <div class="sub" id="heroCenterSub">⚡ MASQUE · 38ms</div>
+          </div>
+        </div>
+        <div class="floating-actions">
+          <div class="fab-mini" title="نقشه مسیر زنده">🗺️</div>
+          <div class="fab-mini" title="تست سرعت Zed">🚀</div>
+        </div>
+        <div class="hero-state">اتصال پایدار</div>
+      </div>
+
+      <!-- Live Speed & Ping Telemetry -->
+      <div class="speed-grid">
+        <div class="glass-card">
+          <div class="speed-label">⬇ سرعت دانلود</div>
+          <div class="speed-val" style="color:var(--accent)">48.6 MB/s</div>
+        </div>
+        <div class="glass-card">
+          <div class="speed-label">⬆ سرعت آپلود</div>
+          <div class="speed-val" style="color:var(--accent2)">19.2 MB/s</div>
+        </div>
+      </div>
+
+      <!-- ZedSecure Location Pill -->
+      <div class="glass-card loc-pill">
+        <div>
+          <div style="font-size:13px;font-weight:700;">🇩🇪 Frankfurt · Cloudflare Edge</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">IP: 104.28.194.72 · پینگ واقعی: 42ms</div>
+        </div>
+        <span style="color:var(--accent);font-weight:800;font-size:13px;">تغییر ◂</span>
+      </div>
+
+      <!-- Quick Aether Mode Strip -->
+      <div class="aether-strip">
+        <div class="aether-chip active">⚡ WARP/Gool</div>
+        <div class="aether-chip">🌀 سایفون (۲۹ کشور)</div>
+        <div class="aether-chip">🧅 تور / dnstt</div>
+      </div>
+    </div>
+
+    <!-- 5-Tab Bottom Dock -->
+    <div class="bottom-dock">
+      <div class="dock-item active">🏠 <span>خانه</span></div>
+      <div class="dock-item">📡</div>
+      <div class="dock-item">🛡️</div>
+      <div class="dock-item">☁️</div>
+      <div class="dock-item">⚙️</div>
+    </div>
+  </div>
+
+  <!-- Panel & ZedSecure Recommendations -->
+  <div class="panel-preview">
+    <div class="panel-top">
+      <div>
+        <h2 style="font-size:17px;">☁️ پیش‌نمایش پنل ورکر کلودفلر (Cat Panel v6.69+)</h2>
+        <p style="font-size:12px;color:var(--muted);margin-top:3px;">هماهنگ با پالت‌های ZedSecure · پشتیبانی از حالت روز/شب، AMOLED و نوار ناوبری موبایل</p>
+      </div>
+      <span class="swatch-btn active">🟢 KV Connected · 0 Errors</span>
+    </div>
+
+    <div class="panel-stats">
+      <div class="stat-box">
+        <div class="k">وضعیت تانل و فایروال</div>
+        <div class="v">MCI + MTN</div>
+        <span class="tag">F&F + IPv6 Ready</span>
+      </div>
+      <div class="stat-box">
+        <div class="k">آی‌پی‌های تمیز و رله‌ها</div>
+        <div class="v">24 Active</div>
+        <span class="tag">پینگ میانگین: 44ms</span>
+      </div>
+      <div class="stat-box">
+        <div class="k">موتور ضدسانسور Aether</div>
+        <div class="v">WARP → Psiphon</div>
+        <span class="tag">۲۹ کشور آماده</span>
+      </div>
+      <div class="stat-box">
+        <div class="k">پروفایل آیفون / iOS</div>
+        <div class="v">CoreForge</div>
+        <span class="tag">PAC + DoH Ready</span>
+      </div>
+    </div>
+
+    <h3 style="font-size:15px;margin-top:4px;">💡 پیشنهادهای الهام‌گرفته‌شده از ZedSecure برای ارتقای اپ و پنل:</h3>
+    <div class="idea-grid">
+      <div class="idea-card">
+        <h3>۱. گسترش پالت‌های رنگی به ۱۶ تم + حالت AMOLED</h3>
+        <p>افزودن تم‌های پرطرفدار <b>فیروزه‌ای ایرانی (Persian Turquoise)</b>، <b>Cyberpunk Neon</b>، <b>Royal Gold VIP</b>، <b>AMOLED Pitch-Black (مشکی مطلق برای مصرف باتری کمتر)</b>، <b>Arctic Nord</b>، <b>Crimson Ruby</b>، <b>Dracula Pro</b> و <b>Emerald Matrix</b> هم در اپ و هم در پنل.</p>
+      </div>
+      <div class="idea-card">
+        <h3>۲. سوییچ ۱-کلیکی بین ۳ گرافیک مرکزی در صفحه خانه</h3>
+        <p>امکان انتخاب یا جابه‌جایی مستقیم روی صفحهٔ خانه بین: <b>(الف) حباب موجی ZedSecure (Liquid Morphing Blob)</b>، <b>(ب) رادار زندهٔ نقشهٔ جهان با خط سیر بسته‌ها</b> و <b>(ج) سپر نئونی کوانتومی Aether</b>.</p>
+      </div>
+      <div class="idea-card">
+        <h3>۳. نوار وضعیت زنده و مینی‌گراف سرعت (Sparkline)</h3>
+        <p>نمایش گراف موجی زندهٔ سرعت دانلود/آپلود و پینگ لحظه‌ای در کارت‌های شیشه‌ای صفحهٔ خانه (مشابه داشبورد ZedSecure) به‌همراه نشانگر نوع فایروال و کشور خروجی با پرچم بزرگ.</p>
+      </div>
+      <div class="idea-card">
+        <h3>۴. بازطراحی موبایل‌محور پنل وب (داک پایین + ۱۲ پوسته)</h3>
+        <p>همگام‌سازی کامل پوسته‌های پنل وب با تم‌های اپ (ازجمله پوستهٔ روشن/روز، AMOLED و شیشه‌ای)، افزودن منوی ثابت پایین در موبایل برای دسترسی سریع و خلاصه‌سازی تنظیمات پیشرفته در آکاردئون‌های تمیز.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function setSkin(skin, btn) {
+  document.documentElement.setAttribute('data-skin', skin);
+  document.querySelectorAll('#skinRow .swatch-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function setSurface(surface, btn) {
+  document.documentElement.setAttribute('data-surface', surface);
+  btn.parentElement.querySelectorAll('.swatch-btn').forEach(b => {
+    if (b.getAttribute('onclick')?.includes('setSurface')) b.classList.remove('active');
+  });
+  btn.classList.add('active');
+}
+function setHeroMode(mode, btn) {
+  btn.parentElement.querySelectorAll('.swatch-btn').forEach(b => {
+    if (b.getAttribute('onclick')?.includes('setHeroMode')) b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  const path = document.getElementById('blobPath');
+  const main = document.getElementById('heroCenterMain');
+  const sub = document.getElementById('heroCenterSub');
+  if (mode === 'blob') {
+    path.setAttribute('d', 'M100,14 C123,14 134,29 152,43 C170,57 186,77 186,100 C186,123 170,143 152,157 C134,171 123,186 100,186 C77,186 66,171 48,157 C30,143 14,123 14,100 C14,77 30,57 48,43 C66,29 77,14 100,14 Z');
+    main.textContent = '02:41:18';
+    sub.textContent = '⚡ MASQUE · 38ms';
+  } else if (mode === 'globe') {
+    path.setAttribute('d', 'M100,18 A82,82 0 1,1 99.9,18 Z');
+    main.textContent = '🇮🇷 ➔ 🇩🇪';
+    sub.textContent = '🌍 104.28.194.72 · 42ms';
+  } else {
+    path.setAttribute('d', 'M100,12 L172,44 L172,108 C172,150 140,178 100,190 C60,178 28,150 28,108 L28,44 Z');
+    main.textContent = '🛡️ AETHER';
+    sub.textContent = 'WARP + Psiphon Active';
+  }
+}
+</script>
+</body>
+</html>

@@ -19,7 +19,7 @@ import kotlin.math.sin
 
 /**
  * GlobeDrawable — a stylised flat globe rendered on a Canvas.
- * Draws a dark/light purple globe with grid lines, a marker for Iran
+ * Draws a navy/sky-blue globe with grid lines, a marker for Iran
  * and a marker for the currently connected country, joined by an animated
  * arc + travelling dot (like an airplane / packet flying from IR -> dest).
  */
@@ -36,7 +36,7 @@ class GlobeDrawable : Drawable(), Animatable {
     private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3.5f
-        color = 0xFFA855F7.toInt()
+        color = 0xFF38BDF8.toInt()
         strokeCap = Paint.Cap.ROUND
     }
     private val iranMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -47,7 +47,7 @@ class GlobeDrawable : Drawable(), Animatable {
     }
     private val packetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFF5F3FF.toInt()
-        setShadowLayer(12f, 0f, 0f, 0xFFA855F7.toInt())
+        setShadowLayer(12f, 0f, 0f, 0xFF38BDF8.toInt())
     }
 
     private var destLat = 50.0   // Germany by default
@@ -76,7 +76,7 @@ class GlobeDrawable : Drawable(), Animatable {
         // Sphere gradient fill
         spherePaint.shader = LinearGradient(
             cx - r, cy - r, cx + r, cy + r,
-            intArrayOf(0xFF2E1065.toInt(), 0xFF7C3AED.toInt(), 0xFFA855F7.toInt()),
+            intArrayOf(0xFF2E1065.toInt(), 0xFF0284C7.toInt(), 0xFF38BDF8.toInt()),
             floatArrayOf(0f, 0.6f, 1f),
             Shader.TileMode.CLAMP,
         )

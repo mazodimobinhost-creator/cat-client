@@ -1,0 +1,1022 @@
+/**
+ * Cat Wizard — one-click installer for Cat Panel (Cloudflare Worker).
+ * ---------------------------------------------------------------------
+ * Deploy THIS file once on your own Cloudflare account (the app does it for
+ * you from the Cloud tab, or paste it in Workers & Pages → Create Worker).
+ * Share the URL. Every visitor:
+ *   1. taps "Get Cloudflare token" → the Cloudflare dashboard opens with the
+ *      exact permissions pre-selected (Continue to summary → Create → Copy)
+ *   2. pastes the token here
+ *   3. taps Install → the wizard creates (on THEIR account): the workers.dev
+ *      subdomain, a KV namespace, the Cat Panel worker with UUID / password
+ *      bindings, enables the route and hands back panel URL + password + sub.
+ *
+ * The token is only used in-flight for that request and never stored (verified
+ * by wizard.test.mjs: it appears in no log event, KV write or result).
+ * The panel password is generated here (or supplied by the visitor), bound as a
+ * secret_text and shown ONCE in the final result; it is never derived from the UUID.
+ *
+ * Env (all optional):
+ *  PANEL_SOURCE_URL   Override where the Cat Panel worker source is fetched from.
+ *  WIZARD_SOURCE_URL  Override for the "private wizard" self-copy source.
+ *  WIZARD_PASSWORD    Invite code visitors must enter before installing.
+ *  WIZARD_TITLE       Header title (default "Cat Wizard").
+ *  DEFAULT_WORKER     Default worker name suggested to visitors (default "catpanel").
+ */
+
+const CAT_WIZARD_VERSION = '1.3.2';
+const REPO = 'mazodimobinhost-creator/cat-client';
+const REPO_URL = 'https://github.com/' + REPO;
+const BRANCH = 'arena/c5b36768-cat-client';
+const CF_API = 'https://api.cloudflare.com/client/v4';
+/* Runtime compatibility for EVERY deploy path (Wizard, in-app deploy, wrangler.jsonc).
+ * scripts/panels/compat-consistency.test.mjs fails when any of them drifts.
+ * nodejs_compat is intentionally absent: the Worker source uses no Node API
+ * (no Buffer / process / node: import), so the flag is not needed. */
+const COMPAT_DATE = '2026-09-01';
+const COMPAT_FLAGS = [];
+
+/* Oldest Panel / Wizard source this Wizard will deploy. A mirror or
+ * `releases/latest` that still serves an older artifact is rejected instead of
+ * being installed silently. Keep it equal to CAT_PANEL_VERSION at release time
+ * (compat-consistency.test.mjs enforces <=). */
+const PANEL_MIN_VERSION = '6.69.22';
+
+/* Network timeouts. A hung Cloudflare/GitHub/health request must become a
+ * clear failure (fail-closed), never an endless install. */
+let TIMEOUTS = { cf: 20000, source: 25000, health: 8000 };
+
+/* Deploy the normal minified module, matching established Worker panels such
+ * as BPB. The previous RC4/control-flow-obfuscated artifact was much larger and
+ * passed Node mocks but crashed at Cloudflare runtime with Error 1101. */
+const SNAPSHOT_PATH = 'dist-panel/catpanel.min.js';
+const RAW_SNAPSHOT = 'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/' + SNAPSHOT_PATH;
+const PANEL_SOURCES = [
+  // Branch snapshot first: a pre-release must never resolve `releases/latest`
+  // to the older beta116 obfuscated artifact.
+  RAW_SNAPSHOT,
+  'https://ghproxy.net/' + RAW_SNAPSHOT,
+  REPO_URL + '/releases/latest/download/catclient.worker.js',
+  'https://ghproxy.net/' + REPO_URL + '/releases/latest/download/catclient.worker.js',
+  'https://raw.githubusercontent.com/' + REPO + '/main/' + SNAPSHOT_PATH,
+];
+const WIZARD_SOURCES = [
+  REPO_URL + '/releases/latest/download/catclient.wizard.js',
+  'https://raw.githubusercontent.com/' + REPO + '/' + BRANCH + '/app/src/main/assets/panels/catclient.wizard.js',
+  'https://raw.githubusercontent.com/' + REPO + '/main/app/src/main/assets/panels/catclient.wizard.js',
+];
+
+/* Cloudflare "API token template URL" — opens the dashboard with the
+ * permissions pre-selected. https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/ */
+const TOKEN_PERMISSIONS = [
+  { key: 'workers_scripts', type: 'edit' },
+  { key: 'workers_kv_storage', type: 'edit' },
+  { key: 'page', type: 'edit' },
+  { key: 'account_settings', type: 'read' },
+  { key: 'user_details', type: 'read' },
+];
+const TOKEN_TEMPLATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=' +
+  encodeURIComponent(JSON.stringify(TOKEN_PERMISSIONS)) + '&accountId=*&zoneId=all&name=Cat%20Panel';
+/* Parameter-free dashboard URLs — safe while signed out. The template URL
+ * above carries query params; opened without a session, Cloudflare treats it
+ * as redirect_uri and answers «Invalid redirect_uri». Same split as the app. */
+const CF_SIGNUP = 'https://dash.cloudflare.com/sign-up';
+const CF_LOGIN = 'https://dash.cloudflare.com/login';
+const CF_TOKENS = 'https://dash.cloudflare.com/profile/api-tokens';
+
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type, authorization',
+};
+
+/* injectable fetch so tests / local previews can fake the Cloudflare API */
+let fetchImpl = (input, init) => fetch(input, init);
+function __setFetch(fn) { fetchImpl = fn || ((input, init) => fetch(input, init)); }
+
+/* Run `fn(signal)` with a hard deadline that also covers reading the body. */
+async function withTimeout(ms, label, fn) {
+  const ctl = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => { ctl.abort(); reject(new Error(label + ' timed out after ' + ms + ' ms')); }, ms);
+  });
+  try { return await Promise.race([fn(ctl.signal), deadline]); }
+  finally { clearTimeout(timer); }
+}
+
+function parseVersion(v) {
+  const m = /^[0-9]+(?:\.[0-9]+)*$/.exec(String(v || '').trim());
+  return m ? m[0].split('.').map(Number) : null;
+}
+/* -1 / 0 / 1, or null when either side is not a plain dotted version. */
+function compareVersions(a, b) {
+  const x = parseVersion(a); const y = parseVersion(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+function randomPassword(len = 24) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const limit = 256 - (256 % alphabet.length);
+  let out = '';
+  while (out.length < len) {
+    const bytes = crypto.getRandomValues(new Uint8Array(len));
+    for (const b of bytes) { if (b < limit && out.length < len) out += alphabet[b % alphabet.length]; }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* small helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function jsonResponse(value, status = 200, extra = {}) {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, CORS, extra),
+  });
+}
+
+function slugWorkerName(value, fallback) {
+  const slug = String(value || '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
+  return (slug || fallback || 'edge-panel').slice(0, 54);
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
+function newUuid() {
+  if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+}
+
+function randomSuffix(len = 6) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+}
+
+const SLEEP_MS = { early: 1500, late: 3000 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ------------------------------------------------------------------ */
+/* Cloudflare API client                                               */
+/* ------------------------------------------------------------------ */
+
+async function cf(token, method, path, body, opts = {}) {
+  const headers = { authorization: 'Bearer ' + token };
+  let payload;
+  if (body instanceof FormData) {
+    payload = body;
+  } else if (body !== undefined) {
+    headers['content-type'] = 'application/json';
+    payload = JSON.stringify(body);
+  }
+  const { res, text } = await withTimeout(TIMEOUTS.cf, 'Cloudflare API ' + method + ' ' + path.split('?')[0], async (signal) => {
+    const r = await fetchImpl(CF_API + path, { method, headers, body: payload, signal });
+    return { res: r, text: await r.text() };
+  });
+  let json;
+  try { json = JSON.parse(text); } catch (e) { json = { success: res.ok, errors: [{ message: text.slice(0, 300) }] }; }
+  if (opts.raw) return { status: res.status, json };
+  return { status: res.status, json, ok: res.ok && json && json.success !== false };
+}
+
+function cfError(result, fallback) {
+  const errors = result && result.json && Array.isArray(result.json.errors) ? result.json.errors : [];
+  const msg = errors.map((e) => (e && (e.message || e.code)) || '').filter(Boolean).join('; ');
+  return msg || fallback || ('HTTP ' + (result && result.status));
+}
+
+async function verifyToken(token) {
+  const verify = await cf(token, 'GET', '/user/tokens/verify');
+  if (!verify.ok) return { ok: false, error: 'invalid-token', detail: cfError(verify, 'token rejected') };
+  const accounts = await cf(token, 'GET', '/accounts?per_page=50');
+  const list = (accounts.ok && Array.isArray(accounts.json.result)) ? accounts.json.result : [];
+  if (!list.length) return { ok: false, error: 'no-account', detail: cfError(accounts, 'token cannot list accounts (needs Account Settings: Read)') };
+  return {
+    ok: true,
+    status: verify.json.result && verify.json.result.status,
+    accounts: list.map((a) => ({ id: a.id, name: a.name || '' })),
+  };
+}
+
+async function detectScopes(token, accountId) {
+  const workers = await cf(token, 'GET', '/accounts/' + accountId + '/workers/subdomain', undefined, { raw: true });
+  const kv = await cf(token, 'GET', '/accounts/' + accountId + '/storage/kv/namespaces?per_page=1', undefined, { raw: true });
+  return {
+    workers: workers.status !== 401 && workers.status !== 403,
+    kv: kv.status !== 401 && kv.status !== 403,
+    subdomain: (workers.json && workers.json.result && workers.json.result.subdomain) || '',
+  };
+}
+
+async function ensureSubdomain(token, accountId, log) {
+  const current = await cf(token, 'GET', '/accounts/' + accountId + '/workers/subdomain');
+  const existing = current.ok && current.json.result && current.json.result.subdomain;
+  if (existing) return existing;
+  const candidate = 'edge-' + randomSuffix(8);
+  log('subdomain', 'info', 'no workers.dev subdomain yet — creating ' + candidate);
+  const created = await cf(token, 'PUT', '/accounts/' + accountId + '/workers/subdomain', { subdomain: candidate });
+  const made = created.ok && created.json.result && created.json.result.subdomain;
+  if (!made) throw new Error('workers.dev subdomain: ' + cfError(created, 'could not create'));
+  return made;
+}
+
+async function ensureKv(token, accountId, title) {
+  const base = '/accounts/' + accountId + '/storage/kv/namespaces';
+  const listing = await cf(token, 'GET', base + '?per_page=100');
+  if (listing.ok && Array.isArray(listing.json.result)) {
+    const hit = listing.json.result.find((ns) => ns && ns.title === title);
+    if (hit) return { id: hit.id, created: false };
+  }
+  const created = await cf(token, 'POST', base, { title });
+  const id = created.ok && created.json.result && created.json.result.id;
+  if (!id) throw new Error('KV: ' + cfError(created, 'could not create namespace'));
+  return { id, created: true };
+}
+
+/**
+ * Prove that a worker name is unused before uploading. A PUT with a partial
+ * bindings array can detach secrets, D1 and custom bindings, so updates are
+ * deliberately blocked until every Cloudflare binding type is preserved and
+ * tested. Only an actual 404 means fresh; every ambiguous response fails closed.
+ */
+async function inspectWorker(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/workers/scripts/' + name + '/settings', undefined, { raw: true });
+  } catch (e) {
+    throw new Error('worker existence check inconclusive: ' + (e && e.message ? e.message : e));
+  }
+  if (res.status === 404) return { status: 'missing', bindings: [] };
+  if (res.status !== 200) {
+    throw new Error('worker existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  const result = res.json && res.json.result;
+  if (!result || !Array.isArray(result.bindings)) {
+    throw new Error('worker existence check inconclusive: malformed settings response · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', bindings: result.bindings };
+}
+
+async function uploadWorker(token, accountId, name, script, bindings) {
+  const metadata = {
+    main_module: 'worker.js',
+    bindings,
+    compatibility_date: COMPAT_DATE,
+    compatibility_flags: COMPAT_FLAGS.slice(),
+  };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }), 'metadata.json');
+  form.append('worker.js', new Blob([script], { type: 'application/javascript+module' }), 'worker.js');
+  const res = await cf(token, 'PUT', '/accounts/' + accountId + '/workers/scripts/' + name, form);
+  if (!res.ok) throw new Error('upload: ' + cfError(res, 'worker upload failed'));
+  return res.json.result || {};
+}
+
+async function enableRoute(token, accountId, name, enabled = true) {
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/workers/scripts/' + name + '/subdomain', { enabled: enabled === true, previews_enabled: false });
+  return res.ok;
+}
+
+async function inspectPages(token, accountId, name) {
+  let res;
+  try {
+    res = await cf(token, 'GET', '/accounts/' + accountId + '/pages/projects/' + name, undefined, { raw: true });
+  } catch (e) {
+    throw new Error('pages existence check inconclusive: ' + (e && e.message ? e.message : e));
+  }
+  if (res.status === 404) return { status: 'missing' };
+  if (res.status !== 200) {
+    throw new Error('pages existence check inconclusive: HTTP ' + res.status + ' · upload blocked to preserve bindings');
+  }
+  return { status: 'existing', project: (res.json && res.json.result) || {} };
+}
+
+function pagesEnvFromBindings(bindings) {
+  const env_vars = {};
+  for (const b of bindings) {
+    if (!b || b.type === 'kv_namespace') continue;
+    env_vars[b.name] = { type: b.type === 'secret_text' ? 'secret_text' : 'plain_text', value: String(b.text || '') };
+  }
+  env_vars.CAT_DEPLOY_TARGET = { type: 'plain_text', value: 'pages' };
+  return env_vars;
+}
+
+async function createPagesProject(token, accountId, name, envVars, kvNamespaceId) {
+  const created = await cf(token, 'POST', '/accounts/' + accountId + '/pages/projects', {
+    name,
+    production_branch: 'main',
+  });
+  if (!created.ok) throw new Error('pages project: ' + cfError(created, 'could not create Pages project'));
+  const production = {
+    compatibility_date: COMPAT_DATE,
+    compatibility_flags: COMPAT_FLAGS.slice(),
+    env_vars: envVars,
+  };
+  if (kvNamespaceId) production.kv_namespaces = { CAT_KV: { namespace_id: kvNamespaceId } };
+  const patched = await cf(token, 'PATCH', '/accounts/' + accountId + '/pages/projects/' + name, {
+    deployment_configs: { production },
+  });
+  if (!patched.ok) throw new Error('pages env: ' + cfError(patched, 'could not set Pages env / KV'));
+  return created.json.result || {};
+}
+
+async function uploadPages(token, accountId, name, script) {
+  const form = new FormData();
+  form.append('manifest', '{}');
+  form.append('_worker.js', new Blob([script], { type: 'application/javascript+module' }), '_worker.js');
+  const res = await cf(token, 'POST', '/accounts/' + accountId + '/pages/projects/' + name + '/deployments', form);
+  if (!res.ok) throw new Error('pages upload: ' + cfError(res, 'Pages deploy failed'));
+  return res.json.result || {};
+}
+
+/* ------------------------------------------------------------------ */
+/* sources                                                             */
+/* ------------------------------------------------------------------ */
+
+const sourceCache = new Map();
+
+async function fetchSource(kind, env) {
+  const override = kind === 'wizard' ? env.WIZARD_SOURCE_URL : env.PANEL_SOURCE_URL;
+  const marker = kind === 'wizard' ? 'CAT_WIZARD_VERSION' : 'CAT_PANEL_VERSION';
+  const urls = [].concat(override ? [String(override)] : [], kind === 'wizard' ? WIZARD_SOURCES : PANEL_SOURCES);
+  const cached = sourceCache.get(kind);
+  if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached;
+  let lastError = '';
+  for (const url of urls) {
+    try {
+      const fetched = await withTimeout(TIMEOUTS.source, 'source download', async (signal) => {
+        const r = await fetchImpl(url, { headers: { 'user-agent': 'cat-wizard/' + CAT_WIZARD_VERSION }, redirect: 'follow', signal });
+        return { res: r, text: r.ok ? await r.text() : '' };
+      });
+      const res = fetched.res;
+      if (!res.ok) { lastError = url + ' → HTTP ' + res.status; continue; }
+      const text = fetched.text;
+      if (!text.includes(marker) || text.length < 2000) { lastError = url + ' → not a Cat ' + kind + ' source'; continue; }
+      const versionMatch = text.match(new RegExp(marker + "\\s*=\\s*'([^']+)'"));
+      const found = versionMatch ? versionMatch[1] : '';
+      if (kind === 'panel' && found === '6.69.12') { lastError = url + ' → blocked 1101 version v' + found; continue; }
+      const floor = kind === 'wizard' ? CAT_WIZARD_VERSION : PANEL_MIN_VERSION;
+      const cmp = compareVersions(found, floor);
+      if (cmp === null) { lastError = url + ' → source version unknown or malformed'; continue; }
+      if (cmp < 0) { lastError = url + ' → stale source v' + found + ' (< v' + floor + ')'; continue; }
+      const entry = { text, url, version: found, at: Date.now() };
+      sourceCache.set(kind, entry);
+      return entry;
+    } catch (e) {
+      lastError = url + ' → ' + (e && e.message ? e.message : e);
+    }
+  }
+  throw new Error('could not download the ' + kind + ' source (' + lastError + ')');
+}
+
+/* ------------------------------------------------------------------ */
+/* the install flow (async generator → streamed as NDJSON)             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Stealth: ask the fresh panel to move its UI to a random hidden path.
+ * Root then answers a bare 404 so crawlers scanning workers.dev find nothing.
+ * Keeps an existing panelPath if the panel already has one.
+ */
+async function applyStealth(base, username, password) {
+  const login = await fetchImpl(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: username || '', password: password }) });
+  if (!login.ok) return '';
+  const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) return '';
+  const get = await fetchImpl(base + '/api/settings', { headers: { cookie: cookie } });
+  if (!get.ok) return '';
+  const cur = await get.json().catch(() => ({}));
+  const existing = cur && cur.settings && String(cur.settings.panelPath || '');
+  if (/^[a-z0-9][a-z0-9-]{2,22}[a-z0-9]$/.test(existing)) return existing;
+  const p = randomSuffix(10);
+  const put = await fetchImpl(base + '/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: cookie }, body: JSON.stringify({ panelPath: p }) });
+  return put.ok ? p : '';
+}
+
+async function* runInstall(input, env) {
+  const events = [];
+  const log = (step, level, msg, data) => { events.push({ step, level, msg, data }); };
+  const flush = function* () { while (events.length) yield events.shift(); };
+
+  const token = String(input.token || '').trim();
+  const kind = input.kind === 'wizard' ? 'wizard' : 'panel';
+  const target = (kind === 'panel' && String(input.target || '').toLowerCase() === 'pages') ? 'pages' : 'worker';
+  const workerName = slugWorkerName(input.workerName, kind === 'wizard' ? 'cat-wizard' : String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))));
+  const customPassword = String(input.password || '').trim();
+  const customUser = String(input.username || '').trim();
+  if (!token) throw new Error('token missing');
+
+  log('verify', 'info', 'verifying token'); yield* flush();
+  const verified = await verifyToken(token);
+  if (!verified.ok) throw new Error(verified.detail || verified.error);
+  const account = (input.accountId && verified.accounts.find((a) => a.id === input.accountId)) || verified.accounts[0];
+  log('verify', 'ok', 'token OK · account: ' + (account.name || account.id), { account }); yield* flush();
+
+  log('existing', 'info', target === 'pages' ? 'proving Pages project is unused before upload' : 'proving worker name is unused before upload'); yield* flush();
+  if (target === 'pages') {
+    const inspected = await inspectPages(token, account.id, workerName);
+    if (inspected.status !== 'missing') {
+      throw new Error('Pages project already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+    }
+    log('existing', 'ok', 'Pages project name is unused'); yield* flush();
+  } else {
+    const inspected = await inspectWorker(token, account.id, workerName);
+    if (inspected.status !== 'missing') {
+      throw new Error('worker already exists; update blocked because preserving every Secret, D1 and custom binding is not yet guaranteed');
+    }
+    log('existing', 'ok', 'worker name is unused (settings returned 404)'); yield* flush();
+  }
+
+  log('source', 'info', 'downloading latest Cat ' + (kind === 'wizard' ? 'Wizard' : 'Panel') + ' source'); yield* flush();
+  const source = await fetchSource(kind, env);
+  log('source', 'ok', 'source v' + source.version + ' (' + Math.round(source.text.length / 1024) + ' KB)', { version: source.version, url: source.url }); yield* flush();
+
+  let workerUrl = '';
+  if (target === 'pages') {
+    workerUrl = 'https://' + workerName + '.pages.dev';
+    log('subdomain', 'ok', workerName + '.pages.dev', { pages: true }); yield* flush();
+  } else {
+    log('subdomain', 'info', 'checking workers.dev subdomain'); yield* flush();
+    const subdomain = await ensureSubdomain(token, account.id, log);
+    workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
+    log('subdomain', 'ok', subdomain + '.workers.dev', { subdomain }); yield* flush();
+  }
+
+  const bindings = [];
+  let uuid = '';
+  let panelPassword = '';
+  let kvBound = false;
+  if (kind === 'panel') {
+    uuid = isUuid(input.uuid) ? String(input.uuid).toLowerCase() : newUuid();
+    bindings.push({ type: 'plain_text', name: 'UUID', text: uuid });
+    // beta240: tunnels on — a Worker without it serves the panel but refuses every VLESS/Trojan connection (403).
+    bindings.push({ type: 'plain_text', name: 'DATA_PLANE_ENABLED', text: 'true' });
+    // Panel login is its own secret: the owner's password, or a random one generated
+    // here. It is never derived from the UUID and never written to a log line.
+    panelPassword = customPassword || randomPassword(24);
+    bindings.push({ type: 'secret_text', name: 'PANEL_PASSWORD', text: panelPassword });
+    bindings.push({ type: 'plain_text', name: 'OPEN_PANEL', text: 'false' });
+    bindings.push({ type: 'plain_text', name: 'OPEN_SUB', text: 'false' });
+    bindings.push({ type: 'secret_text', name: 'CF_API_TOKEN', text: token });
+    bindings.push({ type: 'plain_text', name: 'CF_ACCOUNT_ID', text: String(account.id) });
+    bindings.push({ type: 'plain_text', name: 'CF_WORKER_NAME', text: workerName });
+    if (customUser) bindings.push({ type: 'plain_text', name: 'PANEL_USER', text: customUser });
+    log('kv', 'info', 'creating KV storage (users, clean IPs, ports)'); yield* flush();
+    try {
+      const kv = await ensureKv(token, account.id, workerName + '-catpanel');
+      bindings.push({ type: 'kv_namespace', name: 'CAT_KV', namespace_id: kv.id });
+      kvBound = true;
+      log('kv', 'ok', kv.created ? 'KV namespace created' : 'KV namespace reused', { id: kv.id });
+    } catch (e) {
+      log('kv', 'warn', 'KV skipped (' + (e && e.message ? e.message : e) + ') — panel still works, settings live in the link');
+    }
+    yield* flush();
+  } else if (env.WIZARD_PASSWORD) {
+    bindings.push({ type: 'secret_text', name: 'WIZARD_PASSWORD', text: String(env.WIZARD_PASSWORD) });
+  }
+
+  // Race reduction, NOT an atomic guard: Cloudflare's script PUT is an upsert and no
+  // conditional-create request is used, so a Worker created by someone else after
+  // this check can still be overwritten. The window shrinks from "whole install"
+  // to the time between this GET and the PUT.
+  if (target === 'pages') {
+    log('existing', 'info', 'confirming Pages project is still unused right before upload'); yield* flush();
+    const recheck = await inspectPages(token, account.id, workerName);
+    if (recheck.status !== 'missing') {
+      throw new Error('Pages project appeared while the install was running; upload cancelled to preserve it');
+    }
+    const envVars = pagesEnvFromBindings(bindings);
+    const kvBind = bindings.find((b) => b && b.type === 'kv_namespace');
+    log('upload', 'info', 'creating Pages project "' + workerName + '"'); yield* flush();
+    await createPagesProject(token, account.id, workerName, envVars, kvBind && kvBind.namespace_id);
+    log('upload', 'info', 'uploading _worker.js to Pages'); yield* flush();
+    await uploadPages(token, account.id, workerName, source.text);
+    log('upload', 'ok', 'Pages deployed'); yield* flush();
+    log('route', 'ok', 'Pages production URL ' + workerUrl); yield* flush();
+  } else {
+    log('existing', 'info', 'confirming worker name is still unused right before upload'); yield* flush();
+    const recheck = await inspectWorker(token, account.id, workerName);
+    if (recheck.status !== 'missing') {
+      throw new Error('worker appeared while the install was running; upload cancelled to preserve its bindings');
+    }
+    log('upload', 'info', 'uploading worker "' + workerName + '"'); yield* flush();
+    await uploadWorker(token, account.id, workerName, source.text, bindings);
+    log('upload', 'ok', 'worker deployed'); yield* flush();
+
+    log('route', 'info', 'enabling workers.dev route'); yield* flush();
+    const routed = await enableRoute(token, account.id, workerName);
+    log('route', routed ? 'ok' : 'warn', routed ? 'route enabled' : 'could not toggle the route (enable it in the dashboard if the URL 404s)'); yield* flush();
+  }
+
+  log('check', 'info', 'waiting for ' + workerUrl); yield* flush();
+  let online = false;
+  let version = '';
+  let consecutiveHealthy = 0;
+  let lastHealth = 'no response';
+  const expectedVersion = String(source.version || '');
+  for (let attempt = 1; attempt <= 8 && consecutiveHealthy < 3; attempt++) {
+    try {
+      const separator = workerUrl.includes('?') ? '&' : '?';
+      const probe = await withTimeout(TIMEOUTS.health, '/health probe', async (signal) => {
+        const r = await fetchImpl(workerUrl + '/health' + separator + '_verify=' + Date.now() + '-' + attempt, {
+          headers: { 'cache-control': 'no-cache, no-store' },
+          cf: { cacheTtl: 0, cacheEverything: false },
+          signal,
+        });
+        return { res: r, body: await r.json().catch(() => null) };
+      });
+      const res = probe.res; const body = probe.body;
+      const cacheStatus = String(res.headers && res.headers.get && res.headers.get('cf-cache-status') || '').toUpperCase();
+      const age = Number(res.headers && res.headers.get && res.headers.get('age') || 0);
+      const cached = cacheStatus === 'HIT' || cacheStatus === 'STALE' || cacheStatus === 'REVALIDATED' || age > 0;
+      const reported = body && typeof body === 'object' ? String(body.version || '').trim() : '';
+      const healthy = res.ok && !cached && !!body && body.ok === true && !!expectedVersion && reported === expectedVersion;
+      if (healthy) { version = reported; lastHealth = 'ok'; }
+      else if (cached) lastHealth = 'cached response (' + (cacheStatus || 'age ' + age) + ')';
+      else if (!body || typeof body !== 'object') lastHealth = 'HTTP ' + res.status + ' · malformed health body';
+      else if (res.ok && body.ok === true && reported !== expectedVersion) lastHealth = 'version mismatch · expected v' + expectedVersion + ' got ' + (reported ? 'v' + reported.slice(0, 20) : 'none');
+      else lastHealth = 'HTTP ' + res.status + (body.error ? ' · ' + String(body.error).slice(0, 80) : '');
+      consecutiveHealthy = healthy ? consecutiveHealthy + 1 : 0;
+    } catch (e) {
+      consecutiveHealthy = 0;
+      lastHealth = e && e.message ? e.message : String(e);
+    }
+    if (consecutiveHealthy < 3) await sleep(attempt < 3 ? SLEEP_MS.early : SLEEP_MS.late);
+  }
+  online = consecutiveHealthy >= 3;
+  if (!online) {
+    // Never hand out a broken URL. For this freshly created script ONLY its public
+    // route is switched off; the Worker, KV, D1, Secrets and every other binding
+    // are left untouched for diagnosis or retry.
+    if (target === 'worker') {
+      const disabled = await enableRoute(token, account.id, workerName, false).catch(() => false);
+      log('route', disabled ? 'ok' : 'warn', disabled ? 'route of the new worker disabled' : 'could not disable the new worker route — disable it in the dashboard'); yield* flush();
+    } else {
+      log('route', 'warn', 'Pages project left in place for diagnosis — delete it in the dashboard if you retry with the same name'); yield* flush();
+    }
+    log('check', 'error', 'runtime verification failed; panel was not activated (' + lastHealth + ')', { status: lastHealth }); yield* flush();
+    throw new Error('worker deployed but did not pass 3 consecutive /health checks with the expected version (' + lastHealth + '); cause not determined — check Workers Live Logs');
+  }
+  log('check', 'ok', 'online · v' + version + ' · 3/3 health checks'); yield* flush();
+
+  const password = kind === 'panel' ? panelPassword : '';
+  let stealthPath = '';
+  if (kind === 'panel' && online) {
+    log('stealth', 'info', 'moving the panel to a hidden path'); yield* flush();
+    stealthPath = await withTimeout(TIMEOUTS.health * 3, 'stealth setup', () => applyStealth(workerUrl, customUser, password)).catch(() => '');
+    log('stealth', stealthPath ? 'ok' : 'warn', stealthPath ? 'panel hidden at /' + stealthPath : 'stealth skipped — set a hidden path in Panel → Settings later'); yield* flush();
+  }
+  const panelBase = stealthPath ? workerUrl + '/' + stealthPath : workerUrl;
+  const result = kind === 'panel'
+    ? {
+      ok: true,
+      kind,
+      target,
+      workerName,
+      workerUrl,
+      stealthPath,
+      // The password is deliberately NOT placed in the URL: query strings end up in
+      // browser history and Workers Logs. The owner signs in with the password below.
+      panelUrl: panelBase + '/',
+      subUrl: workerUrl + '/sub/' + uuid,
+      subClash: workerUrl + '/sub/' + uuid + '/clash',
+      subSingbox: workerUrl + '/sub/' + uuid + '/singbox',
+      deepLink: 'catclient://add-sub?url=' + encodeURIComponent(workerUrl + '/sub/' + uuid) + '&name=' + encodeURIComponent('Cat Panel'),
+      uuid,
+      password,
+      username: customUser,
+      customPassword: !!customPassword,
+      passwordGenerated: !customPassword,
+      kvBound,
+      online,
+      panelVersion: version || source.version,
+      account: account.name || account.id,
+    }
+    : { ok: true, kind, workerName, workerUrl, online, account: account.name || account.id, wizardVersion: source.version };
+  yield { done: true, result };
+}
+
+/* ------------------------------------------------------------------ */
+/* invite code + abuse guard                                           */
+/* ------------------------------------------------------------------ */
+
+const attempts = new Map();
+function rateLimited(ip) {
+  const now = Date.now();
+  const rec = attempts.get(ip) || { count: 0, since: now };
+  if (now - rec.since > 60 * 60 * 1000) { rec.count = 0; rec.since = now; }
+  rec.count += 1;
+  attempts.set(ip, rec);
+  return rec.count > 20;
+}
+
+function inviteOk(env, supplied) {
+  const required = String(env.WIZARD_PASSWORD || '').trim();
+  return !required || required === String(supplied || '').trim();
+}
+
+/* ------------------------------------------------------------------ */
+/* UI                                                                  */
+/* ------------------------------------------------------------------ */
+
+function catLogo(size) {
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 64 64" fill="none" aria-hidden="true">' +
+    '<path d="M14 26 10 9l14 9h16l14-9-4 17c3 4 4 8 4 13 0 13-11 20-22 20S10 52 10 39c0-5 1-9 4-13Z" fill="url(#g)"/>' +
+    '<circle cx="24" cy="38" r="3.4" fill="#fff"/><circle cx="40" cy="38" r="3.4" fill="#fff"/>' +
+    '<path d="M29 46h6l-3 3.5Z" fill="#fff"/><defs><linearGradient id="g" x1="10" y1="9" x2="54" y2="59"><stop stop-color="#a855f7"/><stop offset="1" stop-color="#6d28d9"/></linearGradient></defs></svg>';
+}
+
+function css() {
+  return [
+    ':root{--bg:#06030c;--bg2:#0d0618;--card:rgba(255,255,255,.045);--card2:rgba(255,255,255,.08);--line:rgba(168,85,247,.28);',
+    '--text:#f5f3ff;--muted:#b7aed1;--accent:#a855f7;--accent2:#7c3aed;--ok:#34d399;--warn:#fbbf24;--err:#fb7185;--radius:18px}',
+    '*{box-sizing:border-box}html,body{margin:0;min-height:100%}',
+    'body{font-family:"Vazirmatn",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(1200px 600px at 80% -10%,rgba(124,58,237,.35),transparent 60%),radial-gradient(800px 500px at -10% 110%,rgba(168,85,247,.22),transparent 60%),var(--bg);color:var(--text);line-height:1.6}',
+    'body[data-lang="fa"]{direction:rtl}body[data-lang="en"]{direction:ltr}',
+    '.wrap{max-width:720px;margin:0 auto;padding:22px 16px 60px}',
+    '.top{display:flex;align-items:center;gap:12px;margin-bottom:22px}.top .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px}',
+    '.top small{display:block;font-weight:500;color:var(--muted);font-size:12px}.spacer{flex:1}',
+    '.icon-btn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:12px;padding:7px 12px;cursor:pointer;font:inherit}',
+    '.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;backdrop-filter:blur(10px)}',
+    '.card h2{margin:0 0 6px;font-size:16px;display:flex;align-items:center;gap:8px}.card h2 .n{width:26px;height:26px;border-radius:50%;display:inline-grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:13px;font-weight:800}',
+    '.muted{color:var(--muted);font-size:13px}p{margin:6px 0}',
+    '.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:14px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 10px 30px rgba(124,58,237,.35);text-decoration:none;transition:transform .12s}',
+    '.btn:hover{transform:translateY(-1px)}.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}',
+    '.btn.ghost{background:var(--card2);box-shadow:none;border:1px solid var(--line);color:var(--text)}.btn.block{width:100%}.btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}',
+    '.actions{display:grid;gap:8px;margin:12px 0 4px}.actions .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
+    '@media (max-width:560px){.actions .pair{grid-template-columns:1fr}}',
+    '.field{display:block;margin:12px 0}.field span{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}',
+    '.field input{width:100%;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--text);border-radius:12px;padding:12px 14px;font:inherit;font-size:14px;direction:ltr;text-align:left}',
+    '.field input:focus{outline:2px solid var(--accent);outline-offset:1px}',
+    '.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.grow{flex:1;min-width:180px}',
+    '.steps{display:grid;gap:8px;margin:10px 0}.step{display:flex;gap:10px;align-items:flex-start;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:10px 12px;font-size:13px}',
+    '.step b{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:50%;background:var(--card2);font-size:12px}',
+    'details{margin-top:10px}summary{cursor:pointer;color:var(--muted);font-size:13px}',
+    '.log{background:#000;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;direction:ltr;text-align:left;max-height:260px;overflow:auto;white-space:pre-wrap}',
+    '.log .ok{color:var(--ok)}.log .warn{color:var(--warn)}.log .error{color:var(--err)}.log .info{color:#c4b5fd}',
+    '.result{display:none}.result.show{display:block}.kv{display:grid;gap:10px}.kv div{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:10px 12px}',
+    '.kv label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.kv code{display:block;direction:ltr;text-align:left;word-break:break-all;font-size:13px}',
+    '.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:var(--card2)}.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}',
+    '.qr{display:grid;place-items:center;margin:12px 0}.qr img{background:#fff;border-radius:14px;padding:8px;width:200px;height:200px}',
+    '.hide{display:none!important}.err{color:var(--err);font-size:13px}',
+    '.progress{height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin:10px 0}.progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .4s}',
+    'footer{color:var(--muted);font-size:12px;text-align:center;margin-top:20px}footer a{color:var(--accent)}',
+  ].join('');
+}
+
+function i18n() {
+  return {
+    fa: {
+      sub: 'نصب پنل کلودفلر شخصی در یک دقیقه',
+      s1: 'دریافت توکن کلودفلر',
+      s1p: 'ترتیب مهم است: اول اکانت بساز یا وارد شو (دو دکمهٔ ساده)، بعد «دریافت توکن» را بزن. اگر بدون ورود مستقیم روی توکن بروی، کلادفلر خطای Invalid redirect_uri می‌دهد.',
+      s1b: 'دریافت توکن از کلودفلر (دسترسی‌ها آماده)',
+      signup: 'ساخت اکانت رایگان کلودفلر',
+      login: 'ورود به اکانت کلودفلر',
+      tokensPlain: 'صفحهٔ توکن‌ها بدون پیش‌انتخاب',
+      accountHint: 'هنوز اکانت نداری یا Invalid redirect_uri دیدی؟ اول ساخت اکانت / ورود (این دو لینک پارامتری ندارند). بعد از ورود، دکمهٔ بنفش توکن را بزن.',
+      s1h1: 'اگر حساب نداری: ساخت اکانت رایگان. اگر داری: ورود.',
+      s1h2: 'بعد از ورود، «دریافت توکن» را بزن. چیزی را تغییر نده؛ Continue to summary → Create Token.',
+      s1h3: 'توکن فقط یک بار نمایش داده می‌شود — Copy را بزن و در مرحلهٔ ۲ بچسبان.',
+      s2: 'توکن را اینجا بچسبان',
+      s2p: 'توکن فقط برای همین نصب استفاده می‌شود و هیچ‌جا ذخیره نمی‌شود. بعد از نصب می‌توانی آن را از کلودفلر حذف کنی.',
+      token: 'Cloudflare API Token',
+      invite: 'کد دعوت',
+      check: 'بررسی توکن',
+      s3: 'نصب پنل',
+      name: 'نام ورکر (اختیاری)',
+      pass: 'رمز پنل (اختیاری — اگر خالی بماند یک رمز تصادفی ساخته می‌شود)',
+      user: 'نام کاربری پنل (اختیاری — ورود با نام کاربری + رمز)',
+      adv: 'تنظیمات بیشتر',
+      install: 'نصب روی Worker · workers.dev',
+      installPages: 'نصب روی Pages · pages.dev',
+      targetHint: 'همان پنل است؛ یا روی Worker می‌نشیند یا روی Pages. *.pages.dev روی بعضی خطوط ایران فیلتر است — اگر باز نشد Worker را بزن.',
+      installWizard: 'ساخت ویزارد خصوصی خودم',
+      wizardHint: 'یک نسخهٔ خصوصی از همین ویزارد روی حساب خودت می‌سازد تا لینکش را به دیگران بدهی.',
+      log: 'گزارش نصب',
+      done: 'پنل آماده است 🎉',
+      panel: 'آدرس پنل (با رمز باز می‌شود)',
+      password: 'رمز پنل',
+      subl: 'لینک سابسکریپشن (کپی کن داخل Cat Client / v2rayNG)',
+      uuid: 'UUID',
+      open: 'باز کردن پنل',
+      copy: 'کپی',
+      copied: 'کپی شد',
+      app: 'افزودن به Cat Client',
+      apk: 'دانلود اپ',
+      keep: 'این آدرس و رمز را یک‌جا نگه دار. بعد از ورود، از تب «کانفیگ‌ها» پورت و SNI را انتخاب کن؛ آی‌پی تمیز خودکار داخل کانفیگ‌ها می‌رود. رمز فقط همین یک‌بار نمایش داده می‌شود؛ همین حالا ذخیره‌اش کن.',
+      wizardDone: 'ویزارد خصوصی آماده شد',
+      wizardUrl: 'آدرس ویزارد تو',
+      offline: 'هنوز بالا نیامده — یک دقیقه بعد آدرس را دوباره باز کن.',
+      online: 'آنلاین',
+      accountOk: 'حساب: ',
+      needToken: 'اول توکن را بچسبان',
+      failed: 'نصب ناموفق: ',
+      scopeWarn: 'توکن دسترسی Workers KV ندارد؛ پنل نصب می‌شود ولی ذخیره‌سازی تنظیمات محدود است.',
+    },
+    en: {
+      sub: 'Your own Cloudflare panel in one minute',
+      s1: 'Get a Cloudflare token',
+      s1p: 'Order matters: create an account or sign in first (the two plain buttons), then tap Get token. Opening the token page while signed out makes Cloudflare answer Invalid redirect_uri.',
+      s1b: 'Get token from Cloudflare (permissions filled)',
+      signup: 'Create a free Cloudflare account',
+      login: 'Sign in to Cloudflare',
+      tokensPlain: 'Plain tokens page (fallback)',
+      accountHint: 'No account yet, or Invalid redirect_uri? Use Create account / Sign in first (those two links have no parameters). After you are in, tap the purple token button.',
+      s1h1: 'No account: create a free one. Already have one: sign in.',
+      s1h2: 'Once signed in, tap Get token. Do not change anything; Continue to summary → Create Token.',
+      s1h3: 'The token is shown once — press Copy, then paste it in step 2.',
+      s2: 'Paste the token here',
+      s2p: 'The token is used only for this install and is never stored. You can revoke it in Cloudflare afterwards.',
+      token: 'Cloudflare API Token',
+      invite: 'Invite code',
+      check: 'Check token',
+      s3: 'Install the panel',
+      name: 'Worker name (optional)',
+      pass: 'Panel password (optional — a random one is generated if left empty)',
+      user: 'Panel username (optional — sign in with username + password)',
+      adv: 'More options',
+      install: 'Install on Worker · workers.dev',
+      installPages: 'Install on Pages · pages.dev',
+      targetHint: 'Same panel — sits on a Worker or on Pages. *.pages.dev is filtered on some Iranian lines; if it does not open, use Worker.',
+      installWizard: 'Create my own private wizard',
+      wizardHint: 'Deploys a private copy of this wizard on your account so you can share your own link.',
+      log: 'Install log',
+      done: 'Your panel is ready 🎉',
+      panel: 'Panel URL (opens unlocked)',
+      password: 'Panel password',
+      subl: 'Subscription link (paste into Cat Client / v2rayNG)',
+      uuid: 'UUID',
+      open: 'Open panel',
+      copy: 'Copy',
+      copied: 'Copied',
+      app: 'Add to Cat Client',
+      apk: 'Download app',
+      keep: 'Keep this URL and password together. After logging in, pick ports and SNI in the Configs tab; clean IPs are baked into the configs automatically. The password is shown only this once — save it now.',
+      wizardDone: 'Private wizard ready',
+      wizardUrl: 'Your wizard URL',
+      offline: 'Not up yet — reopen the URL in a minute.',
+      online: 'online',
+      accountOk: 'Account: ',
+      needToken: 'Paste the token first',
+      failed: 'Install failed: ',
+      scopeWarn: 'Token lacks Workers KV; the panel installs but settings storage is limited.',
+    },
+  };
+}
+
+function pageHtml(env, host) {
+  const title = String(env.WIZARD_TITLE || 'Cat Wizard');
+  const inviteRequired = !!String(env.WIZARD_PASSWORD || '').trim();
+  const state = {
+    version: CAT_WIZARD_VERSION,
+    title,
+    host,
+    tokenUrl: TOKEN_TEMPLATE_URL,
+    inviteRequired,
+    defaultWorker: String(env.DEFAULT_WORKER || ('edge-' + randomSuffix(6))),
+    repo: REPO_URL,
+    i18n: i18n(),
+  };
+  const t = state.i18n.fa;
+  return '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
+    '<meta name="theme-color" content="#06030c"><title>' + esc(title) + '</title>' +
+    '<link rel="icon" href="data:image/svg+xml,' + encodeURIComponent(catLogo(48)) + '">' +
+    '<style>' + css() + '</style></head><body data-lang="fa">' +
+    '<div class="wrap">' +
+    '<header class="top"><div class="brand">' + catLogo(34) + '<span>' + esc(title) + '<small data-i18n="sub">' + t.sub + '</small></span></div>' +
+    '<span class="spacer"></span><button class="icon-btn" id="langBtn">EN</button></header>' +
+
+    '<section class="card"><h2><span class="n">1</span><span data-i18n="s1">' + t.s1 + '</span></h2>' +
+    '<p class="muted" data-i18n="s1p">' + t.s1p + '</p>' +
+    '<div class="actions">' +
+    '<div class="pair">' +
+    '<a class="btn ghost block" id="signupBtn" href="' + esc(CF_SIGNUP) + '" target="_blank" rel="noopener">🆕 <span data-i18n="signup">' + t.signup + '</span></a>' +
+    '<a class="btn ghost block" id="loginBtn" href="' + esc(CF_LOGIN) + '" target="_blank" rel="noopener">🔑 <span data-i18n="login">' + t.login + '</span></a>' +
+    '</div>' +
+    '<a class="btn block" id="tokenBtn" href="' + esc(TOKEN_TEMPLATE_URL) + '" target="_blank" rel="noopener">🔑 <span data-i18n="s1b">' + t.s1b + '</span></a>' +
+    '<a class="btn ghost block" id="tokensBtn" href="' + esc(CF_TOKENS) + '" target="_blank" rel="noopener">🧾 <span data-i18n="tokensPlain">' + t.tokensPlain + '</span></a>' +
+    '</div>' +
+    '<p class="muted" data-i18n="accountHint">' + t.accountHint + '</p>' +
+    '<div class="steps"><div class="step"><b>۱</b><span data-i18n="s1h1">' + t.s1h1 + '</span></div>' +
+    '<div class="step"><b>۲</b><span data-i18n="s1h2">' + t.s1h2 + '</span></div>' +
+    '<div class="step"><b>۳</b><span data-i18n="s1h3">' + t.s1h3 + '</span></div></div></section>' +
+
+    '<section class="card"><h2><span class="n">2</span><span data-i18n="s2">' + t.s2 + '</span></h2>' +
+    '<p class="muted" data-i18n="s2p">' + t.s2p + '</p>' +
+    '<label class="field"><span data-i18n="token">' + t.token + '</span><input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="••••••••••••••••••••••••••••••••••••••••"></label>' +
+    (inviteRequired ? '<label class="field"><span data-i18n="invite">' + t.invite + '</span><input id="invite" type="text" autocomplete="off"></label>' : '') +
+    '<div class="row"><button class="btn ghost sm" id="showTok">👁</button><button class="btn ghost sm" id="verifyBtn" data-i18n="check">' + t.check + '</button><span id="acct" class="pill hide"></span></div>' +
+    '<p class="err hide" id="verifyErr"></p></section>' +
+
+    '<section class="card"><h2><span class="n">3</span><span data-i18n="s3">' + t.s3 + '</span></h2>' +
+    '<details><summary data-i18n="adv">' + t.adv + '</summary>' +
+    '<label class="field"><span data-i18n="name">' + t.name + '</span><input id="wname" value="' + esc(state.defaultWorker) + '"></label>' +
+    '<label class="field"><span data-i18n="user">' + t.user + '</span><input id="wuser" autocomplete="username" placeholder="admin"></label>' +
+    '<label class="field"><span data-i18n="pass">' + t.pass + '</span><input id="wpass" autocomplete="new-password"></label></details>' +
+    '<div class="progress"><i id="bar"></i></div>' +
+    '<p class="muted" data-i18n="targetHint">' + t.targetHint + '</p>' +
+    '<button class="btn block" id="installBtn">🚀 <span data-i18n="install">' + t.install + '</span></button>' +
+    '<button class="btn ghost block" id="installPagesBtn" style="margin-top:8px">📄 <span data-i18n="installPages">' + t.installPages + '</span></button>' +
+    '<div class="row" style="margin-top:10px"><button class="btn ghost sm" id="wizardBtn" data-i18n="installWizard">' + t.installWizard + '</button><span class="muted" data-i18n="wizardHint">' + t.wizardHint + '</span></div>' +
+    '<p class="err hide" id="installErr"></p></section>' +
+
+    '<section class="card result" id="result">' +
+    '<h2>✅ <span id="resultTitle" data-i18n="done">' + t.done + '</span> <span class="pill" id="onlinePill"></span></h2>' +
+    '<div class="kv" id="panelResult">' +
+    '<div><label data-i18n="panel">' + t.panel + '</label><code id="rPanel"></code><div class="row" style="margin-top:6px"><a class="btn sm" id="rOpen" target="_blank" rel="noopener" data-i18n="open">' + t.open + '</a><button class="btn ghost sm" data-copy="rPanel" data-i18n="copy">' + t.copy + '</button></div></div>' +
+    '<div id="rUserRow" class="hide"><label>Username · نام کاربری</label><code id="rUser"></code><button class="btn ghost sm" data-copy="rUser" data-i18n="copy" style="margin-top:6px">' + t.copy + '</button></div>' +
+    '<div><label data-i18n="password">' + t.password + '</label><code id="rPass"></code><button class="btn ghost sm" data-copy="rPass" data-i18n="copy" style="margin-top:6px">' + t.copy + '</button></div>' +
+    '<div><label data-i18n="subl">' + t.subl + '</label><code id="rSub"></code><div class="row" style="margin-top:6px"><button class="btn ghost sm" data-copy="rSub" data-i18n="copy">' + t.copy + '</button><a class="btn ghost sm" id="rApp" data-i18n="app">' + t.app + '</a><a class="btn ghost sm" id="rApk" target="_blank" rel="noopener" href="' + esc(REPO_URL) + '/releases/latest" data-i18n="apk">' + t.apk + '</a></div></div>' +
+    '<div class="qr"><img id="rQr" alt="QR" hidden></div>' +
+    '<p class="muted" data-i18n="keep">' + t.keep + '</p>' +
+    '</div>' +
+    '<div class="kv hide" id="wizardResult"><div><label data-i18n="wizardUrl">' + t.wizardUrl + '</label><code id="rWiz"></code><div class="row" style="margin-top:6px"><a class="btn sm" id="rWizOpen" target="_blank" rel="noopener" data-i18n="open">' + t.open + '</a><button class="btn ghost sm" data-copy="rWiz" data-i18n="copy">' + t.copy + '</button></div></div></div>' +
+    '</section>' +
+
+    '<section class="card"><h2>📜 <span data-i18n="log">' + t.log + '</span></h2><div class="log" id="log">…</div></section>' +
+    '<footer>Cat Wizard v' + CAT_WIZARD_VERSION + ' · <a href="' + esc(REPO_URL) + '" target="_blank" rel="noopener">GitHub</a> · ' + esc(host) + '</footer>' +
+    '</div>' +
+    '<script>window.CAT_WIZARD=' + JSON.stringify(state).replace(/</g, '\\u003c') + ';</script>' +
+    '<script>' + clientJs() + '</script>' +
+    '</body></html>';
+}
+
+function clientJs() {
+  return [
+    '(function(){',
+    'var S=window.CAT_WIZARD||{};var $=function(s){return document.querySelector(s)};var lang="fa";',
+    'function t(k){return (S.i18n[lang]||{})[k]||(S.i18n.fa||{})[k]||k}',
+    'function applyLang(){document.body.setAttribute("data-lang",lang);document.documentElement.setAttribute("dir",lang==="fa"?"rtl":"ltr");document.documentElement.setAttribute("lang",lang);',
+    ' document.querySelectorAll("[data-i18n]").forEach(function(el){el.textContent=t(el.getAttribute("data-i18n"))});$("#langBtn").textContent=lang==="fa"?"EN":"فا";}',
+    '$("#langBtn").addEventListener("click",function(){lang=lang==="fa"?"en":"fa";try{localStorage.setItem("catwiz.lang",lang)}catch(e){}applyLang()});',
+    'try{lang=localStorage.getItem("catwiz.lang")||"fa"}catch(e){}applyLang();',
+    '$("#showTok").addEventListener("click",function(){var i=$("#token");i.type=i.type==="password"?"text":"password"});',
+    'function logLine(level,msg){var el=$("#log");if(el.textContent==="…")el.textContent="";var d=document.createElement("div");d.className=level;d.textContent="["+new Date().toLocaleTimeString()+"] "+msg;el.appendChild(d);el.scrollTop=el.scrollHeight}',
+    'function payload(extra){var p={token:$("#token").value.trim(),invite:$("#invite")?$("#invite").value.trim():""};for(var k in extra)p[k]=extra[k];return p}',
+    'function copyText(text,btn){var done=function(){var old=btn.textContent;btn.textContent=t("copied");setTimeout(function(){btn.textContent=old},1200)};',
+    ' if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done,function(){fallback()})}else fallback();',
+    ' function fallback(){var ta=document.createElement("textarea");ta.value=text;document.body.appendChild(ta);ta.select();try{document.execCommand("copy")}catch(e){}document.body.removeChild(ta);done()}}',
+    'document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){copyText($("#"+b.getAttribute("data-copy")).textContent,b)})});',
+    '$("#verifyBtn").addEventListener("click",function(){var err=$("#verifyErr");err.classList.add("hide");$("#acct").classList.add("hide");',
+    ' if(!$("#token").value.trim()){err.textContent=t("needToken");err.classList.remove("hide");return}',
+    ' $("#verifyBtn").disabled=true;fetch("/api/verify",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload({}))}).then(function(r){return r.json()}).then(function(j){',
+    '  $("#verifyBtn").disabled=false;if(!j.ok){err.textContent=j.error+(j.detail?" — "+j.detail:"");err.classList.remove("hide");return}',
+    '  var a=$("#acct");a.textContent=t("accountOk")+(j.accounts[0].name||j.accounts[0].id)+(j.scopes&&!j.scopes.kv?" · ⚠ KV":"");a.className="pill ok";logLine("ok","token OK · "+(j.accounts[0].name||j.accounts[0].id));',
+    '  if(j.scopes&&!j.scopes.kv)logLine("warn",t("scopeWarn"));',
+    ' }).catch(function(e){$("#verifyBtn").disabled=false;err.textContent=String(e);err.classList.remove("hide")})});',
+    'var STEPS=["verify","source","subdomain","kv","upload","route","check"];',
+    'function install(kind,target){var err=$("#installErr");err.classList.add("hide");$("#result").classList.remove("show");',
+    ' if(!$("#token").value.trim()){err.textContent=t("needToken");err.classList.remove("hide");return}',
+    ' $("#installBtn").disabled=true;var pb=$("#installPagesBtn");if(pb)pb.disabled=true;$("#wizardBtn").disabled=true;$("#bar").style.width="4%";$("#log").textContent="…";',
+    ' var body=payload({kind:kind,target:target||"worker",workerName:$("#wname").value,username:$("#wuser").value,password:$("#wpass").value});',
+    ' fetch("/api/install",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}).then(function(res){',
+    '  if(!res.ok&&res.headers.get("content-type")&&res.headers.get("content-type").indexOf("json")>=0&&res.headers.get("content-type").indexOf("ndjson")<0){return res.json().then(function(j){throw new Error(j.error||("HTTP "+res.status))})}',
+    '  var reader=res.body.getReader();var dec=new TextDecoder();var buf="";',
+    '  function handle(line){if(!line.trim())return;var ev;try{ev=JSON.parse(line)}catch(e){return}',
+    '   if(ev.done){if(ev.ok===false){throw new Error(ev.msg||"failed")}showResult(ev.result);return}',
+    '   logLine(ev.level||"info",(ev.step?ev.step+": ":"")+ev.msg);var i=STEPS.indexOf(ev.step);if(i>=0)$("#bar").style.width=Math.round(((i+1)/STEPS.length)*96)+"%"}',
+    '  return reader.read().then(function step(r){if(r.done){if(buf)handle(buf);return}buf+=dec.decode(r.value,{stream:true});var parts=buf.split("\\n");buf=parts.pop();parts.forEach(handle);return reader.read().then(step)})',
+    ' }).then(function(){$("#installBtn").disabled=false;var pb=$("#installPagesBtn");if(pb)pb.disabled=false;$("#wizardBtn").disabled=false}).catch(function(e){$("#installBtn").disabled=false;var pb=$("#installPagesBtn");if(pb)pb.disabled=false;$("#wizardBtn").disabled=false;$("#bar").style.width="0";err.textContent=t("failed")+e.message;err.classList.remove("hide");logLine("error",e.message)})}',
+    'function showResult(r){$("#bar").style.width="100%";var box=$("#result");box.classList.add("show");var pill=$("#onlinePill");pill.textContent=r.online?t("online"):t("offline");pill.className="pill "+(r.online?"ok":"warn");',
+    ' if(r.kind==="wizard"){$("#resultTitle").textContent=t("wizardDone");$("#panelResult").classList.add("hide");$("#wizardResult").classList.remove("hide");$("#rWiz").textContent=r.workerUrl;$("#rWizOpen").href=r.workerUrl;}',
+    ' else{$("#resultTitle").textContent=t("done");$("#panelResult").classList.remove("hide");$("#wizardResult").classList.add("hide");$("#rPanel").textContent=r.panelUrl;$("#rOpen").href=r.panelUrl;$("#rPass").textContent=r.password;var uR=$("#rUserRow");if(r.username){uR.classList.remove("hide");$("#rUser").textContent=r.username;}else{uR.classList.add("hide");}$("#rSub").textContent=r.subUrl;$("#rApp").href=r.deepLink;',
+    '  var qr=$("#rQr");if(r.online){qr.src=r.workerUrl+"/qr.svg?d="+encodeURIComponent(r.subUrl)+"&size=6";qr.hidden=false}else{qr.hidden=true}}',
+    ' box.scrollIntoView({behavior:"smooth"})}',
+    '$("#installBtn").addEventListener("click",function(){install("panel","worker")});',
+    '$("#installPagesBtn").addEventListener("click",function(){install("panel","pages")});',
+    '$("#wizardBtn").addEventListener("click",function(){install("wizard","worker")});',
+    '})();',
+  ].join('');
+}
+
+/* ------------------------------------------------------------------ */
+/* router                                                              */
+/* ------------------------------------------------------------------ */
+
+async function readJson(request) {
+  try { return await request.json(); } catch (e) { return {}; }
+}
+
+async function fetchHandler(request, env, ctx) {
+  const url = new URL(request.url);
+  const host = (request.headers.get('Host') || url.hostname || '').toLowerCase();
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+
+  if (path === '/health') {
+    return jsonResponse({ ok: true, wizard: 'cat-wizard', version: CAT_WIZARD_VERSION, inviteRequired: !!String(env.WIZARD_PASSWORD || '').trim(), tokenUrl: TOKEN_TEMPLATE_URL });
+  }
+  if (path === '/token' || path === '/get-token') {
+    return Response.redirect(TOKEN_TEMPLATE_URL, 302);
+  }
+  if (path === '/signup') return Response.redirect(CF_SIGNUP, 302);
+  if (path === '/login') return Response.redirect(CF_LOGIN, 302);
+  if (path === '/tokens') return Response.redirect(CF_TOKENS, 302);
+  if (path === '/api/token-url') {
+    return jsonResponse({ ok: true, url: TOKEN_TEMPLATE_URL, permissions: TOKEN_PERMISSIONS });
+  }
+
+  if (path === '/api/verify' && request.method === 'POST') {
+    const body = await readJson(request);
+    if (!inviteOk(env, body.invite)) return jsonResponse({ ok: false, error: 'invite-required' }, 403);
+    const ip = request.headers.get('cf-connecting-ip') || 'local';
+    if (rateLimited(ip)) return jsonResponse({ ok: false, error: 'rate-limited' }, 429);
+    const token = String(body.token || '').trim();
+    if (!token) return jsonResponse({ ok: false, error: 'token-missing' }, 400);
+    const verified = await verifyToken(token);
+    if (!verified.ok) return jsonResponse(verified, 200);
+    const scopes = await detectScopes(token, verified.accounts[0].id).catch(() => null);
+    return jsonResponse(Object.assign({}, verified, { scopes }));
+  }
+
+  if ((path === '/api/install' || path === '/api/deploy') && request.method === 'POST') {
+    const body = await readJson(request);
+    if (!inviteOk(env, body.invite)) return jsonResponse({ ok: false, error: 'invite-required' }, 403);
+    const ip = request.headers.get('cf-connecting-ip') || 'local';
+    if (rateLimited(ip)) return jsonResponse({ ok: false, error: 'rate-limited' }, 429);
+    if (!String(body.token || '').trim()) return jsonResponse({ ok: false, error: 'token-missing' }, 400);
+
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const enc = new TextEncoder();
+    const pump = (async () => {
+      try {
+        for await (const ev of runInstall(body, env)) {
+          await writer.write(enc.encode(JSON.stringify(ev) + '\n'));
+        }
+      } catch (e) {
+        await writer.write(enc.encode(JSON.stringify({ done: true, ok: false, level: 'error', msg: e && e.message ? e.message : String(e) }) + '\n')).catch(() => {});
+      } finally {
+        await writer.close().catch(() => {});
+      }
+    })();
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(pump);
+    return new Response(readable, {
+      status: 200,
+      headers: Object.assign({ 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }, CORS),
+    });
+  }
+
+  if (path === '/' || path === '/index.html' || path === '/wizard') {
+    return new Response(pageHtml(env, host), {
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' },
+    });
+  }
+  return new Response('Not Found', { status: 404, headers: CORS });
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      return await fetchHandler(request, env || {}, ctx);
+    } catch (e) {
+      return new Response('Cat Wizard error: ' + (e && e.message ? e.message : e), { status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    }
+  },
+};
+
+export const _testing = {
+  CAT_WIZARD_VERSION,
+  inspectWorker,
+  inspectPages,
+  TOKEN_TEMPLATE_URL,
+  TOKEN_PERMISSIONS,
+  CF_SIGNUP,
+  CF_LOGIN,
+  CF_TOKENS,
+  PANEL_SOURCES,
+  WIZARD_SOURCES,
+  __setFetch,
+  __setTimeouts: (t) => { TIMEOUTS = Object.assign({}, TIMEOUTS, t); },
+  __setSleep: (t) => { Object.assign(SLEEP_MS, t); },
+  COMPAT_DATE,
+  COMPAT_FLAGS,
+  PANEL_MIN_VERSION,
+  compareVersions,
+  randomPassword,
+  runInstall,
+  verifyToken,
+  slugWorkerName,
+  fetchSource,
+  sourceCache,
+  pageHtml,
+  clientJs,
+};

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cat Client glyph for the Pixel / Portal core: cat head with eyes cut out. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M3.5,2.5L8.4,6.9C9.5,6.5 10.7,6.3 12,6.3C13.3,6.3 14.5,6.5 15.6,6.9L20.5,2.5L20.5,12.2C20.5,17.2 16.7,21 12,21C7.3,21 3.5,17.2 3.5,12.2Z M7.6,12.6a1.3,1.5 0,1 0,2.6 0a1.3,1.5 0,1 0,-2.6 0Z M13.8,12.6a1.3,1.5 0,1 0,2.6 0a1.3,1.5 0,1 0,-2.6 0Z M11,16.2L13,16.2L12,17.4Z" />
+</vector>

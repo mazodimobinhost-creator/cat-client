@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cat 1101 Inspector</title><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:20px;background:#08050f;color:#f5f3ff;font-family:system-ui,sans-serif}.card{max-width:620px;margin:30px auto;padding:24px;border:1px solid #34264d;border-radius:18px;background:#120b20}h1{font-size:21px}.note{padding:12px;border-radius:12px;background:#2b1c08;color:#fde68a;line-height:1.9}label{display:block;margin:18px 0 7px}input,button{width:100%;min-height:44px;border-radius:11px;font:inherit}input{padding:10px;background:#08050f;border:1px solid #554273;color:#fff;direction:ltr}button{margin-top:14px;border:0;background:#7c3aed;color:#fff;font-weight:700}button:disabled{opacity:.55}.log{direction:ltr;text-align:left;white-space:pre-wrap;overflow:auto;margin-top:16px;padding:12px;min-height:120px;border-radius:11px;background:#050308;color:#d8b4fe;font:12px/1.7 monospace}.ok{color:#86efac}.bad{color:#fda4af}</style></head>
+<body><main class="card"><h1>🩺 بررسی امن خطای 1101 پنل Cat</h1>
+<p class="note">این ابزار فقط health و version عمومی را بررسی می‌کند. API Token، رمز، UUID یا Cookie نمی‌گیرد، چیزی deploy یا حذف نمی‌کند و رفع قطعی 1101 را ادعا نمی‌کند.</p>
+<label for="url">آدرس HTTPS ورکر</label><input id="url" placeholder="https://your-worker.workers.dev" autocomplete="off">
+<label for="version">نسخه مورد انتظار پنل</label><input id="version" value="6.69.31" autocomplete="off">
+<button id="run">سه بررسی تازه انجام بده</button><div id="log" class="log">آماده…</div></main>
+<script>
+const byId=id=>document.getElementById(id), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const safe=v=>String(v==null?'':v).replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi,'[REDACTED_UUID]').replace(/([?&](?:p|token|key|password|uuid)=)[^&#\s]+/gi,'$1[REDACTED]');
+byId('run').onclick=async()=>{const out=byId('log'),btn=byId('run');out.textContent='';let base=byId('url').value.trim().replace(/\/+$/,'');const expected=byId('version').value.trim();
+if(!/^https:\/\/[^/]+$/i.test(base)){out.textContent='FAILED: فقط آدرس HTTPS بدون path مجاز است.';return}
+if(expected==='6.69.12'){out.textContent='FAILED: نسخه 6.69.12 به دلیل خطای 1101 مسدود است (BLOCKED_1101_VERSION).';out.className='log bad';return}
+btn.disabled=true;let passed=0;
+for(let i=1;i<=3;i++){const nonce=Date.now()+'-'+i+'-'+Math.random().toString(36).slice(2);try{const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),10000);const r=await fetch(base+'/api/version?doctor='+encodeURIComponent(nonce),{signal:ctl.signal,cache:'no-store',headers:{accept:'application/json','cache-control':'no-cache'}});clearTimeout(timer);const cache=r.headers.get('cf-cache-status')||'';const j=await r.json();const ok=r.ok&&j.version===expected&&j.version!=='6.69.12'&&!/HIT/i.test(cache);if(ok)passed++;out.textContent+=safe('#'+i+' HTTP '+r.status+' version='+(j.version||'?')+' cache='+(cache||'-')+' '+(ok?'PASS':'FAIL'))+'\n'}catch(e){out.textContent+=safe('#'+i+' '+(e.name==='AbortError'?'TIMEOUT':e.message)+' FAIL')+'\n'}if(i<3)await sleep(800)}
+out.textContent+='\n'+(passed===3?'VERIFIED: 3/3 fresh exact-version responses.':'FAILED CLOSED: '+passed+'/3. لاگ‌های Cloudflare، Ray ID و Event ID را بررسی کن؛ نسخه جدید را promote نکن.');out.className='log '+(passed===3?'ok':'bad');btn.disabled=false};
+</script></body></html>
